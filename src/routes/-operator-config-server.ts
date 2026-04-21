@@ -1,0 +1,208 @@
+import { createServerFn } from '@tanstack/react-start'
+import { setResponseHeaders } from '@tanstack/react-start/server'
+import { z } from 'zod'
+
+const providerConnectionInputSchema = z.object({
+    id: z.string().uuid().optional(),
+    label: z.string().min(1),
+    provider: z.string().min(1),
+    api: z.enum([
+        'openai-responses',
+        'openai-completions',
+        'openai-codex-responses',
+        'anthropic-messages',
+        'google-generative-ai',
+    ]),
+    authMode: z.enum(['api_key', 'oauth']).optional(),
+    baseUrl: z.string().nullable().optional(),
+    defaultModel: z.string().min(1),
+    fallbackModels: z.array(z.string().min(1)).default([]),
+    apiKey: z.string().optional(),
+    makeDefault: z.boolean().optional(),
+})
+
+const mcpConnectionInputSchema = z.object({
+    id: z.string().uuid().optional(),
+    name: z.string().min(1),
+    serverKey: z.string().min(1),
+    transport: z.enum(['stdio', 'http', 'streamable_http']),
+    command: z.string().nullable().optional(),
+    argsText: z.string().optional(),
+    url: z.string().nullable().optional(),
+    headersText: z.string().optional(),
+    authMode: z.enum(['none', 'bearer']),
+    bearerToken: z.string().optional(),
+    allowedToolsText: z.string().optional(),
+})
+
+const appDefaultsInputSchema = z.object({
+    defaultProviderConnectionId: z.string().uuid().nullable(),
+    defaultModel: z.string().nullable(),
+    onboardingCompleted: z.boolean(),
+})
+
+const roomConfigInputSchema = z.object({
+    roomId: z.string().uuid(),
+    instructions: z.string(),
+    providerMode: z.enum(['app_default', 'app_connection', 'room_secret']),
+    providerConnectionId: z.string().uuid().nullable().optional(),
+    provider: z.string().nullable().optional(),
+    providerApi: z
+        .enum([
+            'openai-responses',
+            'openai-completions',
+            'openai-codex-responses',
+            'anthropic-messages',
+            'google-generative-ai',
+        ])
+        .nullable()
+        .optional(),
+    providerBaseUrl: z.string().nullable().optional(),
+    providerModel: z.string().nullable().optional(),
+    providerApiKey: z.string().optional(),
+    toolsProfile: z.string().min(1),
+    cronTimezone: z.string().min(1),
+    mcpConnectionIds: z.array(z.string().uuid()).default([]),
+})
+
+const roomSecretInputSchema = z.object({
+    roomId: z.string().uuid(),
+    label: z.string().min(1),
+    envKey: z.string().min(1),
+    purpose: z.enum(['provider_api_key', 'generic', 'webhook']),
+    provider: z.string().nullable().optional(),
+    value: z.string().min(1),
+})
+
+const roomConfigQuerySchema = z.object({
+    roomId: z.string().uuid(),
+})
+
+const codexOAuthRoomInputSchema = z.object({
+    roomId: z.string().uuid(),
+})
+
+const codexOAuthRedirectInputSchema = z.object({
+    roomId: z.string().uuid(),
+    redirectUrl: z.string().min(1),
+})
+
+async function requireAuthenticatedActor() {
+    const { requireAuthenticatedActor: requireActor } = await import('#/server/auth/session-auth')
+    return requireActor()
+}
+
+async function requireMutationActor() {
+    const { assertSameOriginMutation } = await import('#/server/auth/session-auth')
+    assertSameOriginMutation()
+    return requireAuthenticatedActor()
+}
+
+export const getOperatorConfigServer = createServerFn({ method: 'GET' }).handler(async () => {
+    await requireAuthenticatedActor()
+    setResponseHeaders({
+        'cache-control': 'no-store',
+    })
+    const { getOperatorConfigSnapshot } =
+        await import('#/server/configuration/operator-configuration')
+    return getOperatorConfigSnapshot()
+})
+
+export const saveProviderConnectionServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => providerConnectionInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { saveProviderConnection } =
+            await import('#/server/configuration/operator-configuration')
+        return saveProviderConnection(data, actor.userId)
+    })
+
+export const saveMcpConnectionServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => mcpConnectionInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { saveMcpConnection } = await import('#/server/configuration/operator-configuration')
+        return saveMcpConnection(data, actor.userId)
+    })
+
+export const updateAppDefaultsServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => appDefaultsInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { updateAppDefaults } = await import('#/server/configuration/operator-configuration')
+        return updateAppDefaults({
+            ...data,
+            actorUserId: actor.userId,
+        })
+    })
+
+export const getRoomConfigServer = createServerFn({ method: 'GET' })
+    .inputValidator((input: unknown) => roomConfigQuerySchema.parse(input))
+    .handler(async ({ data }) => {
+        await requireAuthenticatedActor()
+        setResponseHeaders({
+            'cache-control': 'no-store',
+        })
+        const { getRoomConfigSnapshot } =
+            await import('#/server/configuration/operator-configuration')
+        return getRoomConfigSnapshot(data.roomId)
+    })
+
+export const saveRoomConfigServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => roomConfigInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { saveRoomConfig } = await import('#/server/configuration/operator-configuration')
+        return saveRoomConfig(data, actor.userId)
+    })
+
+export const saveRoomSecretServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => roomSecretInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { saveRoomSecret } = await import('#/server/configuration/operator-configuration')
+        return saveRoomSecret(data, actor.userId)
+    })
+
+export const getCodexOAuthSessionServer = createServerFn({ method: 'GET' })
+    .inputValidator((input: unknown) => codexOAuthRoomInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        await requireAuthenticatedActor()
+        setResponseHeaders({
+            'cache-control': 'no-store',
+        })
+        const { getCodexOAuthSessionSnapshot } =
+            await import('#/server/configuration/codex-oauth-flow')
+        return getCodexOAuthSessionSnapshot(data.roomId)
+    })
+
+export const startCodexOAuthSessionServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => codexOAuthRoomInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { startCodexOAuthSession } = await import('#/server/configuration/codex-oauth-flow')
+        return startCodexOAuthSession(data.roomId, actor.userId)
+    })
+
+export const submitCodexOAuthRedirectServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => codexOAuthRedirectInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { submitCodexOAuthRedirect } = await import('#/server/configuration/codex-oauth-flow')
+        return submitCodexOAuthRedirect({
+            roomId: data.roomId,
+            redirectUrl: data.redirectUrl,
+            actorUserId: actor.userId,
+        })
+    })
+
+export const cancelCodexOAuthSessionServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => codexOAuthRoomInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { cancelCodexOAuthSession } = await import('#/server/configuration/codex-oauth-flow')
+        return cancelCodexOAuthSession({
+            roomId: data.roomId,
+            actorUserId: actor.userId,
+        })
+    })
