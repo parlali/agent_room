@@ -58,6 +58,19 @@ function stepStatus(part: RoomExecutionMessagePart): 'ready' | 'working' | 'atte
     return 'muted'
 }
 
+function fileChipsForMessage(message: RoomExecutionMessage): string[] {
+    const candidates = new Set<string>()
+    for (const part of message.parts) {
+        const text = `${part.text} ${JSON.stringify(part.result)}`
+        for (const match of text.matchAll(
+            /[A-Za-z0-9_.-]+\.(?:pdf|csv|md|txt|json|docx|xlsx|pptx)/gi,
+        )) {
+            candidates.add(match[0])
+        }
+    }
+    return Array.from(candidates).slice(0, 4)
+}
+
 export function SessionSurface(props: {
     room: RoomRuntimeOverview
     roomTone: string
@@ -111,7 +124,16 @@ export function SessionSurface(props: {
                     <article className="empty-panel">
                         <AgentRoomMark className="empty-mark" />
                         <h2>Session not found</h2>
-                        <p>Choose a session from the room list.</p>
+                        <p>
+                            Choose a session from this room or start a new one from the room home.
+                        </p>
+                        <Link
+                            to="/rooms/$roomId"
+                            params={{ roomId: props.room.roomId }}
+                            className="button secondary"
+                        >
+                            Back to room
+                        </Link>
                     </article>
                 ) : null}
                 {props.selectedThread && props.messages.length === 0 ? (
@@ -166,6 +188,7 @@ function MessageBubble(props: { room: RoomRuntimeOverview; message: RoomExecutio
     const progressParts = props.message.parts.filter(
         (part) => part.type === 'tool_call' || part.type === 'tool_result',
     )
+    const fileChips = fileChipsForMessage(props.message)
 
     return (
         <article className={isUser ? 'message-bubble user' : 'message-bubble assistant'}>
@@ -178,6 +201,16 @@ function MessageBubble(props: { room: RoomRuntimeOverview; message: RoomExecutio
                     <small>{formatDateTime(props.message.timestamp)}</small>
                 </header>
                 {props.message.text ? <p>{props.message.text}</p> : null}
+                {fileChips.length > 0 ? (
+                    <div className="file-chip-row">
+                        {fileChips.map((file) => (
+                            <span key={file} className="pill muted">
+                                <FileText size={14} />
+                                {file}
+                            </span>
+                        ))}
+                    </div>
+                ) : null}
                 {progressParts.length > 0 ? (
                     <div className="progress-card">
                         {progressParts.map((part, index) => {

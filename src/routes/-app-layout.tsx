@@ -6,7 +6,6 @@ import {
     ChevronDown,
     ChevronRight,
     FileText,
-    Folder,
     Home,
     Landmark,
     ListTodo,
@@ -32,6 +31,56 @@ import type {
 } from '#/server/rooms/execution-types'
 
 export type AppSection = 'rooms' | 'activity' | 'jobs' | 'files' | 'settings'
+
+export const jobSchedulePresets = [
+    {
+        value: '1440',
+        label: 'Every morning',
+        helper: 'Runs once a day',
+    },
+    {
+        value: '10080',
+        label: 'Every week',
+        helper: 'Runs once a week',
+    },
+    {
+        value: '60',
+        label: 'Every hour',
+        helper: 'Runs throughout the day',
+    },
+    {
+        value: 'custom',
+        label: 'Custom schedule',
+        helper: 'Choose an interval',
+    },
+] as const
+
+export function jobScheduleLabel(value: string | number | null | undefined): string {
+    const normalized = value === null || value === undefined ? '' : String(value)
+    const preset = jobSchedulePresets.find((entry) => entry.value === normalized)
+    if (preset && preset.value !== 'custom') {
+        return preset.label
+    }
+    const minutes = Number(normalized)
+    if (!Number.isInteger(minutes) || minutes <= 0) {
+        return 'Choose a schedule'
+    }
+    if (minutes === 1) {
+        return 'Every minute'
+    }
+    if (minutes < 60) {
+        return `Every ${minutes} minutes`
+    }
+    if (minutes % 1440 === 0) {
+        const days = minutes / 1440
+        return days === 1 ? 'Every day' : `Every ${days} days`
+    }
+    if (minutes % 60 === 0) {
+        const hours = minutes / 60
+        return hours === 1 ? 'Every hour' : `Every ${hours} hours`
+    }
+    return `Every ${minutes} minutes`
+}
 
 export interface AppShellProps {
     activeRoomId?: string | null
@@ -258,7 +307,7 @@ export function useRoomsList() {
     })
 }
 
-function useSidebarRoomSnapshots(rooms: RoomRuntimeOverview[]) {
+export function useSidebarRoomSnapshots(rooms: RoomRuntimeOverview[]) {
     return useQueries({
         queries: rooms.map((room) => ({
             queryKey: ['room-runtime-snapshot-sidebar', room.roomId],
@@ -396,14 +445,6 @@ export function AuthenticatedAppShell(props: AppShellProps) {
                     >
                         <ListTodo size={18} />
                         Jobs
-                    </Link>
-                    <Link
-                        to="/files"
-                        className="sidebar-action"
-                        activeProps={{ className: 'sidebar-action active' }}
-                    >
-                        <Folder size={18} />
-                        Files
                     </Link>
                 </nav>
 

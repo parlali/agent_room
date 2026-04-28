@@ -6,6 +6,7 @@ import {
     CheckCircle2,
     Clock3,
     Copy,
+    Download,
     ExternalLink,
     Eye,
     FileText,
@@ -19,8 +20,10 @@ import {
     Play,
     Plus,
     RefreshCw,
+    Search,
     Send,
     Settings,
+    Sparkles,
     Upload,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -46,6 +49,8 @@ import {
     formatBytes,
     formatDateTime,
     formatRelativeTime,
+    jobScheduleLabel,
+    jobSchedulePresets,
     roomIconFor,
     roomStateLabel,
     roomStateTone,
@@ -1133,6 +1138,9 @@ function HomeSurface(props: {
     const recentFiles = props.files.filter((file) => file.kind === 'file').slice(0, 4)
     const upcomingJob = props.jobs.find((job) => job.enabled) ?? null
     const latestRun = props.runHistory?.entries[0] ?? null
+    const attentionText =
+        friendlyNotice(props.roomConfig?.effective.blockedReasons[0] ?? null) ??
+        friendlyNotice(latestRun?.error ?? null)
     const HeroIcon = props.roomReady ? CheckCircle2 : AlertTriangle
 
     return (
@@ -1142,9 +1150,15 @@ function HomeSurface(props: {
                 <span>
                     <h2>
                         {props.room.displayName}{' '}
-                        {props.roomReady ? 'is ready to work' : 'needs setup'}
+                        {props.roomReady
+                            ? `is working on ${activeThreads.length + props.jobs.filter((job) => job.enabled).length} things`
+                            : 'needs setup'}
                     </h2>
-                    <p>{roomSummary(props.roomConfig, props.room, props.roomReady)}</p>
+                    <p>
+                        {props.roomReady
+                            ? 'Sessions, jobs, and files are ready in this room.'
+                            : 'Connect a model before this room starts sessions or jobs.'}
+                    </p>
                 </span>
                 <div className="button-row">
                     <button
@@ -1269,63 +1283,207 @@ function HomeSurface(props: {
             <section className="surface span-wide">
                 <div className="surface-heading">
                     <div>
-                        <h2>Send a task</h2>
-                        <p>Starts a session in this room.</p>
+                        <h2>{props.roomReady ? 'Send a task' : 'Start work after setup'}</h2>
+                        <p>
+                            {props.roomReady
+                                ? 'Starts a session in this room.'
+                                : 'Tasks stay disabled until the model connection is ready.'}
+                        </p>
                     </div>
                     <Send size={19} />
                 </div>
-                <form className="inline-task-form" onSubmit={props.onWakeRoom}>
-                    <textarea
-                        value={props.wakeText}
-                        onChange={(event) => props.setWakeText(event.target.value)}
-                        placeholder={`Ask ${props.room.displayName} to do something`}
-                    />
-                    <button
-                        type="submit"
-                        className="button primary"
-                        disabled={props.wakePending || !props.wakeText.trim() || !props.roomReady}
+                {props.roomReady ? (
+                    <form className="inline-task-form" onSubmit={props.onWakeRoom}>
+                        <textarea
+                            value={props.wakeText}
+                            onChange={(event) => props.setWakeText(event.target.value)}
+                            placeholder={`Ask ${props.room.displayName} to do something`}
+                        />
+                        <button
+                            type="submit"
+                            className="button primary"
+                            disabled={props.wakePending || !props.wakeText.trim()}
+                        >
+                            <Send size={17} />
+                            Send
+                        </button>
+                    </form>
+                ) : (
+                    <Link
+                        to="/rooms/$roomId/settings"
+                        params={{ roomId: props.room.roomId }}
+                        className="button secondary"
                     >
-                        <Send size={17} />
-                        Send
-                    </button>
-                </form>
+                        <Settings size={17} />
+                        Open settings
+                    </Link>
+                )}
             </section>
 
-            {latestRun?.error ? (
-                <AttentionBanner
-                    title="Last job needs attention"
-                    text={latestRun.error}
-                    action={
+            <section className="surface span-wide">
+                <div className="surface-heading">
+                    <div>
+                        <h2>Needs attention</h2>
+                        <p>{attentionText ? 'One thing needs a look.' : 'No attention needed.'}</p>
+                    </div>
+                    <AlertTriangle size={19} />
+                </div>
+                {attentionText ? (
+                    <div className="plain-row">
+                        <span className="status-dot attention" />
+                        <span>
+                            <strong>Room needs setup</strong>
+                            <small>{attentionText}</small>
+                        </span>
                         <Link
                             to="/rooms/$roomId/status"
                             params={{ roomId: props.room.roomId }}
-                            className="button secondary"
+                            className="button compact"
                         >
                             Open status
                         </Link>
-                    }
-                />
-            ) : null}
+                    </div>
+                ) : (
+                    <div className="plain-row">
+                        <span className="status-dot ready" />
+                        <span>
+                            <strong>Everything looks ready</strong>
+                            <small>Jobs and sessions can run when you start them.</small>
+                        </span>
+                    </div>
+                )}
+            </section>
+
+            <section className="plain-row room-tip">
+                <Sparkles size={18} />
+                <span>
+                    <strong>Tip</strong>
+                    <small>Add files and instructions to help {props.room.displayName} work.</small>
+                </span>
+                <Link
+                    to="/rooms/$roomId/files"
+                    params={{ roomId: props.room.roomId }}
+                    className="button compact"
+                >
+                    Upload files
+                </Link>
+            </section>
         </section>
     )
 }
 
 function FilesSurface(props: { files: RoomFileEntry[] }) {
-    const recentFiles = props.files.filter((file) => file.kind === 'file')
+    const [searchText, setSearchText] = useState('')
+    const [fileFilter, setFileFilter] = useState('all')
+    const allFiles = props.files.filter((file) => file.kind === 'file')
+    const normalizedSearch = searchText.trim().toLowerCase()
+    const recentFiles = allFiles
+        .filter((file) => {
+            const extension = file.name.split('.').pop()?.toLowerCase() ?? 'file'
+            const matchesFilter = fileFilter === 'all' || extension === fileFilter
+            const matchesSearch =
+                !normalizedSearch ||
+                `${file.name} ${file.relativePath}`.toLowerCase().includes(normalizedSearch)
+            return matchesFilter && matchesSearch
+        })
+        .slice(0, 4)
+    const createdFiles = allFiles.filter((file) => {
+        const extension = file.name.split('.').pop()?.toLowerCase() ?? 'file'
+        return fileFilter === 'all' || extension === fileFilter
+    })
+    const fileTypes = Array.from(
+        new Set(allFiles.map((file) => file.name.split('.').pop()?.toLowerCase() ?? 'file')),
+    )
+
     return (
         <section className="files-layout">
             <section className="upload-drop surface">
                 <Upload size={30} />
                 <span>
-                    <h2>Files for this room</h2>
-                    <p>Files created by sessions and jobs appear here.</p>
+                    <h2>Upload files to this room</h2>
+                    <p>Drag files here, or choose files to add to the room workspace.</p>
                 </span>
+                <button type="button" className="button secondary" disabled>
+                    <Upload size={17} />
+                    Upload files
+                </button>
+            </section>
+            <section className="file-toolbar">
+                <label>
+                    <Search size={18} />
+                    <input
+                        value={searchText}
+                        onChange={(event) => setSearchText(event.target.value)}
+                        placeholder="Search files"
+                    />
+                </label>
+                <label>
+                    <select
+                        value={fileFilter}
+                        onChange={(event) => setFileFilter(event.target.value)}
+                        aria-label="File type"
+                    >
+                        <option value="all">All files</option>
+                        {fileTypes.map((type) => (
+                            <option key={type} value={type}>
+                                {type.toUpperCase()}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            </section>
+            <section className="surface span-wide">
+                <div className="surface-heading">
+                    <div>
+                        <h2>Recent files</h2>
+                        <p>Files opened or changed recently.</p>
+                    </div>
+                    <LinkIcon size={19} />
+                </div>
+                <div className="file-card-grid">
+                    {recentFiles.length === 0 ? <p className="muted">No recent files.</p> : null}
+                    {recentFiles.map((file) => (
+                        <article
+                            key={`recent:${file.surface}:${file.relativePath}`}
+                            className="file-card"
+                        >
+                            <span className="file-icon">
+                                <FileText size={18} />
+                            </span>
+                            <span>
+                                <strong>{file.name}</strong>
+                                <small>
+                                    {formatBytes(file.byteLength)} ·{' '}
+                                    {formatRelativeTime(file.updatedAt)}
+                                </small>
+                            </span>
+                            <button
+                                type="button"
+                                className="icon-button"
+                                disabled
+                                aria-label="File actions"
+                            >
+                                <MoreHorizontal size={16} />
+                            </button>
+                        </article>
+                    ))}
+                </div>
+            </section>
+            <section className="surface span-wide">
+                <div className="surface-heading">
+                    <div>
+                        <h2>Uploads</h2>
+                        <p>Files added by the operator appear here.</p>
+                    </div>
+                    <Upload size={19} />
+                </div>
+                <p className="muted">Upload support is ready for the room file flow.</p>
             </section>
             <section className="surface span-wide table-surface">
                 <div className="surface-heading">
                     <div>
                         <h2>Created by room</h2>
-                        <p>{recentFiles.length} files</p>
+                        <p>{createdFiles.length} files</p>
                     </div>
                     <Folder size={19} />
                 </div>
@@ -1337,10 +1495,10 @@ function FilesSurface(props: { files: RoomFileEntry[] }) {
                         <span>Updated</span>
                         <span>Actions</span>
                     </div>
-                    {recentFiles.length === 0 ? (
+                    {createdFiles.length === 0 ? (
                         <p className="muted table-empty">No files yet.</p>
                     ) : null}
-                    {recentFiles.map((file) => (
+                    {createdFiles.map((file) => (
                         <div key={`${file.surface}:${file.relativePath}`} className="table-row">
                             <span>
                                 <strong>{file.name}</strong>
@@ -1353,6 +1511,10 @@ function FilesSurface(props: { files: RoomFileEntry[] }) {
                                 <button type="button" className="button compact" disabled>
                                     <Eye size={15} />
                                     Preview
+                                </button>
+                                <button type="button" className="button compact" disabled>
+                                    <Download size={15} />
+                                    Download
                                 </button>
                                 <button type="button" className="button compact" disabled>
                                     <LinkIcon size={15} />
@@ -1406,12 +1568,17 @@ function JobsSurface(props: {
                         <div key={job.id} className="table-row">
                             <span>
                                 <strong>{job.name}</strong>
-                                <small>{job.payloadSummary ?? job.scheduleSummary}</small>
+                                <small>
+                                    {job.payloadSummary ?? job.description ?? 'Scheduled room work'}
+                                </small>
                             </span>
                             <span className={`pill ${job.enabled ? 'ready' : 'muted'}`}>
                                 {job.enabled ? 'Enabled' : 'Paused'}
                             </span>
-                            <span>{formatDateTime(job.nextRunAt)}</span>
+                            <span>
+                                <strong>{job.scheduleSummary}</strong>
+                                <small>{formatDateTime(job.nextRunAt)}</small>
+                            </span>
                             <span className={`pill ${statusTone(job.lastRunStatus)}`}>
                                 {job.lastRunStatus ?? 'not run'}
                             </span>
@@ -1455,32 +1622,63 @@ function JobsSurface(props: {
                 </div>
                 <form className="job-create-grid" onSubmit={props.onCreateJob}>
                     <label>
-                        What should this room do?
+                        1. What should this room do?
                         <textarea
                             value={props.jobMessage}
                             onChange={(event) => props.setJobMessage(event.target.value)}
-                            placeholder="Send a weekly progress summary."
+                            placeholder="Example: Send a weekly progress summary to our investors."
                         />
                     </label>
+                    <fieldset className="option-box">
+                        <legend>2. When should it happen?</legend>
+                        <div className="schedule-choice-grid">
+                            {jobSchedulePresets.map((preset) => (
+                                <label key={preset.value} className="schedule-option">
+                                    <input
+                                        type="radio"
+                                        name="job-schedule"
+                                        checked={
+                                            preset.value === 'custom'
+                                                ? !jobSchedulePresets.some(
+                                                      (entry) =>
+                                                          entry.value !== 'custom' &&
+                                                          entry.value === props.jobEveryMinutes,
+                                                  )
+                                                : props.jobEveryMinutes === preset.value
+                                        }
+                                        onChange={() => {
+                                            if (preset.value !== 'custom') {
+                                                props.setJobEveryMinutes(preset.value)
+                                            }
+                                        }}
+                                    />
+                                    <span>
+                                        <strong>{preset.label}</strong>
+                                        <small>{preset.helper}</small>
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
+                        <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={props.jobEveryMinutes}
+                            onChange={(event) => props.setJobEveryMinutes(event.target.value)}
+                            aria-label="Custom interval in minutes"
+                        />
+                    </fieldset>
                     <div className="nested-grid">
                         <label>
-                            Job name
+                            3. Review and create
                             <input
                                 value={props.jobName}
                                 onChange={(event) => props.setJobName(event.target.value)}
                                 placeholder="Weekly summary"
                             />
-                        </label>
-                        <label>
-                            Repeat every
-                            <input
-                                type="number"
-                                min="1"
-                                step="1"
-                                value={props.jobEveryMinutes}
-                                onChange={(event) => props.setJobEveryMinutes(event.target.value)}
-                            />
-                            <small className="input-hint">Minutes</small>
+                            <small className="input-hint">
+                                {jobScheduleLabel(props.jobEveryMinutes)}
+                            </small>
                         </label>
                         <button
                             type="submit"

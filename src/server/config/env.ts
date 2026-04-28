@@ -180,3 +180,8 @@ export function getAppEnv(): AppEnv {
 
     return cachedEnv
 }
+
+export const __testing = {
+    readGeneratedBootstrap,
+    resolveBootstrapPayload,
+}

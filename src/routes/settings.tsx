@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import {
     Cable,
     CheckCircle2,
@@ -251,15 +251,6 @@ function SettingsPage() {
                         <h1>App settings</h1>
                         <p>Model connections, shared tools, account, theme, and defaults.</p>
                     </div>
-                    <button
-                        type="button"
-                        className="button primary"
-                        onClick={() => updateDefaultsMutation.mutate()}
-                        disabled={updateDefaultsMutation.isPending}
-                    >
-                        <ShieldCheck size={17} />
-                        Save defaults
-                    </button>
                 </header>
 
                 <nav className="settings-tabs" aria-label="Settings sections">
@@ -293,6 +284,96 @@ function SettingsPage() {
                         {providerNotice ? (
                             <p className="form-alert warning">{providerNotice}</p>
                         ) : null}
+                        <div className="stack-list">
+                            {providers.length === 0 ? (
+                                <p className="muted">No model connections saved.</p>
+                            ) : null}
+                            {providers.map((entry) => (
+                                <button
+                                    type="button"
+                                    key={entry.id}
+                                    className="plain-row interactive"
+                                    onClick={() => editProvider(entry)}
+                                >
+                                    <span className="row-icon">
+                                        <Plug size={18} />
+                                    </span>
+                                    <span>
+                                        <strong>{entry.label}</strong>
+                                        <small>
+                                            {entry.defaultModel} · updated{' '}
+                                            {formatRelativeTime(entry.updatedAt)}
+                                        </small>
+                                    </span>
+                                    <span className={`pill ${statusTone(entry.status)}`}>
+                                        {entry.authMode === 'oauth'
+                                            ? 'Browser login'
+                                            : entry.hasCredential
+                                              ? 'Connected'
+                                              : 'Needs key'}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    </section>
+
+                    <section className="surface">
+                        <div className="surface-heading">
+                            <div>
+                                <h2>Defaults</h2>
+                                <p>Used by new rooms unless changed.</p>
+                            </div>
+                            <Settings size={19} />
+                        </div>
+                        <div className="form-grid single">
+                            <label>
+                                Default provider
+                                <select
+                                    value={defaultProviderId ?? ''}
+                                    onChange={(event) =>
+                                        setDefaultProviderId(event.target.value || null)
+                                    }
+                                >
+                                    <option value="">No default</option>
+                                    {providers.map((entry) => (
+                                        <option key={entry.id} value={entry.id}>
+                                            {entry.label}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                            <label>
+                                Default model
+                                <input
+                                    value={defaultModel}
+                                    onChange={(event) => setDefaultModel(event.target.value)}
+                                    placeholder="provider/model"
+                                />
+                            </label>
+                            <button
+                                type="button"
+                                className="button primary"
+                                onClick={() => updateDefaultsMutation.mutate()}
+                                disabled={updateDefaultsMutation.isPending}
+                            >
+                                <ShieldCheck size={17} />
+                                Save defaults
+                            </button>
+                        </div>
+                    </section>
+
+                    <details className="surface settings-accordion">
+                        <summary className="plain-row interactive">
+                            <span className="row-icon">
+                                <KeyRound size={18} />
+                            </span>
+                            <span>
+                                <strong>
+                                    {providerId ? 'Edit model connection' : 'Add model connection'}
+                                </strong>
+                                <small>Provider, model, and write-only credential fields.</small>
+                            </span>
+                        </summary>
                         <form className="form-grid" onSubmit={onProviderSubmit}>
                             <label>
                                 Preset
@@ -393,84 +474,7 @@ function SettingsPage() {
                                 {providerId ? 'Save connection' : 'Create connection'}
                             </button>
                         </form>
-                    </section>
-
-                    <section className="surface">
-                        <div className="surface-heading">
-                            <div>
-                                <h2>Saved models</h2>
-                                <p>{providers.length} connections</p>
-                            </div>
-                            <Plug size={19} />
-                        </div>
-                        <div className="stack-list">
-                            {providers.length === 0 ? (
-                                <p className="muted">No model connections.</p>
-                            ) : null}
-                            {providers.map((entry) => (
-                                <button
-                                    type="button"
-                                    key={entry.id}
-                                    className="plain-row interactive"
-                                    onClick={() => editProvider(entry)}
-                                >
-                                    <span className="row-icon">
-                                        <Plug size={18} />
-                                    </span>
-                                    <span>
-                                        <strong>{entry.label}</strong>
-                                        <small>
-                                            {entry.defaultModel} · updated{' '}
-                                            {formatRelativeTime(entry.updatedAt)}
-                                        </small>
-                                    </span>
-                                    <span className={`pill ${statusTone(entry.status)}`}>
-                                        {entry.authMode === 'oauth'
-                                            ? 'OAuth'
-                                            : entry.hasCredential
-                                              ? 'Connected'
-                                              : 'Needs key'}
-                                    </span>
-                                </button>
-                            ))}
-                        </div>
-                    </section>
-
-                    <section className="surface">
-                        <div className="surface-heading">
-                            <div>
-                                <h2>Defaults</h2>
-                                <p>Used by new rooms unless changed.</p>
-                            </div>
-                            <Settings size={19} />
-                        </div>
-                        <div className="form-grid single">
-                            <label>
-                                Default provider
-                                <select
-                                    value={defaultProviderId ?? ''}
-                                    onChange={(event) =>
-                                        setDefaultProviderId(event.target.value || null)
-                                    }
-                                >
-                                    <option value="">No default</option>
-                                    {providers.map((entry) => (
-                                        <option key={entry.id} value={entry.id}>
-                                            {entry.label}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
-                            <label>
-                                Default model
-                                <input
-                                    value={defaultModel}
-                                    onChange={(event) => setDefaultModel(event.target.value)}
-                                    placeholder="provider/model"
-                                />
-                            </label>
-                        </div>
-                    </section>
+                    </details>
 
                     <section id="tools" className="surface span-wide">
                         <div className="surface-heading">
@@ -481,6 +485,46 @@ function SettingsPage() {
                             <Cable size={19} />
                         </div>
                         {mcpNotice ? <p className="form-alert warning">{mcpNotice}</p> : null}
+                        <div className="stack-list">
+                            {mcpConnections.length === 0 ? (
+                                <p className="muted">No shared tools.</p>
+                            ) : null}
+                            {mcpConnections.map((entry) => (
+                                <button
+                                    type="button"
+                                    key={entry.id}
+                                    className="plain-row interactive"
+                                    onClick={() => editMcp(entry)}
+                                >
+                                    <span className="row-icon">
+                                        <Wrench size={18} />
+                                    </span>
+                                    <span>
+                                        <strong>{entry.name}</strong>
+                                        <small>
+                                            {entry.serverKey} ·{' '}
+                                            {connectionTypeLabel(entry.transport)} · updated{' '}
+                                            {formatRelativeTime(entry.updatedAt)}
+                                        </small>
+                                    </span>
+                                    <span className={`pill ${statusTone(entry.status)}`}>
+                                        {entry.status}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    </section>
+
+                    <details className="surface settings-accordion span-wide">
+                        <summary className="plain-row interactive">
+                            <span className="row-icon">
+                                <Wrench size={18} />
+                            </span>
+                            <span>
+                                <strong>{mcpId ? 'Edit shared tool' : 'Add shared tool'}</strong>
+                                <small>Connection details stay behind this edit flow.</small>
+                            </span>
+                        </summary>
                         <form className="form-grid" onSubmit={onMcpSubmit}>
                             <label>
                                 Name
@@ -586,45 +630,7 @@ function SettingsPage() {
                                 {mcpId ? 'Save tool' : 'Create tool'}
                             </button>
                         </form>
-                    </section>
-
-                    <section className="surface span-wide">
-                        <div className="surface-heading">
-                            <div>
-                                <h2>Saved tools</h2>
-                                <p>{mcpConnections.length} shared tools</p>
-                            </div>
-                            <Wrench size={19} />
-                        </div>
-                        <div className="stack-list">
-                            {mcpConnections.length === 0 ? (
-                                <p className="muted">No shared tools.</p>
-                            ) : null}
-                            {mcpConnections.map((entry) => (
-                                <button
-                                    type="button"
-                                    key={entry.id}
-                                    className="plain-row interactive"
-                                    onClick={() => editMcp(entry)}
-                                >
-                                    <span className="row-icon">
-                                        <Wrench size={18} />
-                                    </span>
-                                    <span>
-                                        <strong>{entry.name}</strong>
-                                        <small>
-                                            {entry.serverKey} ·{' '}
-                                            {connectionTypeLabel(entry.transport)} · updated{' '}
-                                            {formatRelativeTime(entry.updatedAt)}
-                                        </small>
-                                    </span>
-                                    <span className={`pill ${statusTone(entry.status)}`}>
-                                        {entry.status}
-                                    </span>
-                                </button>
-                            ))}
-                        </div>
-                    </section>
+                    </details>
 
                     <section id="account" className="surface">
                         <div className="surface-heading">
@@ -641,6 +647,25 @@ function SettingsPage() {
                                 <small>Session managed by Agent Room</small>
                             </span>
                         </div>
+                    </section>
+
+                    <section className="surface">
+                        <div className="surface-heading">
+                            <div>
+                                <h2>Room settings</h2>
+                                <p>Open a room to change its model, tools, secrets, and jobs.</p>
+                            </div>
+                            <Settings size={19} />
+                        </div>
+                        <Link to="/" className="plain-row interactive">
+                            <span className="row-icon">
+                                <Settings size={18} />
+                            </span>
+                            <span>
+                                <strong>Choose room</strong>
+                                <small>Room-specific settings live with each room.</small>
+                            </span>
+                        </Link>
                     </section>
 
                     <section id="theme" className="surface">

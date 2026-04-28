@@ -1,14 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import {
-    AlertTriangle,
     ArrowRight,
     CheckCircle2,
-    Clock3,
+    Activity,
+    ChevronDown,
     FileText,
     ListTodo,
     Plus,
     Rocket,
+    Search,
     Settings,
     Sparkles,
 } from 'lucide-react'
@@ -17,17 +18,21 @@ import type { FormEvent } from 'react'
 import { RoomCreateForm } from './-room-create-form'
 import type { ProviderApi, ProviderMode } from './-room-create-form'
 import {
+    AgentRoomMark,
     AuthenticatedAppShell,
     formatRelativeTime,
+    jobScheduleLabel,
     roomIconFor,
     roomStateLabel,
     roomStateTone,
     useOperatorConfig,
     useRoomsList,
+    useSidebarRoomSnapshots,
 } from './-app-layout'
 import { requireRouteUser } from './-route-auth'
 import { createRoomServer, getRoomSetupReadinessServer } from './-room-runtime-server'
 import type { RoomSetupReadinessSnapshot } from '#/server/rooms/runtime-readiness'
+import type { RoomExecutionSnapshot } from '#/server/rooms/execution-types'
 
 export const Route = createFileRoute('/')({
     beforeLoad: requireRouteUser,
@@ -45,6 +50,7 @@ function RoomsHomePage() {
     })
 
     const rooms = roomsQuery.data ?? []
+    const sidebarSnapshots = useSidebarRoomSnapshots(rooms)
     const config = configQuery.data
     const providers = config?.providers ?? []
     const mcpConnections = config?.mcpConnections ?? []
@@ -206,9 +212,18 @@ function RoomsHomePage() {
         createRoomMutation.mutate()
     }
 
+    const snapshotsByRoomId = useMemo(() => {
+        const entries = new Map<string, RoomExecutionSnapshot>()
+        sidebarSnapshots.forEach((query, index) => {
+            const room = rooms[index]
+            if (room && query.data) {
+                entries.set(room.roomId, query.data)
+            }
+        })
+        return entries
+    }, [rooms, sidebarSnapshots])
     const readyRooms = rooms.filter((room) => roomStateTone(room) === 'ready').length
     const workingRooms = rooms.filter((room) => roomStateTone(room) === 'working').length
-    const attentionRooms = rooms.filter((room) => roomStateTone(room) === 'attention').length
     const onboardingComplete =
         Boolean(config?.onboarding.completed) && rooms.length > 0 && providers.length > 0
 
@@ -243,10 +258,33 @@ function RoomsHomePage() {
     return (
         <AuthenticatedAppShell activeSection="rooms">
             <section className="page-stack">
+                <header className="mobile-room-brand">
+                    <AgentRoomMark className="brand-mark" />
+                    <span>
+                        <strong>Agent Room</strong>
+                        <small>Self-hosted</small>
+                    </span>
+                </header>
+
+                <section className="mobile-action-grid">
+                    <Link to="/activity" className="quick-card">
+                        <Search size={24} />
+                        <span>Search</span>
+                    </Link>
+                    <Link to="/activity" className="quick-card">
+                        <Activity size={24} />
+                        <span>Activity</span>
+                    </Link>
+                    <Link to="/jobs" className="quick-card">
+                        <ListTodo size={24} />
+                        <span>Jobs</span>
+                    </Link>
+                </section>
+
                 <header className="page-header">
                     <div>
                         <p className="section-kicker">Rooms</p>
-                        <h1>Your AI rooms</h1>
+                        <h1>Rooms</h1>
                         <p>
                             {rooms.length === 0
                                 ? 'Create a room to start working.'
@@ -299,37 +337,6 @@ function RoomsHomePage() {
                     </section>
                 ) : null}
 
-                <section className="metric-grid">
-                    <article className="metric-tile">
-                        <Rocket size={19} />
-                        <span>
-                            <strong>{rooms.length}</strong>
-                            Rooms
-                        </span>
-                    </article>
-                    <article className="metric-tile">
-                        <Clock3 size={19} />
-                        <span>
-                            <strong>{workingRooms}</strong>
-                            Working
-                        </span>
-                    </article>
-                    <article className="metric-tile">
-                        <AlertTriangle size={19} />
-                        <span>
-                            <strong>{attentionRooms}</strong>
-                            Need attention
-                        </span>
-                    </article>
-                    <article className="metric-tile">
-                        <Sparkles size={19} />
-                        <span>
-                            <strong>{providers.length}</strong>
-                            Model connections
-                        </span>
-                    </article>
-                </section>
-
                 <section className="room-overview-grid">
                     <div className="room-card-grid">
                         {roomsQuery.isLoading ? (
@@ -348,12 +355,14 @@ function RoomsHomePage() {
                         {rooms.map((room) => {
                             const Icon = roomIconFor(room)
                             const tone = roomStateTone(room)
+                            const sessions =
+                                snapshotsByRoomId.get(room.roomId)?.threads.slice(0, 3) ?? []
                             return (
                                 <Link
                                     key={room.roomId}
                                     to="/rooms/$roomId"
                                     params={{ roomId: room.roomId }}
-                                    className="room-overview-card"
+                                    className="room-overview-card expanded"
                                 >
                                     <span className={`room-avatar ${tone}`}>
                                         <Icon size={22} />
@@ -368,58 +377,93 @@ function RoomsHomePage() {
                                     <span className="room-overview-meta">
                                         {formatRelativeTime(room.lastHealthAt)}
                                     </span>
+                                    <ChevronDown size={17} />
+                                    <span className="room-overview-sessions">
+                                        {sessions.length === 0 ? (
+                                            <span className="room-overview-session">
+                                                <span className="status-dot muted" />
+                                                <span>
+                                                    <strong>No sessions yet</strong>
+                                                    <small>Start a session from the room</small>
+                                                </span>
+                                                <ArrowRight size={16} />
+                                            </span>
+                                        ) : null}
+                                        {sessions.map((thread) => (
+                                            <span
+                                                key={thread.key}
+                                                className="room-overview-session"
+                                            >
+                                                <span className="status-dot ready" />
+                                                <span>
+                                                    <strong>{thread.title}</strong>
+                                                    <small>
+                                                        Updated{' '}
+                                                        {formatRelativeTime(thread.updatedAt)}
+                                                    </small>
+                                                </span>
+                                                <ArrowRight size={16} />
+                                            </span>
+                                        ))}
+                                    </span>
                                     <ArrowRight size={17} />
                                 </Link>
                             )
                         })}
                     </div>
 
-                    <RoomCreateForm
-                        blockingIssues={blockingReadiness ?? []}
-                        createPending={createRoomMutation.isPending}
-                        defaultProvider={defaultProvider}
-                        displayName={displayName}
-                        initialJobEnabled={initialJobEnabled}
-                        initialJobEveryMinutes={initialJobEveryMinutes}
-                        initialJobMessage={initialJobMessage}
-                        initialJobName={initialJobName}
-                        instructions={instructions}
-                        mcpConnections={mcpConnections}
-                        notice={notice}
-                        onSubmit={onCreateRoom}
-                        onToggleMcp={toggleMcp}
-                        provider={provider}
-                        providerApi={providerApi}
-                        providerApiKey={providerApiKey}
-                        providerBaseUrl={providerBaseUrl}
-                        providerConnectionId={providerConnectionId}
-                        providerMode={providerMode}
-                        providerModel={providerModel}
-                        providers={providers}
-                        selectedMcpIds={selectedMcpIds}
-                        selectedProviderUsesOAuth={selectedProviderUsesOAuth}
-                        setCronTimezone={setCronTimezone}
-                        setDisplayName={setDisplayName}
-                        setInitialJobEnabled={setInitialJobEnabled}
-                        setInitialJobEveryMinutes={setInitialJobEveryMinutes}
-                        setInitialJobMessage={setInitialJobMessage}
-                        setInitialJobName={setInitialJobName}
-                        setInstructions={setInstructions}
-                        setProvider={setProvider}
-                        setProviderApi={setProviderApi}
-                        setProviderApiKey={setProviderApiKey}
-                        setProviderBaseUrl={setProviderBaseUrl}
-                        setProviderConnectionId={setProviderConnectionId}
-                        setProviderMode={setProviderMode}
-                        setProviderModel={setProviderModel}
-                        setSlug={setSlug}
-                        setStartImmediately={setStartImmediately}
-                        setToolsProfile={setToolsProfile}
-                        slug={slug}
-                        startImmediately={startImmediately}
-                        toolsProfile={toolsProfile}
-                        cronTimezone={cronTimezone}
-                    />
+                    <details className="room-create-drawer">
+                        <summary className="button secondary">
+                            <Plus size={17} />
+                            Create room
+                        </summary>
+                        <RoomCreateForm
+                            blockingIssues={blockingReadiness ?? []}
+                            createPending={createRoomMutation.isPending}
+                            defaultProvider={defaultProvider}
+                            displayName={displayName}
+                            initialJobEnabled={initialJobEnabled}
+                            initialJobEveryMinutes={initialJobEveryMinutes}
+                            initialJobMessage={initialJobMessage}
+                            initialJobName={initialJobName}
+                            instructions={instructions}
+                            mcpConnections={mcpConnections}
+                            notice={notice}
+                            onSubmit={onCreateRoom}
+                            onToggleMcp={toggleMcp}
+                            provider={provider}
+                            providerApi={providerApi}
+                            providerApiKey={providerApiKey}
+                            providerBaseUrl={providerBaseUrl}
+                            providerConnectionId={providerConnectionId}
+                            providerMode={providerMode}
+                            providerModel={providerModel}
+                            providers={providers}
+                            selectedMcpIds={selectedMcpIds}
+                            selectedProviderUsesOAuth={selectedProviderUsesOAuth}
+                            setCronTimezone={setCronTimezone}
+                            setDisplayName={setDisplayName}
+                            setInitialJobEnabled={setInitialJobEnabled}
+                            setInitialJobEveryMinutes={setInitialJobEveryMinutes}
+                            setInitialJobMessage={setInitialJobMessage}
+                            setInitialJobName={setInitialJobName}
+                            setInstructions={setInstructions}
+                            setProvider={setProvider}
+                            setProviderApi={setProviderApi}
+                            setProviderApiKey={setProviderApiKey}
+                            setProviderBaseUrl={setProviderBaseUrl}
+                            setProviderConnectionId={setProviderConnectionId}
+                            setProviderMode={setProviderMode}
+                            setProviderModel={setProviderModel}
+                            setSlug={setSlug}
+                            setStartImmediately={setStartImmediately}
+                            setToolsProfile={setToolsProfile}
+                            slug={slug}
+                            startImmediately={startImmediately}
+                            toolsProfile={toolsProfile}
+                            cronTimezone={cronTimezone}
+                        />
+                    </details>
                 </section>
 
                 <section className="quick-grid">
@@ -427,7 +471,9 @@ function RoomsHomePage() {
                         <ListTodo size={20} />
                         <span>
                             <strong>Jobs</strong>
-                            <small>Manage room schedules</small>
+                            <small>
+                                {jobScheduleLabel(initialJobEveryMinutes)} when you add one
+                            </small>
                         </span>
                     </Link>
                     <Link to="/files" className="quick-card">
@@ -438,7 +484,7 @@ function RoomsHomePage() {
                         </span>
                     </Link>
                     <Link to="/activity" className="quick-card">
-                        <Clock3 size={20} />
+                        <Activity size={20} />
                         <span>
                             <strong>Activity</strong>
                             <small>See recent work</small>

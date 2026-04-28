@@ -5,6 +5,16 @@ export function friendlyNotice(value: string | null): string | null {
     }
 
     const normalized = notice.toLowerCase()
+    if (
+        normalized.includes('codex oauth profile is missing') ||
+        normalized.includes('codex auth') ||
+        normalized.includes('oauth profile')
+    ) {
+        return 'Model login needed. Connect Codex to start sessions and jobs.'
+    }
+    if (normalized.includes('provider') && normalized.includes('missing')) {
+        return 'Model connection needed. Choose a connected model before this room starts work.'
+    }
     if (normalized.includes('active runtime endpoint') || normalized.includes('runtime endpoint')) {
         return 'Room is paused. Resume it before starting or continuing sessions.'
     }

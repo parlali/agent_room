@@ -6,6 +6,7 @@ import type {
 } from '#/server/configuration/operator-configuration'
 import type { RoomSetupReadinessSnapshot } from '#/server/rooms/runtime-readiness'
 import { friendlyNotice } from './-notice-copy'
+import { jobSchedulePresets } from './-app-layout'
 
 export type ProviderMode = 'app_default' | 'app_connection' | 'room_secret'
 export type ProviderApi =
@@ -249,8 +250,40 @@ export function RoomCreateForm(props: RoomCreateFormProps) {
                                     placeholder="Daily brief"
                                 />
                             </label>
-                            <label>
-                                Repeat every
+                            <fieldset className="option-box span-full">
+                                <legend>When should it run?</legend>
+                                <div className="schedule-choice-grid">
+                                    {jobSchedulePresets.map((preset) => (
+                                        <label key={preset.value} className="schedule-option">
+                                            <input
+                                                type="radio"
+                                                name="initial-job-schedule"
+                                                checked={
+                                                    preset.value === 'custom'
+                                                        ? !jobSchedulePresets.some(
+                                                              (entry) =>
+                                                                  entry.value !== 'custom' &&
+                                                                  entry.value ===
+                                                                      props.initialJobEveryMinutes,
+                                                          )
+                                                        : props.initialJobEveryMinutes ===
+                                                          preset.value
+                                                }
+                                                onChange={() => {
+                                                    if (preset.value !== 'custom') {
+                                                        props.setInitialJobEveryMinutes(
+                                                            preset.value,
+                                                        )
+                                                    }
+                                                }}
+                                            />
+                                            <span>
+                                                <strong>{preset.label}</strong>
+                                                <small>{preset.helper}</small>
+                                            </span>
+                                        </label>
+                                    ))}
+                                </div>
                                 <input
                                     type="number"
                                     min="1"
@@ -259,9 +292,9 @@ export function RoomCreateForm(props: RoomCreateFormProps) {
                                     onChange={(event) =>
                                         props.setInitialJobEveryMinutes(event.target.value)
                                     }
+                                    aria-label="Custom interval in minutes"
                                 />
-                                <small className="input-hint">Minutes</small>
-                            </label>
+                            </fieldset>
                             <label className="span-full">
                                 Task
                                 <textarea
