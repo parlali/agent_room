@@ -1,282 +1,602 @@
-import { useQuery } from '@tanstack/react-query'
-import { Link, createFileRoute } from '@tanstack/react-router'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 import {
-    CheckCircle2,
-    FileText,
-    KeyRound,
-    ListTodo,
-    Rocket,
-    Settings,
-    Sparkles,
+    ArrowRightIcon,
+    CheckCircle2Icon,
+    CircleIcon,
+    KeyRoundIcon,
+    LoaderIcon,
+    SparklesIcon,
 } from 'lucide-react'
-import { AgentRoomMark, roomStateTone, useOperatorConfig, useRoomsList } from './-app-layout'
-import { requireRouteUser } from './-route-auth'
-import { getRoomSetupReadinessServer } from './-room-runtime-server'
-import type { RoomSetupReadinessSnapshot } from '#/server/rooms/runtime-readiness'
+import { useState, type FormEvent, type ReactNode } from 'react'
+
+import { AttentionBanner, BrandMark } from '#/components/agent-room'
+import { Alert, AlertDescription } from '#/components/ui/alert'
+import { Button } from '#/components/ui/button'
+import { Input } from '#/components/ui/input'
+import { Label } from '#/components/ui/label'
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '#/components/ui/select'
+import { Textarea } from '#/components/ui/textarea'
+import { cn } from '#/lib/utils'
+
+import { currentUserServer } from './-auth-server'
+import {
+    getOperatorConfigServer,
+    saveProviderConnectionServer,
+    updateAppDefaultsServer,
+} from './-operator-config-server'
+import { createRoomServer, getRoomSetupReadinessServer } from './-room-runtime-server'
+
+type ProviderApi =
+    | 'openai-responses'
+    | 'openai-completions'
+    | 'openai-codex-responses'
+    | 'anthropic-messages'
+    | 'google-generative-ai'
+
+interface CatalogEntry {
+    provider: string
+    label: string
+    api: ProviderApi
+    model: string
+}
+
+interface SavedProvider {
+    id: string
+    label: string
+    defaultModel: string
+    status: 'unchecked' | 'ready' | 'invalid'
+    validationMessage: string | null
+}
+
+type StepId = 'portal' | 'provider' | 'room' | 'done'
+type StepState = 'complete' | 'active' | 'pending'
 
 export const Route = createFileRoute('/onboarding')({
-    beforeLoad: requireRouteUser,
+    beforeLoad: async () => {
+        const user = await currentUserServer()
+        if (!user) throw redirect({ to: '/login' })
+        const config = await getOperatorConfigServer()
+        if (config.onboarding.completed) throw redirect({ to: '/' })
+    },
     component: OnboardingPage,
 })
 
+function makeCatalogKey(entry: CatalogEntry): string {
+    return `${entry.provider}::${entry.api}`
+}
+
+function messageFromError(error: unknown, fallback: string): string {
+    if (error instanceof Error && error.message) return error.message
+    if (typeof error === 'string' && error.length > 0) return error
+    return fallback
+}
+
 function OnboardingPage() {
-    const roomsQuery = useRoomsList()
-    const configQuery = useOperatorConfig()
-    const readinessQuery = useQuery<RoomSetupReadinessSnapshot>({
+    const navigate = useNavigate()
+    const queryClient = useQueryClient()
+
+    const configQuery = useQuery({
+        queryKey: ['operator-config'],
+        queryFn: () => getOperatorConfigServer(),
+    })
+    const readinessQuery = useQuery({
         queryKey: ['room-setup-readiness'],
-        queryFn: async () => getRoomSetupReadinessServer(),
+        queryFn: () => getRoomSetupReadinessServer(),
     })
 
-    const rooms = roomsQuery.data ?? []
-    const config = configQuery.data
-    const providers = config?.providers ?? []
-    const catalog = config?.providerCatalog ?? []
-    const readyRoom = rooms.find((room) => roomStateTone(room) === 'ready')
-    const firstRoom = rooms[0] ?? null
+    const catalog = (configQuery.data?.providerCatalog ?? []) as CatalogEntry[]
     const blockingIssues =
         readinessQuery.data?.issues.filter((issue) => issue.severity === 'blocking') ?? []
 
-    const steps = [
-        {
-            label: 'Sign in',
-            detail: 'Portal ready',
-            complete: true,
-            icon: CheckCircle2,
-            to: '/onboarding',
+    const [activeStep, setActiveStep] = useState<StepId>('provider')
+    const [savedProvider, setSavedProvider] = useState<SavedProvider | null>(null)
+    const [createdRoomId, setCreatedRoomId] = useState<string | null>(null)
+
+    const [providerKey, setProviderKey] = useState<string>('')
+    const [providerLabel, setProviderLabel] = useState('')
+    const [defaultModel, setDefaultModel] = useState('')
+    const [baseUrl, setBaseUrl] = useState('')
+    const [apiKey, setApiKey] = useState('')
+    const [providerError, setProviderError] = useState<string | null>(null)
+
+    const [roomName, setRoomName] = useState('')
+    const [roomInstructions, setRoomInstructions] = useState('')
+    const [roomError, setRoomError] = useState<string | null>(null)
+
+    const fallbackEntry = catalog[0] ?? null
+    const selectedEntry =
+        catalog.find((entry) => makeCatalogKey(entry) === providerKey) ?? fallbackEntry
+    const effectiveLabel = providerLabel || selectedEntry?.label || ''
+    const effectiveModel = defaultModel || selectedEntry?.model || ''
+
+    const saveProvider = useMutation({
+        mutationFn: async () => {
+            if (!selectedEntry) throw new Error('Choose a provider to continue.')
+            if (!effectiveLabel.trim()) throw new Error('Give the connection a label.')
+            if (!effectiveModel.trim()) throw new Error('A default model is required.')
+            const summary = await saveProviderConnectionServer({
+                data: {
+                    label: effectiveLabel.trim(),
+                    provider: selectedEntry.provider,
+                    api: selectedEntry.api,
+                    baseUrl: baseUrl.trim() ? baseUrl.trim() : null,
+                    defaultModel: effectiveModel.trim(),
+                    fallbackModels: [],
+                    apiKey: apiKey ? apiKey : undefined,
+                    makeDefault: true,
+                },
+            })
+            await updateAppDefaultsServer({
+                data: {
+                    defaultProviderConnectionId: summary.id,
+                    defaultModel: summary.defaultModel,
+                    onboardingCompleted: false,
+                },
+            })
+            return summary
         },
-        {
-            label: 'Connect model',
-            detail: providers.length > 0 ? 'Connected' : 'Required',
-            complete: providers.length > 0,
-            icon: KeyRound,
-            to: '/settings',
+        onSuccess: async (summary) => {
+            setProviderError(null)
+            setSavedProvider({
+                id: summary.id,
+                label: summary.label,
+                defaultModel: summary.defaultModel,
+                status: summary.status,
+                validationMessage: summary.validationMessage,
+            })
+            await queryClient.invalidateQueries({ queryKey: ['operator-config'] })
+            setActiveStep('room')
         },
-        {
-            label: 'Create first room',
-            detail: rooms.length > 0 ? 'Created' : 'Choose a purpose',
-            complete: rooms.length > 0,
-            icon: Rocket,
-            to: '/',
+        onError: (error: unknown) => {
+            setProviderError(messageFromError(error, 'Could not save provider.'))
         },
-        {
-            label: 'Start first session',
-            detail: readyRoom ? 'Ready' : 'After room setup',
-            complete: Boolean(readyRoom),
-            icon: Sparkles,
-            to: readyRoom ? '/rooms/$roomId' : '/',
+    })
+
+    const createRoom = useMutation({
+        mutationFn: async () => {
+            const trimmed = roomName.trim()
+            if (!trimmed) throw new Error('A room name is required.')
+            return createRoomServer({
+                data: {
+                    displayName: trimmed,
+                    instructions: roomInstructions.trim() || undefined,
+                    startImmediately: true,
+                },
+            })
         },
-        {
-            label: 'Optional first job',
-            detail: 'Add later or now',
-            complete: false,
-            icon: ListTodo,
-            to: readyRoom ? '/rooms/$roomId/jobs' : '/jobs',
+        onSuccess: async (room) => {
+            setRoomError(null)
+            setCreatedRoomId(room.id)
+            await queryClient.invalidateQueries({ queryKey: ['rooms-list'] })
+            setActiveStep('done')
         },
-    ] as const
+        onError: (error: unknown) => {
+            setRoomError(messageFromError(error, 'Could not create the room.'))
+        },
+    })
+
+    const finish = useMutation({
+        mutationFn: async () => {
+            if (!savedProvider) throw new Error('Provider not configured.')
+            if (!createdRoomId) throw new Error('Room not created.')
+            await updateAppDefaultsServer({
+                data: {
+                    defaultProviderConnectionId: savedProvider.id,
+                    defaultModel: savedProvider.defaultModel,
+                    onboardingCompleted: true,
+                },
+            })
+            return createdRoomId
+        },
+        onSuccess: async (roomId) => {
+            await queryClient.invalidateQueries({ queryKey: ['operator-config'] })
+            await navigate({ to: '/rooms/$roomId', params: { roomId } })
+        },
+    })
+
+    const portalState: StepState = 'complete'
+    const providerState: StepState = savedProvider
+        ? 'complete'
+        : activeStep === 'provider'
+          ? 'active'
+          : 'pending'
+    const roomState: StepState = createdRoomId
+        ? 'complete'
+        : activeStep === 'room'
+          ? 'active'
+          : 'pending'
+    const doneState: StepState = activeStep === 'done' ? 'active' : 'pending'
 
     return (
-        <main className="onboarding-shell">
-            <section className="onboarding-layout">
-                <aside className="onboarding-panel">
-                    <div className="sidebar-brand">
-                        <AgentRoomMark className="brand-mark" />
-                        <span>
-                            <strong>Agent Room</strong>
-                            <small>Self-hosted</small>
-                        </span>
+        <main className="min-h-screen bg-background px-6 py-12">
+            <div className="mx-auto w-full max-w-2xl space-y-8">
+                <header className="flex items-center gap-3">
+                    <span className="flex size-10 items-center justify-center rounded-lg bg-foreground/95 text-background">
+                        <BrandMark size={22} className="text-background" />
+                    </span>
+                    <div>
+                        <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                            Setup
+                        </p>
+                        <h1 className="text-2xl font-semibold tracking-tight">
+                            Welcome to Agent Room
+                        </h1>
+                        <p className="mt-0.5 text-sm text-muted-foreground">
+                            A few quick steps to get your first room running.
+                        </p>
                     </div>
-                    <div className="stack-list">
-                        {steps.map((step) => {
-                            const Icon = step.icon
-                            const params =
-                                step.to.includes('$roomId') && readyRoom
-                                    ? { roomId: readyRoom.roomId }
-                                    : undefined
-                            return (
-                                <Link
-                                    key={step.label}
-                                    to={step.to}
-                                    params={params}
-                                    search={
-                                        step.to === '/'
-                                            ? {
-                                                  skipOnboarding: true,
-                                              }
-                                            : undefined
-                                    }
-                                    className={step.complete ? 'setup-step complete' : 'setup-step'}
-                                >
-                                    <Icon size={20} />
-                                    <span>
-                                        <strong>{step.label}</strong>
-                                        <small>{step.detail}</small>
-                                    </span>
-                                </Link>
-                            )
-                        })}
-                    </div>
-                </aside>
+                </header>
 
-                <section className="onboarding-main">
-                    <header className="page-header">
-                        <div>
-                            <p className="section-kicker">Setup</p>
-                            <h1>Set up Agent Room</h1>
-                            <p>
-                                Connect a model, create a room, start a session, then add a job when
-                                you are ready.
-                            </p>
-                        </div>
-                        <Link to="/" search={{ skipOnboarding: true }} className="button secondary">
-                            <Settings size={17} />
-                            Open rooms
-                        </Link>
-                    </header>
-
-                    {blockingIssues.length > 0 ? (
-                        <section className="surface">
-                            <div className="surface-heading">
-                                <div>
-                                    <h2>Portal needs attention</h2>
-                                    <p>Fix these before creating a working room.</p>
-                                </div>
-                            </div>
-                            <div className="stack-list">
+                {blockingIssues.length > 0 ? (
+                    <AttentionBanner
+                        tone="attention"
+                        title="Portal needs attention"
+                        description={
+                            <ul className="mt-1 list-disc space-y-1 pl-4">
                                 {blockingIssues.map((issue) => (
-                                    <article key={issue.code} className="plain-row">
-                                        <span className="status-dot attention" />
-                                        <span>{issue.message}</span>
-                                    </article>
+                                    <li key={issue.code}>{issue.message}</li>
                                 ))}
-                            </div>
-                        </section>
-                    ) : null}
+                            </ul>
+                        }
+                    />
+                ) : null}
 
-                    <section className="surface">
-                        <div className="surface-heading">
-                            <div>
-                                <h2>Connect a model</h2>
-                                <p>
-                                    Choose the provider path rooms will use for sessions and jobs.
-                                </p>
-                            </div>
-                            <KeyRound size={19} />
-                        </div>
-                        <div className="provider-card-grid">
-                            {catalog.slice(0, 4).map((entry) => {
-                                const saved = providers.find(
-                                    (provider) => provider.provider === entry.provider,
-                                )
-                                return (
-                                    <Link
-                                        key={entry.provider}
-                                        to="/settings"
-                                        className="plain-row interactive"
-                                    >
-                                        <span className="row-icon">
-                                            <KeyRound size={18} />
-                                        </span>
-                                        <span>
-                                            <strong>{entry.label}</strong>
-                                            <small>
-                                                {saved
-                                                    ? 'Connected'
-                                                    : `Default model ${entry.model}`}
-                                            </small>
-                                        </span>
-                                        <span className={`pill ${saved ? 'ready' : 'muted'}`}>
-                                            {saved ? 'Connected' : 'Set up'}
-                                        </span>
-                                    </Link>
-                                )
-                            })}
-                        </div>
-                        <div className="button-row">
-                            <Link to="/settings" className="button primary">
-                                <KeyRound size={17} />
-                                Add model connection
-                            </Link>
-                            <Link to="/settings" hash="tools" className="button secondary">
-                                <FileText size={17} />
-                                Add optional tool
-                            </Link>
-                        </div>
-                    </section>
+                <ol className="space-y-3">
+                    <Step
+                        index={1}
+                        state={portalState}
+                        title="Portal ready"
+                        description="You are signed in and the portal is reachable."
+                    />
 
-                    <section className="surface">
-                        <div className="surface-heading">
-                            <div>
-                                <h2>Create a first room</h2>
-                                <p>Name the room, describe what it is for, and choose its model.</p>
-                            </div>
-                            <Rocket size={19} />
-                        </div>
-                        <div className="button-row">
-                            <Link
-                                to="/"
-                                hash="create-room"
-                                search={{ skipOnboarding: true }}
-                                className="button primary"
-                            >
-                                <Rocket size={17} />
-                                Create room
-                            </Link>
-                            {firstRoom ? (
-                                <Link
-                                    to="/rooms/$roomId"
-                                    params={{ roomId: firstRoom.roomId }}
-                                    className="button secondary"
-                                >
-                                    Open {firstRoom.displayName}
-                                </Link>
-                            ) : null}
-                        </div>
-                    </section>
-                </section>
-
-                <aside className="onboarding-panel">
-                    <div className="surface-heading">
-                        <div>
-                            <h2>Progress</h2>
-                            <p>Human checks only.</p>
-                        </div>
-                    </div>
-                    <div className="stack-list">
-                        <div className="plain-row">
-                            <span className="status-dot ready" />
-                            <span>
-                                <strong>Portal ready</strong>
-                                <small>Signed in</small>
-                            </span>
-                        </div>
-                        <div className="plain-row">
-                            <span
-                                className={`status-dot ${providers.length > 0 ? 'ready' : 'attention'}`}
+                    <Step
+                        index={2}
+                        state={providerState}
+                        title="Add a model provider"
+                        description="Connect the provider rooms will use for chat and jobs."
+                        summary={
+                            savedProvider
+                                ? `${savedProvider.label} - default model ${savedProvider.defaultModel}`
+                                : null
+                        }
+                    >
+                        {activeStep === 'provider' && !savedProvider ? (
+                            <ProviderForm
+                                catalog={catalog}
+                                providerKey={
+                                    providerKey ||
+                                    (fallbackEntry ? makeCatalogKey(fallbackEntry) : '')
+                                }
+                                onProviderKey={(value) => {
+                                    setProviderKey(value)
+                                    const entry = catalog.find(
+                                        (item) => makeCatalogKey(item) === value,
+                                    )
+                                    if (entry) {
+                                        setProviderLabel((current) => current || entry.label)
+                                        setDefaultModel(entry.model)
+                                    }
+                                }}
+                                providerLabel={providerLabel}
+                                onProviderLabel={setProviderLabel}
+                                defaultModel={defaultModel}
+                                onDefaultModel={setDefaultModel}
+                                baseUrl={baseUrl}
+                                onBaseUrl={setBaseUrl}
+                                apiKey={apiKey}
+                                onApiKey={setApiKey}
+                                placeholderLabel={selectedEntry?.label ?? 'OpenAI'}
+                                placeholderModel={selectedEntry?.model ?? ''}
+                                error={providerError}
+                                pending={saveProvider.isPending}
+                                onSubmit={(event) => {
+                                    event.preventDefault()
+                                    saveProvider.mutate()
+                                }}
                             />
-                            <span>
-                                <strong>Model connected</strong>
-                                <small>
-                                    {providers.length > 0 ? 'Ready' : 'Not connected yet'}
-                                </small>
-                            </span>
-                        </div>
-                        <div className="plain-row">
-                            <span className={`status-dot ${readyRoom ? 'ready' : 'muted'}`} />
-                            <span>
-                                <strong>Room ready</strong>
-                                <small>{readyRoom ? readyRoom.displayName : 'Create a room'}</small>
-                            </span>
-                        </div>
-                        <div className="plain-row">
-                            <span className={`status-dot ${readyRoom ? 'ready' : 'muted'}`} />
-                            <span>
-                                <strong>First session ready</strong>
-                                <small>{readyRoom ? 'Start from the room' : 'After setup'}</small>
-                            </span>
-                        </div>
-                    </div>
-                </aside>
-            </section>
+                        ) : null}
+                        {savedProvider ? (
+                            <ProviderResult
+                                status={savedProvider.status}
+                                message={savedProvider.validationMessage}
+                            />
+                        ) : null}
+                    </Step>
+
+                    <Step
+                        index={3}
+                        state={roomState}
+                        title="Create your first room"
+                        description="A room is a persistent space where the agent works on a topic."
+                        summary={createdRoomId && roomName ? `${roomName} is starting up.` : null}
+                    >
+                        {activeStep === 'room' && !createdRoomId ? (
+                            <RoomForm
+                                roomName={roomName}
+                                onRoomName={setRoomName}
+                                roomInstructions={roomInstructions}
+                                onRoomInstructions={setRoomInstructions}
+                                error={roomError}
+                                pending={createRoom.isPending}
+                                onSubmit={(event) => {
+                                    event.preventDefault()
+                                    createRoom.mutate()
+                                }}
+                            />
+                        ) : null}
+                    </Step>
+
+                    <Step
+                        index={4}
+                        state={doneState}
+                        title="All set"
+                        description="Mark setup complete and open your new room."
+                    >
+                        {activeStep === 'done' ? (
+                            <div className="space-y-3">
+                                <p className="text-sm text-muted-foreground">
+                                    Your portal, provider, and first room are ready. Open the room
+                                    to start a session.
+                                </p>
+                                <Button
+                                    onClick={() => finish.mutate()}
+                                    disabled={finish.isPending}
+                                    size="lg"
+                                >
+                                    {finish.isPending ? 'Finishing...' : 'Open my room'}
+                                    <ArrowRightIcon />
+                                </Button>
+                            </div>
+                        ) : null}
+                    </Step>
+                </ol>
+            </div>
         </main>
+    )
+}
+
+function Step({
+    index,
+    state,
+    title,
+    description,
+    summary,
+    children,
+}: {
+    index: number
+    state: StepState
+    title: string
+    description: string
+    summary?: string | null
+    children?: ReactNode
+}) {
+    return (
+        <li className="flex gap-4 rounded-xl border border-border/70 bg-card p-5 shadow-sm">
+            <StepIndicator index={index} state={state} />
+            <div className="flex-1 space-y-2">
+                <div>
+                    <h2
+                        className={cn(
+                            'text-base font-semibold tracking-tight',
+                            state === 'pending' && 'text-muted-foreground',
+                        )}
+                    >
+                        {title}
+                    </h2>
+                    <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
+                </div>
+                {summary ? <p className="text-sm font-medium text-foreground">{summary}</p> : null}
+                {children ? <div className="pt-2">{children}</div> : null}
+            </div>
+        </li>
+    )
+}
+
+function StepIndicator({ index, state }: { index: number; state: StepState }) {
+    if (state === 'complete') {
+        return (
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background">
+                <CheckCircle2Icon className="size-5" />
+            </span>
+        )
+    }
+    if (state === 'active') {
+        return (
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-full border-2 border-foreground text-sm font-semibold">
+                {index}
+            </span>
+        )
+    }
+    return (
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border text-sm font-medium text-muted-foreground">
+            <CircleIcon className="size-3" />
+        </span>
+    )
+}
+
+function ProviderForm(props: {
+    catalog: CatalogEntry[]
+    providerKey: string
+    onProviderKey: (value: string) => void
+    providerLabel: string
+    onProviderLabel: (value: string) => void
+    defaultModel: string
+    onDefaultModel: (value: string) => void
+    baseUrl: string
+    onBaseUrl: (value: string) => void
+    apiKey: string
+    onApiKey: (value: string) => void
+    placeholderLabel: string
+    placeholderModel: string
+    error: string | null
+    pending: boolean
+    onSubmit: (event: FormEvent<HTMLFormElement>) => void
+}) {
+    return (
+        <form className="space-y-4" onSubmit={props.onSubmit} noValidate>
+            {props.error ? (
+                <Alert variant="destructive">
+                    <AlertDescription>{props.error}</AlertDescription>
+                </Alert>
+            ) : null}
+
+            <div className="space-y-1.5">
+                <Label htmlFor="provider-choice">Provider</Label>
+                <Select value={props.providerKey} onValueChange={props.onProviderKey}>
+                    <SelectTrigger id="provider-choice" className="w-full">
+                        <SelectValue placeholder="Choose a provider" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {props.catalog.map((entry) => (
+                            <SelectItem key={makeCatalogKey(entry)} value={makeCatalogKey(entry)}>
+                                {entry.label}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                    <Label htmlFor="provider-label">Label</Label>
+                    <Input
+                        id="provider-label"
+                        value={props.providerLabel}
+                        onChange={(event) => props.onProviderLabel(event.target.value)}
+                        placeholder={props.placeholderLabel}
+                    />
+                </div>
+                <div className="space-y-1.5">
+                    <Label htmlFor="provider-model">Default model</Label>
+                    <Input
+                        id="provider-model"
+                        value={props.defaultModel}
+                        onChange={(event) => props.onDefaultModel(event.target.value)}
+                        placeholder={props.placeholderModel}
+                    />
+                </div>
+            </div>
+
+            <div className="space-y-1.5">
+                <Label htmlFor="provider-base-url">
+                    Base URL <span className="text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                    id="provider-base-url"
+                    value={props.baseUrl}
+                    onChange={(event) => props.onBaseUrl(event.target.value)}
+                    placeholder="https://api.example.com/v1"
+                />
+            </div>
+
+            <div className="space-y-1.5">
+                <Label htmlFor="provider-api-key">API key</Label>
+                <Input
+                    id="provider-api-key"
+                    type="password"
+                    value={props.apiKey}
+                    onChange={(event) => props.onApiKey(event.target.value)}
+                    autoComplete="new-password"
+                    placeholder="sk-..."
+                />
+                <p className="text-xs text-muted-foreground">
+                    Stored encrypted on this server. Never sent to the browser.
+                </p>
+            </div>
+
+            <Button type="submit" disabled={props.pending}>
+                <KeyRoundIcon />
+                {props.pending ? 'Testing connection...' : 'Save and test connection'}
+            </Button>
+        </form>
+    )
+}
+
+function RoomForm(props: {
+    roomName: string
+    onRoomName: (value: string) => void
+    roomInstructions: string
+    onRoomInstructions: (value: string) => void
+    error: string | null
+    pending: boolean
+    onSubmit: (event: FormEvent<HTMLFormElement>) => void
+}) {
+    return (
+        <form className="space-y-4" onSubmit={props.onSubmit} noValidate>
+            {props.error ? (
+                <Alert variant="destructive">
+                    <AlertDescription>{props.error}</AlertDescription>
+                </Alert>
+            ) : null}
+            <div className="space-y-1.5">
+                <Label htmlFor="room-name">Room name</Label>
+                <Input
+                    id="room-name"
+                    value={props.roomName}
+                    onChange={(event) => props.onRoomName(event.target.value)}
+                    placeholder="Research"
+                    autoFocus
+                    required
+                />
+            </div>
+            <div className="space-y-1.5">
+                <Label htmlFor="room-instructions">
+                    What is this room for? <span className="text-muted-foreground">(optional)</span>
+                </Label>
+                <Textarea
+                    id="room-instructions"
+                    value={props.roomInstructions}
+                    onChange={(event) => props.onRoomInstructions(event.target.value)}
+                    placeholder="Watch competitor releases, summarize daily, draft follow-up notes."
+                    rows={4}
+                />
+            </div>
+            <Button type="submit" disabled={props.pending}>
+                <SparklesIcon />
+                {props.pending ? 'Creating room...' : 'Create room'}
+            </Button>
+        </form>
+    )
+}
+
+function ProviderResult({
+    status,
+    message,
+}: {
+    status: 'unchecked' | 'ready' | 'invalid'
+    message: string | null
+}) {
+    if (status === 'ready') {
+        return (
+            <Alert>
+                <AlertDescription>
+                    Connection looks good. Continue to create your first room.
+                </AlertDescription>
+            </Alert>
+        )
+    }
+    if (status === 'invalid') {
+        return (
+            <Alert variant="destructive">
+                <AlertDescription>
+                    {message ?? 'The provider rejected the credentials. Update and try again.'}
+                </AlertDescription>
+            </Alert>
+        )
+    }
+    return (
+        <Alert>
+            <AlertDescription className="flex items-center gap-2">
+                <LoaderIcon className="size-4" />
+                Provider saved. Continue when ready.
+            </AlertDescription>
+        </Alert>
     )
 }

@@ -1,91 +1,94 @@
-import { createFileRoute, redirect } from '@tanstack/react-router'
-import { AgentRoomMark, AuthenticatedAppShell } from './-app-layout'
-import { currentUserServer } from './-auth-server'
+import { createFileRoute } from '@tanstack/react-router'
+import { CalendarClockIcon, MessagesSquareIcon, UsersRoundIcon } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+
+import { AppShell } from '#/components/app-shell'
+import { BrandMark, PageHeader } from '#/components/agent-room'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#/components/ui/card'
+import { requireRouteUser } from './-route-auth'
 
 export const Route = createFileRoute('/about')({
-    beforeLoad: async () => {
-        const user = await currentUserServer()
-        if (!user) {
-            throw redirect({
-                to: '/login',
-            })
-        }
-    },
+    beforeLoad: requireRouteUser,
     component: AboutPage,
 })
 
+interface AboutCard {
+    icon: LucideIcon
+    title: string
+    description: string
+}
+
+const cards: AboutCard[] = [
+    {
+        icon: UsersRoundIcon,
+        title: 'Rooms are colleagues',
+        description:
+            'Each room is a durable AI worker with its own files, jobs, instructions, tools, and provider binding.',
+    },
+    {
+        icon: MessagesSquareIcon,
+        title: 'Sessions are conversations',
+        description:
+            'A session is one ongoing thread inside a room. The room remembers what happened across sessions.',
+    },
+    {
+        icon: CalendarClockIcon,
+        title: 'Jobs are unattended work',
+        description:
+            'Jobs run on a schedule and wake the room to get work done while you are away.',
+    },
+]
+
 function AboutPage() {
     return (
-        <AuthenticatedAppShell activeSection="settings">
-            <section className="page-stack">
-                <header className="page-header">
-                    <div>
-                        <p className="section-kicker">Agent Room</p>
-                        <h1>Rooms for long-running agents</h1>
-                        <p>
-                            Each room keeps its own instructions, files, jobs, sessions, tools, and
-                            model binding behind one operator-controlled workspace.
-                        </p>
+        <AppShell>
+            <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
+                <PageHeader
+                    title="Agent Room"
+                    subtitle="The colleague model: each room is a durable AI worker with its own sessions, files, jobs, and instructions."
+                    glyph={<BrandMark size={28} />}
+                />
+
+                <div className="mt-6 space-y-6">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Self-hosted, model-agnostic, room-first.</CardTitle>
+                            <CardDescription>
+                                Agent Room runs on your own machine. Bring any provider — OpenAI,
+                                Anthropic, Google, or your own endpoint — and bind it to the rooms
+                                that need it.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <p className="text-sm text-muted-foreground">
+                                Rooms are persistent. They keep their own state, run scheduled jobs,
+                                and accumulate work over time. They are not throwaway chats.
+                            </p>
+                        </CardContent>
+                    </Card>
+
+                    <div className="grid gap-3 sm:grid-cols-3">
+                        {cards.map((card) => {
+                            const Icon = card.icon
+                            return (
+                                <Card key={card.title} size="sm">
+                                    <CardHeader>
+                                        <span className="mb-2 flex size-9 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                                            <Icon className="size-4" aria-hidden />
+                                        </span>
+                                        <CardTitle>{card.title}</CardTitle>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <p className="text-sm text-muted-foreground">
+                                            {card.description}
+                                        </p>
+                                    </CardContent>
+                                </Card>
+                            )
+                        })}
                     </div>
-                    <AgentRoomMark className="brand-mark" />
-                </header>
-
-                <section className="settings-layout">
-                    <article className="surface">
-                        <div className="surface-heading">
-                            <div>
-                                <h2>Operating model</h2>
-                                <p>
-                                    Agent Room is built around durable rooms, not disposable chat
-                                    threads. Sessions live inside a room and inherit the room
-                                    policy, tool access, model configuration, and file store.
-                                </p>
-                            </div>
-                        </div>
-                        <div className="stack-list">
-                            <div className="feature-block">
-                                <strong>Operator controlled</strong>
-                                <p>
-                                    App-level providers and shared tools are configured once, then
-                                    explicitly attached to rooms.
-                                </p>
-                            </div>
-                            <div className="feature-block">
-                                <strong>Room scoped</strong>
-                                <p>
-                                    Room secrets, instructions, jobs, and files remain bound to the
-                                    room that owns them.
-                                </p>
-                            </div>
-                        </div>
-                    </article>
-
-                    <aside className="surface">
-                        <div className="surface-heading">
-                            <div>
-                                <h2>Safety rules</h2>
-                                <p>
-                                    Execution and credentials stay explicit, auditable, and scoped.
-                                </p>
-                            </div>
-                        </div>
-                        <div className="stack-list">
-                            <div className="plain-row">
-                                <span className="status-dot ready" />
-                                <span>No shared credentials between rooms unless attached</span>
-                            </div>
-                            <div className="plain-row">
-                                <span className="status-dot ready" />
-                                <span>No silent fallback for model connections or secrets</span>
-                            </div>
-                            <div className="plain-row">
-                                <span className="status-dot ready" />
-                                <span>No duplicate source of truth for room state</span>
-                            </div>
-                        </div>
-                    </aside>
-                </section>
-            </section>
-        </AuthenticatedAppShell>
+                </div>
+            </div>
+        </AppShell>
     )
 }

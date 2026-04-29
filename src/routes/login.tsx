@@ -1,19 +1,19 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
-import { ArrowRight, KeyRound } from 'lucide-react'
-import { useState } from 'react'
-import type { FormEvent } from 'react'
-import { AgentRoomMark } from './-app-layout'
+import { ArrowRightIcon } from 'lucide-react'
+import { useState, type FormEvent } from 'react'
+
+import { Button } from '#/components/ui/button'
+import { Input } from '#/components/ui/input'
+import { Label } from '#/components/ui/label'
+import { Alert, AlertDescription } from '#/components/ui/alert'
+import { BrandMark } from '#/components/agent-room'
 import { currentUserServer, loginServer } from './-auth-server'
 
 export const Route = createFileRoute('/login')({
     beforeLoad: async () => {
         const user = await currentUserServer()
-        if (user) {
-            throw redirect({
-                to: '/',
-            })
-        }
+        if (user) throw redirect({ to: '/' })
     },
     component: LoginPage,
 })
@@ -23,93 +23,97 @@ function LoginPage() {
     const queryClient = useQueryClient()
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
-    const [errorNotice, setErrorNotice] = useState<string | null>(null)
+    const [error, setError] = useState<string | null>(null)
 
-    const loginMutation = useMutation({
-        mutationFn: async (payload: { email: string; password: string }) =>
-            loginServer({
-                data: payload,
-            }),
+    const login = useMutation({
+        mutationFn: (payload: { email: string; password: string }) =>
+            loginServer({ data: payload }),
         onSuccess: async () => {
-            setErrorNotice(null)
-            await queryClient.invalidateQueries({
-                queryKey: ['auth-current-user'],
-                exact: false,
-            })
-            await navigate({
-                to: '/',
-            })
+            setError(null)
+            await queryClient.invalidateQueries({ queryKey: ['auth-current-user'] })
+            await navigate({ to: '/' })
         },
-        onError: () => {
-            setErrorNotice('Invalid email or password')
-        },
+        onError: () => setError('Invalid email or password.'),
     })
 
     const onSubmit = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
         const normalizedEmail = email.trim().toLowerCase()
         if (!normalizedEmail || !password) {
-            setErrorNotice('Email and password are required')
+            setError('Email and password are required.')
             return
         }
-        loginMutation.mutate({
-            email: normalizedEmail,
-            password,
-        })
+        login.mutate({ email: normalizedEmail, password })
     }
 
     return (
-        <main className="login-shell">
-            <section className="login-card">
-                <div className="login-brand">
-                    <AgentRoomMark className="login-mark" />
-                    <span>
-                        <strong>Agent Room</strong>
-                        <small>Self-hosted</small>
+        <main className="relative flex min-h-screen flex-col items-center justify-center bg-background px-6 py-12">
+            <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,_var(--accent)_0%,_transparent_60%)] opacity-50" />
+
+            <div className="w-full max-w-sm space-y-6">
+                <div className="flex flex-col items-center gap-3 text-center">
+                    <span className="flex size-12 items-center justify-center rounded-xl bg-foreground/95 text-background">
+                        <BrandMark size={24} className="text-background" />
                     </span>
+                    <div>
+                        <h1 className="text-2xl font-semibold tracking-tight">Agent Room</h1>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                            Sign in to your private portal.
+                        </p>
+                    </div>
                 </div>
 
-                <div className="login-copy">
-                    <h1>Sign in</h1>
-                    <p>Use the root credentials created on first boot.</p>
+                <div className="rounded-xl border border-border/70 bg-card p-6 shadow-sm">
+                    <form className="space-y-4" onSubmit={onSubmit} noValidate>
+                        {error ? (
+                            <Alert variant="destructive">
+                                <AlertDescription>{error}</AlertDescription>
+                            </Alert>
+                        ) : null}
+
+                        <div className="space-y-1.5">
+                            <Label htmlFor="email">Email</Label>
+                            <Input
+                                id="email"
+                                type="email"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                autoComplete="username"
+                                placeholder="root@agent-room.local"
+                                autoFocus
+                                required
+                            />
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <Label htmlFor="password">Password</Label>
+                            <Input
+                                id="password"
+                                type="password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                autoComplete="current-password"
+                                required
+                            />
+                        </div>
+
+                        <Button
+                            type="submit"
+                            size="lg"
+                            disabled={login.isPending}
+                            className="w-full"
+                        >
+                            {login.isPending ? 'Signing in…' : 'Sign in'}
+                            <ArrowRightIcon />
+                        </Button>
+                    </form>
                 </div>
 
-                {errorNotice ? <p className="form-alert danger">{errorNotice}</p> : null}
-
-                <form className="login-form" onSubmit={onSubmit}>
-                    <label>
-                        Email
-                        <input
-                            value={email}
-                            onChange={(event) => setEmail(event.target.value)}
-                            autoComplete="username"
-                            placeholder="root@agent-room.local"
-                        />
-                    </label>
-                    <label>
-                        Password
-                        <input
-                            type="password"
-                            value={password}
-                            onChange={(event) => setPassword(event.target.value)}
-                            autoComplete="current-password"
-                        />
-                    </label>
-                    <button
-                        type="submit"
-                        className="button primary"
-                        disabled={loginMutation.isPending}
-                    >
-                        <KeyRound size={17} />
-                        {loginMutation.isPending ? 'Signing in' : 'Sign in'}
-                        <ArrowRight size={17} />
-                    </button>
-                </form>
-
-                <p className="login-hint">
-                    First-run credentials are stored in the Docker bootstrap file for recovery.
+                <p className="text-center text-xs text-muted-foreground">
+                    First-run credentials live in your Docker bootstrap file. If you have lost them,
+                    consult your deployment notes.
                 </p>
-            </section>
+            </div>
         </main>
     )
 }

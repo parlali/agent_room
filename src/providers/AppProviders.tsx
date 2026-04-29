@@ -2,6 +2,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useState } from 'react'
 import type { ReactNode } from 'react'
 
+import { TooltipProvider } from '#/components/ui/tooltip'
+
 export function AppProviders(props: { children: ReactNode }) {
     const [queryClient] = useState(
         () =>
@@ -15,5 +17,9 @@ export function AppProviders(props: { children: ReactNode }) {
             }),
     )
 
-    return <QueryClientProvider client={queryClient}>{props.children}</QueryClientProvider>
+    return (
+        <QueryClientProvider client={queryClient}>
+            <TooltipProvider delayDuration={150}>{props.children}</TooltipProvider>
+        </QueryClientProvider>
+    )
 }
