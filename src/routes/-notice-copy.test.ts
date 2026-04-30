@@ -13,7 +13,7 @@ describe('friendly notice copy', () => {
     it('hides diagnostics filesystem paths from operator-facing startup errors', () => {
         expect(
             friendlyNotice(
-                'Room startup failed: model key missing. Diagnostic files preserved at /tmp/openclaw/room-1.',
+                'Room startup failed: model key missing. Diagnostic files preserved at /tmp/pi/room-1.',
             ),
         ).toBe(
             'Room startup failed: model key missing. Diagnostic files were preserved for support review.',

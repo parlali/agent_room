@@ -7,6 +7,7 @@ import {
     appProviderConnectionRepository,
     appSettingsRepository,
     auditRepository,
+    providerValidationRepository,
     roomConfigRepository,
     roomMcpBindingRepository,
     roomRepository,
@@ -31,77 +32,45 @@ import type {
     RoomMcpBindingRecord,
     RoomProviderMode,
     RoomSecretRecord,
+    RoomToolProfile,
     SecretRecord,
+} from '../domain/types'
+import {
+    mcpAuthModes,
+    mcpTransports,
+    providerApis,
+    providerAuthModes,
+    roomProviderModes,
+    roomSecretPurposes,
+    roomToolProfiles,
 } from '../domain/types'
 import { getAppEnv } from '../config/env'
 import { decryptSecret, encryptSecret } from '../security/encryption'
 import {
+    assertNoReservedRoomRuntimeEnvKeys,
+    reservedRoomRuntimeEnvKeys,
+} from '../security/process-env'
+import {
+    assertSupportedProvider,
+    assertSupportedProviderApi,
     inferProviderAuthMode,
+    normalizeProviderId,
     normalizeProviderModel,
+    providerCatalog,
     providerEnvKey,
+    providerRequiresStoredCredential,
     resolveProviderBaseUrl,
     upperSnake,
 } from './provider-config'
 import { inspectCodexAuthStatus, type CodexAuthStatus } from './codex-auth'
 import { validateMcpConnection, validateProviderConnection } from './connection-validation'
 
-export const providerCatalog = [
-    {
-        provider: 'anthropic',
-        label: 'Anthropic',
-        api: 'anthropic-messages' as const,
-        model: 'anthropic/claude-opus-4-6',
-    },
-    {
-        provider: 'openai',
-        label: 'OpenAI',
-        api: 'openai-responses' as const,
-        model: 'openai/gpt-5.4',
-    },
-    {
-        provider: 'openai-codex',
-        label: 'OpenAI Codex OAuth',
-        api: 'openai-codex-responses' as const,
-        model: 'openai-codex/gpt-5.4',
-    },
-    {
-        provider: 'openrouter',
-        label: 'OpenRouter',
-        api: 'openai-completions' as const,
-        model: 'openrouter/auto',
-    },
-    {
-        provider: 'google',
-        label: 'Google Gemini',
-        api: 'google-generative-ai' as const,
-        model: 'google/gemini-3-pro',
-    },
-    {
-        provider: 'groq',
-        label: 'Groq',
-        api: 'openai-completions' as const,
-        model: 'groq/llama-3.3-70b-versatile',
-    },
-    {
-        provider: 'custom',
-        label: 'OpenAI-compatible',
-        api: 'openai-completions' as const,
-        model: 'custom/model',
-    },
-]
-
 const providerSaveSchema = z.object({
     id: z.string().uuid().optional(),
     label: z.string().trim().min(1),
     provider: z.string().trim().min(1),
-    api: z.enum([
-        'openai-responses',
-        'openai-completions',
-        'openai-codex-responses',
-        'anthropic-messages',
-        'google-generative-ai',
-    ]),
-    authMode: z.enum(['api_key', 'oauth']).optional(),
+    api: z.enum(providerApis),
+    authMode: z.enum(providerAuthModes).optional(),
     baseUrl: z.string().trim().nullable().optional(),
     defaultModel: z.string().trim().min(1),
     fallbackModels: z.array(z.string().trim().min(1)).default([]),
@@ -113,12 +82,12 @@ const mcpSaveSchema = z.object({
     id: z.string().uuid().optional(),
     name: z.string().trim().min(1),
     serverKey: z.string().trim().min(1),
-    transport: z.enum(['stdio', 'http', 'streamable_http']),
+    transport: z.enum(mcpTransports),
     command: z.string().trim().nullable().optional(),
     argsText: z.string().optional(),
     url: z.string().trim().nullable().optional(),
     headersText: z.string().optional(),
-    authMode: z.enum(['none', 'bearer']).default('none'),
+    authMode: z.enum(mcpAuthModes).default('none'),
     bearerToken: z.string().optional(),
     allowedToolsText: z.string().optional(),
 })
@@ -126,23 +95,14 @@ const mcpSaveSchema = z.object({
 const roomConfigSaveSchema = z.object({
     roomId: z.string().uuid(),
     instructions: z.string().default(''),
-    providerMode: z.enum(['app_default', 'app_connection', 'room_secret']),
+    providerMode: z.enum(roomProviderModes),
     providerConnectionId: z.string().uuid().nullable().optional(),
     provider: z.string().trim().nullable().optional(),
-    providerApi: z
-        .enum([
-            'openai-responses',
-            'openai-completions',
-            'openai-codex-responses',
-            'anthropic-messages',
-            'google-generative-ai',
-        ])
-        .nullable()
-        .optional(),
+    providerApi: z.enum(providerApis).nullable().optional(),
     providerBaseUrl: z.string().trim().nullable().optional(),
     providerModel: z.string().trim().nullable().optional(),
     providerApiKey: z.string().optional(),
-    toolsProfile: z.string().trim().min(1).default('coding'),
+    toolsProfile: z.enum(roomToolProfiles).default('coding'),
     cronTimezone: z.string().trim().min(1).default('UTC'),
     mcpConnectionIds: z.array(z.string().uuid()).default([]),
 })
@@ -151,7 +111,7 @@ const roomSecretSaveSchema = z.object({
     roomId: z.string().uuid(),
     label: z.string().trim().min(1),
     envKey: z.string().trim().min(1),
-    purpose: z.enum(['provider_api_key', 'generic', 'webhook']),
+    purpose: z.enum(roomSecretPurposes),
     provider: z.string().trim().nullable().optional(),
     value: z.string().min(1),
 })
@@ -233,7 +193,7 @@ export interface RoomConfigSnapshot {
         providerBaseUrl: string | null
         providerModel: string | null
         hasRoomProviderSecret: boolean
-        toolsProfile: string
+        toolsProfile: RoomToolProfile
         cronTimezone: string
         mcpConnectionIds: string[]
     }
@@ -342,6 +302,10 @@ function validateBaseUrl(baseUrl: string | null): string | null {
 }
 
 function summarizeProvider(record: AppProviderConnectionRecord): ProviderConnectionSummary {
+    const requiresCredential = providerRequiresStoredCredential({
+        provider: record.provider,
+        authMode: record.authMode,
+    })
     return {
         id: record.id,
         label: record.label,
@@ -351,7 +315,7 @@ function summarizeProvider(record: AppProviderConnectionRecord): ProviderConnect
         baseUrl: record.baseUrl,
         defaultModel: record.defaultModel,
         fallbackModels: toStringArray(record.fallbackModels),
-        hasCredential: record.credentialSecretId !== null,
+        hasCredential: !requiresCredential || record.credentialSecretId !== null,
         status: record.status,
         validationMessage: record.validationMessage,
         lastValidatedAt: toIso(record.lastValidatedAt),
@@ -440,9 +404,13 @@ export async function getOperatorConfigSnapshot(): Promise<OperatorConfigSnapsho
         mcpConnections: mcpConnections.map(summarizeMcp),
         onboarding: {
             completed: settings.onboardingCompletedAt !== null,
-            hasProvider: providers.some(
-                (provider) => provider.authMode === 'oauth' || provider.credentialSecretId !== null,
-            ),
+            hasProvider: providers.some((provider) => {
+                const requiresCredential = providerRequiresStoredCredential({
+                    provider: provider.provider,
+                    authMode: provider.authMode,
+                })
+                return !requiresCredential || provider.credentialSecretId !== null
+            }),
             hasDefaultProvider: settings.defaultProviderConnectionId !== null,
         },
     }
@@ -455,13 +423,19 @@ export async function saveProviderConnection(
     const input = providerSaveSchema.parse(rawInput)
     const id = input.id ?? randomUUID()
     const existing = input.id ? await appProviderConnectionRepository.findById(input.id) : null
-    const provider = input.provider.trim().toLowerCase()
+    const provider = normalizeProviderId(input.provider)
+    assertSupportedProvider(provider)
+    assertSupportedProviderApi(provider, input.api)
     const authMode = input.authMode ?? inferProviderAuthMode({ provider, api: input.api })
     const apiKey = input.apiKey?.trim() ?? ''
     let credentialSecretId = existing?.credentialSecretId ?? null
     let secretAction: string | null = null
+    const requiresCredential = providerRequiresStoredCredential({
+        provider,
+        authMode,
+    })
 
-    if (authMode === 'api_key') {
+    if (requiresCredential) {
         if (apiKey) {
             const secret = await upsertEncryptedSecret({
                 keyName: `app_provider:${id}:api_key`,
@@ -482,13 +456,14 @@ export async function saveProviderConnection(
         baseUrl: validateBaseUrl(nullableText(input.baseUrl)),
     })
     const defaultModel = normalizeProviderModel(provider, input.defaultModel)
-    let validationApiKey = authMode === 'api_key' ? apiKey || null : null
-    if (authMode === 'api_key' && !validationApiKey && credentialSecretId) {
+    let validationApiKey = requiresCredential ? apiKey || null : null
+    if (requiresCredential && !validationApiKey && credentialSecretId) {
         const existingSecret = await resolveSecret(credentialSecretId)
         if (existingSecret) {
             validationApiKey = decryptSecretRecord(existingSecret, getAppEnv().encryptionKey)
         }
     }
+    const validationStartedAt = new Date()
     const validation = await validateProviderConnection({
         provider,
         authMode,
@@ -497,6 +472,7 @@ export async function saveProviderConnection(
         model: defaultModel,
         apiKey: validationApiKey,
     })
+    const validationCompletedAt = new Date()
     const saved = await appProviderConnectionRepository.upsert({
         id,
         label: input.label,
@@ -511,8 +487,21 @@ export async function saveProviderConnection(
         credentialSecretId,
         status: validation.status,
         validationMessage: validation.message,
-        lastValidatedAt: new Date(),
+        lastValidatedAt: validationCompletedAt,
         createdByUserId: actorUserId,
+    })
+    await providerValidationRepository.appendAttempt({
+        providerConnectionId: saved.id,
+        roomId: null,
+        provider,
+        authMode,
+        api: input.api,
+        baseUrl,
+        model: defaultModel,
+        status: validation.status,
+        message: validation.message,
+        startedAt: validationStartedAt,
+        completedAt: validationCompletedAt,
     })
 
     if (input.makeDefault && saved.status === 'ready') {
@@ -758,7 +747,9 @@ export async function saveRoomConfig(
 
     const existing = await roomConfigRepository.getOrCreate(input.roomId)
     let providerSecretId = existing.providerSecretId
-    const provider = nullableText(input.provider)?.toLowerCase() ?? null
+    const provider = nullableText(input.provider)
+        ? normalizeProviderId(nullableText(input.provider) ?? '')
+        : null
     const providerApi = input.providerApi ?? null
     const providerModel = nullableText(input.providerModel)
     const roomProviderBaseUrl =
@@ -787,18 +778,25 @@ export async function saveRoomConfig(
         if (!provider || !providerApi || !normalizedProviderModel) {
             throw new Error('Room-scoped provider configuration requires provider, API, and model')
         }
+        assertSupportedProvider(provider)
+        assertSupportedProviderApi(provider, providerApi)
         if (inferProviderAuthMode({ provider, api: providerApi }) === 'oauth') {
             throw new Error('OpenAI Codex OAuth must be configured as an app provider connection')
         }
 
         const apiKey = input.providerApiKey?.trim() ?? ''
-        let validationApiKey = apiKey || null
-        if (!validationApiKey && providerSecretId) {
+        const requiresCredential = providerRequiresStoredCredential({
+            provider,
+            authMode: 'api_key',
+        })
+        let validationApiKey = requiresCredential ? apiKey || null : null
+        if (requiresCredential && !validationApiKey && providerSecretId) {
             const existingSecret = await resolveSecret(providerSecretId)
             if (existingSecret) {
                 validationApiKey = decryptSecretRecord(existingSecret, getAppEnv().encryptionKey)
             }
         }
+        const validationStartedAt = new Date()
         const validation = await validateProviderConnection({
             provider,
             authMode: 'api_key',
@@ -807,11 +805,24 @@ export async function saveRoomConfig(
             model: normalizedProviderModel,
             apiKey: validationApiKey,
         })
+        await providerValidationRepository.appendAttempt({
+            providerConnectionId: null,
+            roomId: input.roomId,
+            provider,
+            authMode: 'api_key',
+            api: providerApi,
+            baseUrl: roomProviderBaseUrl,
+            model: normalizedProviderModel,
+            status: validation.status,
+            message: validation.message,
+            startedAt: validationStartedAt,
+            completedAt: new Date(),
+        })
         if (validation.status !== 'ready') {
             throw new Error(`Room-scoped provider validation failed: ${validation.message}`)
         }
 
-        if (apiKey) {
+        if (requiresCredential && apiKey) {
             const secret = await upsertRoomProviderSecret({
                 roomId: input.roomId,
                 actorUserId,
@@ -828,8 +839,10 @@ export async function saveRoomConfig(
                     provider,
                 },
             })
-        } else if (!providerSecretId) {
+        } else if (requiresCredential && !providerSecretId) {
             throw new Error('Room-scoped provider API key is required')
+        } else if (!requiresCredential) {
+            providerSecretId = null
         }
     }
 
@@ -882,15 +895,26 @@ export async function saveRoomSecret(
         throw new Error(`Room ${input.roomId} does not exist`)
     }
 
+    const envKey = upperSnake(input.envKey)
+    if (!envKey) {
+        throw new Error('Room secret env key must contain at least one letter or number')
+    }
+    assertNoReservedRoomRuntimeEnvKeys(
+        {
+            [envKey]: 'reserved-check',
+        },
+        'Room secret env key',
+    )
+
     const secret = await upsertEncryptedSecret({
-        keyName: `room:${input.roomId}:secret:${upperSnake(input.envKey)}`,
+        keyName: `room:${input.roomId}:secret:${envKey}`,
         plainText: input.value,
     })
     const saved = await roomSecretRepository.upsert({
         roomId: input.roomId,
         secretId: secret.id,
         label: input.label,
-        envKey: upperSnake(input.envKey),
+        envKey,
         purpose: input.purpose,
         provider: nullableText(input.provider),
         createdByUserId: actorUserId,
@@ -962,7 +986,14 @@ async function resolveEffectiveRoomSummary(input: {
         if (!input.config.provider || !input.config.providerApi || !input.config.providerModel) {
             blockedReasons.push('Room-scoped provider details are incomplete')
         }
-        if (!input.config.providerSecretId) {
+        if (
+            input.config.provider &&
+            !input.config.providerSecretId &&
+            providerRequiresStoredCredential({
+                provider: input.config.provider,
+                authMode: 'api_key',
+            })
+        ) {
             blockedReasons.push('Room-scoped provider key is missing')
         }
     } else {
@@ -996,7 +1027,13 @@ async function resolveEffectiveRoomSummary(input: {
                 if (codexAuth && !codexAuth.ready) {
                     blockedReasons.push(codexAuth.message)
                 }
-            } else if (!providerConnection.credentialSecretId) {
+            } else if (
+                providerRequiresStoredCredential({
+                    provider: providerConnection.provider,
+                    authMode: providerConnection.authMode,
+                }) &&
+                !providerConnection.credentialSecretId
+            ) {
                 blockedReasons.push('Provider connection has no saved credential')
             } else if (providerConnection.status !== 'ready') {
                 blockedReasons.push(
@@ -1111,11 +1148,15 @@ async function resolveProviderForMaterialization(input: {
 }> {
     if (input.config.providerMode === 'room_secret') {
         const secret = await resolveSecret(input.config.providerSecretId)
+        const requiresCredential = providerRequiresStoredCredential({
+            provider: input.config.provider ?? '',
+            authMode: 'api_key',
+        })
         if (
             !input.config.provider ||
             !input.config.providerApi ||
             !input.config.providerModel ||
-            !secret
+            (requiresCredential && !secret)
         ) {
             throw new Error('Room provider configuration is incomplete')
         }
@@ -1127,7 +1168,7 @@ async function resolveProviderForMaterialization(input: {
             baseUrl: input.config.providerBaseUrl,
             model: input.config.providerModel,
             fallbackModels: [],
-            secret,
+            secret: requiresCredential ? secret : null,
         }
     }
 
@@ -1146,7 +1187,11 @@ async function resolveProviderForMaterialization(input: {
     }
 
     const secret = await resolveSecret(providerConnection.credentialSecretId)
-    if (providerConnection.authMode === 'api_key' && !secret) {
+    const requiresCredential = providerRequiresStoredCredential({
+        provider: providerConnection.provider,
+        authMode: providerConnection.authMode,
+    })
+    if (requiresCredential && !secret) {
         throw new Error('Room effective provider credential is missing')
     }
     if (providerConnection.status !== 'ready') {
@@ -1177,7 +1222,7 @@ async function resolveProviderForMaterialization(input: {
                 ? (input.settings.defaultModel ?? providerConnection.defaultModel)
                 : providerConnection.defaultModel,
         fallbackModels: toStringArray(providerConnection.fallbackModels),
-        secret,
+        secret: requiresCredential ? secret : null,
     }
 }
 
@@ -1195,7 +1240,14 @@ async function materializeProvider(input: {
     provider: MaterializedProviderConfig
     entitlements: Pick<MaterializedEntitlements, 'env' | 'secretRefs'>
 }> {
-    const envKey = input.authMode === 'api_key' ? providerEnvKey(input.provider) : null
+    assertSupportedProvider(input.provider)
+    assertSupportedProviderApi(input.provider, input.api)
+    const envKey = providerRequiresStoredCredential({
+        provider: input.provider,
+        authMode: input.authMode,
+    })
+        ? providerEnvKey(input.provider)
+        : null
     const env: Record<string, string> = {}
     const secretRefs: MaterializedEntitlements['secretRefs'] = []
     if (envKey && input.secret) {
@@ -1248,6 +1300,12 @@ async function materializeRoomSecrets(input: {
 
     for (const roomSecret of input.roomSecrets) {
         const envKey = upperSnake(roomSecret.envKey)
+        assertNoReservedRoomRuntimeEnvKeys(
+            {
+                [envKey]: 'reserved-check',
+            },
+            'Room secret env key',
+        )
         if (usedEnvKeys.has(envKey)) {
             throw new Error(`Room secret env key ${envKey} conflicts with materialized config`)
         }
@@ -1406,4 +1464,5 @@ export async function materializeRoomConfiguration(input: {
 
 export const __testing = {
     materializeRoomSecrets,
+    reservedRoomRuntimeEnvKeys,
 }

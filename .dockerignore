@@ -1,5 +1,7 @@
 .git
 .gitignore
+.claude
+.vscode
 .env
 .env.*
 !.env.example
@@ -9,3 +11,8 @@ dist
 .DS_Store
 npm-debug.log
 bunx.lock
+*.log
+*.pid
+*.sqlite
+*.db
+room-data

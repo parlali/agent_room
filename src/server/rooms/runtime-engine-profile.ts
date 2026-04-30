@@ -1,5 +1,5 @@
 import type { MaterializedRoomConfiguration, RoomPaths } from '../domain/types'
-import { openClawRuntimeEngineProfile } from './openclaw-runtime-engine-profile'
+import { piRuntimeEngineProfile } from './pi-runtime-engine-profile'
 
 export interface RuntimeEngineCommand {
     command: string
@@ -30,5 +30,5 @@ export interface RuntimeEngineProfile {
 }
 
 export function getRuntimeEngineProfile(): RuntimeEngineProfile {
-    return openClawRuntimeEngineProfile
+    return piRuntimeEngineProfile
 }

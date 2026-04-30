@@ -1,4 +1,3 @@
-import { createConnection } from 'node:net'
 import { writeFile } from 'node:fs/promises'
 import type { RuntimeHealthSnapshot } from '../domain/types'
 
@@ -14,28 +13,31 @@ function isProcessAlive(pid: number | null): boolean {
     }
 }
 
-async function canConnectLoopback(port: number | null): Promise<boolean> {
-    if (port === null) {
+async function probeLoopbackHealth(input: {
+    roomId: string
+    port: number | null
+}): Promise<boolean> {
+    if (input.port === null) {
         return false
     }
-    return new Promise<boolean>((resolve) => {
-        const socket = createConnection({
-            host: '127.0.0.1',
-            port,
-            timeout: 1500,
+    try {
+        const response = await fetch(`http://127.0.0.1:${input.port}/health`, {
+            signal: AbortSignal.timeout(1500),
         })
-        socket.on('connect', () => {
-            socket.destroy()
-            resolve(true)
-        })
-        socket.on('error', () => {
-            resolve(false)
-        })
-        socket.on('timeout', () => {
-            socket.destroy()
-            resolve(false)
-        })
-    })
+        if (!response.ok) {
+            return false
+        }
+        const payload = (await response.json()) as {
+            healthy?: unknown
+            roomId?: unknown
+            runtime?: unknown
+        }
+        return (
+            payload.healthy === true && payload.roomId === input.roomId && payload.runtime === 'pi'
+        )
+    } catch {
+        return false
+    }
 }
 
 export async function collectRuntimeHealthSnapshot(input: {
@@ -43,15 +45,18 @@ export async function collectRuntimeHealthSnapshot(input: {
     port: number | null
     pid: number | null
 }): Promise<RuntimeHealthSnapshot> {
-    const [processAlive, loopbackReachable] = await Promise.all([
+    const [processAlive, loopbackHealthy] = await Promise.all([
         Promise.resolve(isProcessAlive(input.pid)),
-        canConnectLoopback(input.port),
+        probeLoopbackHealth({
+            roomId: input.roomId,
+            port: input.port,
+        }),
     ])
 
-    const healthy = processAlive && loopbackReachable
+    const healthy = processAlive && loopbackHealthy
     const message = healthy
         ? 'Room runtime is healthy'
-        : `processAlive=${processAlive} loopbackReachable=${loopbackReachable}`
+        : `processAlive=${processAlive} loopbackHealthy=${loopbackHealthy}`
 
     return {
         roomId: input.roomId,

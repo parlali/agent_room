@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
     ArchiveIcon,
+    CopyIcon,
     ExternalLinkIcon,
     KeyRoundIcon,
     Loader2Icon,
@@ -67,30 +68,31 @@ import {
 } from '#/routes/-room-runtime-server'
 import { requireRouteUser } from '#/routes/-route-auth'
 import type {
+    OperatorConfigSnapshot,
     ProviderConnectionSummary,
     RoomConfigSnapshot,
     RoomSecretSummary,
 } from '#/server/configuration/operator-configuration'
+import type {
+    ProviderApi,
+    RoomProviderMode,
+    RoomSecretPurpose,
+    RoomToolProfile,
+} from '#/server/domain/types'
 
 export const Route = createFileRoute('/rooms/$roomId/settings')({
     beforeLoad: requireRouteUser,
     component: RoomSettingsPage,
 })
 
-type ProviderMode = 'app_default' | 'app_connection' | 'room_secret'
-type ProviderApi =
-    | 'openai-responses'
-    | 'openai-completions'
-    | 'openai-codex-responses'
-    | 'anthropic-messages'
-    | 'google-generative-ai'
-type SecretPurpose = 'provider_api_key' | 'generic' | 'webhook'
+type ProviderMode = RoomProviderMode
+type SecretPurpose = RoomSecretPurpose
 
 const TOOL_PROFILES = [
     { value: 'coding', label: 'Coding' },
-    { value: 'research', label: 'Research' },
-    { value: 'ops', label: 'Operations' },
-]
+    { value: 'minimal', label: 'Minimal' },
+    { value: 'read-only', label: 'Read only' },
+] satisfies Array<{ value: RoomToolProfile; label: string }>
 
 const COMMON_TIMEZONES = [
     'UTC',
@@ -109,13 +111,6 @@ const COMMON_TIMEZONES = [
     'Australia/Sydney',
 ]
 
-const PROVIDER_API_OPTIONS: { value: ProviderApi; label: string }[] = [
-    { value: 'openai-completions', label: 'OpenAI compatible' },
-    { value: 'openai-responses', label: 'OpenAI Responses' },
-    { value: 'anthropic-messages', label: 'Anthropic' },
-    { value: 'google-generative-ai', label: 'Google Generative AI' },
-]
-
 interface IdentityDraft {
     displayName: string
     slug: string
@@ -130,7 +125,7 @@ interface ConfigDraft {
     providerBaseUrl: string
     providerModel: string
     providerApiKey: string
-    toolsProfile: string
+    toolsProfile: RoomToolProfile
     cronTimezone: string
     mcpConnectionIds: string[]
 }
@@ -505,6 +500,7 @@ function ConfigSections({
             <ModelSection
                 draft={draft}
                 providers={providers}
+                providerCatalog={operatorQuery.data?.providerCatalog ?? []}
                 onChange={(patch) => setDraft((prev) => (prev ? { ...prev, ...patch } : prev))}
                 onSave={handleSave}
                 dirty={dirty}
@@ -629,7 +625,9 @@ function ConfigSections({
                     <Select
                         value={draft.toolsProfile}
                         onValueChange={(value) =>
-                            setDraft((prev) => (prev ? { ...prev, toolsProfile: value } : prev))
+                            setDraft((prev) =>
+                                prev ? { ...prev, toolsProfile: value as RoomToolProfile } : prev,
+                            )
                         }
                     >
                         <SelectTrigger id="room-tools-profile" className="w-full sm:w-64">
@@ -667,6 +665,7 @@ function resolveEffectiveProvider(input: {
 function ModelSection({
     draft,
     providers,
+    providerCatalog,
     onChange,
     onSave,
     dirty,
@@ -674,11 +673,31 @@ function ModelSection({
 }: {
     draft: ConfigDraft
     providers: ProviderConnectionSummary[]
+    providerCatalog: OperatorConfigSnapshot['providerCatalog']
     onChange: (patch: Partial<ConfigDraft>) => void
     onSave: () => void
     dirty: boolean
     pending: boolean
 }) {
+    const roomSecretProviders = providerCatalog.filter(
+        (entry) => entry.api !== 'openai-codex-responses',
+    )
+    const roomSecretProviderOptions = roomSecretProviders.map((entry) => ({
+        value: entry.provider,
+        label: entry.label,
+    }))
+    const providerApiOptions = [
+        ...new Map(
+            roomSecretProviders.map((entry) => [
+                entry.api,
+                {
+                    value: entry.api,
+                    label: entry.api === 'openai-completions' ? 'OpenAI compatible' : entry.api,
+                },
+            ]),
+        ).values(),
+    ]
+    const firstRoomSecretProvider = roomSecretProviders[0] ?? null
     return (
         <Section
             title="Model"
@@ -703,7 +722,15 @@ function ModelSection({
                         label="Room key"
                         description="Use a key just for this room."
                         checked={draft.providerMode === 'room_secret'}
-                        onSelect={() => onChange({ providerMode: 'room_secret' })}
+                        onSelect={() =>
+                            onChange({
+                                providerMode: 'room_secret',
+                                provider: draft.provider || firstRoomSecretProvider?.provider || '',
+                                providerApi: firstRoomSecretProvider?.api ?? draft.providerApi,
+                                providerModel:
+                                    draft.providerModel || firstRoomSecretProvider?.model || '',
+                            })
+                        }
                     />
                 </fieldset>
 
@@ -742,12 +769,30 @@ function ModelSection({
                     <div className="grid gap-3 sm:grid-cols-2">
                         <div className="space-y-1.5">
                             <Label htmlFor="room-provider">Provider</Label>
-                            <Input
-                                id="room-provider"
+                            <Select
                                 value={draft.provider}
-                                onChange={(e) => onChange({ provider: e.target.value })}
-                                placeholder="anthropic"
-                            />
+                                onValueChange={(value) => {
+                                    const selected = roomSecretProviders.find(
+                                        (entry) => entry.provider === value,
+                                    )
+                                    onChange({
+                                        provider: value,
+                                        providerApi: selected?.api ?? draft.providerApi,
+                                        providerModel: selected?.model ?? draft.providerModel,
+                                    })
+                                }}
+                            >
+                                <SelectTrigger id="room-provider" className="w-full">
+                                    <SelectValue placeholder="Pick a provider" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {roomSecretProviderOptions.map((option) => (
+                                        <SelectItem key={option.value} value={option.value}>
+                                            {option.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
                         <div className="space-y-1.5">
                             <Label htmlFor="room-provider-api">Provider API</Label>
@@ -761,7 +806,7 @@ function ModelSection({
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {PROVIDER_API_OPTIONS.map((option) => (
+                                    {providerApiOptions.map((option) => (
                                         <SelectItem key={option.value} value={option.value}>
                                             {option.label}
                                         </SelectItem>
@@ -784,7 +829,7 @@ function ModelSection({
                                 id="room-provider-model"
                                 value={draft.providerModel}
                                 onChange={(e) => onChange({ providerModel: e.target.value })}
-                                placeholder="anthropic/claude-opus-4-6"
+                                placeholder="provider/model"
                             />
                         </div>
                         <div className="space-y-1.5 sm:col-span-2">
@@ -873,12 +918,23 @@ function CodexOAuthSection({ roomId }: { roomId: string }) {
         queryFn: () => getCodexOAuthSessionServer({ data: { roomId } }),
         refetchInterval: (query) => {
             const data = query.state.data
-            return data?.status === 'awaiting_redirect' ? 3000 : false
+            return data && ['starting', 'awaiting_redirect', 'submitting'].includes(data.status)
+                ? 3000
+                : false
         },
     })
 
     const session = sessionQuery.data ?? null
     const status = session?.status ?? 'idle'
+
+    const copyAuthUrl = async (authUrl: string) => {
+        try {
+            await navigator.clipboard.writeText(authUrl)
+            toast.success('OpenAI sign-in link copied')
+        } catch {
+            toast.error('Could not copy sign-in link')
+        }
+    }
 
     useEffect(() => {
         if (status !== 'awaiting_redirect') {
@@ -978,15 +1034,26 @@ function CodexOAuthSection({ roomId }: { roomId: string }) {
                 {status === 'awaiting_redirect' && session ? (
                     <div className="space-y-3">
                         {session.authUrl ? (
-                            <a
-                                href={session.authUrl}
-                                target="_blank"
-                                rel="noreferrer noopener"
-                                className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-                            >
-                                Open OpenAI sign-in
-                                <ExternalLinkIcon className="size-3.5" />
-                            </a>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <a
+                                    href={session.authUrl}
+                                    target="_blank"
+                                    rel="noreferrer noopener"
+                                    className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+                                >
+                                    Open OpenAI sign-in
+                                    <ExternalLinkIcon className="size-3.5" />
+                                </a>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => void copyAuthUrl(session.authUrl as string)}
+                                >
+                                    <CopyIcon />
+                                    Copy link
+                                </Button>
+                            </div>
                         ) : null}
                         <p className="text-xs text-muted-foreground">
                             After signing in, copy the full redirect URL the browser shows (it

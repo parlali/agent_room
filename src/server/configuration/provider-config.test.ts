@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+    assertSupportedProvider,
+    assertSupportedProviderApi,
     inferProviderAuthMode,
     normalizeProviderModel,
     providerEnvKey,
@@ -44,11 +46,23 @@ describe('provider config helpers', () => {
         ).toBe('https://openrouter.ai/api/v1')
     })
 
-    it('normalizes Codex OAuth models onto the OpenClaw Codex provider route', () => {
+    it('normalizes Codex OAuth models onto the Pi Codex provider route', () => {
         expect(normalizeProviderModel('openai-codex', 'gpt-5.4')).toBe('openai-codex/gpt-5.4')
         expect(normalizeProviderModel('openai-codex', 'openai/gpt-5.4')).toBe(
             'openai-codex/gpt-5.4',
         )
         expect(normalizeProviderModel('openai-codex', 'codex/gpt-5.4')).toBe('openai-codex/gpt-5.4')
+    })
+
+    it('fails closed for providers outside the supported v0 catalog', () => {
+        expect(() => assertSupportedProvider('custom-openai-compatible')).toThrow('not supported')
+        expect(() => assertSupportedProvider('lm-studio')).not.toThrow()
+    })
+
+    it('fails closed for provider API paths outside the supported catalog mapping', () => {
+        expect(() => assertSupportedProviderApi('openrouter', 'openai-responses')).toThrow(
+            'must use openai-completions',
+        )
+        expect(() => assertSupportedProviderApi('openrouter', 'openai-completions')).not.toThrow()
     })
 })

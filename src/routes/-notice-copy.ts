@@ -24,7 +24,7 @@ export function friendlyNotice(value: string | null): string | null {
             'Diagnostic files were preserved for support review.',
         )
     }
-    if (normalized.includes('openclaw') || normalized.includes('runtime')) {
+    if (normalized.includes('runtime')) {
         return 'Room is not ready. Check its model connection and settings, then resume the room.'
     }
 

@@ -117,4 +117,31 @@ describe('operator configuration materialization', () => {
             'Room secret env key ANTHROPIC_API_KEY conflicts with materialized config',
         )
     })
+
+    it('fails closed when a room secret would override runtime control env', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'agent-room-room-secret-'))
+        const encryptionKey = randomBytes(32)
+        const secret = buildSecret({
+            id: 'secret-1',
+            keyName: 'room:room-1:secret:DATABASE_URL',
+            plainText: 'postgres://room-controlled',
+            encryptionKey,
+        })
+        const roomSecret = buildRoomSecret({
+            id: 'room-secret-1',
+            roomId: 'room-1',
+            secretId: secret.id,
+            envKey: 'database_url',
+        })
+
+        await expect(
+            __testing.materializeRoomSecrets({
+                roomSecrets: [roomSecret],
+                runtimeSecretsDir: tempDir,
+                secretById: new Map([[secret.id, secret]]),
+                encryptionKey,
+                reservedEnvKeys: new Set(),
+            }),
+        ).rejects.toThrow(/reserved keys: DATABASE_URL/)
+    })
 })

@@ -7,6 +7,7 @@ import type {
     RoomThreadAbortResult,
     RoomThreadSendResult,
 } from './execution-types'
+import type { RoomExecutionAdapter } from './execution-adapter'
 
 export type {
     RoomAgentExecutionTruth,
@@ -27,71 +28,8 @@ export type {
     RoomThreadSendResult,
 } from './execution-types'
 
-interface RoomExecutionAdapter {
-    listRoomsWithRuntime: () => Promise<RoomRuntimeOverview[]>
-    getRoomExecutionSnapshot: (input: {
-        roomId: string
-        selectedThreadKey?: string | null
-        messageLimit?: number
-    }) => Promise<RoomExecutionSnapshot>
-    sendRoomThreadMessage: (input: {
-        roomId: string
-        sessionKey: string
-        message: string
-    }) => Promise<RoomThreadSendResult>
-    abortRoomThreadMessage: (input: {
-        roomId: string
-        sessionKey: string
-        runId?: string | null
-    }) => Promise<RoomThreadAbortResult>
-    editRoomThreadMessage: (input: {
-        roomId: string
-        sessionKey: string
-        messageId: string
-        message: string
-    }) => Promise<never>
-    createRoomSessionEventStream: (input: {
-        roomId: string
-        sessionKey: string
-        abortSignal?: AbortSignal
-    }) => ReadableStream<Uint8Array>
-    createRoomThread: (input: {
-        roomId: string
-        firstMessage?: string | null
-    }) => Promise<{ key: string }>
-    listRoomCronJobs: (input: { roomId: string; limit?: number }) => Promise<RoomCronJob[]>
-    createRoomCronJob: (input: {
-        roomId: string
-        name: string
-        message: string
-        everyMinutes: number
-    }) => Promise<RoomCronJob>
-    updateRoomCronJobEnabled: (input: {
-        roomId: string
-        jobId: string
-        enabled: boolean
-    }) => Promise<RoomCronJob>
-    runRoomCronJobNow: (input: {
-        roomId: string
-        jobId: string
-    }) => Promise<{ ran: boolean; reason: string | null }>
-    removeRoomCronJob: (input: { roomId: string; jobId: string }) => Promise<void>
-    wakeRoomRuntime: (input: {
-        roomId: string
-        text: string
-        mode: 'now' | 'next-heartbeat'
-    }) => Promise<void>
-    getRoomExecutionTruthSnapshot: (input: {
-        roomId: string
-    }) => Promise<RoomExecutionTruthSnapshot>
-    listRoomRunHistory: (input: {
-        roomId: string
-        limit?: number
-    }) => Promise<RoomRunHistorySnapshot>
-}
-
 const loadExecutionEngineModule = () =>
-    import('./openclaw-execution-adapter') as Promise<RoomExecutionAdapter>
+    import('./pi-execution-adapter') as Promise<RoomExecutionAdapter>
 
 export async function listRoomsWithRuntime(): Promise<RoomRuntimeOverview[]> {
     const module = await loadExecutionEngineModule()
@@ -111,6 +49,7 @@ export async function sendRoomThreadMessage(input: {
     roomId: string
     sessionKey: string
     message: string
+    awaitCompletion?: boolean
 }): Promise<RoomThreadSendResult> {
     const module = await loadExecutionEngineModule()
     return module.sendRoomThreadMessage(input)
@@ -140,17 +79,20 @@ export function createRoomSessionEventStream(input: {
     sessionKey: string
     abortSignal?: AbortSignal
 }): ReadableStream<Uint8Array> {
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
+    let closed = false
+
     return new ReadableStream<Uint8Array>({
         start(controller) {
             loadExecutionEngineModule()
                 .then((module) => {
                     const stream = module.createRoomSessionEventStream(input)
-                    const reader = stream.getReader()
+                    reader = stream.getReader()
 
                     async function pump(): Promise<void> {
                         try {
-                            while (true) {
-                                const result = await reader.read()
+                            while (!closed) {
+                                const result = await reader!.read()
                                 if (result.done) {
                                     controller.close()
                                     return
@@ -165,6 +107,13 @@ export function createRoomSessionEventStream(input: {
                     void pump()
                 })
                 .catch((error) => controller.error(error))
+        },
+        cancel() {
+            closed = true
+            if (reader) {
+                void reader.cancel()
+                reader = null
+            }
         },
     })
 }
@@ -193,6 +142,17 @@ export async function createRoomCronJob(input: {
 }): Promise<RoomCronJob> {
     const module = await loadExecutionEngineModule()
     return module.createRoomCronJob(input)
+}
+
+export async function updateRoomCronJob(input: {
+    roomId: string
+    jobId: string
+    name: string
+    message: string
+    everyMinutes: number
+}): Promise<RoomCronJob> {
+    const module = await loadExecutionEngineModule()
+    return module.updateRoomCronJob(input)
 }
 
 export async function updateRoomCronJobEnabled(input: {
@@ -239,4 +199,13 @@ export async function listRoomRunHistory(input: {
 }): Promise<RoomRunHistorySnapshot> {
     const module = await loadExecutionEngineModule()
     return module.listRoomRunHistory(input)
+}
+
+export async function runDueRoomCronJobs(
+    input: {
+        limit?: number
+    } = {},
+): Promise<Array<{ jobId: string; ran: boolean; reason: string | null }>> {
+    const module = await import('./pi-execution-adapter')
+    return module.runDueRoomCronJobs(input)
 }

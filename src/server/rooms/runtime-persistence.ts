@@ -67,7 +67,7 @@ export async function allocateRoomPort(roomId: string): Promise<number> {
         roomId,
         port,
         pid: runtimeMetadata.pid,
-        configVersion: runtimeMetadata.configVersion + 1,
+        configVersion: runtimeMetadata.configVersion,
         tokenVersion: runtimeMetadata.tokenVersion,
         healthStatus: runtimeMetadata.healthStatus,
         startedAt: runtimeMetadata.startedAt,

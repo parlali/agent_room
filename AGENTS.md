@@ -14,7 +14,7 @@ Use shared abstractions only when they remove real duplication without hiding ru
 Do not chain silent fallbacks. Fallbacks must be explicit, logged, bounded, and fail closed for authentication, authorization, room ownership, provider identity, credentials, runtime configuration, and execution.
 Keep tool schemas, adapter contracts, persisted state, runtime materialization, provider payload mapping, and MCP configuration typed and canonical.
 Treat auth, session ownership, room isolation, secret handling, provider binding, runtime lifecycle, streaming, and job scheduling bugs as safety-critical defects.
-When fixing runtime bugs, trace the full path: UI action -> route/server function -> service -> adapter -> OpenClaw runtime -> persisted state -> dashboard/read model.
+When fixing runtime bugs, trace the full path: UI action -> route/server function -> service -> adapter -> Pi runtime wrapper -> persisted state -> dashboard/read model.
 Tests should cover the real failure mode from logs, exported runtime state, or browser-visible behavior whenever possible.
 Connection tests must exercise the same runtime config, credentials, provider path, and materialization path used by rooms and scheduled jobs.
 Do not mark plan items complete until direct behavior and downstream effects are verified.

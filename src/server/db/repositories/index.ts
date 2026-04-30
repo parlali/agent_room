@@ -1,5 +1,6 @@
 export { artifactIndexRepository } from './artifact-index-repository'
 export { auditRepository } from './audit-repository'
+export { providerValidationRepository } from './provider-validation-repository'
 export {
     appMcpConnectionRepository,
     appProviderConnectionRepository,
@@ -8,7 +9,7 @@ export {
     roomMcpBindingRepository,
     roomSecretRepository,
 } from './configuration-repository'
-export { roomEntitlementRepository } from './room-entitlement-repository'
+export { roomCronRepository } from './room-cron-repository'
 export { roomRepository } from './room-repository'
 export { roomRuntimeMetadataRepository } from './room-runtime-metadata-repository'
 export { secretRepository } from './secret-repository'

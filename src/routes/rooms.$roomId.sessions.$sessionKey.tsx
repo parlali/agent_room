@@ -188,6 +188,11 @@ function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessionKey: s
                 sessionTitle={selectedThread?.title ?? 'Conversation'}
                 sessionLabel={sessionTone.label}
                 sessionToneKey={sessionTone.tone}
+                provider={
+                    selectedThread?.modelProvider ?? snapshot?.roomAgent?.modelPrimary ?? null
+                }
+                model={selectedThread?.model ?? null}
+                compaction={selectedThread?.compaction ?? null}
                 onBack={() => {
                     void navigate({ to: '/rooms/$roomId', params: { roomId } })
                 }}
@@ -253,14 +258,30 @@ function ChatHeader({
     sessionTitle,
     sessionLabel,
     sessionToneKey,
+    provider,
+    model,
+    compaction,
     onBack,
 }: {
     room: RoomRuntimeOverview
     sessionTitle: string
     sessionLabel: string
     sessionToneKey: ReturnType<typeof describeSessionState>['tone']
+    provider: string | null
+    model: string | null
+    compaction: RoomExecutionSnapshot['threads'][number]['compaction'] | null
     onBack: () => void
 }) {
+    const modelLabel = [provider, model].filter(Boolean).join(' / ')
+    const compactionLabel = compaction
+        ? compaction.compacting
+            ? 'Compacting context'
+            : compaction.count > 0
+              ? `Context compacted ${compaction.count} ${compaction.count === 1 ? 'time' : 'times'}`
+              : compaction.enabled
+                ? 'Auto-compact on'
+                : 'Auto-compact off'
+        : null
     return (
         <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background/95 px-3 py-2.5 backdrop-blur sm:px-6">
             <Button variant="ghost" size="icon-sm" onClick={onBack} aria-label="Back to room">
@@ -276,6 +297,12 @@ function ChatHeader({
                     {room.displayName}
                 </Link>
                 <span className="truncate text-sm font-medium text-foreground">{sessionTitle}</span>
+                {modelLabel ? (
+                    <span className="truncate text-[0.6875rem] text-muted-foreground">
+                        {modelLabel}
+                        {compactionLabel ? ` · ${compactionLabel}` : ''}
+                    </span>
+                ) : null}
             </div>
             <StateBadge
                 tone={sessionToneKey}
@@ -370,6 +397,7 @@ function MessageRow({
     const toolParts = message.parts.filter(
         (part) => part.type === 'tool_call' || part.type === 'tool_result',
     )
+    const showMessageBubble = Boolean(message.text || isUser || toolParts.length === 0)
 
     return (
         <div className={cn('flex w-full gap-3', isUser ? 'justify-end' : 'justify-start')}>
@@ -384,31 +412,33 @@ function MessageRow({
             <div
                 className={cn('flex min-w-0 flex-col gap-1', isUser ? 'items-end' : 'items-start')}
             >
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <div
-                            className={cn(
-                                'max-w-[min(36rem,90%)] rounded-2xl px-3.5 py-2 text-sm shadow-sm whitespace-pre-wrap break-words',
-                                isUser
-                                    ? 'bg-primary text-primary-foreground'
-                                    : 'bg-card text-card-foreground ring-1 ring-foreground/10',
-                            )}
-                        >
-                            <MessageText text={message.text} />
-                            {!isUser && !message.text ? (
-                                <span className="text-muted-foreground">
-                                    {initialsFromName(room.displayName, '··')} is working…
-                                </span>
-                            ) : null}
-                        </div>
-                    </TooltipTrigger>
-                    <TooltipContent side={isUser ? 'left' : 'right'}>
-                        <span>
-                            {isUser ? 'You' : room.displayName} ·{' '}
-                            {formatDateTime(message.timestamp)}
-                        </span>
-                    </TooltipContent>
-                </Tooltip>
+                {showMessageBubble ? (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <div
+                                className={cn(
+                                    'max-w-[min(36rem,90%)] rounded-2xl px-3.5 py-2 text-sm shadow-sm whitespace-pre-wrap break-words',
+                                    isUser
+                                        ? 'bg-primary text-primary-foreground'
+                                        : 'bg-card text-card-foreground ring-1 ring-foreground/10',
+                                )}
+                            >
+                                <MessageText text={message.text} />
+                                {!isUser && !message.text ? (
+                                    <span className="text-muted-foreground">
+                                        {initialsFromName(room.displayName, '··')} is working…
+                                    </span>
+                                ) : null}
+                            </div>
+                        </TooltipTrigger>
+                        <TooltipContent side={isUser ? 'left' : 'right'}>
+                            <span>
+                                {isUser ? 'You' : room.displayName} ·{' '}
+                                {formatDateTime(message.timestamp)}
+                            </span>
+                        </TooltipContent>
+                    </Tooltip>
+                ) : null}
                 {!isUser ? (
                     <span className="px-1 text-[0.6875rem] text-muted-foreground">
                         {room.displayName} · {formatRelativeTime(message.timestamp)}

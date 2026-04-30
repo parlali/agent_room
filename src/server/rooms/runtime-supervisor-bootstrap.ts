@@ -6,7 +6,10 @@ let startupReconcilePromise: Promise<void> | null = null
 async function reconcileDesiredRunningRooms(): Promise<void> {
     const rooms = await roomRepository.listRooms()
     for (const room of rooms) {
-        if (room.desiredState !== 'running') {
+        const needsStoppedReconcile =
+            room.desiredState === 'stopped' &&
+            (room.status === 'running' || room.status === 'starting' || room.status === 'degraded')
+        if (room.desiredState !== 'running' && !needsStoppedReconcile) {
             continue
         }
         try {

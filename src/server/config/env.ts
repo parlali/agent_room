@@ -155,15 +155,14 @@ export function getAppEnv(): AppEnv {
     const encryptionKey = parseEncryptionKey(bootstrap.payload.encryptionKeyB64)
 
     if (bootstrap.generatedNewPayload && data.NODE_ENV !== 'test') {
-        console.log(
-            `Agent Room bootstrap generated at ${resolve(dataDir, 'system', 'bootstrap.json')}`,
-        )
+        const bootstrapPath = resolve(dataDir, 'system', 'bootstrap.json')
+        console.log(`Agent Room bootstrap generated at ${bootstrapPath}`)
         if (bootstrap.generatedNewEncryptionKey) {
             console.log('Generated encryption key for this deployment')
         }
         if (bootstrap.generatedNewPassword) {
             console.log(`Generated root login: ${bootstrap.payload.rootEmail}`)
-            console.log(`Generated root password: ${bootstrap.payload.rootPassword}`)
+            console.log(`Generated root password stored in ${bootstrapPath}`)
         }
     }
 

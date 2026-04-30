@@ -86,7 +86,7 @@ export function getRoomSetupReadiness(input?: {
         issues.push({
             code: 'runtime_command_unavailable',
             severity: 'blocking',
-            message: `Bundled OpenClaw runtime command is unavailable: ${commandProbe.reason}`,
+            message: `Bundled Pi runtime command is unavailable: ${commandProbe.reason}`,
         })
     }
 

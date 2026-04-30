@@ -4,18 +4,18 @@ import type {
     AppSettingsRecord,
     ArtifactIndexRecord,
     AuditEventRecord,
-    EntitlementKind,
-    EntitlementStatus,
     HealthStatus,
     JsonValue,
     RoomDesiredState,
-    RoomEntitlementRecord,
     RoomConfigRecord,
+    RoomCronJobRecord,
+    RoomCronRunRecord,
     RoomMcpBindingRecord,
     RoomRecord,
     RoomRuntimeMetadataRecord,
     RoomSecretRecord,
     RoomStatus,
+    RoomToolProfile,
     SecretRecord,
     SessionRecord,
     UserRecord,
@@ -94,23 +94,6 @@ export function mapSecret(row: DbRow): SecretRecord {
     }
 }
 
-export function mapEntitlement(row: DbRow): RoomEntitlementRecord {
-    return {
-        id: String(row.id),
-        roomId: String(row.room_id),
-        kind: row.kind as EntitlementKind,
-        provider: String(row.provider),
-        accountId: (row.account_id as string | null) ?? null,
-        serverId: (row.server_id as string | null) ?? null,
-        scope: asJsonValue(row.scope),
-        secretId: (row.secret_id as string | null) ?? null,
-        status: row.status as EntitlementStatus,
-        version: Number(row.version),
-        createdAt: row.created_at as Date,
-        updatedAt: row.updated_at as Date,
-    }
-}
-
 export function mapAppProviderConnection(row: DbRow): AppProviderConnectionRecord {
     return {
         id: String(row.id),
@@ -178,7 +161,7 @@ export function mapRoomConfig(row: DbRow): RoomConfigRecord {
         providerBaseUrl: (row.provider_base_url as string | null) ?? null,
         providerModel: (row.provider_model as string | null) ?? null,
         providerSecretId: (row.provider_secret_id as string | null) ?? null,
-        toolsProfile: String(row.tools_profile),
+        toolsProfile: row.tools_profile as RoomToolProfile,
         cronTimezone: String(row.cron_timezone),
         createdAt: row.created_at as Date,
         updatedAt: row.updated_at as Date,
@@ -236,5 +219,66 @@ export function mapAudit(row: DbRow): AuditEventRecord {
         action: String(row.action),
         payload: asJsonValue(row.payload),
         createdAt: row.created_at as Date,
+    }
+}
+
+export function mapRoomCronJob(row: DbRow): RoomCronJobRecord {
+    return {
+        id: String(row.id),
+        roomId: String(row.room_id),
+        name: String(row.name),
+        message: String(row.message),
+        enabled: Boolean(row.enabled),
+        everyMinutes: Number(row.every_minutes),
+        timezone: String(row.timezone),
+        sessionTarget: row.session_target === 'selected' ? 'selected' : 'isolated',
+        targetThreadKey: (row.target_thread_key as string | null) ?? null,
+        nextRunAt: (row.next_run_at as Date | null) ?? null,
+        runningAt: (row.running_at as Date | null) ?? null,
+        lockedUntil: (row.locked_until as Date | null) ?? null,
+        lockToken: (row.lock_token as string | null) ?? null,
+        lastRunAt: (row.last_run_at as Date | null) ?? null,
+        lastRunStatus: (row.last_run_status as string | null) ?? null,
+        lastError: (row.last_error as string | null) ?? null,
+        lastDurationMs:
+            row.last_duration_ms === null || row.last_duration_ms === undefined
+                ? null
+                : Number(row.last_duration_ms),
+        provider: (row.provider as string | null) ?? null,
+        model: (row.model as string | null) ?? null,
+        configVersion:
+            row.config_version === null || row.config_version === undefined
+                ? null
+                : Number(row.config_version),
+        createdAt: row.created_at as Date,
+        updatedAt: row.updated_at as Date,
+    }
+}
+
+export function mapRoomCronRun(row: DbRow): RoomCronRunRecord {
+    return {
+        id: String(row.id),
+        roomId: String(row.room_id),
+        jobId: (row.job_id as string | null) ?? null,
+        jobName: (row.job_name as string | null) ?? null,
+        attempt: Number(row.attempt),
+        status: row.status as RoomCronRunRecord['status'],
+        summary: (row.summary as string | null) ?? null,
+        error: (row.error as string | null) ?? null,
+        sessionKey: (row.session_key as string | null) ?? null,
+        sessionId: (row.session_id as string | null) ?? null,
+        provider: (row.provider as string | null) ?? null,
+        model: (row.model as string | null) ?? null,
+        configVersion:
+            row.config_version === null || row.config_version === undefined
+                ? null
+                : Number(row.config_version),
+        startedAt: row.started_at as Date,
+        finishedAt: (row.finished_at as Date | null) ?? null,
+        durationMs:
+            row.duration_ms === null || row.duration_ms === undefined
+                ? null
+                : Number(row.duration_ms),
+        nextRunAt: (row.next_run_at as Date | null) ?? null,
     }
 }

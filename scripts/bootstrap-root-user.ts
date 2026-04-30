@@ -5,9 +5,8 @@ import { sql } from '../src/server/db/client'
 async function main() {
     const result = await bootstrapRootUser()
     if (result.created) {
-        const env = getAppEnv()
         console.log(`Root user created: ${result.email}`)
-        console.log(`Root password: ${env.rootPassword}`)
+        console.log(`Root password is stored in ${getAppEnv().dataDir}/system/bootstrap.json`)
     } else {
         console.log('Root user already exists')
     }

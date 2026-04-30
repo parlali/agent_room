@@ -1,6 +1,12 @@
 import { auditRepository, roomRepository } from '../db/repositories'
 import { saveRoomConfig } from '../configuration/operator-configuration'
-import type { RoomDesiredState, RoomRecord } from '../domain/types'
+import type {
+    ProviderApi,
+    RoomDesiredState,
+    RoomProviderMode,
+    RoomRecord,
+    RoomToolProfile,
+} from '../domain/types'
 import { archiveFailedRoomFilesystemLayout } from './room-paths'
 import { assertRoomSetupReady } from './runtime-readiness'
 import { roomRuntimeManager } from './runtime-manager'
@@ -19,20 +25,14 @@ export async function createRoom(input: {
     createdByUserId: string
     startImmediately?: boolean
     instructions?: string
-    providerMode?: 'app_default' | 'app_connection' | 'room_secret'
+    providerMode?: RoomProviderMode
     providerConnectionId?: string | null
     provider?: string | null
-    providerApi?:
-        | 'openai-responses'
-        | 'openai-completions'
-        | 'openai-codex-responses'
-        | 'anthropic-messages'
-        | 'google-generative-ai'
-        | null
+    providerApi?: ProviderApi | null
     providerBaseUrl?: string | null
     providerModel?: string | null
     providerApiKey?: string
-    toolsProfile?: string
+    toolsProfile?: RoomToolProfile
     cronTimezone?: string
     mcpConnectionIds?: string[]
     initialCron?: {

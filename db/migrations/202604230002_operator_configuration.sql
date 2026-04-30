@@ -67,7 +67,7 @@ CREATE TABLE room_configs (
     provider_base_url TEXT,
     provider_model TEXT,
     provider_secret_id UUID REFERENCES secrets(id) ON DELETE SET NULL,
-    tools_profile TEXT NOT NULL DEFAULT 'coding',
+    tools_profile TEXT NOT NULL CHECK (tools_profile IN ('coding', 'minimal', 'read-only')) DEFAULT 'coding',
     cron_timezone TEXT NOT NULL DEFAULT 'UTC',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()

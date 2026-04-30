@@ -6,7 +6,7 @@ function createReadiness(input?: {
     issueMessage?: string
 }): RoomSetupReadinessSnapshot {
     return {
-        command: 'openclaw',
+        command: 'bun',
         generatedAt: '2026-04-21T00:00:00.000Z',
         hasBlockingIssues: input?.hasBlockingIssues ?? false,
         issues:
@@ -16,8 +16,7 @@ function createReadiness(input?: {
                           code: 'runtime_command_unavailable',
                           severity: 'blocking',
                           message:
-                              input?.issueMessage ??
-                              'Bundled OpenClaw runtime command is unavailable',
+                              input?.issueMessage ?? 'Bundled Pi runtime command is unavailable',
                       },
                   ]
                 : [],
@@ -38,10 +37,9 @@ describe('runtime readiness helpers', () => {
             assertRoomSetupReady({
                 readiness: createReadiness({
                     hasBlockingIssues: true,
-                    issueMessage:
-                        'Bundled OpenClaw runtime command is unavailable: command probe failed',
+                    issueMessage: 'Bundled Pi runtime command is unavailable: command probe failed',
                 }),
             }),
-        ).toThrow('Bundled OpenClaw runtime command is unavailable: command probe failed')
+        ).toThrow('Bundled Pi runtime command is unavailable: command probe failed')
     })
 })

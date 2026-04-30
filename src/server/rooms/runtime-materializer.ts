@@ -48,6 +48,16 @@ async function removeStaleRuntimeSecrets(runtimeSecretsDir: string): Promise<voi
     )
 }
 
+export async function writeRuntimeFileMetadata(
+    path: string,
+    runtimeMetadata: RuntimeFileMetadata,
+): Promise<void> {
+    await writeFile(path, JSON.stringify(runtimeMetadata, null, 4), {
+        encoding: 'utf8',
+        mode: 0o600,
+    })
+}
+
 export async function materializeRuntime(input: {
     room: RoomRecord
     runtimeMetadata: RoomRuntimeMetadataRecord
@@ -85,8 +95,8 @@ export async function materializeRuntime(input: {
     const runtimeMetadata: RuntimeFileMetadata = {
         roomId: input.room.id,
         port,
-        pid: input.runtimeMetadata.pid,
-        startedAt: new Date().toISOString(),
+        pid: null,
+        startedAt: input.runtimeMetadata.startedAt?.toISOString() ?? new Date().toISOString(),
         configVersion: input.runtimeMetadata.configVersion,
         tokenVersion: input.runtimeMetadata.tokenVersion,
     }
@@ -99,21 +109,7 @@ export async function materializeRuntime(input: {
         encoding: 'utf8',
         mode: 0o600,
     })
-    await writeFile(paths.runtimeMetadataPath, JSON.stringify(runtimeMetadata, null, 4), {
-        encoding: 'utf8',
-        mode: 0o600,
-    })
-    if (roomConfiguration.instructions.trim()) {
-        await writeFile(
-            join(paths.workspaceDir, 'AGENTS.md'),
-            `${roomConfiguration.instructions.trim()}\n`,
-            {
-                encoding: 'utf8',
-                mode: 0o600,
-            },
-        )
-    }
-
+    await writeRuntimeFileMetadata(paths.runtimeMetadataPath, runtimeMetadata)
     return {
         port,
         token,

@@ -1,8 +1,5 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { readFile, rm, writeFile } from 'node:fs/promises'
-import { createServer, type Server } from 'node:net'
-import { join } from 'node:path'
-import { setTimeout as delay } from 'node:timers/promises'
+import { randomUUID } from 'node:crypto'
+import { AuthStorage } from '@mariozechner/pi-coding-agent'
 import {
     appProviderConnectionRepository,
     appSettingsRepository,
@@ -10,15 +7,9 @@ import {
     roomConfigRepository,
     roomRepository,
 } from '../db/repositories'
-import type {
-    AppProviderConnectionRecord,
-    MaterializedRoomConfiguration,
-    ProviderApi,
-} from '../domain/types'
-import { buildOpenClawRuntimeConfig } from '../rooms/openclaw-config'
+import type { AppProviderConnectionRecord, ProviderApi } from '../domain/types'
 import { ensureRoomFilesystemLayout } from '../rooms/room-paths'
-import { inspectCodexAuthStatus } from './codex-auth'
-import { resolveProviderBaseUrl } from './provider-config'
+import { getCodexAuthProfilePath, inspectCodexAuthStatus } from './codex-auth'
 
 export const codexOAuthSessionStatuses = [
     'idle',
@@ -46,12 +37,8 @@ export interface CodexOAuthSessionSnapshot {
 
 interface CodexOAuthTarget {
     roomId: string
-    displayName: string
     provider: string
     api: ProviderApi
-    baseUrl: string | null
-    model: string
-    fallbackModels: string[]
 }
 
 interface CodexOAuthSessionState {
@@ -64,68 +51,14 @@ interface CodexOAuthSessionState {
     startedAt: Date
     updatedAt: Date
     completedAt: Date | null
-    output: string
-    authUrlPath: string | null
-    callbackPortBlocker: Server | null
-    child: ChildProcessWithoutNullStreams | null
+    manualResolve: ((value: string) => void) | null
+    manualReject: ((error: Error) => void) | null
     timeout: ReturnType<typeof setTimeout> | null
+    flowId: string
 }
 
 const sessions = new Map<string, CodexOAuthSessionState>()
-const openAICodexAuthorizeUrlPattern = /https:\/\/auth\.openai\.com\/oauth\/authorize\?[^\s"'<>]+/
 const codexOAuthTimeoutMs = 15 * 60 * 1000
-const openClawOAuthExpectScript = [
-    'log_user 1',
-    'set timeout -1',
-    'spawn -noecho openclaw models auth login --provider openai-codex --method oauth',
-    'expect {',
-    '    -re {https://auth\\.openai\\.com/oauth/authorize[^[:space:]<>]+} {',
-    '        if {[info exists env(AGENT_ROOM_CODEX_OAUTH_URL_FILE)]} {',
-    '            set url_file [open $env(AGENT_ROOM_CODEX_OAUTH_URL_FILE) w]',
-    '            puts $url_file $expect_out(0,string)',
-    '            close $url_file',
-    '        }',
-    '        puts "\\n$expect_out(0,string)\\n"',
-    '        flush stdout',
-    '    }',
-    '    eof { exit 1 }',
-    '}',
-    'expect_user -re {(.+)\\r?\\n}',
-    'send -- "$expect_out(1,string)\\r"',
-    'set result [wait]',
-    'exit [lindex $result 3]',
-].join('\n')
-const escapeCharacter = String.fromCharCode(27)
-const bellCharacter = String.fromCharCode(7)
-const oscAnsiPattern = new RegExp(
-    `${escapeCharacter}\\][\\s\\S]*?(?:${bellCharacter}|${escapeCharacter}\\\\)`,
-    'g',
-)
-const csiAnsiPattern = new RegExp(`${escapeCharacter}\\[[0-?]*[ -/]*[@-~]`, 'g')
-
-function stripAnsi(value: string): string {
-    return value.replace(oscAnsiPattern, '').replace(csiAnsiPattern, '')
-}
-
-function chunkToText(chunk: Buffer | Uint8Array | string): string {
-    if (typeof chunk === 'string') {
-        return chunk
-    }
-    return Buffer.from(chunk).toString('utf8')
-}
-
-export function extractOpenAICodexAuthUrl(output: string): string | null {
-    const sanitized = stripAnsi(output)
-    const match = sanitized.match(openAICodexAuthorizeUrlPattern)
-    return match ? match[0] : null
-}
-
-function toStringArray(value: unknown): string[] {
-    if (!Array.isArray(value)) {
-        return []
-    }
-    return value.filter((entry): entry is string => typeof entry === 'string')
-}
 
 function isCodexProvider(provider: AppProviderConnectionRecord): boolean {
     return provider.provider === 'openai-codex' || provider.api === 'openai-codex-responses'
@@ -179,16 +112,18 @@ function updateSession(
     patch: Partial<
         Pick<
             CodexOAuthSessionState,
-            'status' | 'authUrl' | 'message' | 'completedAt' | 'child' | 'timeout'
+            | 'status'
+            | 'authUrl'
+            | 'message'
+            | 'completedAt'
+            | 'manualResolve'
+            | 'manualReject'
+            | 'timeout'
         >
     >,
 ) {
     Object.assign(session, patch)
     session.updatedAt = new Date()
-}
-
-function sessionWasCancelled(session: CodexOAuthSessionState): boolean {
-    return session.status === 'cancelled'
 }
 
 async function appendCodexAudit(input: {
@@ -206,79 +141,6 @@ async function appendCodexAudit(input: {
             status: input.status,
             message: input.message,
         },
-    })
-}
-
-async function waitForAuthUrl(session: CodexOAuthSessionState, timeoutMs: number) {
-    const deadline = Date.now() + timeoutMs
-    while (
-        Date.now() < deadline &&
-        session.status === 'starting' &&
-        !session.authUrl &&
-        session.child
-    ) {
-        await readAuthUrlFile(session)
-        await delay(100)
-    }
-    await readAuthUrlFile(session)
-}
-
-async function readAuthUrlFile(session: CodexOAuthSessionState) {
-    if (!session.authUrlPath || session.authUrl) {
-        return
-    }
-
-    try {
-        const output = await readFile(session.authUrlPath, 'utf8')
-        const authUrl = extractOpenAICodexAuthUrl(output)
-        if (authUrl) {
-            updateSession(session, {
-                status: 'awaiting_redirect',
-                authUrl,
-                message: 'OpenAI Codex OAuth URL is ready',
-            })
-            await rm(session.authUrlPath, {
-                force: true,
-            })
-        }
-    } catch (error) {
-        if (
-            typeof error === 'object' &&
-            error !== null &&
-            'code' in error &&
-            String((error as { code: unknown }).code) === 'ENOENT'
-        ) {
-            return
-        }
-        throw error
-    }
-}
-
-async function removeAuthUrlFile(session: CodexOAuthSessionState) {
-    if (!session.authUrlPath) {
-        return
-    }
-    await rm(session.authUrlPath, {
-        force: true,
-    })
-}
-
-async function reserveCodexCallbackPort(): Promise<Server | null> {
-    return new Promise((resolve) => {
-        const server = createServer()
-        server.once('error', () => resolve(null))
-        server.listen(1455, '127.0.0.1', () => resolve(server))
-    })
-}
-
-async function closeCallbackPortBlocker(session: CodexOAuthSessionState) {
-    const server = session.callbackPortBlocker
-    if (!server) {
-        return
-    }
-    session.callbackPortBlocker = null
-    await new Promise<void>((resolve) => {
-        server.close(() => resolve())
     })
 }
 
@@ -321,184 +183,103 @@ async function resolveCodexOAuthTarget(roomId: string): Promise<CodexOAuthTarget
 
     return {
         roomId,
-        displayName: room.displayName,
         provider: provider.provider,
         api: provider.api,
-        baseUrl: provider.baseUrl,
-        model:
-            config.providerMode === 'app_default'
-                ? (settings.defaultModel ?? provider.defaultModel)
-                : provider.defaultModel,
-        fallbackModels: toStringArray(provider.fallbackModels),
     }
 }
 
-async function writeCodexAuthRuntimeConfig(target: CodexOAuthTarget): Promise<string> {
-    const paths = await ensureRoomFilesystemLayout(target.roomId)
-    const roomConfiguration: MaterializedRoomConfiguration = {
-        instructions: '',
-        toolsProfile: 'coding',
-        provider: {
-            provider: target.provider,
-            authMode: 'oauth',
-            api: target.api,
-            model: target.model,
-            fallbackModels: target.fallbackModels,
-            baseUrl: resolveProviderBaseUrl({
-                provider: target.provider,
-                api: target.api,
-                baseUrl: target.baseUrl,
-            }),
-            envKey: null,
-        },
-        entitlements: {
-            env: {},
-            secretRefs: [],
-            mcpServers: [],
-        },
+async function finalizeSession(input: {
+    session: CodexOAuthSessionState
+    status: CodexOAuthSessionStatus
+    message: string
+    action: string
+}) {
+    if (input.session.timeout) {
+        clearTimeout(input.session.timeout)
     }
-    const config = buildOpenClawRuntimeConfig({
-        roomId: target.roomId,
-        displayName: target.displayName,
-        port: 1456,
-        paths,
-        roomConfiguration,
-    })
-
-    await writeFile(paths.runtimeConfigPath, JSON.stringify(config, null, 4), {
-        encoding: 'utf8',
-        mode: 0o600,
-    })
-    return paths.runtimeConfigPath
-}
-
-async function finalizeSession(session: CodexOAuthSessionState, exitCode: number | null) {
-    if (session.timeout) {
-        clearTimeout(session.timeout)
-    }
-    await removeAuthUrlFile(session)
-    await closeCallbackPortBlocker(session)
-    updateSession(session, {
-        child: null,
-        timeout: null,
+    updateSession(input.session, {
+        status: input.status,
+        message: input.message,
+        authUrl: input.status === 'complete' ? input.session.authUrl : null,
         completedAt: new Date(),
-    })
-
-    if (session.status === 'expired') {
-        await appendCodexAudit({
-            actorUserId: session.actorUserId,
-            roomId: session.roomId,
-            action: 'codex_oauth.expired',
-            status: session.status,
-            message: session.message,
-        })
-        return
-    }
-
-    if (sessionWasCancelled(session)) {
-        return
-    }
-
-    if (exitCode !== 0) {
-        updateSession(session, {
-            status: 'failed',
-            authUrl: null,
-            message: `OpenClaw OAuth process exited with code ${String(exitCode)}`,
-        })
-        await appendCodexAudit({
-            actorUserId: session.actorUserId,
-            roomId: session.roomId,
-            action: 'codex_oauth.failed',
-            status: session.status,
-            message: session.message,
-        })
-        return
-    }
-
-    await delay(250)
-    if (sessionWasCancelled(session)) {
-        return
-    }
-
-    const authStatus = await inspectCodexAuthStatus(session.roomId)
-    if (sessionWasCancelled(session)) {
-        return
-    }
-
-    if (authStatus.ready) {
-        updateSession(session, {
-            status: 'complete',
-            message: authStatus.message,
-        })
-        await appendCodexAudit({
-            actorUserId: session.actorUserId,
-            roomId: session.roomId,
-            action: 'codex_oauth.completed',
-            status: session.status,
-            message: 'OpenAI Codex OAuth profile stored for room',
-        })
-        return
-    }
-
-    updateSession(session, {
-        status: 'failed',
-        authUrl: null,
-        message: authStatus.message,
+        manualResolve: null,
+        manualReject: null,
+        timeout: null,
     })
     await appendCodexAudit({
-        actorUserId: session.actorUserId,
-        roomId: session.roomId,
-        action: 'codex_oauth.failed',
-        status: session.status,
-        message: session.message,
+        actorUserId: input.session.actorUserId,
+        roomId: input.session.roomId,
+        action: input.action,
+        status: input.status,
+        message: input.message,
     })
 }
 
-function attachOutputHandlers(session: CodexOAuthSessionState) {
-    const child = session.child
-    if (!child) {
-        return
-    }
+async function runPiCodexLogin(session: CodexOAuthSessionState, target: CodexOAuthTarget) {
+    try {
+        await ensureRoomFilesystemLayout(target.roomId)
+        const authStorage = AuthStorage.create(session.profilePath)
+        await authStorage.login('openai-codex', {
+            onAuth: (info) => {
+                updateSession(session, {
+                    status: 'awaiting_redirect',
+                    authUrl: info.url,
+                    message: 'OpenAI Codex OAuth URL is ready',
+                })
+            },
+            onPrompt: async () =>
+                new Promise<string>((resolve, reject) => {
+                    updateSession(session, {
+                        status: 'awaiting_redirect',
+                        message: 'Paste the OpenAI Codex redirect URL to finish login',
+                        manualResolve: resolve,
+                        manualReject: reject,
+                    })
+                }),
+            onProgress: (message) => {
+                if (session.status !== 'cancelled' && session.status !== 'expired') {
+                    updateSession(session, {
+                        message,
+                    })
+                }
+            },
+            onManualCodeInput: () =>
+                new Promise<string>((resolve, reject) => {
+                    updateSession(session, {
+                        manualResolve: resolve,
+                        manualReject: reject,
+                    })
+                }),
+        })
 
-    const onData = (chunk: Buffer | Uint8Array | string) => {
-        session.output = `${session.output}${stripAnsi(chunkToText(chunk))}`.slice(-12000)
-        const authUrl = extractOpenAICodexAuthUrl(session.output)
-        if (authUrl && session.authUrl !== authUrl) {
-            updateSession(session, {
-                status: 'awaiting_redirect',
-                authUrl,
-                message: 'OpenAI Codex OAuth URL is ready',
+        const authStatus = await inspectCodexAuthStatus(session.roomId)
+        if (authStatus.ready) {
+            await finalizeSession({
+                session,
+                status: 'complete',
+                message: authStatus.message,
+                action: 'codex_oauth.completed',
             })
+            return
         }
-    }
 
-    child.stdout.on('data', onData)
-    child.stderr.on('data', onData)
-    child.on('error', (error) => {
-        void removeAuthUrlFile(session)
-        void closeCallbackPortBlocker(session)
-        updateSession(session, {
+        await finalizeSession({
+            session,
             status: 'failed',
-            authUrl: null,
-            message: error.message,
-            child: null,
-            completedAt: new Date(),
-        })
-        if (session.timeout) {
-            clearTimeout(session.timeout)
-            session.timeout = null
-        }
-        void appendCodexAudit({
-            actorUserId: session.actorUserId,
-            roomId: session.roomId,
+            message: authStatus.message,
             action: 'codex_oauth.failed',
-            status: session.status,
-            message: session.message,
         })
-    })
-    child.on('exit', (exitCode) => {
-        void finalizeSession(session, exitCode)
-    })
+    } catch (error) {
+        if (session.status === 'cancelled' || session.status === 'expired') {
+            return
+        }
+        await finalizeSession({
+            session,
+            status: 'failed',
+            message: error instanceof Error ? error.message : 'OpenAI Codex OAuth failed',
+            action: 'codex_oauth.failed',
+        })
+    }
 }
 
 export async function getCodexOAuthSessionSnapshot(
@@ -506,9 +287,6 @@ export async function getCodexOAuthSessionSnapshot(
 ): Promise<CodexOAuthSessionSnapshot> {
     const existing = sessions.get(roomId)
     if (existing) {
-        if (existing.status === 'starting' && !existing.authUrl) {
-            await readAuthUrlFile(existing)
-        }
         return toSnapshot(existing)
     }
 
@@ -530,51 +308,26 @@ export async function startCodexOAuthSession(
     actorUserId: string,
 ): Promise<CodexOAuthSessionSnapshot> {
     const current = sessions.get(roomId)
-    if (
-        current?.child &&
-        ['starting', 'awaiting_redirect', 'submitting'].includes(current.status)
-    ) {
+    if (current && ['starting', 'awaiting_redirect', 'submitting'].includes(current.status)) {
         return toSnapshot(current)
     }
 
-    if (current?.child) {
-        current.child.kill('SIGTERM')
-    }
-
     const target = await resolveCodexOAuthTarget(roomId)
-    const runtimeConfigPath = await writeCodexAuthRuntimeConfig(target)
-    const paths = await ensureRoomFilesystemLayout(roomId)
-    const profilePath = (await inspectCodexAuthStatus(roomId)).profilePath
-    const authUrlPath = join(paths.runtimeDir, 'codex-oauth-url.txt')
-    await rm(authUrlPath, {
-        force: true,
-    })
-    const callbackPortBlocker = await reserveCodexCallbackPort()
-    const child = spawn('expect', ['-c', openClawOAuthExpectScript], {
-        env: {
-            ...process.env,
-            NO_COLOR: '1',
-            AGENT_ROOM_CODEX_OAUTH_URL_FILE: authUrlPath,
-            OPENCLAW_CONFIG_PATH: runtimeConfigPath,
-            OPENCLAW_STATE_DIR: paths.engineStateDir,
-        },
-        stdio: 'pipe',
-    })
+    const profilePath = getCodexAuthProfilePath(roomId)
     const session: CodexOAuthSessionState = {
         roomId,
         actorUserId,
         status: 'starting',
         authUrl: null,
         profilePath,
-        message: 'Starting OpenAI Codex OAuth with OpenClaw',
+        message: 'Starting OpenAI Codex OAuth with Pi',
         startedAt: new Date(),
         updatedAt: new Date(),
         completedAt: null,
-        output: '',
-        authUrlPath,
-        callbackPortBlocker,
-        child,
+        manualResolve: null,
+        manualReject: null,
         timeout: null,
+        flowId: randomUUID(),
     }
     session.timeout = setTimeout(() => {
         updateSession(session, {
@@ -583,20 +336,26 @@ export async function startCodexOAuthSession(
             message: 'OpenAI Codex OAuth session expired before completion',
             completedAt: new Date(),
         })
-        child.kill('SIGTERM')
+        session.manualReject?.(new Error('OpenAI Codex OAuth session expired before completion'))
+        void appendCodexAudit({
+            actorUserId: session.actorUserId,
+            roomId: session.roomId,
+            action: 'codex_oauth.expired',
+            status: session.status,
+            message: session.message,
+        })
     }, codexOAuthTimeoutMs)
     sessions.set(roomId, session)
-    attachOutputHandlers(session)
 
     await appendCodexAudit({
         actorUserId,
         roomId,
         action: 'codex_oauth.started',
         status: session.status,
-        message: 'Started OpenAI Codex OAuth process',
+        message: 'Started OpenAI Codex OAuth process through Pi',
     })
 
-    await waitForAuthUrl(session, 10_000)
+    void runPiCodexLogin(session, target)
 
     return toSnapshot(session)
 }
@@ -607,7 +366,7 @@ export async function submitCodexOAuthRedirect(input: {
     actorUserId: string
 }): Promise<CodexOAuthSessionSnapshot> {
     const session = sessions.get(input.roomId)
-    if (!session?.child) {
+    if (!session) {
         throw new Error('No active OpenAI Codex OAuth session for this room')
     }
     if (session.actorUserId !== input.actorUserId) {
@@ -618,11 +377,19 @@ export async function submitCodexOAuthRedirect(input: {
     }
 
     const redirectUrl = validateRedirectUrlValue(input.redirectUrl)
+    const resolve = session.manualResolve
+    if (!resolve) {
+        throw new Error('OpenAI Codex OAuth session is not ready for manual redirect input')
+    }
     updateSession(session, {
         status: 'submitting',
-        message: 'Submitting redirect URL to OpenClaw',
+        message: 'Submitting redirect URL to Pi',
     })
-    session.child.stdin.write(`${redirectUrl}\n`)
+    resolve(redirectUrl)
+    updateSession(session, {
+        manualResolve: null,
+        manualReject: null,
+    })
     return toSnapshot(session)
 }
 
@@ -637,23 +404,19 @@ export async function cancelCodexOAuthSession(input: {
     if (session.actorUserId !== input.actorUserId) {
         throw new Error('OpenAI Codex OAuth session was started by another operator')
     }
-    const child = session.child
+    if (session.timeout) {
+        clearTimeout(session.timeout)
+    }
+    session.manualReject?.(new Error('OpenAI Codex OAuth session cancelled'))
     updateSession(session, {
         status: 'cancelled',
         authUrl: null,
         message: 'OpenAI Codex OAuth session cancelled',
-        child: null,
         completedAt: new Date(),
+        manualResolve: null,
+        manualReject: null,
+        timeout: null,
     })
-    await removeAuthUrlFile(session)
-    await closeCallbackPortBlocker(session)
-    if (session.timeout) {
-        clearTimeout(session.timeout)
-        session.timeout = null
-    }
-    if (child) {
-        child.kill('SIGTERM')
-    }
     await appendCodexAudit({
         actorUserId: input.actorUserId,
         roomId: input.roomId,
@@ -665,8 +428,5 @@ export async function cancelCodexOAuthSession(input: {
 }
 
 export const __testing = {
-    chunkToText,
-    openClawOAuthExpectScript,
-    stripAnsi,
     validateRedirectUrlValue,
 }

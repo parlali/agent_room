@@ -51,6 +51,7 @@ import {
     removeCronJobServer,
     runCronJobServer,
     setCronEnabledServer,
+    updateCronJobServer,
 } from '#/routes/-room-runtime-server'
 import { requireRouteUser } from '#/routes/-route-auth'
 import type { RoomCronJob } from '#/server/rooms/execution-types'
@@ -120,8 +121,13 @@ function RoomJobsPage() {
 
     const editMutation = useMutation({
         mutationFn: async (input: { previous: RoomCronJob; form: JobFormState }) => {
-            await removeCronJobServer({ data: { roomId, jobId: input.previous.id } })
-            return createCronJobServer({ data: { roomId, ...input.form } })
+            return updateCronJobServer({
+                data: {
+                    roomId,
+                    jobId: input.previous.id,
+                    ...input.form,
+                },
+            })
         },
         onSuccess: async () => {
             await invalidate()

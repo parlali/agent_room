@@ -104,3 +104,15 @@ void import('../src/server/rooms/runtime-supervisor-bootstrap')
             error instanceof Error ? error.message : error,
         )
     })
+
+void import('../src/server/rooms/cron-scheduler')
+    .then(({ startRoomCronScheduler }) => {
+        startRoomCronScheduler()
+        console.log('Room cron scheduler started')
+    })
+    .catch((error) => {
+        console.error(
+            'Room cron scheduler startup failed',
+            error instanceof Error ? error.message : error,
+        )
+    })

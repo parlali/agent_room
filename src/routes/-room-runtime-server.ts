@@ -1,7 +1,12 @@
 import { createServerFn } from '@tanstack/react-start'
 import { setResponseHeaders } from '@tanstack/react-start/server'
 import { z } from 'zod'
-import { roomDesiredStates } from '#/server/domain/types'
+import {
+    providerApis,
+    roomDesiredStates,
+    roomProviderModes,
+    roomToolProfiles,
+} from '#/server/domain/types'
 
 const roomExecutionInputSchema = z.object({
     roomId: z.string().min(1),
@@ -34,6 +39,10 @@ const createCronJobInputSchema = z.object({
     name: z.string().min(1),
     message: z.string().min(1),
     everyMinutes: z.number().int().positive(),
+})
+
+const updateCronJobInputSchema = createCronJobInputSchema.extend({
+    jobId: z.string().min(1),
 })
 
 const setCronEnabledInputSchema = z.object({
@@ -76,23 +85,14 @@ const createRoomInputSchema = z.object({
     slug: z.string().min(1).nullable().optional(),
     startImmediately: z.boolean().optional(),
     instructions: z.string().optional(),
-    providerMode: z.enum(['app_default', 'app_connection', 'room_secret']).optional(),
+    providerMode: z.enum(roomProviderModes).optional(),
     providerConnectionId: z.string().uuid().nullable().optional(),
     provider: z.string().nullable().optional(),
-    providerApi: z
-        .enum([
-            'openai-responses',
-            'openai-completions',
-            'openai-codex-responses',
-            'anthropic-messages',
-            'google-generative-ai',
-        ])
-        .nullable()
-        .optional(),
+    providerApi: z.enum(providerApis).nullable().optional(),
     providerBaseUrl: z.string().nullable().optional(),
     providerModel: z.string().nullable().optional(),
     providerApiKey: z.string().optional(),
-    toolsProfile: z.string().min(1).optional(),
+    toolsProfile: z.enum(roomToolProfiles).optional(),
     cronTimezone: z.string().min(1).optional(),
     mcpConnectionIds: z.array(z.string().uuid()).optional(),
     initialCron: z
@@ -280,6 +280,21 @@ export const createCronJobServer = createServerFn({ method: 'POST' })
         const { createRoomCronJob } = await import('#/server/rooms/execution-engine')
         return createRoomCronJob({
             roomId: data.roomId,
+            name: data.name,
+            message: data.message,
+            everyMinutes: data.everyMinutes,
+        })
+    })
+
+export const updateCronJobServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => updateCronJobInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        await requireMutationActor()
+        await ensureRuntimeSupervisorBoot()
+        const { updateRoomCronJob } = await import('#/server/rooms/execution-engine')
+        return updateRoomCronJob({
+            roomId: data.roomId,
+            jobId: data.jobId,
             name: data.name,
             message: data.message,
             everyMinutes: data.everyMinutes,

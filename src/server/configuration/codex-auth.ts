@@ -87,7 +87,8 @@ function profileIsExpired(value: JsonValue, nowMs: number): boolean {
 
     const expires = value.expires
     if (typeof expires === 'number') {
-        return expires < nowMs || expires < Math.floor(nowMs / 1000)
+        const expiresMs = expires < 100_000_000_000 ? expires * 1000 : expires
+        return expiresMs < nowMs
     }
     if (typeof expires === 'string') {
         const parsed = Date.parse(expires)
@@ -99,15 +100,12 @@ function profileIsExpired(value: JsonValue, nowMs: number): boolean {
 
 function buildSetupCommand(roomId: string): string {
     const paths = getRoomPaths(roomId)
-    return [
-        'docker compose exec app sh -lc',
-        `'OPENCLAW_STATE_DIR=${paths.engineStateDir} OPENCLAW_CONFIG_PATH=${paths.runtimeConfigPath} openclaw models auth login --provider openai-codex'`,
-    ].join(' ')
+    return `Use the room dashboard to generate a Codex OAuth link for ${paths.engineStateDir}`
 }
 
 export function getCodexAuthProfilePath(roomId: string): string {
     const paths = getRoomPaths(roomId)
-    return join(paths.engineStateDir, 'agents', 'main', 'agent', 'auth-profiles.json')
+    return join(paths.engineStateDir, 'auth.json')
 }
 
 export async function inspectCodexAuthStatus(roomId: string): Promise<CodexAuthStatus> {
@@ -165,4 +163,8 @@ export async function inspectCodexAuthStatus(roomId: string): Promise<CodexAuthS
         setupCommand,
         message: `OpenAI Codex OAuth profile ${usable.profileId ?? 'default'} is available for this room`,
     }
+}
+
+export const __testing = {
+    profileIsExpired,
 }

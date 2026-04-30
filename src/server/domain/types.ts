@@ -1,15 +1,6 @@
 export const roomStatuses = ['starting', 'running', 'stopped', 'degraded', 'failed'] as const
 export const roomDesiredStates = ['running', 'stopped'] as const
 export const userRoles = ['root', 'operator'] as const
-export const entitlementKinds = [
-    'provider_credential',
-    'mail',
-    'calendar',
-    'github',
-    'mcp',
-    'webhook',
-] as const
-export const entitlementStatuses = ['active', 'revoked'] as const
 export const healthStatuses = ['unknown', 'healthy', 'unhealthy'] as const
 export const artifactKinds = ['attachment', 'artifact'] as const
 export const connectionStatuses = ['unchecked', 'ready', 'invalid'] as const
@@ -25,12 +16,12 @@ export const mcpTransports = ['stdio', 'http', 'streamable_http'] as const
 export const mcpAuthModes = ['none', 'bearer'] as const
 export const roomProviderModes = ['app_default', 'app_connection', 'room_secret'] as const
 export const roomSecretPurposes = ['provider_api_key', 'generic', 'webhook'] as const
+export const roomToolProfiles = ['coding', 'minimal', 'read-only'] as const
+export const cronRunStatuses = ['running', 'complete', 'failed', 'skipped'] as const
 
 export type RoomStatus = (typeof roomStatuses)[number]
 export type RoomDesiredState = (typeof roomDesiredStates)[number]
 export type UserRole = (typeof userRoles)[number]
-export type EntitlementKind = (typeof entitlementKinds)[number]
-export type EntitlementStatus = (typeof entitlementStatuses)[number]
 export type HealthStatus = (typeof healthStatuses)[number]
 export type ArtifactKind = (typeof artifactKinds)[number]
 export type ConnectionStatus = (typeof connectionStatuses)[number]
@@ -40,6 +31,8 @@ export type McpTransport = (typeof mcpTransports)[number]
 export type McpAuthMode = (typeof mcpAuthModes)[number]
 export type RoomProviderMode = (typeof roomProviderModes)[number]
 export type RoomSecretPurpose = (typeof roomSecretPurposes)[number]
+export type RoomToolProfile = (typeof roomToolProfiles)[number]
+export type CronRunStatus = (typeof cronRunStatuses)[number]
 
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
@@ -96,21 +89,6 @@ export interface SecretRecord {
     nonce: Buffer
     authTag: Buffer
     keyVersion: number
-    createdAt: Date
-    updatedAt: Date
-}
-
-export interface RoomEntitlementRecord {
-    id: string
-    roomId: string
-    kind: EntitlementKind
-    provider: string
-    accountId: string | null
-    serverId: string | null
-    scope: JsonValue
-    secretId: string | null
-    status: EntitlementStatus
-    version: number
     createdAt: Date
     updatedAt: Date
 }
@@ -172,7 +150,7 @@ export interface RoomConfigRecord {
     providerBaseUrl: string | null
     providerModel: string | null
     providerSecretId: string | null
-    toolsProfile: string
+    toolsProfile: RoomToolProfile
     cronTimezone: string
     createdAt: Date
     updatedAt: Date
@@ -224,6 +202,51 @@ export interface AuditEventRecord {
     createdAt: Date
 }
 
+export interface RoomCronJobRecord {
+    id: string
+    roomId: string
+    name: string
+    message: string
+    enabled: boolean
+    everyMinutes: number
+    timezone: string
+    sessionTarget: 'isolated' | 'selected'
+    targetThreadKey: string | null
+    nextRunAt: Date | null
+    runningAt: Date | null
+    lockedUntil: Date | null
+    lockToken: string | null
+    lastRunAt: Date | null
+    lastRunStatus: string | null
+    lastError: string | null
+    lastDurationMs: number | null
+    provider: string | null
+    model: string | null
+    configVersion: number | null
+    createdAt: Date
+    updatedAt: Date
+}
+
+export interface RoomCronRunRecord {
+    id: string
+    roomId: string
+    jobId: string | null
+    jobName: string | null
+    attempt: number
+    status: CronRunStatus
+    summary: string | null
+    error: string | null
+    sessionKey: string | null
+    sessionId: string | null
+    provider: string | null
+    model: string | null
+    configVersion: number | null
+    startedAt: Date
+    finishedAt: Date | null
+    durationMs: number | null
+    nextRunAt: Date | null
+}
+
 export interface RoomPaths {
     roomRootDir: string
     runtimeDir: string
@@ -247,7 +270,7 @@ export interface RuntimeFileMetadata {
     roomId: string
     port: number
     pid: number | null
-    startedAt: string
+    startedAt: string | null
     configVersion: number
     tokenVersion: number
 }
@@ -305,97 +328,7 @@ export interface MaterializedProviderConfig {
 
 export interface MaterializedRoomConfiguration {
     instructions: string
-    toolsProfile: string
+    toolsProfile: RoomToolProfile
     provider: MaterializedProviderConfig
     entitlements: MaterializedEntitlements
-}
-
-export interface OpenClawRuntimeConfig {
-    env: {
-        shellEnv: {
-            enabled: boolean
-        }
-    }
-    gateway: {
-        mode: 'local'
-        bind: 'loopback'
-        port: number
-        controlUi: {
-            enabled: boolean
-        }
-        auth: {
-            mode: 'token'
-        }
-    }
-    agents: {
-        defaults: {
-            workspace: string
-            model?: {
-                primary: string
-                fallbacks?: string[]
-            }
-            models?: Record<
-                string,
-                {
-                    params: Record<string, string | number | boolean>
-                }
-            >
-        }
-        list?: Array<{
-            id: string
-            default: boolean
-            name: string
-            workspace: string
-            agentDir: string
-            model: {
-                primary: string
-                fallbacks?: string[]
-            }
-            identity: {
-                name: string
-                theme: string
-            }
-            tools: {
-                profile: string
-            }
-            instructions?: string
-        }>
-    }
-    tools: {
-        profile: string
-    }
-    models?: {
-        mode: 'merge'
-        providers: Record<
-            string,
-            {
-                baseUrl?: string
-                apiKey?: string
-                api: ProviderApi
-                models: Array<{
-                    id: string
-                    name: string
-                    contextTokens?: number
-                }>
-            }
-        >
-    }
-    auth?: {
-        order?: Record<string, string[]>
-    }
-    mcp: {
-        servers: Record<
-            string,
-            {
-                command?: string
-                args?: string[]
-                env?: Record<string, string | number | boolean>
-                cwd?: string
-                workingDirectory?: string
-                url?: string
-                transport?: 'streamable-http'
-                headers?: Record<string, string | number | boolean>
-            }
-        >
-    }
 }

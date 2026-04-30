@@ -1,4 +1,4 @@
-import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
+import { Link, Outlet, createFileRoute, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import {
@@ -41,6 +41,18 @@ export const Route = createFileRoute('/rooms/$roomId')({
 
 function RoomHomePage() {
     const { roomId } = Route.useParams()
+    const pathname = useRouterState({
+        select: (state) => state.location.pathname,
+    })
+
+    if (pathname !== `/rooms/${roomId}`) {
+        return <Outlet />
+    }
+
+    return <RoomHomeContent roomId={roomId} />
+}
+
+function RoomHomeContent({ roomId }: { roomId: string }) {
     const navigate = useNavigate()
     const queryClient = useQueryClient()
 

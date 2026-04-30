@@ -6,6 +6,7 @@ import { mkdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { auditRepository, roomRepository } from '../db/repositories'
 import type { RoomRecord, RoomRuntimeMetadataRecord } from '../domain/types'
+import { buildBoundedProcessEnv } from '../security/process-env'
 import { loopbackPortAllocator } from './port-allocator'
 import {
     consumeRoomStopping,
@@ -14,6 +15,7 @@ import {
     hasRuntimeProcess,
     markRoomStopping,
     setRuntimeProcess,
+    withRuntimeStartLock,
 } from './runtime-process-store'
 import { collectRuntimeHealthSnapshot, writeRuntimeHealthSnapshot } from './runtime-health'
 import {
@@ -22,6 +24,7 @@ import {
     materializeRoomRuntime,
     persistRuntimeMetadata,
 } from './runtime-persistence'
+import { writeRuntimeFileMetadata } from './runtime-materializer'
 import { ensureRoomFilesystemLayout } from './room-paths'
 import { getRuntimeEngineProfile } from './runtime-engine-profile'
 
@@ -131,7 +134,26 @@ function buildMaterializationMetadata(
     }
 }
 
-export async function startRoomProcess(room: RoomRecord): Promise<void> {
+async function writeRoomRuntimeMetadataFile(input: {
+    path: string
+    roomId: string
+    port: number
+    pid: number | null
+    startedAt: Date | null
+    configVersion: number
+    tokenVersion: number
+}) {
+    await writeRuntimeFileMetadata(input.path, {
+        roomId: input.roomId,
+        port: input.port,
+        pid: input.pid,
+        startedAt: input.startedAt?.toISOString() ?? null,
+        configVersion: input.configVersion,
+        tokenVersion: input.tokenVersion,
+    })
+}
+
+async function startRoomProcessUnlocked(room: RoomRecord): Promise<void> {
     if (hasRuntimeProcess(room.id)) {
         return
     }
@@ -151,10 +173,7 @@ export async function startRoomProcess(room: RoomRecord): Promise<void> {
 
         const child = spawn(command.command, command.args, {
             cwd: paths.workspaceDir,
-            env: {
-                ...process.env,
-                ...materialized.env,
-            },
+            env: buildBoundedProcessEnv(materialized.env),
             stdio: 'pipe',
         })
         childProcess = child
@@ -166,6 +185,15 @@ export async function startRoomProcess(room: RoomRecord): Promise<void> {
 
         startupLogStream = await streamLogs(child, paths.runtimeLogPath)
         await roomRepository.updateRoomStatus(room.id, 'starting')
+        await writeRoomRuntimeMetadataFile({
+            path: paths.runtimeMetadataPath,
+            roomId: room.id,
+            port,
+            pid,
+            startedAt,
+            configVersion: materialized.configVersion,
+            tokenVersion: materialized.tokenVersion,
+        })
         await persistRuntimeMetadata({
             roomId: room.id,
             port,
@@ -214,6 +242,15 @@ export async function startRoomProcess(room: RoomRecord): Promise<void> {
         clearStartupFailureListeners()
 
         await roomRepository.updateRoomStatus(room.id, 'running')
+        await writeRoomRuntimeMetadataFile({
+            path: paths.runtimeMetadataPath,
+            roomId: room.id,
+            port,
+            pid,
+            startedAt,
+            configVersion: materialized.configVersion,
+            tokenVersion: materialized.tokenVersion,
+        })
         await persistRuntimeMetadata({
             roomId: room.id,
             port,
@@ -253,8 +290,18 @@ export async function startRoomProcess(room: RoomRecord): Promise<void> {
                 deleteRuntimeProcess(room.id)
             }
 
-            const status = consumeRoomStopping(room.id) || code === 0 ? 'stopped' : 'failed'
+            const stoppedCleanly = consumeRoomStopping(room.id) || code === 0
+            const status = stoppedCleanly ? 'stopped' : 'failed'
             await roomRepository.updateRoomStatus(room.id, status)
+            await writeRoomRuntimeMetadataFile({
+                path: paths.runtimeMetadataPath,
+                roomId: room.id,
+                port,
+                pid: null,
+                startedAt: null,
+                configVersion: materialized.configVersion,
+                tokenVersion: materialized.tokenVersion,
+            })
             await persistRuntimeMetadata({
                 roomId: room.id,
                 port,
@@ -292,6 +339,15 @@ export async function startRoomProcess(room: RoomRecord): Promise<void> {
 
         const currentMetadata = await getRuntimeMetadataOrCreate(room.id)
         await roomRepository.updateRoomStatus(room.id, 'failed')
+        await writeRoomRuntimeMetadataFile({
+            path: paths.runtimeMetadataPath,
+            roomId: room.id,
+            port,
+            pid: null,
+            startedAt: null,
+            configVersion: currentMetadata.configVersion,
+            tokenVersion: currentMetadata.tokenVersion,
+        })
         await persistRuntimeMetadata({
             roomId: room.id,
             port,
@@ -318,11 +374,29 @@ export async function startRoomProcess(room: RoomRecord): Promise<void> {
     }
 }
 
+export async function startRoomProcess(room: RoomRecord): Promise<void> {
+    await withRuntimeStartLock(room.id, async () => {
+        await startRoomProcessUnlocked(room)
+    })
+}
+
 export async function stopRoomProcess(roomId: string, actorUserId: string | null): Promise<void> {
     const running = getRuntimeProcess(roomId)
     if (!running) {
         const metadata = await getRuntimeMetadataOrCreate(roomId)
+        const paths = await ensureRoomFilesystemLayout(roomId)
         await roomRepository.updateRoomStatus(roomId, 'stopped')
+        if (metadata.port !== null) {
+            await writeRoomRuntimeMetadataFile({
+                path: paths.runtimeMetadataPath,
+                roomId,
+                port: metadata.port,
+                pid: null,
+                startedAt: null,
+                configVersion: metadata.configVersion,
+                tokenVersion: metadata.tokenVersion,
+            })
+        }
         await persistRuntimeMetadata({
             roomId,
             port: metadata.port,

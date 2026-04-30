@@ -1,5 +1,4 @@
-import type { HealthStatus, RoomDesiredState, RoomStatus } from '../domain/types'
-import type { OpenClawSerializable } from '#/lib/openclaw-message'
+import type { HealthStatus, JsonValue, RoomDesiredState, RoomStatus } from '../domain/types'
 
 export interface RoomRuntimeOverview {
     roomId: string
@@ -44,6 +43,14 @@ export interface RoomExecutionThread {
     modelProvider: string | null
     totalTokens: number | null
     estimatedCostUsd: number | null
+    compaction: {
+        enabled: boolean
+        compacting: boolean
+        count: number
+        lastCompactedAt: number | null
+        lastTokensBefore: number | null
+        lastError: string | null
+    }
 }
 
 export interface RoomExecutionMessage {
@@ -60,8 +67,8 @@ export interface RoomExecutionMessagePart {
     toolName: string | null
     toolCallId: string | null
     status: string | null
-    input: OpenClawSerializable
-    result: OpenClawSerializable
+    input: JsonValue
+    result: JsonValue
     rawType: string | null
 }
 
@@ -102,6 +109,7 @@ export interface RoomThreadSendResult {
     status: string
     messageSeq: number | null
     interruptedActiveRun: boolean
+    error: string | null
 }
 
 export interface RoomThreadAbortResult {

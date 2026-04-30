@@ -1,19 +1,22 @@
 import { createServerFn } from '@tanstack/react-start'
 import { setResponseHeaders } from '@tanstack/react-start/server'
 import { z } from 'zod'
+import {
+    mcpAuthModes,
+    mcpTransports,
+    providerApis,
+    providerAuthModes,
+    roomProviderModes,
+    roomSecretPurposes,
+    roomToolProfiles,
+} from '#/server/domain/types'
 
 const providerConnectionInputSchema = z.object({
     id: z.string().uuid().optional(),
     label: z.string().min(1),
     provider: z.string().min(1),
-    api: z.enum([
-        'openai-responses',
-        'openai-completions',
-        'openai-codex-responses',
-        'anthropic-messages',
-        'google-generative-ai',
-    ]),
-    authMode: z.enum(['api_key', 'oauth']).optional(),
+    api: z.enum(providerApis),
+    authMode: z.enum(providerAuthModes).optional(),
     baseUrl: z.string().nullable().optional(),
     defaultModel: z.string().min(1),
     fallbackModels: z.array(z.string().min(1)).default([]),
@@ -25,12 +28,12 @@ const mcpConnectionInputSchema = z.object({
     id: z.string().uuid().optional(),
     name: z.string().min(1),
     serverKey: z.string().min(1),
-    transport: z.enum(['stdio', 'http', 'streamable_http']),
+    transport: z.enum(mcpTransports),
     command: z.string().nullable().optional(),
     argsText: z.string().optional(),
     url: z.string().nullable().optional(),
     headersText: z.string().optional(),
-    authMode: z.enum(['none', 'bearer']),
+    authMode: z.enum(mcpAuthModes),
     bearerToken: z.string().optional(),
     allowedToolsText: z.string().optional(),
 })
@@ -44,23 +47,14 @@ const appDefaultsInputSchema = z.object({
 const roomConfigInputSchema = z.object({
     roomId: z.string().uuid(),
     instructions: z.string(),
-    providerMode: z.enum(['app_default', 'app_connection', 'room_secret']),
+    providerMode: z.enum(roomProviderModes),
     providerConnectionId: z.string().uuid().nullable().optional(),
     provider: z.string().nullable().optional(),
-    providerApi: z
-        .enum([
-            'openai-responses',
-            'openai-completions',
-            'openai-codex-responses',
-            'anthropic-messages',
-            'google-generative-ai',
-        ])
-        .nullable()
-        .optional(),
+    providerApi: z.enum(providerApis).nullable().optional(),
     providerBaseUrl: z.string().nullable().optional(),
     providerModel: z.string().nullable().optional(),
     providerApiKey: z.string().optional(),
-    toolsProfile: z.string().min(1),
+    toolsProfile: z.enum(roomToolProfiles),
     cronTimezone: z.string().min(1),
     mcpConnectionIds: z.array(z.string().uuid()).default([]),
 })
@@ -69,7 +63,7 @@ const roomSecretInputSchema = z.object({
     roomId: z.string().uuid(),
     label: z.string().min(1),
     envKey: z.string().min(1),
-    purpose: z.enum(['provider_api_key', 'generic', 'webhook']),
+    purpose: z.enum(roomSecretPurposes),
     provider: z.string().nullable().optional(),
     value: z.string().min(1),
 })

@@ -24,6 +24,7 @@ import {
 } from '#/components/ui/select'
 import { Textarea } from '#/components/ui/textarea'
 import { cn } from '#/lib/utils'
+import type { ProviderApi } from '#/server/domain/types'
 
 import { currentUserServer } from './-auth-server'
 import {
@@ -31,14 +32,11 @@ import {
     saveProviderConnectionServer,
     updateAppDefaultsServer,
 } from './-operator-config-server'
-import { createRoomServer, getRoomSetupReadinessServer } from './-room-runtime-server'
-
-type ProviderApi =
-    | 'openai-responses'
-    | 'openai-completions'
-    | 'openai-codex-responses'
-    | 'anthropic-messages'
-    | 'google-generative-ai'
+import {
+    createRoomServer,
+    createThreadServer,
+    getRoomSetupReadinessServer,
+} from './-room-runtime-server'
 
 interface CatalogEntry {
     provider: string
@@ -98,6 +96,8 @@ function OnboardingPage() {
     const [activeStep, setActiveStep] = useState<StepId>('provider')
     const [savedProvider, setSavedProvider] = useState<SavedProvider | null>(null)
     const [createdRoomId, setCreatedRoomId] = useState<string | null>(null)
+    const [createdSessionKey, setCreatedSessionKey] = useState<string | null>(null)
+    const [firstRoomBlockedReason, setFirstRoomBlockedReason] = useState<string | null>(null)
 
     const [providerKey, setProviderKey] = useState<string>('')
     const [providerLabel, setProviderLabel] = useState('')
@@ -174,7 +174,21 @@ function OnboardingPage() {
         onSuccess: async (room) => {
             setRoomError(null)
             setCreatedRoomId(room.id)
+            setFirstRoomBlockedReason(null)
             await queryClient.invalidateQueries({ queryKey: ['rooms-list'] })
+            try {
+                const thread = await createThreadServer({
+                    data: {
+                        roomId: room.id,
+                    },
+                })
+                setCreatedSessionKey(thread.key)
+            } catch (error) {
+                setCreatedSessionKey(null)
+                setFirstRoomBlockedReason(
+                    messageFromError(error, 'The first room was created but no session is ready.'),
+                )
+            }
             setActiveStep('done')
         },
         onError: (error: unknown) => {
@@ -193,11 +207,21 @@ function OnboardingPage() {
                     onboardingCompleted: true,
                 },
             })
-            return createdRoomId
+            return {
+                roomId: createdRoomId,
+                sessionKey: createdSessionKey,
+            }
         },
-        onSuccess: async (roomId) => {
+        onSuccess: async (target) => {
             await queryClient.invalidateQueries({ queryKey: ['operator-config'] })
-            await navigate({ to: '/rooms/$roomId', params: { roomId } })
+            if (target.sessionKey) {
+                await navigate({
+                    to: '/rooms/$roomId/sessions/$sessionKey',
+                    params: { roomId: target.roomId, sessionKey: target.sessionKey },
+                })
+                return
+            }
+            await navigate({ to: '/rooms/$roomId', params: { roomId: target.roomId } })
         },
     })
 
@@ -341,16 +365,28 @@ function OnboardingPage() {
                     >
                         {activeStep === 'done' ? (
                             <div className="space-y-3">
-                                <p className="text-sm text-muted-foreground">
-                                    Your portal, provider, and first room are ready. Open the room
-                                    to start a session.
-                                </p>
+                                {firstRoomBlockedReason ? (
+                                    <AttentionBanner
+                                        tone="attention"
+                                        title="Room created with a blocked first session"
+                                        description={firstRoomBlockedReason}
+                                    />
+                                ) : (
+                                    <p className="text-sm text-muted-foreground">
+                                        Your portal, provider, and first room are ready. Open the
+                                        selected session to start work.
+                                    </p>
+                                )}
                                 <Button
                                     onClick={() => finish.mutate()}
                                     disabled={finish.isPending}
                                     size="lg"
                                 >
-                                    {finish.isPending ? 'Finishing...' : 'Open my room'}
+                                    {finish.isPending
+                                        ? 'Finishing...'
+                                        : createdSessionKey
+                                          ? 'Open session'
+                                          : 'Open room'}
                                     <ArrowRightIcon />
                                 </Button>
                             </div>
@@ -492,7 +528,7 @@ function ProviderForm(props: {
                     id="provider-base-url"
                     value={props.baseUrl}
                     onChange={(event) => props.onBaseUrl(event.target.value)}
-                    placeholder="https://api.example.com/v1"
+                    placeholder="Optional endpoint override"
                 />
             </div>
 

@@ -83,12 +83,13 @@ export function describeSessionState(status: string | null | undefined): Session
         return { label: 'Needs attention', tone: 'danger' }
     }
     if (
+        lower.includes('compact') ||
         lower.includes('working') ||
         lower.includes('running') ||
         lower.includes('streaming') ||
         lower.includes('thinking')
     ) {
-        return { label: 'Working', tone: 'working' }
+        return { label: lower.includes('compact') ? 'Compacting' : 'Working', tone: 'working' }
     }
     if (lower.includes('wait') || lower.includes('approval') || lower.includes('pending')) {
         return { label: 'Waiting', tone: 'attention' }
@@ -105,7 +106,7 @@ export function describeSessionState(status: string | null | undefined): Session
 export function describeJobLastRun(status: string | null | undefined): SessionDisplayState {
     if (!status) return { label: 'No runs yet', tone: 'muted' }
     const lower = status.toLowerCase()
-    if (lower.includes('success') || lower.includes('ok'))
+    if (lower.includes('success') || lower.includes('ok') || lower.includes('complete'))
         return { label: 'Succeeded', tone: 'ready' }
     if (lower.includes('fail') || lower.includes('error'))
         return { label: 'Failed', tone: 'danger' }

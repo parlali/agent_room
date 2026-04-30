@@ -60,24 +60,6 @@ CREATE TABLE secrets (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE room_entitlements (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
-    kind TEXT NOT NULL CHECK (kind IN ('provider_credential', 'mail', 'calendar', 'github', 'mcp', 'webhook')),
-    provider TEXT NOT NULL,
-    account_id TEXT,
-    server_id TEXT,
-    scope JSONB NOT NULL DEFAULT '{}'::jsonb,
-    secret_id UUID REFERENCES secrets(id) ON DELETE SET NULL,
-    status TEXT NOT NULL CHECK (status IN ('active', 'revoked')) DEFAULT 'active',
-    version INTEGER NOT NULL DEFAULT 1,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX room_entitlements_room_id_idx ON room_entitlements(room_id);
-CREATE INDEX room_entitlements_kind_idx ON room_entitlements(kind);
-
 CREATE TABLE artifact_index (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     room_id UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
@@ -117,10 +99,6 @@ DROP TABLE IF EXISTS audit_events;
 DROP INDEX IF EXISTS artifact_index_sha_idx;
 DROP INDEX IF EXISTS artifact_index_room_id_idx;
 DROP TABLE IF EXISTS artifact_index;
-
-DROP INDEX IF EXISTS room_entitlements_kind_idx;
-DROP INDEX IF EXISTS room_entitlements_room_id_idx;
-DROP TABLE IF EXISTS room_entitlements;
 
 DROP TABLE IF EXISTS secrets;
 DROP TABLE IF EXISTS room_runtime_metadata;

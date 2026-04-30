@@ -8,31 +8,73 @@ export interface RuntimeProcessEntry {
     logStream: WriteStream
 }
 
-const runtimeProcesses = new Map<string, RuntimeProcessEntry>()
-const roomsStopping = new Set<string>()
+interface RuntimeProcessStore {
+    runtimeProcesses: Map<string, RuntimeProcessEntry>
+    runtimeStarts: Map<string, Promise<void>>
+    roomsStopping: Set<string>
+}
+
+const globalRuntimeProcessStore = globalThis as typeof globalThis & {
+    __agentRoomRuntimeProcessStore?: RuntimeProcessStore
+}
+
+function normalizeRuntimeProcessStore(store: RuntimeProcessStore): RuntimeProcessStore {
+    store.runtimeStarts ??= new Map<string, Promise<void>>()
+    return store
+}
+
+const runtimeProcessStore = globalRuntimeProcessStore.__agentRoomRuntimeProcessStore
+    ? normalizeRuntimeProcessStore(globalRuntimeProcessStore.__agentRoomRuntimeProcessStore)
+    : (globalRuntimeProcessStore.__agentRoomRuntimeProcessStore = {
+          runtimeProcesses: new Map<string, RuntimeProcessEntry>(),
+          runtimeStarts: new Map<string, Promise<void>>(),
+          roomsStopping: new Set<string>(),
+      })
 
 export function hasRuntimeProcess(roomId: string): boolean {
-    return runtimeProcesses.has(roomId)
+    return runtimeProcessStore.runtimeProcesses.has(roomId)
 }
 
 export function getRuntimeProcess(roomId: string): RuntimeProcessEntry | undefined {
-    return runtimeProcesses.get(roomId)
+    return runtimeProcessStore.runtimeProcesses.get(roomId)
 }
 
 export function setRuntimeProcess(roomId: string, entry: RuntimeProcessEntry) {
-    runtimeProcesses.set(roomId, entry)
+    runtimeProcessStore.runtimeProcesses.set(roomId, entry)
 }
 
 export function deleteRuntimeProcess(roomId: string) {
-    runtimeProcesses.delete(roomId)
+    runtimeProcessStore.runtimeProcesses.delete(roomId)
 }
 
 export function markRoomStopping(roomId: string) {
-    roomsStopping.add(roomId)
+    runtimeProcessStore.roomsStopping.add(roomId)
 }
 
 export function consumeRoomStopping(roomId: string): boolean {
-    const exists = roomsStopping.has(roomId)
-    roomsStopping.delete(roomId)
+    const exists = runtimeProcessStore.roomsStopping.has(roomId)
+    runtimeProcessStore.roomsStopping.delete(roomId)
     return exists
+}
+
+export async function withRuntimeStartLock(
+    roomId: string,
+    start: () => Promise<void>,
+): Promise<void> {
+    const existing = runtimeProcessStore.runtimeStarts.get(roomId)
+    if (existing) {
+        await existing
+        return
+    }
+
+    const startPromise = start()
+    runtimeProcessStore.runtimeStarts.set(roomId, startPromise)
+
+    try {
+        await startPromise
+    } finally {
+        if (runtimeProcessStore.runtimeStarts.get(roomId) === startPromise) {
+            runtimeProcessStore.runtimeStarts.delete(roomId)
+        }
+    }
 }
