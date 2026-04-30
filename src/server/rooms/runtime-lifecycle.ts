@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
 import type { WriteStream } from 'node:fs'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { auditRepository, roomRepository } from '../db/repositories'
 import type { RoomRecord, RoomRuntimeMetadataRecord } from '../domain/types'
@@ -30,10 +30,49 @@ import { getRuntimeEngineProfile } from './runtime-engine-profile'
 
 const startupHealthPollIntervalMs = 500
 const startupHealthTimeoutMs = 30_000
+const stopProcessTimeoutMs = 5_000
 
 function composeRoomCommand() {
     const runtimeEngineProfile = getRuntimeEngineProfile()
     return runtimeEngineProfile.resolveCommand()
+}
+
+async function processCommandLine(pid: number): Promise<string> {
+    try {
+        return (await readFile(`/proc/${pid}/cmdline`, 'utf8')).replaceAll('\u0000', ' ')
+    } catch {
+        return ''
+    }
+}
+
+async function killMaterializedRuntimeProcess(input: {
+    pid: number | null
+    runtimeConfigPath: string
+}): Promise<boolean> {
+    if (!input.pid || input.pid <= 1 || input.pid === process.pid) {
+        return false
+    }
+    const commandLine = await processCommandLine(input.pid)
+    if (!commandLine.includes(input.runtimeConfigPath)) {
+        return false
+    }
+    try {
+        process.kill(input.pid, 'SIGTERM')
+    } catch {
+        return false
+    }
+    const deadline = Date.now() + stopProcessTimeoutMs
+    while (Date.now() < deadline) {
+        const current = await processCommandLine(input.pid)
+        if (!current) {
+            return true
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    try {
+        process.kill(input.pid, 'SIGKILL')
+    } catch {}
+    return true
 }
 
 async function streamLogs(
@@ -385,6 +424,10 @@ export async function stopRoomProcess(roomId: string, actorUserId: string | null
     if (!running) {
         const metadata = await getRuntimeMetadataOrCreate(roomId)
         const paths = await ensureRoomFilesystemLayout(roomId)
+        const killed = await killMaterializedRuntimeProcess({
+            pid: metadata.pid,
+            runtimeConfigPath: paths.runtimeConfigPath,
+        })
         await roomRepository.updateRoomStatus(roomId, 'stopped')
         if (metadata.port !== null) {
             await writeRoomRuntimeMetadataFile({
@@ -412,7 +455,8 @@ export async function stopRoomProcess(roomId: string, actorUserId: string | null
             roomId,
             action: 'room.runtime_stopped',
             payload: {
-                wasRunning: false,
+                wasRunning: killed,
+                recoveredFromMetadata: killed,
             },
         })
         return

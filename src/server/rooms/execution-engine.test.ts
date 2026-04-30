@@ -4,6 +4,8 @@ import type * as ExecutionEngine from './execution-engine'
 const mocks = vi.hoisted(() => ({
     getRoomExecutionSnapshot: vi.fn(),
     sendRoomThreadMessage: vi.fn(),
+    compactRoomThread: vi.fn(),
+    forkRoomThread: vi.fn(),
     createRoomThread: vi.fn(),
     listRoomCronJobs: vi.fn(),
     updateRoomCronJob: vi.fn(),
@@ -14,6 +16,8 @@ vi.mock('./pi-execution-adapter', () => ({
     getRoomExecutionSnapshot: mocks.getRoomExecutionSnapshot,
     sendRoomThreadMessage: mocks.sendRoomThreadMessage,
     abortRoomThreadMessage: vi.fn(),
+    compactRoomThread: mocks.compactRoomThread,
+    forkRoomThread: mocks.forkRoomThread,
     editRoomThreadMessage: vi.fn(),
     createRoomSessionEventStream: vi.fn(),
     createRoomThread: mocks.createRoomThread,
@@ -36,6 +40,8 @@ describe('runtime-neutral execution engine facade', () => {
         vi.resetModules()
         mocks.getRoomExecutionSnapshot.mockReset()
         mocks.sendRoomThreadMessage.mockReset()
+        mocks.compactRoomThread.mockReset()
+        mocks.forkRoomThread.mockReset()
         mocks.createRoomThread.mockReset()
         mocks.listRoomCronJobs.mockReset()
         mocks.updateRoomCronJob.mockReset()
@@ -45,6 +51,8 @@ describe('runtime-neutral execution engine facade', () => {
     it('routes snapshot, message, thread, and job calls through the adapter contract', async () => {
         mocks.getRoomExecutionSnapshot.mockResolvedValue({ selectedThreadKey: 'thread-1' })
         mocks.sendRoomThreadMessage.mockResolvedValue({ status: 'accepted' })
+        mocks.compactRoomThread.mockResolvedValue({ status: 'idle' })
+        mocks.forkRoomThread.mockResolvedValue({ key: 'thread-fork' })
         mocks.createRoomThread.mockResolvedValue({ key: 'thread-2' })
         mocks.listRoomCronJobs.mockResolvedValue([])
         mocks.updateRoomCronJob.mockResolvedValue({ id: 'job-1' })
@@ -63,6 +71,20 @@ describe('runtime-neutral execution engine facade', () => {
                 awaitCompletion: true,
             }),
         ).resolves.toEqual({ status: 'accepted' })
+        await expect(
+            engine.compactRoomThread({
+                roomId: 'room-1',
+                sessionKey: 'thread-1',
+                instructions: 'keep decisions',
+            }),
+        ).resolves.toEqual({ status: 'idle' })
+        await expect(
+            engine.forkRoomThread({
+                roomId: 'room-1',
+                sessionKey: 'thread-1',
+                title: 'Forked',
+            }),
+        ).resolves.toEqual({ key: 'thread-fork' })
         await expect(engine.createRoomThread({ roomId: 'room-1' })).resolves.toEqual({
             key: 'thread-2',
         })
@@ -86,6 +108,16 @@ describe('runtime-neutral execution engine facade', () => {
             sessionKey: 'thread-1',
             message: 'hello',
             awaitCompletion: true,
+        })
+        expect(mocks.compactRoomThread).toHaveBeenCalledWith({
+            roomId: 'room-1',
+            sessionKey: 'thread-1',
+            instructions: 'keep decisions',
+        })
+        expect(mocks.forkRoomThread).toHaveBeenCalledWith({
+            roomId: 'room-1',
+            sessionKey: 'thread-1',
+            title: 'Forked',
         })
         expect(mocks.createRoomThread).toHaveBeenCalledWith({ roomId: 'room-1' })
         expect(mocks.listRoomCronJobs).toHaveBeenCalledWith({ roomId: 'room-1' })

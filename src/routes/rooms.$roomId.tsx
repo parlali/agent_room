@@ -283,6 +283,11 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                                                         <span className="truncate text-sm font-medium">
                                                             {thread.title || 'Untitled session'}
                                                         </span>
+                                                        {thread.kind === 'subagent' ? (
+                                                            <span className="rounded border border-border px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-muted-foreground">
+                                                                Subtask
+                                                            </span>
+                                                        ) : null}
                                                         <StateBadge
                                                             tone={state.tone}
                                                             label={state.label}

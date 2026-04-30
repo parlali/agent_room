@@ -270,6 +270,41 @@ describe('connection validation', () => {
     })
 
     it.each([
+        {
+            provider: 'openrouter',
+            model: 'openrouter/auto',
+            apiKey: 'openrouter-test-key',
+        },
+        {
+            provider: 'ollama',
+            model: 'ollama/test-model',
+            apiKey: null,
+        },
+        {
+            provider: 'lmstudio',
+            model: 'lmstudio/test-model',
+            apiKey: null,
+        },
+    ] as const)('smokes the supported provider matrix entry $provider through Pi', async (entry) => {
+        await withFakeOpenAiProvider('ok', async (baseUrl) => {
+            await expect(
+                validateProviderConnection({
+                    provider: entry.provider,
+                    authMode: 'api_key',
+                    api: 'openai-completions',
+                    baseUrl,
+                    model: entry.model,
+                    apiKey: entry.apiKey,
+                    timeoutMs: 5000,
+                }),
+            ).resolves.toEqual({
+                status: 'ready',
+                message: 'Provider probe completed through Pi',
+            })
+        })
+    })
+
+    it.each([
         ['bad-key', 'invalid api key'],
         ['bad-model', 'model not found'],
         ['quota', 'quota exceeded'],

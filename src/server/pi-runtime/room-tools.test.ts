@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { createRoomTools } from './room-tools'
+import { withToolRunContext } from './tool-run-context'
 
 function testConfig(root: string): PiRuntimeConfig {
     return {
@@ -298,6 +299,29 @@ describe('room Pi tools', () => {
             expect(Buffer.byteLength(resultText(bounded.result))).toBeLessThanOrEqual(128000)
             expect(resultDetails(bounded.result).truncated).toBe(true)
             expect(resultDetails(timedOut.result).timedOut).toBe(true)
+            expect(resultDetails(cancelled.result).aborted).toBe(true)
+            expect(Number(resultDetails(cancelled.result).durationMs)).toBeLessThan(1000)
+        })
+    })
+
+    it('uses the runtime run abort signal for shell cancellation', async () => {
+        await withRoom(async (config) => {
+            const controller = new AbortController()
+            setTimeout(() => controller.abort(), 20).unref()
+            const cancelled = await withToolRunContext(
+                {
+                    sessionKey: 'thread-1',
+                    runId: 'run-1',
+                    signal: controller.signal,
+                },
+                () =>
+                    executeTool(config, 'agent_room_shell', {
+                        command: 'sleep 1',
+                        timeoutMs: 1000,
+                    }),
+            )
+
+            expect(resultDetails(cancelled.result).aborted).toBe(true)
             expect(Number(resultDetails(cancelled.result).durationMs)).toBeLessThan(1000)
         })
     })

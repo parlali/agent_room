@@ -16,6 +16,8 @@ import type {
 } from '../domain/types'
 import type {
     PiRuntimeAbortPayload,
+    PiRuntimeCompactPayload,
+    PiRuntimeForkPayload,
     PiRuntimeSendPayload,
     PiRuntimeSnapshotPayload,
     PiRuntimeThreadCreatePayload,
@@ -90,6 +92,12 @@ const sendSchema = z.custom<PiRuntimeSendPayload>(
     (value) => typeof value === 'object' && value !== null,
 )
 const abortSchema = z.custom<PiRuntimeAbortPayload>(
+    (value) => typeof value === 'object' && value !== null,
+)
+const compactSchema = z.custom<PiRuntimeCompactPayload>(
+    (value) => typeof value === 'object' && value !== null,
+)
+const forkSchema = z.custom<PiRuntimeForkPayload>(
     (value) => typeof value === 'object' && value !== null,
 )
 
@@ -340,6 +348,44 @@ export async function abortRoomThreadMessage(input: {
             method: 'POST',
             body: {
                 runId: input.runId ?? null,
+            },
+        },
+    )
+}
+
+export async function compactRoomThread(input: {
+    roomId: string
+    sessionKey: string
+    instructions?: string | null
+}): Promise<PiRuntimeCompactPayload> {
+    return requestPiRuntime(
+        input.roomId,
+        `/threads/${encodeURIComponent(input.sessionKey)}/compact`,
+        compactSchema,
+        {
+            method: 'POST',
+            body: {
+                instructions: input.instructions ?? null,
+            },
+        },
+    )
+}
+
+export async function forkRoomThread(input: {
+    roomId: string
+    sessionKey: string
+    title?: string | null
+    entryId?: string | null
+}): Promise<PiRuntimeForkPayload> {
+    return requestPiRuntime(
+        input.roomId,
+        `/threads/${encodeURIComponent(input.sessionKey)}/fork`,
+        forkSchema,
+        {
+            method: 'POST',
+            body: {
+                title: input.title ?? null,
+                entryId: input.entryId ?? null,
             },
         },
     )

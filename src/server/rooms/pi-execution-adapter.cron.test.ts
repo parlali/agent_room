@@ -439,6 +439,123 @@ describe('Pi cron adapter', () => {
         )
     })
 
+    it('reschedules missed due jobs from the actual completion time', async () => {
+        const missed = cronJob({
+            everyMinutes: 30,
+            nextRunAt: new Date('2026-04-29T22:00:00.000Z'),
+        })
+        mocks.roomCronRepository.claimDueJobs.mockResolvedValue([missed])
+        mocks.getRoomConfigSnapshot.mockResolvedValue(readyConfig())
+        mocks.roomRuntimeMetadataRepository.findByRoomId.mockResolvedValue({
+            configVersion: 8,
+        })
+        mocks.roomCronRepository.createRun.mockResolvedValue(cronRun({ configVersion: 8 }))
+        mocks.roomCronRepository.finishRun.mockResolvedValue(
+            cronRun({
+                status: 'complete',
+                configVersion: 8,
+                finishedAt: now,
+                nextRunAt: new Date('2026-04-30T00:30:00.000Z'),
+            }),
+        )
+        mocks.roomCronRepository.finishJob.mockResolvedValue(
+            cronJob({
+                lastRunStatus: 'complete',
+                nextRunAt: new Date('2026-04-30T00:30:00.000Z'),
+                configVersion: 8,
+            }),
+        )
+        mocks.requestPiRuntime.mockImplementation(async (_roomId, path) => {
+            if (path === '/threads') {
+                return { key: 'thread-1' }
+            }
+            if (path === '/threads/thread-1/send') {
+                return { status: 'idle' }
+            }
+            throw new Error(`Unexpected runtime path ${path}`)
+        })
+
+        const adapter = await import('./pi-execution-adapter')
+        await expect(adapter.runDueRoomCronJobs()).resolves.toEqual([
+            {
+                jobId: missed.id,
+                ran: true,
+                reason: null,
+            },
+        ])
+
+        expect(mocks.roomCronRepository.finishRun).toHaveBeenCalledWith(
+            expect.objectContaining({
+                nextRunAt: new Date('2026-04-30T00:30:00.000Z'),
+            }),
+        )
+        expect(mocks.roomCronRepository.finishJob).toHaveBeenCalledWith(
+            expect.objectContaining({
+                nextRunAt: new Date('2026-04-30T00:30:00.000Z'),
+            }),
+        )
+    })
+
+    it('records runtime-unavailable failures and releases the job lock', async () => {
+        const job = cronJob()
+        mocks.roomCronRepository.claimDueJobs.mockResolvedValue([job])
+        mocks.getRoomConfigSnapshot.mockResolvedValue(readyConfig())
+        mocks.roomRuntimeMetadataRepository.findByRoomId.mockResolvedValue({
+            configVersion: 8,
+        })
+        mocks.roomCronRepository.createRun.mockResolvedValue(
+            cronRun({
+                status: 'failed',
+                sessionKey: null,
+                error: 'Runtime unavailable',
+                configVersion: 8,
+            }),
+        )
+        mocks.roomCronRepository.finishJob.mockResolvedValue(
+            cronJob({
+                lastRunStatus: 'failed',
+                lastError: 'Runtime unavailable',
+                configVersion: 8,
+            }),
+        )
+        mocks.requestPiRuntime.mockRejectedValue(new Error('Runtime unavailable'))
+
+        const adapter = await import('./pi-execution-adapter')
+        await expect(adapter.runDueRoomCronJobs()).resolves.toEqual([
+            {
+                jobId: job.id,
+                ran: false,
+                reason: 'Runtime unavailable',
+            },
+        ])
+
+        expect(mocks.roomCronRepository.createRun).toHaveBeenCalledWith(
+            expect.objectContaining({
+                status: 'failed',
+                error: 'Runtime unavailable',
+                sessionKey: null,
+            }),
+        )
+        expect(mocks.roomCronRepository.finishJob).toHaveBeenCalledWith(
+            expect.objectContaining({
+                lockToken: expect.any(String),
+                status: 'failed',
+                error: 'Runtime unavailable',
+            }),
+        )
+    })
+
+    it('does not run when the due-job claim returns no enabled or recoverable jobs', async () => {
+        mocks.roomCronRepository.claimDueJobs.mockResolvedValue([])
+
+        const adapter = await import('./pi-execution-adapter')
+        await expect(adapter.runDueRoomCronJobs()).resolves.toEqual([])
+
+        expect(mocks.getRoomConfigSnapshot).not.toHaveBeenCalled()
+        expect(mocks.requestPiRuntime).not.toHaveBeenCalled()
+        expect(mocks.roomCronRepository.createRun).not.toHaveBeenCalled()
+    })
+
     it('distinguishes missing jobs from locked jobs on manual run-now', async () => {
         mocks.roomCronRepository.findJobById.mockResolvedValueOnce(null)
 
@@ -461,6 +578,74 @@ describe('Pi cron adapter', () => {
             ran: false,
             reason: 'Job is already running',
         })
+    })
+
+    it('routes manual compaction and fork through explicit Pi thread endpoints', async () => {
+        mocks.requestPiRuntime.mockImplementation(async (_roomId, path, _schema, options) => {
+            if (path === '/threads/thread-1/compact') {
+                return {
+                    status: 'idle',
+                    error: null,
+                    compactionCount: 1,
+                    options,
+                }
+            }
+            if (path === '/threads/thread-1/fork') {
+                return {
+                    key: 'thread-fork',
+                    parentThreadKey: 'thread-1',
+                    parentSessionFile: '/sessions/parent.jsonl',
+                    options,
+                }
+            }
+            throw new Error(`Unexpected runtime path ${path}`)
+        })
+
+        const adapter = await import('./pi-execution-adapter')
+        await expect(
+            adapter.compactRoomThread({
+                roomId: '22222222-2222-4222-8222-222222222222',
+                sessionKey: 'thread-1',
+                instructions: 'Keep decisions only',
+            }),
+        ).resolves.toMatchObject({
+            status: 'idle',
+            compactionCount: 1,
+        })
+        await expect(
+            adapter.forkRoomThread({
+                roomId: '22222222-2222-4222-8222-222222222222',
+                sessionKey: 'thread-1',
+                title: 'Forked thread',
+            }),
+        ).resolves.toMatchObject({
+            key: 'thread-fork',
+            parentThreadKey: 'thread-1',
+        })
+
+        expect(mocks.requestPiRuntime).toHaveBeenCalledWith(
+            '22222222-2222-4222-8222-222222222222',
+            '/threads/thread-1/compact',
+            expect.anything(),
+            expect.objectContaining({
+                method: 'POST',
+                body: {
+                    instructions: 'Keep decisions only',
+                },
+            }),
+        )
+        expect(mocks.requestPiRuntime).toHaveBeenCalledWith(
+            '22222222-2222-4222-8222-222222222222',
+            '/threads/thread-1/fork',
+            expect.anything(),
+            expect.objectContaining({
+                method: 'POST',
+                body: {
+                    title: 'Forked thread',
+                    entryId: null,
+                },
+            }),
+        )
     })
 
     it('routes wake messages through explicit Pi thread targets', async () => {

@@ -31,6 +31,18 @@ export interface PiRuntimeAbortPayload {
     status: string
 }
 
+export interface PiRuntimeCompactPayload {
+    status: string
+    error: string | null
+    compactionCount: number
+}
+
+export interface PiRuntimeForkPayload {
+    key: string
+    parentThreadKey: string
+    parentSessionFile: string
+}
+
 export interface PiRuntimeErrorPayload {
     message: string
 }

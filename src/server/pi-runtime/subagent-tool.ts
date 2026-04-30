@@ -1,0 +1,128 @@
+import { randomUUID } from 'node:crypto'
+import { defineTool, type ToolDefinition } from '@mariozechner/pi-coding-agent'
+import { Type } from '@mariozechner/pi-ai'
+import type { RoomExecutionMessage } from '../rooms/execution-types'
+import type { ThreadRecord } from './thread-records'
+
+export interface CreateSubagentToolInput {
+    parentRecord: ThreadRecord
+    maxTaskChars: number
+    activeCount: () => number
+    maxActive: number
+    shortText: (value: string, length?: number) => string
+    redactString: (value: string) => string
+    createThread: (input: {
+        title?: string | null
+        kind?: 'main' | 'subagent'
+        parentThreadKey?: string | null
+        parentRunId?: string | null
+        subagentRunId?: string | null
+        subagentName?: string | null
+        subagentTask?: string | null
+    }) => Promise<{ key: string }>
+    findThread: (key: string) => ThreadRecord | null
+    runPrompt: (input: {
+        record: ThreadRecord
+        message: string
+        runId: string
+        awaitCompletion: boolean
+    }) => Promise<string>
+    readThreadMessages: (record: ThreadRecord, limit: number) => RoomExecutionMessage[]
+    audit: (event: string, payload: unknown) => Promise<void>
+}
+
+function finalAssistantText(messages: RoomExecutionMessage[]): string {
+    return (
+        [...messages]
+            .reverse()
+            .find((message) => message.role === 'assistant' && message.text.trim())
+            ?.text.trim() ?? ''
+    )
+}
+
+export function createSubagentTool(input: CreateSubagentToolInput): ToolDefinition {
+    return defineTool({
+        name: 'agent_room_subagent',
+        label: 'Subagent',
+        description:
+            'Run a bounded child Pi session inside this Agent Room and return its final text.',
+        parameters: Type.Object({
+            task: Type.String(),
+            name: Type.Optional(Type.String()),
+        }),
+        execute: async (_toolCallId, params) => {
+            const task = String(params.task ?? '').trim()
+            if (!task) {
+                throw new Error('Subagent task cannot be empty')
+            }
+            if (task.length > input.maxTaskChars) {
+                throw new Error('Subagent task is too large')
+            }
+            if (input.activeCount() >= input.maxActive) {
+                throw new Error('Subagent concurrency limit reached')
+            }
+
+            const runId = randomUUID()
+            const name =
+                typeof params.name === 'string' && params.name.trim()
+                    ? input.shortText(params.name, 80)
+                    : null
+            const child = await input.createThread({
+                title: name ? `Subagent: ${name}` : 'Subagent',
+                kind: 'subagent',
+                parentThreadKey: input.parentRecord.key,
+                parentRunId: input.parentRecord.activeRunId,
+                subagentRunId: runId,
+                subagentName: name,
+                subagentTask: input.shortText(task, 600),
+            })
+            const record = input.findThread(child.key)
+            if (!record) {
+                throw new Error('Subagent thread was not created')
+            }
+
+            await input.audit('subagent.started', {
+                parentThreadKey: input.parentRecord.key,
+                threadKey: record.key,
+                runId,
+                name,
+            })
+
+            await input.runPrompt({
+                record,
+                message: task,
+                runId,
+                awaitCompletion: true,
+            })
+
+            record.completedAt = Date.now()
+            const text = input.redactString(finalAssistantText(input.readThreadMessages(record, 200)))
+            await input.audit('subagent.finished', {
+                parentThreadKey: input.parentRecord.key,
+                threadKey: record.key,
+                runId,
+                status: record.status,
+            })
+
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            threadKey: record.key,
+                            runId,
+                            status: record.status,
+                            text,
+                        }),
+                    },
+                ],
+                details: {
+                    threadKey: record.key,
+                    runId,
+                    status: record.status,
+                    parentThreadKey: input.parentRecord.key,
+                },
+            }
+        },
+    })
+}

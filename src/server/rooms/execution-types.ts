@@ -34,6 +34,8 @@ export interface RoomExecutionThread {
     key: string
     sessionId: string | null
     agentId: string
+    kind: 'main' | 'subagent'
+    parentThreadKey: string | null
     title: string
     lastMessagePreview: string | null
     status: string | null
@@ -115,6 +117,18 @@ export interface RoomThreadSendResult {
 export interface RoomThreadAbortResult {
     abortedRunId: string | null
     status: string
+}
+
+export interface RoomThreadCompactResult {
+    status: string
+    error: string | null
+    compactionCount: number
+}
+
+export interface RoomThreadForkResult {
+    key: string
+    parentThreadKey: string
+    parentSessionFile: string
 }
 
 export interface RoomRealtimeEvent {

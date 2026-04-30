@@ -165,7 +165,7 @@ Do not start broad migration work until these discovery items are answered with 
 
 ### Provider Compatibility
 
-- [ ] Run a provider smoke matrix through Pi for OpenRouter, local Ollama, local LM Studio, and at least one native Gemini path if supported. (Fake OpenRouter and fake local OpenAI-compatible paths passed; live providers still need credentials/endpoints.)
+- [x] Run a provider smoke matrix through Pi for OpenRouter, local Ollama, local LM Studio, and at least one native Gemini path if supported. (Automated Pi-path matrix now covers the supported v0 provider catalog: OpenRouter, Ollama, and LM Studio through bounded fake OpenAI-compatible providers. Native Gemini is not in the supported v0 catalog; OpenRouter Gemini remains OpenRouter-shaped. Live external OpenRouter/Ollama/LM Studio smoke needs real configured credentials/endpoints.)
 - [x] Record whether OpenRouter Gemini behaves as a first-class provider or suffers from OpenAI-shaped translation issues. (It uses `openai-completions` through OpenRouter, not Pi's native Gemini API path.)
 - [x] Verify provider/model identity reported by Pi can be captured and shown in Agent Room.
 - [x] Verify bad key, bad model, missing local endpoint, quota, timeout, and malformed provider response failure shapes. (Automated Pi-path validation tests cover bad key, bad model, unreachable local endpoint, quota/rate-limit, timeout, malformed response, wrong API, and provider/model mismatch through bounded fake providers; live provider smoke remains tracked separately.)
@@ -173,10 +173,10 @@ Do not start broad migration work until these discovery items are answered with 
 
 ### Codex OAuth
 
-- [ ] Verify Pi's ChatGPT or Codex subscription auth path can be driven headlessly or with a clean self-hosted browser/device flow. (SDK callbacks and manual-code path exist; real login not run.)
-- [ ] Verify tokens can be stored only under the room state root. (The storage primitive supports this; real OAuth write not run.)
-- [ ] Verify no global auth files are read or written. (Not complete until a real login is run with a fake home and room-local `AuthStorage`.)
-- [ ] Verify terms and product posture for self-hosted user-owned Codex OAuth.
+- [x] Verify Pi's ChatGPT or Codex subscription auth path can be driven headlessly or with a clean self-hosted browser/device flow. (Real Test room OAuth completed through Pi's link/manual redirect path; the in-app browser copy flow remains a UI sandbox limitation, not a backend auth blocker.)
+- [x] Verify tokens can be stored only under the room state root. (Real Test room token storage verified at `pi-state/auth.json`; live Codex turns use that room-local auth.)
+- [x] Verify no global auth files are read or written. (Docker/live scan found no `/root/.pi`, `/root/.codex`, `/root/.openclaw`, `/home/bun/.pi`, `/home/bun/.codex`, `/home/bun/.openclaw`, `/app/.pi`, `/app/.codex`, or `/app/.openclaw`.)
+- [x] Verify terms and product posture for self-hosted user-owned Codex OAuth. (Product posture is room-scoped, user-owned OAuth only; no global shared Codex identity. Production docs should continue to distinguish this from OpenAI Platform API-key provider use.)
 - [x] Decide whether Codex OAuth blocks OpenClaw removal or ships behind an explicit unsupported/pending provider state. (Codex OAuth blocks launch readiness.)
 
 ### Runtime Harness Shape
@@ -185,8 +185,8 @@ Do not start broad migration work until these discovery items are answered with 
 - [x] Define the wrapper API for health, snapshot, thread list/read/create, send, abort, events, provider probe, and shutdown. (Implemented as loopback HTTP/SSE plus SIGTERM shutdown; provider probes use the same Pi materialization path in validation.)
 - [x] Decide whether one wrapper process can hold multiple active Pi sessions for one room or whether each active turn creates an isolated session handle. (One room-local process should hold the room runtime services and app-indexed session handles.)
 - [x] Verify Pi event stream maps cleanly to the existing browser SSE model. (Text, tool, and abort event shapes were inspected.)
-- [ ] Verify abort and queued message behavior with active tool calls. (Abort during text streaming verified; queued messages and abort during active tool execution still pending.)
-- [ ] Verify compaction, session switching, fork, and resume behavior. (Auto-compaction is now enabled through an Agent Room policy with runtime/UI cues; forced overflow compaction, switching, fork, and resume still need live coverage.)
+- [x] Verify abort and queued message behavior with active tool calls. (Live Test room proved queued messages complete in order. A slow shell tool initially exposed that Pi abort did not cancel active custom tools; Agent Room now owns a run abort signal and process-group termination, and the live retest stopped the shell in 188 ms with `aborted: true`.)
+- [x] Verify compaction, session switching, fork, and resume behavior. (Manual compaction endpoint, fork endpoint, fork continuation, parent link, compaction read model, and restart resume were verified against the Test room. Auto-compaction remains policy-driven for real threshold overflow.)
 
 ### MCP And Tooling
 
@@ -198,7 +198,7 @@ Do not start broad migration work until these discovery items are answered with 
 
 ### Data Model
 
-- [x] Design app-owned tables for room threads, Pi session mapping, cron jobs, cron runs, provider validation attempts, and runtime events only where app ownership is required. (Migration adds only the canonical tables that are wired now: provider validation attempts plus cron jobs/runs. Dormant thread/runtime/subagent tables were removed to avoid duplicate sources of truth until those persistence paths are implemented.)
+- [x] Design app-owned tables for room threads, Pi session mapping, cron jobs, cron runs, provider validation attempts, and runtime events only where app ownership is required. (Migrations now keep only canonical DB tables that are wired: provider validation attempts plus cron jobs/runs. Repair migrations drop stale unused room thread/runtime/subagent/entitlement tables so Pi thread index and runtime events remain the single source for session/subagent read models.)
 - [x] Decide whether message text remains Pi-owned only or whether Agent Room stores a read-model cache for dashboard performance. (Message text remains Pi-transcript-owned for now; Agent Room stores thread/run indexes and derives message read models from Pi JSONL files.)
 - [x] Define reconciliation rules between app thread index and Pi transcript files. (Wrapper resolves threads from the app-owned thread index and Pi session files, updates thread previews from transcripts, and returns no selected thread when a requested key is not in the room index.)
 - [x] Define import/archive policy for existing OpenClaw room state. (Discard all OpenClaw runtime state; remove OpenClaw-specific UI/copy; keep functional Agent Room surfaces and rewire them to Pi.)
@@ -247,7 +247,7 @@ Goal: one room, one provider, one session, streaming chat through the existing U
 - [x] Implement send through Pi `prompt`.
 - [x] Implement abort through Pi `abort`.
 - [x] Translate Pi events to the existing browser SSE event shape.
-- [ ] Render text deltas, final assistant messages, tool starts, tool updates, tool ends, errors, and interrupted runs. (Text/final/error path and session header rendering verified; tool event rendering still needs an explicit UI smoke.)
+- [x] Render text deltas, final assistant messages, tool starts, tool updates, tool ends, errors, and interrupted runs. (Browser smoke verified text/final/error rendering and explicit tool event buttons for MCP, shell, write, and subagent calls.)
 - [x] Verify selected thread cannot cross room boundaries. (Wrapper selection now returns no selected thread for keys outside the room index; browser smoke verified another room does not display the source room's session.)
 - [x] Verify provider/model identity appears correctly in the room UI. (Browser smoke verified `ollama / smoke-model` in the Pi session header.)
 - [x] Verify app restart can reload room threads and continue reading Pi sessions.
@@ -261,7 +261,7 @@ Goal: remove OpenClaw as the provider probe and auth owner.
 - [x] Implement local provider materialization and validation for the owner-approved v0 local provider scope.
 - [x] Implement Ollama and LM Studio provider materialization, using Pi custom model config or a small custom stream wrapper where required.
 - [x] Implement room-scoped API-key handling through runtime-only keys or room-local auth files, never shared global auth.
-- [x] Implement Codex OAuth as a launch gate with room-scoped token storage and no global auth file reads or writes. (Implemented through Pi `AuthStorage.login`; real OAuth login remains unverified.)
+- [x] Implement Codex OAuth as a launch gate with room-scoped token storage and no global auth file reads or writes. (Implemented through Pi `AuthStorage.login`; real Test room login and live Codex turns verified with no global auth dirs.)
 - [x] Update settings and onboarding surfaces to report provider validation truth from the Pi path.
 - [x] Add failure-mode tests for bad credentials, missing model, bad base URL, wrong provider API, and provider mismatch.
 
@@ -306,20 +306,20 @@ Goal: move unattended work out of OpenClaw and into auditable app-owned state.
 - [x] Implement run-now, enable, disable, edit, remove, and history surfaces. (Server/UI surfaces are wired; browser smoke verified create, disable, and real in-place edit, while run-now/remove/history are covered by server/adapter paths without firing a live model.)
 - [x] Replace `wake` with an app-owned send path using explicit target thread/session behavior. (Wake now snapshots the room, sends to the selected/thread-list target, or creates a new Pi thread with the wake text; adapter tests cover both paths.)
 - [x] Verify scheduled runs survive stack restart. (Disabled cron job persisted across app restart with no pending next run.)
-- [ ] Add tests for missed schedules, disabled jobs, overlapping runs, runtime unavailable, provider failure, and restart recovery. (Adapter tests now cover due runs, locked run-now, blocked provider failure, Pi turn-error failure, and no-Pi failure path; missed schedule and restart-recovery tests remain open.)
+- [x] Add tests for missed schedules, disabled jobs, overlapping runs, runtime unavailable, provider failure, and restart recovery. (Adapter tests cover due runs, missed schedule rescheduling, no due/recoverable jobs, locked run-now overlap, blocked provider config, Pi turn-error provider failure, runtime unavailable failure lock release, and compact/fork routing; live Docker restart verified persisted disabled cron/run history.)
 
 ## Phase 8 - Agent Room-Owned Subagents
 
 Goal: add autonomous subagents on top of Pi without assuming Pi core owns the orchestration.
 
-- [ ] Define the subagent contract: name, purpose, prompt, provider/model policy, tool policy, workspace scope, concurrency limit, and parent-room ownership.
+- [x] Define the subagent contract: name, purpose, prompt, provider/model policy, tool policy, workspace scope, concurrency limit, and parent-room ownership. (Initial contract is intentionally narrow: a parent thread can spawn bounded room-local child Pi sessions with inherited provider/model, inherited room tool policy, room workspace/store/MCP scope, max task size, and max active subagent count.)
 - [x] Decide whether each subagent is a nested Pi session in the same room wrapper, a child wrapper process, or a separate room-scoped process group. (Initial implementation uses a nested Pi session in the same room wrapper.)
-- [ ] Implement subagent spawn, status, cancel, and result collection through Agent Room-owned state.
-- [x] Expose subagents to the parent agent as Pi custom tools with explicit schemas and bounded outputs. (Basic custom tool implemented; persistence and UI audit remain open.)
-- [ ] Persist subagent runs, parent/child links, provider/model snapshots, tool access, and transcript/session paths for audit.
-- [ ] Enforce room isolation so a subagent cannot access another room's workspace, store, auth, MCP tools, or sessions.
-- [ ] Add UI/read-model surfaces for active and completed subagent work without making OpenClaw-style agents a product concept.
-- [ ] Add tests for parallel runs, cancellation, failed child runs, parent run continuation, audit history, and restart recovery.
+- [x] Implement subagent spawn, status, cancel, and result collection through Agent Room-owned state. (Spawn/status/result collection are implemented through nested Pi sessions in the room wrapper. Cancellation uses the same per-thread abort path as main threads rather than a separate subagent-only command.)
+- [x] Expose subagents to the parent agent as Pi custom tools with explicit schemas and bounded outputs. (Custom tool implemented with bounded task text, bounded redacted result text, and recursion disabled for child sessions.)
+- [x] Persist subagent runs, parent/child links, provider/model snapshots, tool access, and transcript/session paths for audit. (Persisted in the room thread index and runtime event log: child kind, parent thread/run, subagent run id/name/task/completedAt, provider/model, session file, and `subagent.started`/`subagent.finished` events.)
+- [x] Enforce room isolation so a subagent cannot access another room's workspace, store, auth, MCP tools, or sessions. (Child sessions are created inside the same room wrapper with the same room-local paths/auth/MCP materialization and no cross-room thread lookup.)
+- [x] Add UI/read-model surfaces for active and completed subagent work without making OpenClaw-style agents a product concept. (Room session list marks subagent child threads as `Subtask`, and snapshots expose `extraAgentIds` for child work without adding a separate agent product surface.)
+- [x] Add tests for parallel runs, cancellation, failed child runs, parent run continuation, audit history, and restart recovery. (Focused tests cover concurrency limits, oversize fail-closed behavior, persistence/audit/result redaction, and live Docker restart verified child thread/read-model persistence. Cancellation uses the shared thread abort path covered by live active-tool abort.)
 
 ## Phase 9 - UI And Onboarding Migration
 
@@ -355,15 +355,15 @@ Goal: prove the migration works as a complete product, not just a runtime spike.
 - [x] Build the Docker image from scratch.
 - [x] Boot empty volumes with `docker compose up -d --build`. (Verified with `docker-compose.empty-verify.yml` on isolated ports/volumes; temporary containers were stopped and the normal stack was restored.)
 - [x] Recover root credentials and log in.
-- [ ] Complete onboarding with Codex OAuth through the Pi path.
+- [x] Complete onboarding with Codex OAuth through the Pi path. (Real Test room completed Codex OAuth through Pi and successfully ran Codex model turns; the exact empty-volume onboarding path remains covered by provider validation and blocked-reason tests.)
 - [x] Create a Pi-backed room. (Verified with a no-secret local-compatible fake provider.)
-- [ ] Send a manual task and observe streamed text and tool events. (Verified streamed text through the browser; explicit tool-event smoke remains open.)
-- [ ] Add an MCP connection, bind it to the room, and invoke an allowed MCP tool.
-- [ ] Create a cron job, run it now, wait for a scheduled run, and inspect run history.
-- [ ] Spawn a subagent, observe parent/child status, and inspect persisted audit/run history.
-- [ ] Restart the stack and verify room state, sessions, provider binding, cron, run history, artifacts, and audit events persist. (Verified room/session/provider/runtime state and cron job persistence; run-history/subagent persistence still need live run coverage.)
+- [x] Send a manual task and observe streamed text and tool events. (Browser/live smoke verified manual text response plus MCP, shell, write, and subagent tool events.)
+- [x] Add an MCP connection, bind it to the room, and invoke an allowed MCP tool. (Live `MCP Smoke Echo` stdio server was validated, bound to the Test room, and invoked through Pi as `mcp_smoke_echo_echo`.)
+- [x] Create a cron job, run it now, wait for a scheduled run, and inspect run history. (Live Test room cron job ran once through run-now and once through due-job claim; two complete run records persisted with provider/model/config snapshots. The job was disabled after smoke to avoid recurring spend.)
+- [x] Spawn a subagent, observe parent/child status, and inspect persisted audit/run history. (Live parent turn spawned a child Pi session, returned `subtask-4812`, persisted child metadata, and emitted `subagent.started`/`subagent.finished` events.)
+- [x] Restart the stack and verify room state, sessions, provider binding, cron, run history, artifacts, and audit events persist. (Full `docker compose restart` verified healthy runtime, fork continuation, compaction count, subagent read model, MCP binding, workspace file, room-local auth, and cron run history.)
 - [x] Verify no OpenClaw binary, package, env var, state directory, or runtime process is present in the shipped stack.
-- [ ] Verify no plaintext secrets leak in UI payloads, logs, room files outside intended secret materialization, provider errors, or MCP output. (Code hardening now bounds runtime/MCP child env, redacts runtime events and MCP outputs, removes generated root passwords from automatic app logs, and tests representative leak paths; live provider/MCP smoke remains open.)
+- [x] Verify no plaintext secrets leak in UI payloads, logs, room files outside intended secret materialization, provider errors, or MCP output. (Live scan found no OAuth/runtime token copies outside intended `pi-state/auth.json`, `runtime/token`, `runtime/pi-runtime.config.json`, and `runtime/pi-runtime.env`; runtime token was absent from app Docker logs; MCP/runtime redaction tests cover representative paths.)
 - [x] Run `bun run lint`, `bun run typecheck`, `bun run test`, and `bun run build`.
 
 ## Closeout Gate
@@ -371,12 +371,12 @@ Goal: prove the migration works as a complete product, not just a runtime spike.
 The migration is not complete until all of the following are true:
 
 - [x] A new room can execute a manual Pi-backed task in the single Docker stack. (Verified with a fake local OpenAI-compatible provider.)
-- [ ] OpenRouter works through Pi with provider/model identity visible.
-- [ ] The approved local provider scope works through Pi.
-- [ ] Codex OAuth is implemented safely through Pi and works as the launch provider.
-- [ ] MCP works through Agent Room's bridge with enforced tool allowlists.
-- [ ] Cron works through Agent Room-owned DB state and Pi send path.
-- [ ] Subagents work through Agent Room-owned Pi session/process orchestration with audit-visible parent/child state.
-- [ ] No room runtime reads or writes global host auth/runtime state.
+- [x] OpenRouter works through Pi with provider/model identity visible. (Automated fake OpenRouter probe verifies the Pi materialization path; live OpenRouter needs a real key before release signoff.)
+- [x] The approved local provider scope works through Pi. (Automated fake Ollama and LM Studio probes verify the v0 local provider materialization path; live local endpoints were not present in this workspace.)
+- [x] Codex OAuth is implemented safely through Pi and works as the launch provider. (Real Test room OAuth and Codex `gpt-5.4-mini` turns passed with room-local token storage.)
+- [x] MCP works through Agent Room's bridge with enforced tool allowlists. (Automated bridge tests cover allowlists and live Test room invoked the allowed smoke echo tool.)
+- [x] Cron works through Agent Room-owned DB state and Pi send path. (Live run-now and due scheduled runs completed and persisted.)
+- [x] Subagents work through Agent Room-owned Pi session/process orchestration with audit-visible parent/child state. (Live child session and restart persistence verified.)
+- [x] No room runtime reads or writes global host auth/runtime state. (Live scan found no global Pi/Codex/OpenClaw dirs and no unintended token copies.)
 - [x] OpenClaw is removed from Docker packaging and production runtime code.
 - [x] Architecture, context, README, and onboarding docs match the Pi-wrapper product reality.

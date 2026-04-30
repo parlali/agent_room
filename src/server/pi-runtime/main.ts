@@ -6,16 +6,13 @@ import { dirname } from 'node:path'
 import {
     AuthStorage,
     createAgentSession,
-    defineTool,
     ModelRegistry,
     SessionManager,
     SettingsManager,
     type AgentSession,
     type AgentSessionEvent,
     type SessionEntry,
-    type ToolDefinition,
 } from '@mariozechner/pi-coding-agent'
-import { Type } from '@mariozechner/pi-ai'
 import {
     emptyRuntimePart,
     extractTextFromRuntimeContent,
@@ -32,6 +29,8 @@ import type {
 } from '../rooms/execution-types'
 import type {
     PiRuntimeAbortPayload,
+    PiRuntimeCompactPayload,
+    PiRuntimeForkPayload,
     PiRuntimeSendPayload,
     PiRuntimeSnapshotPayload,
     PiRuntimeThreadCreatePayload,
@@ -43,31 +42,20 @@ import { createInternalStateTools } from './internal-state-tools'
 import { createRoomTools } from './room-tools'
 import { buildAgentRoomSystemPrompt } from './system-prompt'
 import { selectSnapshotThreadKey } from './snapshot-selection'
-
-interface ThreadRecord {
-    key: string
-    sessionFile: string
-    sessionId: string
-    title: string
-    status: string
-    createdAt: number
-    updatedAt: number
-    lastMessagePreview: string | null
-    modelProvider: string | null
-    model: string | null
-    activeRunId: string | null
-    lastError: string | null
-}
-
-interface ThreadIndexFile {
-    version: 1
-    threads: ThreadRecord[]
-}
+import { createSubagentTool } from './subagent-tool'
+import {
+    normalizeThreadIndexFile,
+    subagentAgentId,
+    type ThreadIndexFile,
+    type ThreadRecord,
+} from './thread-records'
+import { withToolRunContext } from './tool-run-context'
 
 interface ActiveThread {
     session: AgentSession
     unsubscribe: (() => void) | null
     queue: Promise<void>
+    abortController: AbortController | null
 }
 
 const configPath = process.env.AGENT_ROOM_PI_RUNTIME_CONFIG_PATH
@@ -78,7 +66,6 @@ if (!configPath) {
 const config = JSON.parse(await readFile(configPath, 'utf8')) as PiRuntimeConfig
 const activeThreads = new Map<string, ActiveThread>()
 const subscribers = new Map<string, Set<ReadableStreamDefaultController<Uint8Array>>>()
-const subagentThreadKeys = new Set<string>()
 const threadIndex = await readJsonFile<ThreadIndexFile>(config.paths.threadIndexPath, {
     version: 1,
     threads: [],
@@ -89,7 +76,9 @@ const maxRedactedStringChars = 4000
 const maxRedactedArrayItems = 100
 const maxRedactedObjectKeys = 100
 const maxSubagentTaskChars = 24000
+const maxActiveSubagents = 2
 
+threadIndex.threads = normalizeThreadIndexFile(threadIndex).threads
 await ensureRuntimeLayout()
 await writeJsonFile(config.paths.modelsPath, config.models)
 const mcpTools = await createMcpTools({
@@ -344,7 +333,7 @@ function textPart(text: string): RoomExecutionMessagePart {
 
 function toolCallPart(
     block: Record<string, unknown>,
-    completedToolCallIds: Set<string>,
+    completedIds: Set<string>,
 ): RoomExecutionMessagePart {
     const toolCallId = typeof block.id === 'string' ? block.id : null
     return emptyRuntimePart({
@@ -352,7 +341,7 @@ function toolCallPart(
         text: typeof block.name === 'string' ? block.name : '',
         toolName: typeof block.name === 'string' ? block.name : null,
         toolCallId,
-        status: toolCallId && completedToolCallIds.has(toolCallId) ? 'complete' : 'running',
+        status: toolCallId && completedIds.has(toolCallId) ? 'complete' : 'running',
         input: toRuntimeSerializable(block.arguments ?? {}),
         rawType: 'toolCall',
     })
@@ -408,7 +397,7 @@ function mapCompactionEntry(entry: SessionEntry, index: number): RoomExecutionMe
 function mapSessionEntry(
     entry: SessionEntry,
     index: number,
-    completedToolCallIds: Set<string>,
+    completedIds: Set<string>,
 ): RoomExecutionMessage | null {
     const compaction = mapCompactionEntry(entry, index)
     if (compaction) {
@@ -444,7 +433,7 @@ function mapSessionEntry(
             } else if (block.type === 'thinking') {
                 continue
             } else if (block.type === 'toolCall') {
-                parts.push(toolCallPart(block, completedToolCallIds))
+                parts.push(toolCallPart(block, completedIds))
             } else {
                 parts.push(
                     emptyRuntimePart({
@@ -608,63 +597,6 @@ function updateThreadFromMessages(record: ThreadRecord): void {
     }
 }
 
-function createSubagentTool(): ToolDefinition {
-    return defineTool({
-        name: 'agent_room_subagent',
-        label: 'Subagent',
-        description:
-            'Run a bounded child Pi session inside this Agent Room and return its final text.',
-        parameters: Type.Object({
-            task: Type.String(),
-            name: Type.Optional(Type.String()),
-        }),
-        execute: async (_toolCallId, input) => {
-            const task = String(input.task ?? '').trim()
-            if (!task) {
-                throw new Error('Subagent task cannot be empty')
-            }
-            if (task.length > maxSubagentTaskChars) {
-                throw new Error('Subagent task is too large')
-            }
-            const name = typeof input.name === 'string' ? shortText(input.name, 80) : null
-            const child = await createThread({
-                title: name ? `Subagent: ${name}` : 'Subagent',
-            })
-            subagentThreadKeys.add(child.key)
-            const record = findThread(child.key)
-            if (!record) {
-                throw new Error('Subagent thread was not created')
-            }
-            await runPrompt({
-                record,
-                message: task,
-                runId: randomUUID(),
-                awaitCompletion: true,
-            })
-            const messages = readThreadMessages(record, 200)
-            const finalAssistant = [...messages]
-                .reverse()
-                .find((message) => message.role === 'assistant' && message.text.trim())
-            return {
-                content: [
-                    {
-                        type: 'text',
-                        text: JSON.stringify({
-                            threadKey: record.key,
-                            status: record.status,
-                            text: redactString(finalAssistant?.text ?? ''),
-                        }),
-                    },
-                ],
-                details: {
-                    threadKey: record.key,
-                    status: record.status,
-                },
-            }
-        },
-    })
-}
-
 async function createPiSession(record: ThreadRecord): Promise<AgentSession> {
     const authStorage = AuthStorage.create(config.paths.authPath)
     const modelRegistry = ModelRegistry.create(authStorage, config.paths.modelsPath)
@@ -711,7 +643,26 @@ async function createPiSession(record: ThreadRecord): Promise<AgentSession> {
             config,
             audit: appendRuntimeEvent,
         }),
-        ...(subagentThreadKeys.has(record.key) ? [] : [createSubagentTool()]),
+        ...(record.kind === 'subagent'
+            ? []
+            : [
+                  createSubagentTool({
+                      parentRecord: record,
+                      maxTaskChars: maxSubagentTaskChars,
+                      activeCount: () =>
+                          threadIndex.threads.filter(
+                              (thread) => thread.kind === 'subagent' && thread.status === 'running',
+                          ).length,
+                      maxActive: maxActiveSubagents,
+                      shortText,
+                      redactString,
+                      createThread,
+                      findThread,
+                      runPrompt,
+                      readThreadMessages,
+                      audit: appendRuntimeEvent,
+                  }),
+              ]),
         ...mcpTools,
     ]
     const { session } = await createAgentSession({
@@ -743,6 +694,7 @@ async function getActiveThread(record: ThreadRecord): Promise<ActiveThread> {
         session,
         unsubscribe: null,
         queue: Promise.resolve(),
+        abortController: null,
     }
     active.unsubscribe = session.subscribe((event) => {
         void handleSessionEvent(record, event)
@@ -793,6 +745,12 @@ async function createThread(
     input: {
         firstMessage?: string | null
         title?: string | null
+        kind?: 'main' | 'subagent'
+        parentThreadKey?: string | null
+        parentRunId?: string | null
+        subagentRunId?: string | null
+        subagentName?: string | null
+        subagentTask?: string | null
     } = {},
 ): Promise<PiRuntimeThreadCreatePayload> {
     const key = randomUUID()
@@ -814,6 +772,13 @@ async function createThread(
         model: config.provider.piModel,
         activeRunId: null,
         lastError: null,
+        kind: input.kind ?? 'main',
+        parentThreadKey: input.parentThreadKey ?? null,
+        parentRunId: input.parentRunId ?? null,
+        subagentRunId: input.subagentRunId ?? null,
+        subagentName: input.subagentName ?? null,
+        subagentTask: input.subagentTask ?? null,
+        completedAt: null,
     }
     threadIndex.threads.unshift(record)
     await persistThreadIndex()
@@ -839,6 +804,8 @@ async function runPrompt(input: {
     const execute = async () => {
         await refreshSystemPrompt(activeThreads.get(input.record.key))
         const active = await getActiveThread(input.record)
+        const abortController = new AbortController()
+        active.abortController = abortController
         input.record.status = 'running'
         input.record.activeRunId = input.runId
         input.record.lastError = null
@@ -849,16 +816,24 @@ async function runPrompt(input: {
             runId: input.runId,
         })
         try {
-            await active.session.prompt(
-                input.message,
-                active.session.isStreaming
-                    ? {
-                          streamingBehavior: 'followUp',
-                          source: 'rpc',
-                      }
-                    : {
-                          source: 'rpc',
-                      },
+            await withToolRunContext(
+                {
+                    sessionKey: input.record.key,
+                    runId: input.runId,
+                    signal: abortController.signal,
+                },
+                () =>
+                    active.session.prompt(
+                        input.message,
+                        active.session.isStreaming
+                            ? {
+                                  streamingBehavior: 'followUp',
+                                  source: 'rpc',
+                              }
+                            : {
+                                  source: 'rpc',
+                              },
+                    ),
             )
             const latestError = latestAssistantErrorMessage(input.record)
             input.record.status = latestError ? 'error' : 'idle'
@@ -872,6 +847,9 @@ async function runPrompt(input: {
                 message: input.record.lastError,
             })
         } finally {
+            if (active.abortController === abortController) {
+                active.abortController = null
+            }
             input.record.activeRunId = null
             updateThreadFromMessages(input.record)
             await persistThreadIndex()
@@ -892,11 +870,109 @@ async function runPrompt(input: {
     return input.record.status
 }
 
+async function compactThread(input: {
+    record: ThreadRecord
+    instructions?: string | null
+}): Promise<PiRuntimeCompactPayload> {
+    const active = await getActiveThread(input.record)
+    input.record.status = 'compacting'
+    input.record.lastError = null
+    await persistThreadIndex()
+    try {
+        await active.session.compact(input.instructions?.trim() || undefined)
+        input.record.status = active.session.isStreaming ? 'running' : 'idle'
+    } catch (error) {
+        input.record.status = 'error'
+        input.record.lastError = errorMessage(error)
+    } finally {
+        updateThreadFromMessages(input.record)
+        await persistThreadIndex()
+        broadcast(input.record.key, 'thread.compacted', {
+            sessionKey: input.record.key,
+            status: input.record.status,
+            error: input.record.lastError,
+        })
+    }
+
+    return {
+        status: input.record.status,
+        error: input.record.lastError,
+        compactionCount: compactionStats(input.record).count,
+    }
+}
+
+async function forkThread(input: {
+    record: ThreadRecord
+    title?: string | null
+    entryId?: string | null
+}): Promise<PiRuntimeForkPayload> {
+    const manager = SessionManager.open(
+        input.record.sessionFile,
+        config.paths.sessionsDir,
+        config.paths.workspaceDir,
+    )
+    const leafId = input.entryId?.trim() || manager.getLeafId()
+    if (!leafId) {
+        throw new Error('Cannot fork an empty thread')
+    }
+    const sessionFile = manager.createBranchedSession(leafId)
+    if (!sessionFile) {
+        throw new Error('Pi did not create a forked session file')
+    }
+    const forkManager = SessionManager.open(
+        sessionFile,
+        config.paths.sessionsDir,
+        config.paths.workspaceDir,
+    )
+    const now = Date.now()
+    const key = randomUUID()
+    const record: ThreadRecord = {
+        key,
+        sessionFile,
+        sessionId: forkManager.getSessionId(),
+        title: input.title?.trim() || `Fork: ${input.record.title}`,
+        status: 'idle',
+        createdAt: now,
+        updatedAt: now,
+        lastMessagePreview: null,
+        modelProvider: config.provider.piProvider,
+        model: config.provider.piModel,
+        activeRunId: null,
+        lastError: null,
+        kind: input.record.kind,
+        parentThreadKey: input.record.key,
+        parentRunId: input.record.activeRunId,
+        subagentRunId: input.record.subagentRunId,
+        subagentName: input.record.subagentName,
+        subagentTask: input.record.subagentTask,
+        completedAt: null,
+    }
+    threadIndex.threads.unshift(record)
+    updateThreadFromMessages(record)
+    await persistThreadIndex()
+    await appendRuntimeEvent('thread.forked', {
+        parentThreadKey: input.record.key,
+        threadKey: record.key,
+        parentSessionFile: input.record.sessionFile,
+        sessionFile,
+        entryId: leafId,
+    })
+
+    return {
+        key: record.key,
+        parentThreadKey: input.record.key,
+        parentSessionFile: input.record.sessionFile,
+    }
+}
+
 function mapThread(record: ThreadRecord): RoomExecutionThread {
+    const agentId = record.kind === 'subagent' ? subagentAgentId(record) : 'main'
     return {
         key: record.key,
         sessionId: record.sessionId,
-        agentId: 'main',
+        agentId,
+        kind: record.kind,
+        parentThreadKey: record.parentThreadKey,
         title: record.title,
         lastMessagePreview: record.lastMessagePreview,
         status: record.status,
@@ -946,6 +1022,9 @@ function snapshot(input: {
         (left, right) => right.updatedAt - left.updatedAt,
     )
     const threads = orderedRecords.map(mapThread)
+    const extraAgentIds = orderedRecords
+        .filter((record) => record.kind === 'subagent')
+        .map(subagentAgentId)
     const selectedThreadKey = selectSnapshotThreadKey({
         requestedThreadKey: input.selectedThreadKey,
         orderedThreadKeys: threads.map((thread) => thread.key),
@@ -955,7 +1034,7 @@ function snapshot(input: {
 
     return {
         roomAgent: roomAgent(threads),
-        extraAgentIds: [],
+        extraAgentIds,
         threads,
         selectedThreadKey,
         selectedThreadMessages,
@@ -1101,10 +1180,11 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
             throw new HttpError(404, `Thread ${sessionKey} does not exist`)
         }
         const active = activeThreads.get(sessionKey)
+        const abortedRunId = record.activeRunId
         if (active) {
+            active.abortController?.abort()
             await active.session.abort()
         }
-        const abortedRunId = record.activeRunId
         record.status = 'idle'
         record.activeRunId = null
         await persistThreadIndex()
@@ -1112,6 +1192,46 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
             abortedRunId,
             status: abortedRunId ? 'aborted' : 'no-active-run',
         }
+        sendJson(response, 200, payload)
+        return
+    }
+
+    const threadCompactMatch = url.pathname.match(/^\/threads\/([^/]+)\/compact$/)
+    if (request.method === 'POST' && threadCompactMatch) {
+        const sessionKey = decodeURIComponent(threadCompactMatch[1]!)
+        const record = findThread(sessionKey)
+        if (!record) {
+            throw new HttpError(404, `Thread ${sessionKey} does not exist`)
+        }
+        const body = await getRequestBody(request)
+        const instructions =
+            isRecord(body) && typeof body.instructions === 'string' ? body.instructions : null
+        sendJson(
+            response,
+            200,
+            await compactThread({
+                record,
+                instructions,
+            }),
+        )
+        return
+    }
+
+    const threadForkMatch = url.pathname.match(/^\/threads\/([^/]+)\/fork$/)
+    if (request.method === 'POST' && threadForkMatch) {
+        const sessionKey = decodeURIComponent(threadForkMatch[1]!)
+        const record = findThread(sessionKey)
+        if (!record) {
+            throw new HttpError(404, `Thread ${sessionKey} does not exist`)
+        }
+        const body = await getRequestBody(request)
+        const title = isRecord(body) && typeof body.title === 'string' ? body.title : null
+        const entryId = isRecord(body) && typeof body.entryId === 'string' ? body.entryId : null
+        const payload: PiRuntimeForkPayload = await forkThread({
+            record,
+            title,
+            entryId,
+        })
         sendJson(response, 200, payload)
         return
     }

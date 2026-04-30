@@ -5,6 +5,8 @@ import type {
     RoomRunHistorySnapshot,
     RoomRuntimeOverview,
     RoomThreadAbortResult,
+    RoomThreadCompactResult,
+    RoomThreadForkResult,
     RoomThreadSendResult,
 } from './execution-types'
 import type { RoomExecutionAdapter } from './execution-adapter'
@@ -25,6 +27,8 @@ export type {
     RoomRunHistorySnapshot,
     RoomRuntimeOverview,
     RoomThreadAbortResult,
+    RoomThreadCompactResult,
+    RoomThreadForkResult,
     RoomThreadSendResult,
 } from './execution-types'
 
@@ -62,6 +66,25 @@ export async function abortRoomThreadMessage(input: {
 }): Promise<RoomThreadAbortResult> {
     const module = await loadExecutionEngineModule()
     return module.abortRoomThreadMessage(input)
+}
+
+export async function compactRoomThread(input: {
+    roomId: string
+    sessionKey: string
+    instructions?: string | null
+}): Promise<RoomThreadCompactResult> {
+    const module = await loadExecutionEngineModule()
+    return module.compactRoomThread(input)
+}
+
+export async function forkRoomThread(input: {
+    roomId: string
+    sessionKey: string
+    title?: string | null
+    entryId?: string | null
+}): Promise<RoomThreadForkResult> {
+    const module = await loadExecutionEngineModule()
+    return module.forkRoomThread(input)
 }
 
 export async function editRoomThreadMessage(input: {

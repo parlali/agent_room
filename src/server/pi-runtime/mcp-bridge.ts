@@ -7,6 +7,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { defineTool, type ToolDefinition } from '@mariozechner/pi-coding-agent'
 import { Type } from '@mariozechner/pi-ai'
 import type { MaterializedMcpServer } from '../domain/types'
+import { combineAbortSignals, currentToolRunSignal } from './tool-run-context'
 
 interface ConnectedMcpServer {
     server: MaterializedMcpServer
@@ -167,6 +168,7 @@ function createMcpTool(input: {
         description: input.description,
         parameters: jsonSchemaToParameters(input.inputSchema),
         execute: async (_toolCallId, params, signal) => {
+            const combined = combineAbortSignals([signal, currentToolRunSignal()])
             try {
                 const result = await input.connected.client.callTool(
                     {
@@ -178,7 +180,7 @@ function createMcpTool(input: {
                     },
                     undefined,
                     {
-                        signal,
+                        signal: combined.signal,
                         timeout: 60000,
                     },
                 )
@@ -201,6 +203,8 @@ function createMcpTool(input: {
                     input.connected.redactions,
                 )
                 throw new Error(message)
+            } finally {
+                combined.dispose()
             }
         },
     })

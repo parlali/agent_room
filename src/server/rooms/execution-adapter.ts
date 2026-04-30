@@ -6,6 +6,8 @@ import type {
     RoomRunHistorySnapshot,
     RoomRuntimeOverview,
     RoomThreadAbortResult,
+    RoomThreadCompactResult,
+    RoomThreadForkResult,
     RoomThreadSendResult,
 } from './execution-types'
 
@@ -27,6 +29,17 @@ export interface RoomExecutionAdapter {
         sessionKey: string
         runId?: string | null
     }) => Promise<RoomThreadAbortResult>
+    compactRoomThread: (input: {
+        roomId: string
+        sessionKey: string
+        instructions?: string | null
+    }) => Promise<RoomThreadCompactResult>
+    forkRoomThread: (input: {
+        roomId: string
+        sessionKey: string
+        title?: string | null
+        entryId?: string | null
+    }) => Promise<RoomThreadForkResult>
     editRoomThreadMessage: (input: {
         roomId: string
         sessionKey: string

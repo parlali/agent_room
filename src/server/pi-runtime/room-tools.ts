@@ -22,6 +22,7 @@ import { Type } from '@mariozechner/pi-ai'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { buildBoundedProcessEnv } from '../security/process-env'
 import { internalStateToolNames } from './internal-state-tools'
+import { combineAbortSignals, currentToolRunSignal } from './tool-run-context'
 
 type ToolRoot = 'workspace' | 'store'
 
@@ -34,6 +35,7 @@ interface RoomToolDetails {
     truncated?: boolean
     exitCode?: number | null
     timedOut?: boolean
+    aborted?: boolean
     durationMs?: number
     fileChange?: {
         kind: 'write' | 'edit' | 'artifact_import' | 'artifact_export'
@@ -575,6 +577,7 @@ async function runShell(input: {
     output: string
     exitCode: number | null
     timedOut: boolean
+    aborted: boolean
     durationMs: number
     truncated: boolean
 }> {
@@ -582,12 +585,14 @@ async function runShell(input: {
     let output = ''
     let truncated = false
     let timedOut = false
+    let aborted = false
     let closed = false
     const child = spawn(input.command, {
         cwd: input.cwd,
         shell: '/bin/sh',
         env: input.env,
         stdio: ['ignore', 'pipe', 'pipe'],
+        detached: true,
     })
 
     const append = (chunk: Buffer) => {
@@ -606,23 +611,38 @@ async function runShell(input: {
     child.stdout.on('data', append)
     child.stderr.on('data', append)
 
+    const terminate = (signal: NodeJS.Signals) => {
+        if (child.pid) {
+            try {
+                process.kill(-child.pid, signal)
+                return
+            } catch {}
+        }
+        child.kill(signal)
+    }
+
     const kill = () => {
         if (closed) {
             return
         }
-        child.kill('SIGTERM')
+        terminate('SIGTERM')
         setTimeout(() => {
             if (!closed) {
-                child.kill('SIGKILL')
+                terminate('SIGKILL')
             }
         }, 2000).unref()
+    }
+
+    const abort = () => {
+        aborted = true
+        kill()
     }
 
     const timer = setTimeout(() => {
         timedOut = true
         kill()
     }, input.timeoutMs)
-    input.signal?.addEventListener('abort', kill, {
+    input.signal?.addEventListener('abort', abort, {
         once: true,
     })
 
@@ -631,11 +651,12 @@ async function runShell(input: {
         child.on('close', (exitCode) => {
             closed = true
             clearTimeout(timer)
-            input.signal?.removeEventListener('abort', kill)
+            input.signal?.removeEventListener('abort', abort)
             resolvePromise({
                 output,
                 exitCode,
                 timedOut,
+                aborted,
                 durationMs: Date.now() - startedAt,
                 truncated,
             })
@@ -656,6 +677,7 @@ function createShellTool(ctx: RoomToolContext): ToolDefinition {
         }),
         executionMode: 'sequential',
         execute: async (_toolCallId, input, signal, onUpdate) => {
+            const combined = combineAbortSignals([signal, currentToolRunSignal()])
             const timeoutMs = clampPositiveInteger(
                 input.timeoutMs,
                 DEFAULT_SHELL_TIMEOUT_MS,
@@ -666,13 +688,14 @@ function createShellTool(ctx: RoomToolContext): ToolDefinition {
                 cwd: ctx.config.paths.workspaceDir,
                 env: shellEnv(ctx.config),
                 timeoutMs,
-                signal,
+                signal: combined.signal,
                 onUpdate,
-            })
+            }).finally(combined.dispose)
             await audit(ctx, 'shell', {
                 path: ctx.config.paths.workspaceDir,
                 exitCode: result.exitCode,
                 timedOut: result.timedOut,
+                aborted: result.aborted,
                 durationMs: result.durationMs,
                 truncated: result.truncated,
             })
@@ -682,6 +705,7 @@ function createShellTool(ctx: RoomToolContext): ToolDefinition {
                 truncated: result.truncated,
                 exitCode: result.exitCode,
                 timedOut: result.timedOut,
+                aborted: result.aborted,
                 durationMs: result.durationMs,
             })
         },
