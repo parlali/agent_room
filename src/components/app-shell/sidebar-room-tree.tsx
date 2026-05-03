@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useRouterState } from '@tanstack/react-router'
+import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronRight, Plus } from 'lucide-react'
 
@@ -8,7 +8,7 @@ import { describeRoomState, describeSessionState, toneStyles } from '#/lib/state
 import { formatRelativeTime } from '#/lib/format'
 import { Button } from '#/components/ui/button'
 import { Skeleton } from '#/components/ui/skeleton'
-import { StatusDot } from '#/components/agent-room'
+import { SessionContextMenu, SessionContextMenuTrigger, StatusDot } from '#/components/agent-room'
 import { getRoomExecutionServer } from '#/routes/-room-runtime-server'
 import type { RoomRuntimeOverview } from '#/server/rooms/execution-types'
 
@@ -141,6 +141,7 @@ function RoomSessions({
     activePathname: string
     onNavigate?: () => void
 }) {
+    const navigate = useNavigate()
     const query = useQuery({
         queryKey: ['room-execution', roomId, 'sidebar'],
         queryFn: () => getRoomExecutionServer({ data: { roomId } }),
@@ -190,30 +191,46 @@ function RoomSessions({
                 const sessionPath = `/rooms/${roomId}/sessions/${encodeURIComponent(thread.key)}`
                 const isActive = activePathname === sessionPath
                 return (
-                    <li key={thread.key}>
-                        <Link
-                            to="/rooms/$roomId/sessions/$sessionKey"
-                            params={{ roomId, sessionKey: thread.key }}
-                            onClick={onNavigate}
+                    <li key={thread.key} className="group/item">
+                        <div
                             className={cn(
-                                'group/session flex min-w-0 items-center gap-2 rounded-md px-2 py-1 text-[0.8125rem] text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                                'flex min-w-0 items-center gap-2 rounded-md px-2 py-1 text-[0.8125rem] text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
                                 isActive &&
                                     'bg-sidebar-accent font-medium text-sidebar-accent-foreground',
                             )}
                         >
-                            <span
-                                className={cn(
-                                    'size-1.5 shrink-0 rounded-full',
-                                    toneStyles[sessionState.tone].dot,
-                                )}
-                            />
-                            <span className="min-w-0 flex-1 truncate">
-                                {thread.title || 'Untitled session'}
-                            </span>
-                            <span className="shrink-0 text-[0.6875rem] text-muted-foreground/80 group-hover/session:text-current">
+                            <Link
+                                to="/rooms/$roomId/sessions/$sessionKey"
+                                params={{ roomId, sessionKey: thread.key }}
+                                onClick={onNavigate}
+                                className="flex min-w-0 flex-1 items-center gap-2"
+                            >
+                                <span
+                                    className={cn(
+                                        'size-1.5 shrink-0 rounded-full',
+                                        toneStyles[sessionState.tone].dot,
+                                    )}
+                                />
+                                <span className="min-w-0 flex-1 truncate">
+                                    {thread.title || 'Untitled session'}
+                                </span>
+                            </Link>
+                            <span className="shrink-0 text-[0.6875rem] text-muted-foreground/80 group-hover/item:hidden">
                                 {formatRelativeTime(thread.updatedAt)}
                             </span>
-                        </Link>
+                            <SessionContextMenu
+                                roomId={roomId}
+                                sessionKey={thread.key}
+                                sessionTitle={thread.title || 'Untitled session'}
+                                onDeleted={() => {
+                                    if (isActive) {
+                                        navigate({ to: '/rooms/$roomId', params: { roomId } })
+                                    }
+                                }}
+                            >
+                                <SessionContextMenuTrigger className="hidden shrink-0 group-hover/item:flex" />
+                            </SessionContextMenu>
+                        </div>
                     </li>
                 )
             })}

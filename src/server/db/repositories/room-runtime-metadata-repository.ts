@@ -63,4 +63,8 @@ export const roomRuntimeMetadataRepository = {
         `
         return mapRuntimeMetadata(rows[0] as Record<string, unknown>)
     },
+
+    async deleteByRoomId(roomId: string): Promise<void> {
+        await sql`DELETE FROM room_runtime_metadata WHERE room_id = ${roomId}`
+    },
 }

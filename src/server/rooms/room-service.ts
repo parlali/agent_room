@@ -1,4 +1,15 @@
-import { auditRepository, roomRepository } from '../db/repositories'
+import { rm } from 'node:fs/promises'
+import {
+    auditRepository,
+    roomCronRepository,
+    roomRepository,
+    roomRuntimeMetadataRepository,
+    roomSecretRepository,
+} from '../db/repositories'
+import {
+    roomConfigRepository,
+    roomMcpBindingRepository,
+} from '../db/repositories/configuration-repository'
 import { saveRoomConfig } from '../configuration/operator-configuration'
 import type {
     ProviderApi,
@@ -7,7 +18,7 @@ import type {
     RoomRecord,
     RoomToolProfile,
 } from '../domain/types'
-import { archiveFailedRoomFilesystemLayout } from './room-paths'
+import { archiveFailedRoomFilesystemLayout, getRoomPaths } from './room-paths'
 import { assertRoomSetupReady } from './runtime-readiness'
 import { roomRuntimeManager } from './runtime-manager'
 
@@ -240,4 +251,42 @@ export async function updateRoomIdentity(input: {
     })
 
     return room
+}
+
+export async function deleteRoom(input: { roomId: string; actorUserId: string }): Promise<void> {
+    const room = await roomRepository.findRoomById(input.roomId)
+    if (!room) {
+        throw new Error('Room not found')
+    }
+
+    await roomRuntimeManager.stopRoom(input.roomId, input.actorUserId)
+
+    const paths = getRoomPaths(input.roomId)
+
+    await roomCronRepository.deleteAllByRoomId(input.roomId)
+    await roomSecretRepository.deleteByRoomId(input.roomId)
+    await roomMcpBindingRepository.replaceForRoom(input.roomId, [])
+    await roomConfigRepository.findByRoomId(input.roomId).then(async (config) => {
+        if (config) {
+            const { sql } = await import('../db/client')
+            await sql`DELETE FROM room_configs WHERE room_id = ${input.roomId}`
+        }
+    })
+    await roomRuntimeMetadataRepository.deleteByRoomId(input.roomId)
+
+    await auditRepository.appendEvent({
+        actorUserId: input.actorUserId,
+        roomId: input.roomId,
+        action: 'room.deleted',
+        payload: {
+            slug: room.slug,
+            displayName: room.displayName,
+        },
+    })
+
+    await roomRepository.deleteRoom(input.roomId)
+
+    try {
+        await rm(paths.roomRootDir, { recursive: true, force: true })
+    } catch {}
 }

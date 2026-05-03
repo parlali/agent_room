@@ -289,4 +289,9 @@ export const roomCronRepository = {
         `
         return rows.map((row) => mapRoomCronRun(row as Record<string, unknown>))
     },
+
+    async deleteAllByRoomId(roomId: string): Promise<void> {
+        await sql`DELETE FROM room_cron_runs WHERE room_id = ${roomId}`
+        await sql`DELETE FROM room_cron_jobs WHERE room_id = ${roomId}`
+    },
 }

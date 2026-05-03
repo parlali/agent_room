@@ -1,8 +1,9 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
+    AlertTriangleIcon,
     ArchiveIcon,
     CopyIcon,
     ExternalLinkIcon,
@@ -15,12 +16,15 @@ import {
     SaveIcon,
     ShieldIcon,
     SignalHighIcon,
+    Trash2Icon,
     XIcon,
 } from 'lucide-react'
 
 import { RoomDashboardLayout } from '#/components/room-dashboard'
 import {
     AttentionBanner,
+    DangerZone,
+    DangerZoneItem,
     EmptyState,
     LoadingRows,
     Section,
@@ -31,6 +35,14 @@ import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import { Textarea } from '#/components/ui/textarea'
 import { Switch } from '#/components/ui/switch'
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '#/components/ui/dialog'
 import { Skeleton } from '#/components/ui/skeleton'
 import {
     Select,
@@ -62,6 +74,7 @@ import {
     submitCodexOAuthRedirectServer,
 } from '#/routes/-operator-config-server'
 import {
+    deleteRoomServer,
     listRoomsServer,
     setRoomDesiredStateServer,
     updateRoomIdentityServer,
@@ -270,6 +283,13 @@ function RoomSettingsPage() {
                     <PauseAndArchiveSection
                         roomId={roomId}
                         paused={room?.desiredState === 'stopped'}
+                        loading={roomsQuery.isLoading}
+                    />
+
+                    <DangerZoneSection
+                        roomId={roomId}
+                        roomSlug={room?.slug ?? ''}
+                        roomDisplayName={room?.displayName ?? ''}
                         loading={roomsQuery.isLoading}
                     />
                 </div>
@@ -1477,5 +1497,137 @@ function PauseAndArchiveSection({
                 </div>
             </div>
         </Section>
+    )
+}
+
+function DangerZoneSection({
+    roomId,
+    roomSlug,
+    roomDisplayName,
+    loading,
+}: {
+    roomId: string
+    roomSlug: string
+    roomDisplayName: string
+    loading: boolean
+}) {
+    const navigate = useNavigate()
+    const queryClient = useQueryClient()
+    const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+    const [confirmSlug, setConfirmSlug] = useState('')
+
+    const deleteMutation = useMutation({
+        mutationFn: () => deleteRoomServer({ data: { roomId, confirmSlug } }),
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey: ['rooms-list'] })
+            toast.success('Room deleted')
+            navigate({ to: '/' })
+        },
+        onError: (e: unknown) =>
+            toast.error('Could not delete room', {
+                description: e instanceof Error ? e.message : 'Unexpected error',
+            }),
+    })
+
+    const canDelete = confirmSlug === roomSlug && roomSlug.length > 0
+
+    return (
+        <>
+            <DangerZone
+                title="Danger Zone"
+                description="Irreversible actions that permanently affect this room."
+            >
+                <DangerZoneItem
+                    icon={<Trash2Icon className="size-5" />}
+                    title="Delete this room"
+                    description="Permanently delete this room and all its sessions, files, jobs, and secrets. This action cannot be undone."
+                    action={
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={loading}
+                            onClick={() => setShowDeleteDialog(true)}
+                        >
+                            <Trash2Icon />
+                            Delete room
+                        </Button>
+                    }
+                />
+            </DangerZone>
+
+            <Dialog
+                open={showDeleteDialog}
+                onOpenChange={(open) => {
+                    if (!open && !deleteMutation.isPending) {
+                        setShowDeleteDialog(false)
+                        setConfirmSlug('')
+                    }
+                }}
+            >
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-danger-fg">
+                            <AlertTriangleIcon className="size-5" />
+                            Delete {roomDisplayName || 'this room'}?
+                        </DialogTitle>
+                        <DialogDescription className="space-y-3 pt-2">
+                            <span className="block">
+                                This will permanently delete the room and all associated data:
+                            </span>
+                            <ul className="list-inside list-disc space-y-1 text-sm">
+                                <li>All sessions and conversation history</li>
+                                <li>All workspace files</li>
+                                <li>All scheduled jobs</li>
+                                <li>All room secrets and configuration</li>
+                            </ul>
+                            <span className="block font-medium text-foreground">
+                                This action cannot be undone.
+                            </span>
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-2 py-2">
+                        <Label htmlFor="confirm-slug">
+                            Type{' '}
+                            <span className="font-mono font-semibold text-foreground">
+                                {roomSlug}
+                            </span>{' '}
+                            to confirm
+                        </Label>
+                        <Input
+                            id="confirm-slug"
+                            value={confirmSlug}
+                            onChange={(e) => setConfirmSlug(e.target.value)}
+                            placeholder={roomSlug}
+                            autoComplete="off"
+                            disabled={deleteMutation.isPending}
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setShowDeleteDialog(false)
+                                setConfirmSlug('')
+                            }}
+                            disabled={deleteMutation.isPending}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={() => deleteMutation.mutate()}
+                            disabled={!canDelete || deleteMutation.isPending}
+                        >
+                            {deleteMutation.isPending ? (
+                                <Loader2Icon className="animate-spin" />
+                            ) : (
+                                <Trash2Icon />
+                            )}
+                            Delete room permanently
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
     )
 }

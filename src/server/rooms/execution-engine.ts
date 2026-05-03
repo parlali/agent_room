@@ -232,3 +232,20 @@ export async function runDueRoomCronJobs(
     const module = await import('./pi-execution-adapter')
     return module.runDueRoomCronJobs(input)
 }
+
+export async function deleteRoomSession(input: {
+    roomId: string
+    sessionKey: string
+}): Promise<void> {
+    const module = await loadExecutionEngineModule()
+    return module.deleteRoomSession(input)
+}
+
+export async function renameRoomSession(input: {
+    roomId: string
+    sessionKey: string
+    title: string
+}): Promise<void> {
+    const module = await loadExecutionEngineModule()
+    return module.renameRoomSession(input)
+}

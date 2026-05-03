@@ -983,3 +983,37 @@ export async function listRoomRunHistory(input: {
         entries: runs.map(mapCronRunRecord),
     }
 }
+
+const sessionMutationSchema = z
+    .object({
+        ok: z.boolean(),
+    })
+    .passthrough()
+
+export async function deleteRoomSession(input: {
+    roomId: string
+    sessionKey: string
+}): Promise<void> {
+    await requestPiRuntime(
+        input.roomId,
+        `/threads/${encodeURIComponent(input.sessionKey)}`,
+        sessionMutationSchema,
+        { method: 'DELETE' },
+    )
+}
+
+export async function renameRoomSession(input: {
+    roomId: string
+    sessionKey: string
+    title: string
+}): Promise<void> {
+    await requestPiRuntime(
+        input.roomId,
+        `/threads/${encodeURIComponent(input.sessionKey)}/rename`,
+        sessionMutationSchema,
+        {
+            method: 'POST',
+            body: { title: input.title },
+        },
+    )
+}

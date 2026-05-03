@@ -91,6 +91,12 @@ export interface RoomExecutionAdapter {
         roomId: string
         limit?: number
     }) => Promise<RoomRunHistorySnapshot>
+    deleteRoomSession: (input: { roomId: string; sessionKey: string }) => Promise<void>
+    renameRoomSession: (input: {
+        roomId: string
+        sessionKey: string
+        title: string
+    }) => Promise<void>
 }
 
 export function encodeRoomSseEvent(event: string, data: unknown): Uint8Array {

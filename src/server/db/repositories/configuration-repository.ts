@@ -388,6 +388,18 @@ export const roomMcpBindingRepository = {
     },
 }
 
+export const roomConfigRepository_delete = {
+    async deleteByRoomId(roomId: string): Promise<void> {
+        await sql`DELETE FROM room_configs WHERE room_id = ${roomId}`
+    },
+}
+
+export const roomMcpBindingRepository_delete = {
+    async deleteByRoomId(roomId: string): Promise<void> {
+        await sql`DELETE FROM room_mcp_bindings WHERE room_id = ${roomId}`
+    },
+}
+
 export const roomSecretRepository = {
     async listByRoomId(roomId: string): Promise<RoomSecretRecord[]> {
         const rows = await sql`
@@ -397,6 +409,10 @@ export const roomSecretRepository = {
             ORDER BY updated_at DESC
         `
         return rows.map((row) => mapRoomSecret(row as Record<string, unknown>))
+    },
+
+    async deleteByRoomId(roomId: string): Promise<void> {
+        await sql`DELETE FROM room_secrets WHERE room_id = ${roomId}`
     },
 
     async upsert(input: {

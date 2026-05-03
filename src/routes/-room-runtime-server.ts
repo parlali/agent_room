@@ -82,6 +82,22 @@ const roomFilesInputSchema = z.object({
     roomId: roomIdSchema,
 })
 
+const deleteRoomInputSchema = z.object({
+    roomId: roomIdSchema,
+    confirmSlug: z.string().min(1),
+})
+
+const deleteSessionInputSchema = z.object({
+    roomId: roomIdSchema,
+    sessionKey: z.string().min(1),
+})
+
+const renameSessionInputSchema = z.object({
+    roomId: roomIdSchema,
+    sessionKey: z.string().min(1),
+    title: z.string().min(1).max(200),
+})
+
 const createRoomInputSchema = z.object({
     displayName: z.string().min(1),
     slug: z.string().min(1).nullable().optional(),
@@ -391,4 +407,51 @@ export const listRoomFilesServer = createServerFn({ method: 'GET' })
         })
         const { listRoomFiles } = await import('#/server/rooms/file-store')
         return listRoomFiles(data.roomId)
+    })
+
+export const deleteRoomServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => deleteRoomInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { roomRepository } = await import('#/server/db/repositories')
+        const room = await roomRepository.findRoomById(data.roomId)
+        if (!room) {
+            throw new Error('Room not found')
+        }
+        if (room.slug !== data.confirmSlug) {
+            throw new Error('Confirmation slug does not match room slug')
+        }
+        const { deleteRoom } = await import('#/server/rooms/room-service')
+        await deleteRoom({
+            roomId: data.roomId,
+            actorUserId: actor.userId,
+        })
+        return { ok: true }
+    })
+
+export const deleteSessionServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => deleteSessionInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        await requireMutationActor()
+        await ensureRuntimeSupervisorBoot()
+        const { deleteRoomSession } = await import('#/server/rooms/execution-engine')
+        await deleteRoomSession({
+            roomId: data.roomId,
+            sessionKey: data.sessionKey,
+        })
+        return { ok: true }
+    })
+
+export const renameSessionServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => renameSessionInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        await requireMutationActor()
+        await ensureRuntimeSupervisorBoot()
+        const { renameRoomSession } = await import('#/server/rooms/execution-engine')
+        await renameRoomSession({
+            roomId: data.roomId,
+            sessionKey: data.sessionKey,
+            title: data.title,
+        })
+        return { ok: true }
     })

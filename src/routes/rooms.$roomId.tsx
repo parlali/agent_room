@@ -20,6 +20,8 @@ import {
     EmptyState,
     LoadingPage,
     Section,
+    SessionContextMenu,
+    SessionContextMenuTrigger,
     StateBadge,
 } from '#/components/agent-room'
 import { describeSchedule, describeSessionState } from '#/lib/state'
@@ -272,13 +274,16 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                                 {activeSessions.map((thread) => {
                                     const state = describeSessionState(thread.status)
                                     return (
-                                        <li key={thread.key} className="py-2 first:pt-0 last:pb-0">
-                                            <Link
-                                                to="/rooms/$roomId/sessions/$sessionKey"
-                                                params={{ roomId, sessionKey: thread.key }}
-                                                className="flex items-center justify-between gap-3 rounded-md px-1 py-1 transition-colors hover:bg-muted/50"
-                                            >
-                                                <div className="min-w-0 flex-1">
+                                        <li
+                                            key={thread.key}
+                                            className="group/session py-2 first:pt-0 last:pb-0"
+                                        >
+                                            <div className="flex items-center justify-between gap-3 rounded-md px-1 py-1 transition-colors hover:bg-muted/50">
+                                                <Link
+                                                    to="/rooms/$roomId/sessions/$sessionKey"
+                                                    params={{ roomId, sessionKey: thread.key }}
+                                                    className="min-w-0 flex-1"
+                                                >
                                                     <div className="flex items-center gap-2">
                                                         <span className="truncate text-sm font-medium">
                                                             {thread.title || 'Untitled session'}
@@ -299,11 +304,20 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                                                             {thread.lastMessagePreview}
                                                         </p>
                                                     ) : null}
-                                                </div>
-                                                <span className="shrink-0 text-xs text-muted-foreground">
+                                                </Link>
+                                                <span className="shrink-0 text-xs text-muted-foreground group-hover/session:hidden">
                                                     {formatRelativeTime(thread.updatedAt)}
                                                 </span>
-                                            </Link>
+                                                <SessionContextMenu
+                                                    roomId={roomId}
+                                                    sessionKey={thread.key}
+                                                    sessionTitle={
+                                                        thread.title || 'Untitled session'
+                                                    }
+                                                >
+                                                    <SessionContextMenuTrigger className="hidden shrink-0 group-hover/session:flex" />
+                                                </SessionContextMenu>
+                                            </div>
                                         </li>
                                     )
                                 })}
