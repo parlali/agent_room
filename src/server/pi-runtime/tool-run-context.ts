@@ -8,10 +8,7 @@ export interface ToolRunContext {
 
 const storage = new AsyncLocalStorage<ToolRunContext>()
 
-export function withToolRunContext<T>(
-    context: ToolRunContext,
-    run: () => Promise<T>,
-): Promise<T> {
+export function withToolRunContext<T>(context: ToolRunContext, run: () => Promise<T>): Promise<T> {
     return storage.run(context, run)
 }
 
@@ -19,13 +16,13 @@ export function currentToolRunSignal(): AbortSignal | null {
     return storage.getStore()?.signal ?? null
 }
 
-export function combineAbortSignals(
-    signals: Array<AbortSignal | null | undefined>,
-): {
+export function combineAbortSignals(signals: Array<AbortSignal | null | undefined>): {
     signal?: AbortSignal
     dispose: () => void
 } {
-    const liveSignals = Array.from(new Set(signals.filter((signal) => signal !== null && signal !== undefined)))
+    const liveSignals = Array.from(
+        new Set(signals.filter((signal) => signal !== null && signal !== undefined)),
+    )
     if (liveSignals.length === 0) {
         return {
             signal: undefined,

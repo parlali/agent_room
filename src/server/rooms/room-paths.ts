@@ -1,10 +1,17 @@
-import { mkdir, rename, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { getAppEnv } from '../config/env'
 import type { RoomPaths } from '../domain/types'
 import { getRuntimeEngineProfile } from './runtime-engine-profile'
 
+export function assertSafeRoomPathId(roomId: string): void {
+    if (!/^[a-zA-Z0-9_-]+$/.test(roomId)) {
+        throw new Error('Room id is not a safe path segment')
+    }
+}
+
 export function getRoomPaths(roomId: string): RoomPaths {
+    assertSafeRoomPathId(roomId)
     const env = getAppEnv()
     const runtimeEngineProfile = getRuntimeEngineProfile()
     const roomRootDir = join(env.dataDir, 'rooms', roomId)
@@ -47,11 +54,24 @@ export async function ensureRoomFilesystemLayout(roomId: string): Promise<RoomPa
     await mkdir(paths.storeBlobsDir, { recursive: true })
     await mkdir(paths.storeManifestsDir, { recursive: true })
     await mkdir(paths.storeExportsDir, { recursive: true })
+    await Promise.all([
+        chmod(paths.roomRootDir, 0o700),
+        chmod(paths.runtimeDir, 0o700),
+        chmod(paths.runtimeLogsDir, 0o700),
+        chmod(paths.runtimeSecretsDir, 0o700),
+        chmod(paths.engineStateDir, 0o700),
+        chmod(paths.workspaceDir, 0o700),
+        chmod(paths.storeDir, 0o700),
+        chmod(paths.storeBlobsDir, 0o700),
+        chmod(paths.storeManifestsDir, 0o700),
+        chmod(paths.storeExportsDir, 0o700),
+    ])
     return paths
 }
 
 export async function writeRuntimeToken(tokenPath: string, token: string) {
     await writeFile(tokenPath, token, { encoding: 'utf8', mode: 0o600 })
+    await chmod(tokenPath, 0o600)
 }
 
 export async function archiveFailedRoomFilesystemLayout(roomId: string): Promise<string | null> {

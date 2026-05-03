@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
-import { createRoomTools } from './room-tools'
+import { __testing, createRoomTools } from './room-tools'
 import { withToolRunContext } from './tool-run-context'
 
 function testConfig(root: string): PiRuntimeConfig {
@@ -61,6 +61,8 @@ function testConfig(root: string): PiRuntimeConfig {
 async function withRoom<T>(fn: (config: PiRuntimeConfig) => Promise<T>): Promise<T> {
     const root = await mkdtemp(join(tmpdir(), 'agent-room-tools-'))
     const config = testConfig(root)
+    const previousUnsandboxedShell = process.env.AGENT_ROOM_UNSAFE_ALLOW_UNSANDBOXED_SHELL
+    process.env.AGENT_ROOM_UNSAFE_ALLOW_UNSANDBOXED_SHELL = '1'
     await mkdir(config.paths.workspaceDir, {
         recursive: true,
     })
@@ -76,6 +78,11 @@ async function withRoom<T>(fn: (config: PiRuntimeConfig) => Promise<T>): Promise
     try {
         return await fn(config)
     } finally {
+        if (previousUnsandboxedShell === undefined) {
+            delete process.env.AGENT_ROOM_UNSAFE_ALLOW_UNSANDBOXED_SHELL
+        } else {
+            process.env.AGENT_ROOM_UNSAFE_ALLOW_UNSANDBOXED_SHELL = previousUnsandboxedShell
+        }
         await rm(root, {
             recursive: true,
             force: true,
@@ -119,6 +126,36 @@ function resultDetails(result: Awaited<ReturnType<typeof executeTool>>['result']
 }
 
 describe('room Pi tools', () => {
+    it('requires an explicit shell sandbox or test-only unsafe override', () => {
+        expect(() =>
+            __testing.resolveShellSandboxIdentity({
+                nodeEnv: 'production',
+                unsafeAllowUnsandboxed: undefined,
+                uid: 501,
+            }),
+        ).toThrow(/requires a sandboxed runtime user/)
+        expect(
+            __testing.resolveShellSandboxIdentity({
+                nodeEnv: 'production',
+                unsafeAllowUnsandboxed: undefined,
+                uid: 0,
+            }),
+        ).toEqual({
+            uid: 65534,
+            gid: 65534,
+            mode: 'dropped',
+        })
+        expect(
+            __testing.resolveShellSandboxIdentity({
+                nodeEnv: 'test',
+                unsafeAllowUnsandboxed: '1',
+                uid: 501,
+            }),
+        ).toEqual({
+            mode: 'test-unsafe',
+        })
+    })
+
     it('denies file paths outside the room roots', async () => {
         await withRoom(async (config) => {
             await writeFile(join(config.paths.roomRootDir, 'secret.txt'), 'secret', 'utf8')
@@ -167,6 +204,20 @@ describe('room Pi tools', () => {
             })
             expect(resultText(list.result)).toContain('link')
             expect(resultText(list.result)).toContain('outside-link')
+        })
+    })
+
+    it('keeps shell-writable tool files owner-only', async () => {
+        await withRoom(async (config) => {
+            await executeTool(config, 'agent_room_write', {
+                path: 'notes.txt',
+                content: 'secret',
+            })
+
+            expect((await stat(config.paths.workspaceDir)).mode & 0o777).toBe(0o700)
+            expect((await stat(join(config.paths.workspaceDir, 'notes.txt'))).mode & 0o777).toBe(
+                0o600,
+            )
         })
     })
 

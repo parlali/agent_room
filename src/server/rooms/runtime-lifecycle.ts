@@ -31,6 +31,7 @@ import { getRuntimeEngineProfile } from './runtime-engine-profile'
 const startupHealthPollIntervalMs = 500
 const startupHealthTimeoutMs = 30_000
 const stopProcessTimeoutMs = 5_000
+const stopProcessKillGraceMs = 2_000
 
 function composeRoomCommand() {
     const runtimeEngineProfile = getRuntimeEngineProfile()
@@ -134,6 +135,35 @@ async function sleep(ms: number): Promise<void> {
     })
 }
 
+async function waitForProcessExit(child: ChildProcessWithoutNullStreams): Promise<void> {
+    if (child.exitCode !== null || child.signalCode !== null) {
+        return
+    }
+
+    await new Promise<void>((resolve) => {
+        let settled = false
+        const finish = () => {
+            if (settled) {
+                return
+            }
+            settled = true
+            clearTimeout(killTimer)
+            clearTimeout(resolveTimer)
+            child.off('exit', finish)
+            resolve()
+        }
+        const killTimer = setTimeout(() => {
+            if (!settled) {
+                child.kill('SIGKILL')
+            }
+        }, stopProcessTimeoutMs)
+        const resolveTimer = setTimeout(finish, stopProcessTimeoutMs + stopProcessKillGraceMs)
+        killTimer.unref()
+        resolveTimer.unref()
+        child.once('exit', finish)
+    })
+}
+
 async function waitForHealthyStartup(input: {
     roomId: string
     port: number
@@ -190,6 +220,25 @@ async function writeRoomRuntimeMetadataFile(input: {
         configVersion: input.configVersion,
         tokenVersion: input.tokenVersion,
     })
+}
+
+async function restartRoomIfDesiredAfterStop(input: {
+    roomId: string
+    restart: (room: RoomRecord) => Promise<void>
+}): Promise<boolean> {
+    const latestRoom = await roomRepository.findRoomById(input.roomId)
+    if (latestRoom?.desiredState !== 'running') {
+        return false
+    }
+
+    await auditRepository.appendEvent({
+        actorUserId: null,
+        roomId: input.roomId,
+        action: 'room.runtime_restart_after_stop',
+        payload: {},
+    })
+    await input.restart(latestRoom)
+    return true
 }
 
 async function startRoomProcessUnlocked(room: RoomRecord): Promise<void> {
@@ -364,6 +413,12 @@ async function startRoomProcessUnlocked(room: RoomRecord): Promise<void> {
                     status,
                 },
             })
+            if (status === 'stopped') {
+                await restartRoomIfDesiredAfterStop({
+                    roomId: room.id,
+                    restart: startRoomProcess,
+                })
+            }
         })
     } catch (error) {
         if (startupLogStream) {
@@ -465,6 +520,7 @@ export async function stopRoomProcess(roomId: string, actorUserId: string | null
     markRoomStopping(roomId)
     clearInterval(running.healthTimer)
     running.child.kill('SIGTERM')
+    await waitForProcessExit(running.child)
     await auditRepository.appendEvent({
         actorUserId,
         roomId,
@@ -487,4 +543,8 @@ export async function roomProcessSnapshot(roomId: string) {
         pid: running.child.pid ?? null,
         port: running.port,
     }
+}
+
+export const __testing = {
+    restartRoomIfDesiredAfterStop,
 }

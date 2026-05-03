@@ -1,4 +1,4 @@
-import { readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import type { RoomRecord, RoomRuntimeMetadataRecord, RuntimeFileMetadata } from '../domain/types'
@@ -25,6 +25,7 @@ async function ensureToken(path: string): Promise<string> {
         if (token.length < 24) {
             throw new Error(`Token at ${path} is too short`)
         }
+        await chmod(path, 0o600)
         return token
     } catch {
         const token = randomBytes(32).toString('base64url')
@@ -56,6 +57,7 @@ export async function writeRuntimeFileMetadata(
         encoding: 'utf8',
         mode: 0o600,
     })
+    await chmod(path, 0o600)
 }
 
 export async function materializeRuntime(input: {
@@ -105,10 +107,12 @@ export async function materializeRuntime(input: {
         encoding: 'utf8',
         mode: 0o600,
     })
+    await chmod(paths.runtimeConfigPath, 0o600)
     await writeFile(paths.runtimeEnvPath, renderEnvFile(runtimeProfile.env), {
         encoding: 'utf8',
         mode: 0o600,
     })
+    await chmod(paths.runtimeEnvPath, 0o600)
     await writeRuntimeFileMetadata(paths.runtimeMetadataPath, runtimeMetadata)
     return {
         port,

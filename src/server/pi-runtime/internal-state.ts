@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { constants as fsConstants } from 'node:fs'
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { access, chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 
@@ -145,10 +145,12 @@ export async function ensureInternalState(config: PiRuntimeConfig): Promise<void
         recursive: true,
         mode: 0o700,
     })
+    await chmod(config.paths.internalStateDir, 0o700)
     await Promise.all(
         internalStatePolicy.documents.map(async (document) => {
             const path = internalStateDocumentPath(config, document.kind)
             if (await exists(path)) {
+                await chmod(path, 0o600)
                 return
             }
             await writeFile(path, document.initialContent, {
@@ -196,6 +198,7 @@ export async function writeInternalStateDocument(input: {
         encoding: 'utf8',
         mode: 0o600,
     })
+    await chmod(previous.path, 0o600)
     return readInternalStateDocument(input.config, input.kind)
 }
 

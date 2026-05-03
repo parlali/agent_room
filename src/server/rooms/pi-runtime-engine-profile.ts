@@ -11,7 +11,7 @@ import { assertNoReservedRoomRuntimeEnvKeys } from '../security/process-env'
 function resolvePiRuntimeCommand(): RuntimeEngineCommand {
     return {
         command: 'bun',
-        args: ['run', join(process.cwd(), 'src/server/pi-runtime/main.ts')],
+        args: ['--no-env-file', 'run', join(process.cwd(), 'src/server/pi-runtime/main.ts')],
     }
 }
 

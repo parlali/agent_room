@@ -190,6 +190,26 @@ describe('connection validation', () => {
         }
     })
 
+    it('disables Bun dotenv loading for MCP stdio validation commands', async () => {
+        await expect(
+            validateMcpConnection({
+                transport: 'stdio',
+                command: 'bun',
+                args: [
+                    '-e',
+                    'if (process.env.DATABASE_URL) process.exit(42); await new Response(Bun.stdin.stream()).text(); process.stdout.write(JSON.stringify({jsonrpc:"2.0",id:1,result:{}}) + "\\n")',
+                ],
+                url: null,
+                headers: {},
+                authMode: 'none',
+                bearerToken: null,
+            }),
+        ).resolves.toEqual({
+            status: 'ready',
+            message: 'MCP stdio initialize completed',
+        })
+    })
+
     it('requires HTTP MCP initialize responses to contain a JSON-RPC result', async () => {
         await withHttpServer(
             (_request, response) => {
@@ -285,24 +305,27 @@ describe('connection validation', () => {
             model: 'lmstudio/test-model',
             apiKey: null,
         },
-    ] as const)('smokes the supported provider matrix entry $provider through Pi', async (entry) => {
-        await withFakeOpenAiProvider('ok', async (baseUrl) => {
-            await expect(
-                validateProviderConnection({
-                    provider: entry.provider,
-                    authMode: 'api_key',
-                    api: 'openai-completions',
-                    baseUrl,
-                    model: entry.model,
-                    apiKey: entry.apiKey,
-                    timeoutMs: 5000,
-                }),
-            ).resolves.toEqual({
-                status: 'ready',
-                message: 'Provider probe completed through Pi',
+    ] as const)(
+        'smokes the supported provider matrix entry $provider through Pi',
+        async (entry) => {
+            await withFakeOpenAiProvider('ok', async (baseUrl) => {
+                await expect(
+                    validateProviderConnection({
+                        provider: entry.provider,
+                        authMode: 'api_key',
+                        api: 'openai-completions',
+                        baseUrl,
+                        model: entry.model,
+                        apiKey: entry.apiKey,
+                        timeoutMs: 5000,
+                    }),
+                ).resolves.toEqual({
+                    status: 'ready',
+                    message: 'Provider probe completed through Pi',
+                })
             })
-        })
-    })
+        },
+    )
 
     it.each([
         ['bad-key', 'invalid api key'],

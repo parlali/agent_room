@@ -8,34 +8,36 @@ import {
     roomToolProfiles,
 } from '#/server/domain/types'
 
+const roomIdSchema = z.string().uuid()
+
 const roomExecutionInputSchema = z.object({
-    roomId: z.string().min(1),
+    roomId: roomIdSchema,
     selectedThreadKey: z.string().min(1).nullable().optional(),
 })
 
 const sendMessageInputSchema = z.object({
-    roomId: z.string().min(1),
+    roomId: roomIdSchema,
     sessionKey: z.string().min(1),
     message: z.string().min(1),
 })
 
 const abortMessageInputSchema = z.object({
-    roomId: z.string().min(1),
+    roomId: roomIdSchema,
     sessionKey: z.string().min(1),
     runId: z.string().min(1).nullable().optional(),
 })
 
 const createThreadInputSchema = z.object({
-    roomId: z.string().min(1),
+    roomId: roomIdSchema,
     firstMessage: z.string().nullable().optional(),
 })
 
 const listCronJobsInputSchema = z.object({
-    roomId: z.string().min(1),
+    roomId: roomIdSchema,
 })
 
 const createCronJobInputSchema = z.object({
-    roomId: z.string().min(1),
+    roomId: roomIdSchema,
     name: z.string().min(1),
     message: z.string().min(1),
     everyMinutes: z.number().int().positive(),
@@ -46,38 +48,38 @@ const updateCronJobInputSchema = createCronJobInputSchema.extend({
 })
 
 const setCronEnabledInputSchema = z.object({
-    roomId: z.string().min(1),
+    roomId: roomIdSchema,
     jobId: z.string().min(1),
     enabled: z.boolean(),
 })
 
 const runCronJobInputSchema = z.object({
-    roomId: z.string().min(1),
+    roomId: roomIdSchema,
     jobId: z.string().min(1),
 })
 
 const removeCronJobInputSchema = z.object({
-    roomId: z.string().min(1),
+    roomId: roomIdSchema,
     jobId: z.string().min(1),
 })
 
 const wakeRoomInputSchema = z.object({
-    roomId: z.string().min(1),
+    roomId: roomIdSchema,
     text: z.string().min(1),
     mode: z.enum(['now', 'next-heartbeat']).optional(),
 })
 
 const roomExecutionTruthInputSchema = z.object({
-    roomId: z.string().min(1),
+    roomId: roomIdSchema,
 })
 
 const roomRunHistoryInputSchema = z.object({
-    roomId: z.string().min(1),
+    roomId: roomIdSchema,
     limit: z.number().int().positive().max(200).optional(),
 })
 
 const roomFilesInputSchema = z.object({
-    roomId: z.string().min(1),
+    roomId: roomIdSchema,
 })
 
 const createRoomInputSchema = z.object({

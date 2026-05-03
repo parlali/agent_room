@@ -14,7 +14,7 @@ import type {
     RoomSecretPurpose,
     RoomSecretRecord,
 } from '../../domain/types'
-import { sql } from '../client'
+import { sql, withTransaction } from '../client'
 import {
     mapAppMcpConnection,
     mapAppProviderConnection,
@@ -354,35 +354,37 @@ export const roomMcpBindingRepository = {
             enabled: boolean
         }>,
     ): Promise<RoomMcpBindingRecord[]> {
-        await sql`
-            DELETE FROM room_mcp_bindings
-            WHERE room_id = ${roomId}
-        `
-
-        const rows: RoomMcpBindingRecord[] = []
-        for (const binding of bindings) {
-            const inserted = await sql`
-                INSERT INTO room_mcp_bindings (
-                    room_id,
-                    mcp_connection_id,
-                    allowed_tools,
-                    enabled,
-                    created_at,
-                    updated_at
-                )
-                VALUES (
-                    ${roomId},
-                    ${binding.mcpConnectionId},
-                    ${sql.json(binding.allowedTools)},
-                    ${binding.enabled},
-                    now(),
-                    now()
-                )
-                RETURNING *
+        return withTransaction(async (trx) => {
+            await trx`
+                DELETE FROM room_mcp_bindings
+                WHERE room_id = ${roomId}
             `
-            rows.push(mapRoomMcpBinding(inserted[0] as Record<string, unknown>))
-        }
-        return rows
+
+            const rows: RoomMcpBindingRecord[] = []
+            for (const binding of bindings) {
+                const inserted = await trx`
+                    INSERT INTO room_mcp_bindings (
+                        room_id,
+                        mcp_connection_id,
+                        allowed_tools,
+                        enabled,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES (
+                        ${roomId},
+                        ${binding.mcpConnectionId},
+                        ${sql.json(binding.allowedTools)},
+                        ${binding.enabled},
+                        now(),
+                        now()
+                    )
+                    RETURNING *
+                `
+                rows.push(mapRoomMcpBinding(inserted[0] as Record<string, unknown>))
+            }
+            return rows
+        })
     },
 }
 

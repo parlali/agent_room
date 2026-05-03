@@ -1,12 +1,10 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import {
-    getDefaultEnvironment,
-    StdioClientTransport,
-} from '@modelcontextprotocol/sdk/client/stdio.js'
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { defineTool, type ToolDefinition } from '@mariozechner/pi-coding-agent'
 import { Type } from '@mariozechner/pi-ai'
 import type { MaterializedMcpServer } from '../domain/types'
+import { buildBoundedProcessEnv, disableImplicitEnvFileForCommand } from '../security/process-env'
 import { combineAbortSignals, currentToolRunSignal } from './tool-run-context'
 
 interface ConnectedMcpServer {
@@ -60,7 +58,7 @@ function resultToText(value: unknown): string {
         )
         .filter((entry): entry is string => entry !== null)
         .join('\n')
-    if (text?.trim()) {
+    if (text !== undefined) {
         return text
     }
     if (result.structuredContent !== undefined) {
@@ -94,6 +92,14 @@ function serverRedactions(server: MaterializedMcpServer): string[] {
     )
 }
 
+function stdioEnvironment(env: Record<string, string>): Record<string, string> {
+    return Object.fromEntries(
+        Object.entries(buildBoundedProcessEnv(env)).filter(
+            (entry): entry is [string, string] => entry[1] !== undefined,
+        ),
+    )
+}
+
 async function connectServer(input: {
     server: MaterializedMcpServer
     cwd: string
@@ -111,12 +117,12 @@ async function connectServer(input: {
         input.server.transport === 'stdio'
             ? new StdioClientTransport({
                   command: input.server.command ?? '',
-                  args: input.server.args,
+                  args: disableImplicitEnvFileForCommand(
+                      input.server.command ?? '',
+                      input.server.args,
+                  ),
                   cwd: input.cwd,
-                  env: {
-                      ...getDefaultEnvironment(),
-                      ...input.server.env,
-                  },
+                  env: stdioEnvironment(input.server.env),
                   stderr: 'pipe',
               })
             : new StreamableHTTPClientTransport(new URL(input.server.url ?? ''), {

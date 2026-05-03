@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { writeFile } from 'node:fs/promises'
+import { chmod, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { z } from 'zod'
 import {
@@ -1257,6 +1257,7 @@ async function materializeProvider(input: {
             encoding: 'utf8',
             mode: 0o600,
         })
+        await chmod(secretFilePath, 0o600)
         env[envKey] = plainText
         secretRefs.push({
             entitlementId: 'provider',
@@ -1321,6 +1322,7 @@ async function materializeRoomSecrets(input: {
             encoding: 'utf8',
             mode: 0o600,
         })
+        await chmod(secretFilePath, 0o600)
 
         env[envKey] = plainText
         secretRefs.push({

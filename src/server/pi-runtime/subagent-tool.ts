@@ -96,7 +96,9 @@ export function createSubagentTool(input: CreateSubagentToolInput): ToolDefiniti
             })
 
             record.completedAt = Date.now()
-            const text = input.redactString(finalAssistantText(input.readThreadMessages(record, 200)))
+            const text = input.redactString(
+                finalAssistantText(input.readThreadMessages(record, 200)),
+            )
             await input.audit('subagent.finished', {
                 parentThreadKey: input.parentRecord.key,
                 threadKey: record.key,

@@ -380,3 +380,15 @@ The migration is not complete until all of the following are true:
 - [x] No room runtime reads or writes global host auth/runtime state. (Live scan found no global Pi/Codex/OpenClaw dirs and no unintended token copies.)
 - [x] OpenClaw is removed from Docker packaging and production runtime code.
 - [x] Architecture, context, README, and onboarding docs match the Pi-wrapper product reality.
+
+## Post-Migration Hardening Audit - 2026-04-30
+
+- [x] Re-ran the runtime/provider/security review against the completed Pi-wrapper code path and fixed issues found during review.
+- [x] Disabled Bun implicit `.env` loading for room wrappers and stdio MCP validation/bridge commands, with tests proving app `.env` secrets do not leak into child processes. (The runtime command now uses top-level `bun --no-env-file run ...` ordering.)
+- [x] Hardened shell execution so production shell tools drop to the bounded sandbox uid/gid, non-root production runtimes fail closed for shell profiles, and shell-writable room files/directories are owner-only instead of world-writable.
+- [x] Preserved runtime state secrecy while allowing dropped shell access only to workspace, store, home, and temp paths. (Room and Pi state roots use traversal-only mode when shell tools are enabled; sessions, internal state, auth, configs, and secrets remain owner-only.)
+- [x] Added path and instruction-file escape protections for room IDs, runtime routes, workspace file tools, and bounded instruction loading.
+- [x] Made abort requests run-aware so stale browser or scheduler aborts cannot cancel a newer active run.
+- [x] Closed runtime lifecycle races by waiting for stopped processes to exit and restarting after a clean stopped exit only when the room desired state has returned to `running`.
+- [x] Made room MCP binding replacement transactional to avoid partial binding state after failed saves.
+- [x] Verified the hardening changes with focused tests and typecheck before running the final full suite.

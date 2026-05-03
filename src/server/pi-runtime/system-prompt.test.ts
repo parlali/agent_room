@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
@@ -143,6 +143,18 @@ describe('Agent Room Pi system prompt', () => {
                     truncated: false,
                 },
             ])
+        })
+    })
+
+    it('does not follow instruction-file symlinks outside the workspace', async () => {
+        await withConfig(async (config) => {
+            await writeFile(join(config.paths.roomRootDir, 'outside.md'), 'outside policy', 'utf8')
+            await symlink(
+                join(config.paths.roomRootDir, 'outside.md'),
+                join(config.paths.workspaceDir, 'AGENTS.md'),
+            )
+
+            await expect(loadInstructionFiles(config)).resolves.toEqual([])
         })
     })
 })

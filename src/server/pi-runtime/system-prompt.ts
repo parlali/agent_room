@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { buildAgentHarnessPrompt } from './agent-harness'
@@ -54,8 +54,10 @@ async function readBoundedInstructionFile(input: {
     relativePath: string
     roomInstructions: string
 }): Promise<LoadedInstructionFile | null> {
-    const path = assertInside(join(input.workspaceDir, input.relativePath), input.workspaceDir)
     try {
+        const workspace = await realpath(input.workspaceDir)
+        const requested = assertInside(join(workspace, input.relativePath), workspace)
+        const path = assertInside(await realpath(requested), workspace)
         const raw = await readFile(path, {
             encoding: 'utf8',
         })

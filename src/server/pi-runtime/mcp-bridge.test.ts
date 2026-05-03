@@ -47,6 +47,14 @@ function tools() {
                 properties: {},
             },
         },
+        {
+            name: 'env_echo',
+            description: 'Echo ambient env',
+            inputSchema: {
+                type: 'object',
+                properties: {},
+            },
+        },
     ]
 }
 
@@ -82,6 +90,8 @@ rl.on('line', (line) => {
                 ? 'x'.repeat(140000)
                 : name === 'secret_echo'
                   ? secret
+                  : name === 'env_echo'
+                    ? String(process.env.DATABASE_URL ?? '')
                   : String(message.params.arguments?.text ?? '')
         send({
             jsonrpc: '2.0',
@@ -332,6 +342,35 @@ describe('Agent Room MCP bridge', () => {
             const result = await executeTool(tools[0]!, {})
             expect(resultText(result)).toBe('[redacted]')
         })
+    })
+
+    it('does not pass app process secrets to stdio MCP servers', async () => {
+        const previousDatabaseUrl = process.env.DATABASE_URL
+        process.env.DATABASE_URL = 'postgres://mcp-bridge-secret'
+        try {
+            await withStdioScript(async (path) => {
+                const tools = await createMcpTools({
+                    cwd: process.cwd(),
+                    servers: [
+                        baseServer({
+                            id: 'env',
+                            allowedTools: ['env_echo'],
+                            command: 'bun',
+                            args: [path, 'success'],
+                        }),
+                    ],
+                })
+
+                const result = await executeTool(tools[0]!, {})
+                expect(resultText(result)).toBe('')
+            })
+        } finally {
+            if (previousDatabaseUrl === undefined) {
+                delete process.env.DATABASE_URL
+            } else {
+                process.env.DATABASE_URL = previousDatabaseUrl
+            }
+        }
     })
 
     it('bounds MCP tool output and fails closed on exposed-name collisions', async () => {

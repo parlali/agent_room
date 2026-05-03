@@ -130,6 +130,13 @@ describe('Pi runtime config materialization', () => {
         }
     })
 
+    it('starts the Pi wrapper with Bun env-file loading disabled', () => {
+        expect(piRuntimeEngineProfile.resolveCommand()).toMatchObject({
+            command: 'bun',
+            args: ['--no-env-file', 'run', join(process.cwd(), 'src/server/pi-runtime/main.ts')],
+        })
+    })
+
     it('fails closed when materialized room env tries to override runtime control keys', async () => {
         const root = await mkdtemp(join(tmpdir(), 'agent-room-pi-profile-'))
         try {

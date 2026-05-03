@@ -20,7 +20,7 @@ import type {
 } from '../domain/types'
 import { buildPiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { createPiResourceLoader } from '../pi-runtime/resource-loader'
-import { buildBoundedProcessEnv } from '../security/process-env'
+import { buildBoundedProcessEnv, disableImplicitEnvFileForCommand } from '../security/process-env'
 import {
     assertSupportedProviderApi,
     isLocalProvider,
@@ -130,14 +130,19 @@ async function runMcpStdioInitialize(input: {
     ])
 
     return await new Promise((resolve) => {
-        const child = spawn(input.command, input.args, {
-            env: buildBoundedProcessEnv({
-                ...input.env,
-                HOME: homeDir,
-                TMPDIR: tmpDirPath,
-            }),
-            stdio: 'pipe',
-        })
+        const child = spawn(
+            input.command,
+            disableImplicitEnvFileForCommand(input.command, input.args),
+            {
+                env: buildBoundedProcessEnv({
+                    ...input.env,
+                    HOME: homeDir,
+                    TMPDIR: tmpDirPath,
+                }),
+                cwd: tempDir,
+                stdio: 'pipe',
+            },
+        )
 
         let stdout = ''
         let stderr = ''

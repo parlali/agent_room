@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { assertNoReservedRoomRuntimeEnvKeys, buildBoundedProcessEnv } from './process-env'
+import {
+    assertNoReservedRoomRuntimeEnvKeys,
+    buildBoundedProcessEnv,
+    disableImplicitEnvFileForCommand,
+} from './process-env'
 
 describe('bounded process environment', () => {
     it('forwards only non-secret runtime essentials plus explicit overrides', () => {
@@ -30,5 +34,16 @@ describe('bounded process environment', () => {
                 database_url: 'postgres://room-controlled',
             }),
         ).toThrow(/DATABASE_URL/)
+    })
+
+    it('disables Bun implicit env file loading for child commands', () => {
+        expect(disableImplicitEnvFileForCommand('bun', ['server.ts'])).toEqual([
+            '--no-env-file',
+            'server.ts',
+        ])
+        expect(
+            disableImplicitEnvFileForCommand('/usr/bin/bun', ['--no-env-file', 'server.ts']),
+        ).toEqual(['--no-env-file', 'server.ts'])
+        expect(disableImplicitEnvFileForCommand('sh', ['-c', 'echo ok'])).toEqual(['-c', 'echo ok'])
     })
 })

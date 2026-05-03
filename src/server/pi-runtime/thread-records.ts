@@ -27,20 +27,22 @@ export interface ThreadIndexFile {
     threads: ThreadRecord[]
 }
 
-export function normalizeThreadRecord(record: Partial<ThreadRecord> & {
-    key: string
-    sessionFile: string
-    sessionId: string
-    title: string
-    status: string
-    createdAt: number
-    updatedAt: number
-    lastMessagePreview?: string | null
-    modelProvider?: string | null
-    model?: string | null
-    activeRunId?: string | null
-    lastError?: string | null
-}): ThreadRecord {
+export function normalizeThreadRecord(
+    record: Partial<ThreadRecord> & {
+        key: string
+        sessionFile: string
+        sessionId: string
+        title: string
+        status: string
+        createdAt: number
+        updatedAt: number
+        lastMessagePreview?: string | null
+        modelProvider?: string | null
+        model?: string | null
+        activeRunId?: string | null
+        lastError?: string | null
+    },
+): ThreadRecord {
     return {
         key: record.key,
         sessionFile: record.sessionFile,

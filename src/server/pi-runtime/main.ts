@@ -1,6 +1,6 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { dirname } from 'node:path'
 import {
@@ -40,9 +40,11 @@ import { closeMcpConnections, createMcpTools } from './mcp-bridge'
 import { ensureInternalState } from './internal-state'
 import { createInternalStateTools } from './internal-state-tools'
 import { createRoomTools } from './room-tools'
+import { ensureShellWritableDirectory } from './shell-sandbox'
 import { buildAgentRoomSystemPrompt } from './system-prompt'
 import { selectSnapshotThreadKey } from './snapshot-selection'
 import { createSubagentTool } from './subagent-tool'
+import { resolveAbortDecision } from './run-control'
 import {
     normalizeThreadIndexFile,
     subagentAgentId,
@@ -214,6 +216,7 @@ async function appendRuntimeEvent(event: string, payload: unknown): Promise<void
 }
 
 async function ensureRuntimeLayout(): Promise<void> {
+    const shellEnabled = config.tools.profile !== 'read-only'
     await Promise.all([
         mkdir(config.paths.stateDir, { recursive: true, mode: 0o700 }),
         mkdir(config.paths.sessionsDir, { recursive: true, mode: 0o700 }),
@@ -223,6 +226,24 @@ async function ensureRuntimeLayout(): Promise<void> {
         mkdir(config.paths.homeDir, { recursive: true, mode: 0o700 }),
         mkdir(config.paths.tmpDir, { recursive: true, mode: 0o700 }),
     ])
+    await Promise.all([
+        chmod(config.paths.roomRootDir, shellEnabled ? 0o711 : 0o700),
+        chmod(config.paths.stateDir, shellEnabled ? 0o711 : 0o700),
+        chmod(config.paths.sessionsDir, 0o700),
+        chmod(config.paths.internalStateDir, 0o700),
+        chmod(config.paths.workspaceDir, 0o700),
+        chmod(config.paths.storeDir, 0o700),
+        chmod(config.paths.homeDir, 0o700),
+        chmod(config.paths.tmpDir, 0o700),
+    ])
+    if (shellEnabled) {
+        await Promise.all([
+            ensureShellWritableDirectory(config.paths.workspaceDir),
+            ensureShellWritableDirectory(config.paths.storeDir),
+            ensureShellWritableDirectory(config.paths.homeDir),
+            ensureShellWritableDirectory(config.paths.tmpDir),
+        ])
+    }
     await ensureInternalState(config)
 }
 
@@ -1179,8 +1200,24 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
         if (!record) {
             throw new HttpError(404, `Thread ${sessionKey} does not exist`)
         }
+        const body = await getRequestBody(request)
+        const requestedRunId =
+            isRecord(body) && typeof body.runId === 'string' && body.runId.trim()
+                ? body.runId.trim()
+                : null
         const active = activeThreads.get(sessionKey)
-        const abortedRunId = record.activeRunId
+        const abortDecision = resolveAbortDecision({
+            requestedRunId,
+            activeRunId: record.activeRunId,
+        })
+        if (!abortDecision.shouldAbort) {
+            const payload: PiRuntimeAbortPayload = {
+                abortedRunId: abortDecision.abortedRunId,
+                status: abortDecision.status,
+            }
+            sendJson(response, 200, payload)
+            return
+        }
         if (active) {
             active.abortController?.abort()
             await active.session.abort()
@@ -1189,8 +1226,8 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
         record.activeRunId = null
         await persistThreadIndex()
         const payload: PiRuntimeAbortPayload = {
-            abortedRunId,
-            status: abortedRunId ? 'aborted' : 'no-active-run',
+            abortedRunId: abortDecision.abortedRunId,
+            status: abortDecision.status,
         }
         sendJson(response, 200, payload)
         return

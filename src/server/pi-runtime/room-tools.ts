@@ -1,16 +1,7 @@
 import { createHash } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { constants as fsConstants } from 'node:fs'
-import {
-    access,
-    copyFile,
-    mkdir,
-    lstat,
-    readFile,
-    readdir,
-    realpath,
-    writeFile,
-} from 'node:fs/promises'
+import { access, copyFile, lstat, readFile, readdir, realpath, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import {
     defineTool,
@@ -22,6 +13,12 @@ import { Type } from '@mariozechner/pi-ai'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { buildBoundedProcessEnv } from '../security/process-env'
 import { internalStateToolNames } from './internal-state-tools'
+import {
+    currentShellSandboxIdentity,
+    ensureShellWritableDirectory,
+    ensureShellWritableFile,
+    resolveShellSandboxIdentity,
+} from './shell-sandbox'
 import { combineAbortSignals, currentToolRunSignal } from './tool-run-context'
 
 type ToolRoot = 'workspace' | 'store'
@@ -37,6 +34,7 @@ interface RoomToolDetails {
     timedOut?: boolean
     aborted?: boolean
     durationMs?: number
+    sandboxMode?: 'dropped' | 'test-unsafe'
     fileChange?: {
         kind: 'write' | 'edit' | 'artifact_import' | 'artifact_export'
         root: ToolRoot
@@ -476,10 +474,9 @@ function createWriteTool(ctx: RoomToolContext): ToolDefinition {
                 input.overwrite,
             )
             const path = target.path
-            await mkdir(dirname(path), {
-                recursive: true,
-            })
+            await ensureShellWritableDirectory(dirname(path))
             await writeFile(path, input.content, 'utf8')
+            await ensureShellWritableFile(path)
             const byteLength = Buffer.byteLength(input.content)
             const fileChange = {
                 kind: 'write' as const,
@@ -530,6 +527,7 @@ function createEditTool(ctx: RoomToolContext): ToolDefinition {
                 ? original.split(input.oldText).join(input.newText)
                 : original.replace(input.oldText, input.newText)
             await writeFile(path, updated, 'utf8')
+            await ensureShellWritableFile(path)
             const byteLength = Buffer.byteLength(updated)
             const fileChange = {
                 kind: 'edit' as const,
@@ -587,12 +585,15 @@ async function runShell(input: {
     let timedOut = false
     let aborted = false
     let closed = false
+    const identity = currentShellSandboxIdentity()
     const child = spawn(input.command, {
         cwd: input.cwd,
         shell: '/bin/sh',
         env: input.env,
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: true,
+        ...(identity.uid === undefined ? {} : { uid: identity.uid }),
+        ...(identity.gid === undefined ? {} : { gid: identity.gid }),
     })
 
     const append = (chunk: Buffer) => {
@@ -693,6 +694,7 @@ function createShellTool(ctx: RoomToolContext): ToolDefinition {
             }).finally(combined.dispose)
             await audit(ctx, 'shell', {
                 path: ctx.config.paths.workspaceDir,
+                sandboxMode: currentShellSandboxIdentity().mode,
                 exitCode: result.exitCode,
                 timedOut: result.timedOut,
                 aborted: result.aborted,
@@ -701,6 +703,7 @@ function createShellTool(ctx: RoomToolContext): ToolDefinition {
             })
             return textResult(result.output, {
                 path: ctx.config.paths.workspaceDir,
+                sandboxMode: currentShellSandboxIdentity().mode,
                 byteLength: Buffer.byteLength(result.output),
                 truncated: result.truncated,
                 exitCode: result.exitCode,
@@ -710,6 +713,10 @@ function createShellTool(ctx: RoomToolContext): ToolDefinition {
             })
         },
     })
+}
+
+export const __testing = {
+    resolveShellSandboxIdentity,
 }
 
 function artifactIdFor(path: string, sha256: string): string {
@@ -738,13 +745,10 @@ function createArtifactImportTool(ctx: RoomToolContext): ToolDefinition {
             const artifactId = artifactIdFor(source, sha256)
             const blobPath = join(ctx.config.paths.storeDir, 'blobs', sha256)
             const manifestPath = join(ctx.config.paths.storeDir, 'manifests', `${artifactId}.json`)
-            await mkdir(dirname(blobPath), {
-                recursive: true,
-            })
-            await mkdir(dirname(manifestPath), {
-                recursive: true,
-            })
+            await ensureShellWritableDirectory(dirname(blobPath))
+            await ensureShellWritableDirectory(dirname(manifestPath))
             await writeFile(blobPath, buffer)
+            await ensureShellWritableFile(blobPath)
             await writeFile(
                 manifestPath,
                 JSON.stringify(
@@ -761,6 +765,7 @@ function createArtifactImportTool(ctx: RoomToolContext): ToolDefinition {
                 ),
                 'utf8',
             )
+            await ensureShellWritableFile(manifestPath)
             await audit(ctx, 'artifact_import', {
                 path: source,
                 artifactId,
@@ -836,10 +841,9 @@ function createArtifactExportTool(ctx: RoomToolContext): ToolDefinition {
                 input.overwrite,
             )
             const destination = target.path
-            await mkdir(dirname(destination), {
-                recursive: true,
-            })
+            await ensureShellWritableDirectory(dirname(destination))
             await copyFile(source, destination)
+            await ensureShellWritableFile(destination)
             const fileChange = {
                 kind: 'artifact_export' as const,
                 root: 'workspace' as const,

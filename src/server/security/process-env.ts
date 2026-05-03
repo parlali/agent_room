@@ -1,3 +1,5 @@
+import { basename } from 'node:path'
+
 const forwardedProcessEnvKeys = ['PATH', 'LANG', 'LC_ALL', 'TZ', 'BUN_INSTALL'] as const
 
 export const reservedRoomRuntimeEnvKeys = new Set([
@@ -10,6 +12,7 @@ export const reservedRoomRuntimeEnvKeys = new Set([
     'AGENT_ROOM_ROOT_PASSWORD',
     'AGENT_ROOM_SESSION_TTL_HOURS',
     'AGENT_ROOM_STORE_DIR',
+    'AGENT_ROOM_UNSAFE_ALLOW_UNSANDBOXED_SHELL',
     'AGENT_ROOM_WORKSPACE_DIR',
     'BUN_INSTALL',
     'DATABASE_URL',
@@ -63,4 +66,11 @@ export function buildBoundedProcessEnv(
     }
 
     return env
+}
+
+export function disableImplicitEnvFileForCommand(command: string, args: string[]): string[] {
+    if (basename(command) === 'bun' && !args.includes('--no-env-file')) {
+        return ['--no-env-file', ...args]
+    }
+    return args
 }
