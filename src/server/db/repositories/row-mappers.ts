@@ -16,6 +16,8 @@ import type {
     RoomSecretRecord,
     RoomStatus,
     RoomToolProfile,
+    UsageEventRecord,
+    UsageEventKind,
     SecretRecord,
     SessionRecord,
     UserRecord,
@@ -144,6 +146,9 @@ export function mapAppSettings(row: DbRow): AppSettingsRecord {
         id: Boolean(row.id),
         defaultProviderConnectionId: (row.default_provider_connection_id as string | null) ?? null,
         defaultModel: (row.default_model as string | null) ?? null,
+        capabilityDefaults: asJsonValue(row.capability_defaults ?? {}),
+        searchConfig: asJsonValue(row.search_config ?? {}),
+        imageConfig: asJsonValue(row.image_config ?? {}),
         onboardingCompletedAt: (row.onboarding_completed_at as Date | null) ?? null,
         createdAt: row.created_at as Date,
         updatedAt: row.updated_at as Date,
@@ -162,6 +167,10 @@ export function mapRoomConfig(row: DbRow): RoomConfigRecord {
         providerModel: (row.provider_model as string | null) ?? null,
         providerSecretId: (row.provider_secret_id as string | null) ?? null,
         toolsProfile: row.tools_profile as RoomToolProfile,
+        capabilityOverrides: asJsonValue(row.capability_overrides ?? {}),
+        imageProvider: (row.image_provider as RoomConfigRecord['imageProvider']) ?? null,
+        imageModel: (row.image_model as string | null) ?? null,
+        imageSecretId: (row.image_secret_id as string | null) ?? null,
         cronTimezone: String(row.cron_timezone),
         createdAt: row.created_at as Date,
         updatedAt: row.updated_at as Date,
@@ -237,6 +246,13 @@ export function mapRoomCronJob(row: DbRow): RoomCronJobRecord {
         runningAt: (row.running_at as Date | null) ?? null,
         lockedUntil: (row.locked_until as Date | null) ?? null,
         lockToken: (row.lock_token as string | null) ?? null,
+        heartbeatAt: (row.heartbeat_at as Date | null) ?? null,
+        lastRenewedAt: (row.last_renewed_at as Date | null) ?? null,
+        runBudgetMs:
+            row.run_budget_ms === null || row.run_budget_ms === undefined
+                ? null
+                : Number(row.run_budget_ms),
+        recoveryReason: (row.recovery_reason as string | null) ?? null,
         lastRunAt: (row.last_run_at as Date | null) ?? null,
         lastRunStatus: (row.last_run_status as string | null) ?? null,
         lastError: (row.last_error as string | null) ?? null,
@@ -280,5 +296,54 @@ export function mapRoomCronRun(row: DbRow): RoomCronRunRecord {
                 ? null
                 : Number(row.duration_ms),
         nextRunAt: (row.next_run_at as Date | null) ?? null,
+    }
+}
+
+export function mapUsageEvent(row: DbRow): UsageEventRecord {
+    return {
+        id: String(row.id),
+        roomId: (row.room_id as string | null) ?? null,
+        sessionKey: (row.session_key as string | null) ?? null,
+        runId: (row.run_id as string | null) ?? null,
+        jobId: (row.job_id as string | null) ?? null,
+        kind: row.kind as UsageEventKind,
+        provider: (row.provider as string | null) ?? null,
+        model: (row.model as string | null) ?? null,
+        toolName: (row.tool_name as string | null) ?? null,
+        inputTokens:
+            row.input_tokens === null || row.input_tokens === undefined
+                ? null
+                : Number(row.input_tokens),
+        outputTokens:
+            row.output_tokens === null || row.output_tokens === undefined
+                ? null
+                : Number(row.output_tokens),
+        cachedTokens:
+            row.cached_tokens === null || row.cached_tokens === undefined
+                ? null
+                : Number(row.cached_tokens),
+        reasoningTokens:
+            row.reasoning_tokens === null || row.reasoning_tokens === undefined
+                ? null
+                : Number(row.reasoning_tokens),
+        totalTokens:
+            row.total_tokens === null || row.total_tokens === undefined
+                ? null
+                : Number(row.total_tokens),
+        durationMs:
+            row.duration_ms === null || row.duration_ms === undefined
+                ? null
+                : Number(row.duration_ms),
+        activeDurationMs:
+            row.active_duration_ms === null || row.active_duration_ms === undefined
+                ? null
+                : Number(row.active_duration_ms),
+        idleDurationMs:
+            row.idle_duration_ms === null || row.idle_duration_ms === undefined
+                ? null
+                : Number(row.idle_duration_ms),
+        estimatedCostUsd: (row.estimated_cost_usd as string | null) ?? null,
+        metadata: asJsonValue(row.metadata ?? {}),
+        createdAt: row.created_at as Date,
     }
 }

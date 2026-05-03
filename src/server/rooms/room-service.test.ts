@@ -5,8 +5,11 @@ const mocks = vi.hoisted(() => ({
     auditAppendEvent: vi.fn(),
     roomCreate: vi.fn(),
     roomDelete: vi.fn(),
+    roomFindById: vi.fn(),
+    roomUpdateDesiredState: vi.fn(),
+    roomUpdateStatus: vi.fn(),
+    runtimeMetadataUpsert: vi.fn(),
     startRoom: vi.fn(),
-    archiveFailedRoomFilesystemLayout: vi.fn(),
     assertRoomSetupReady: vi.fn(),
     saveRoomConfig: vi.fn(),
 }))
@@ -29,6 +32,12 @@ vi.mock('../db/repositories', () => ({
     roomRepository: {
         createRoom: mocks.roomCreate,
         deleteRoom: mocks.roomDelete,
+        findRoomById: mocks.roomFindById,
+        updateRoomDesiredState: mocks.roomUpdateDesiredState,
+        updateRoomStatus: mocks.roomUpdateStatus,
+    },
+    roomRuntimeMetadataRepository: {
+        upsert: mocks.runtimeMetadataUpsert,
     },
 }))
 
@@ -43,7 +52,7 @@ vi.mock('./runtime-manager', () => ({
 }))
 
 vi.mock('./room-paths', () => ({
-    archiveFailedRoomFilesystemLayout: mocks.archiveFailedRoomFilesystemLayout,
+    getRoomPaths: vi.fn(),
 }))
 
 vi.mock('./runtime-readiness', () => ({
@@ -57,17 +66,25 @@ describe('room service', () => {
         mocks.auditAppendEvent.mockReset()
         mocks.roomCreate.mockReset()
         mocks.roomDelete.mockReset()
+        mocks.roomFindById.mockReset()
+        mocks.roomUpdateDesiredState.mockReset()
+        mocks.roomUpdateStatus.mockReset()
+        mocks.runtimeMetadataUpsert.mockReset()
         mocks.startRoom.mockReset()
-        mocks.archiveFailedRoomFilesystemLayout.mockReset()
         mocks.assertRoomSetupReady.mockReset()
         mocks.saveRoomConfig.mockReset()
 
         mocks.auditAppendEvent.mockResolvedValue(undefined)
         mocks.roomCreate.mockResolvedValue(createRoomRecord)
         mocks.roomDelete.mockResolvedValue(undefined)
-        mocks.archiveFailedRoomFilesystemLayout.mockResolvedValue(
-            '/tmp/failed-room-startups/room-1',
-        )
+        mocks.roomFindById.mockResolvedValue({
+            ...createRoomRecord,
+            status: 'failed',
+            desiredState: 'stopped',
+        })
+        mocks.roomUpdateDesiredState.mockResolvedValue(undefined)
+        mocks.roomUpdateStatus.mockResolvedValue(undefined)
+        mocks.runtimeMetadataUpsert.mockResolvedValue(undefined)
         mocks.assertRoomSetupReady.mockReturnValue(undefined)
         mocks.saveRoomConfig.mockResolvedValue(undefined)
 
@@ -75,18 +92,20 @@ describe('room service', () => {
         createRoom = roomServiceModule.createRoom
     })
 
-    it('fails closed and cleans up room provisioning when runtime startup fails', async () => {
+    it('creates the room but fails closed for execution when runtime startup fails', async () => {
         mocks.startRoom.mockRejectedValue(new Error('Initial runtime health check failed'))
 
-        await expect(
-            createRoom({
-                displayName: 'Marketing',
-                createdByUserId: 'user-1',
-                startImmediately: true,
-            }),
-        ).rejects.toThrow(
-            'Room startup failed: Initial runtime health check failed. Diagnostic files were preserved for support review.',
-        )
+        const result = await createRoom({
+            displayName: 'Marketing',
+            createdByUserId: 'user-1',
+            startImmediately: true,
+        })
+
+        expect(result).toEqual({
+            ...createRoomRecord,
+            status: 'failed',
+            desiredState: 'stopped',
+        })
 
         expect(mocks.assertRoomSetupReady).toHaveBeenCalledOnce()
         expect(mocks.roomCreate).toHaveBeenCalledOnce()
@@ -98,16 +117,24 @@ describe('room service', () => {
             }),
             'user-1',
         )
-        expect(mocks.archiveFailedRoomFilesystemLayout).toHaveBeenCalledWith('room-1')
-        expect(mocks.roomDelete).toHaveBeenCalledWith('room-1')
+        expect(mocks.roomUpdateDesiredState).toHaveBeenCalledWith('room-1', 'stopped')
+        expect(mocks.roomUpdateStatus).toHaveBeenCalledWith('room-1', 'failed')
+        expect(mocks.runtimeMetadataUpsert).toHaveBeenCalledWith(
+            expect.objectContaining({
+                roomId: 'room-1',
+                healthStatus: 'unhealthy',
+                lastError: 'Initial runtime health check failed',
+            }),
+        )
+        expect(mocks.roomDelete).not.toHaveBeenCalled()
         expect(mocks.auditAppendEvent).toHaveBeenCalledTimes(2)
         expect(mocks.auditAppendEvent).toHaveBeenNthCalledWith(
             2,
             expect.objectContaining({
                 roomId: 'room-1',
-                action: 'room.create_failed',
+                action: 'room.start_after_create_failed',
                 payload: expect.objectContaining({
-                    diagnosticsPath: '/tmp/failed-room-startups/room-1',
+                    error: 'Initial runtime health check failed',
                 }),
             }),
         )

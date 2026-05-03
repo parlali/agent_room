@@ -32,6 +32,7 @@ function buildRoomSecret(input: {
     roomId: string
     secretId: string
     envKey: string
+    purpose?: RoomSecretRecord['purpose']
 }): RoomSecretRecord {
     const now = new Date('2026-04-23T00:00:00.000Z')
     return {
@@ -40,7 +41,7 @@ function buildRoomSecret(input: {
         secretId: input.secretId,
         label: 'Verification Secret',
         envKey: input.envKey,
-        purpose: 'generic',
+        purpose: input.purpose ?? 'generic',
         provider: null,
         createdByUserId: 'user-1',
         createdAt: now,
@@ -143,5 +144,34 @@ describe('operator configuration materialization', () => {
                 reservedEnvKeys: new Set(),
             }),
         ).rejects.toThrow(/reserved keys: DATABASE_URL/)
+    })
+
+    it('does not materialize provider API key records as generic room secrets', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'agent-room-room-secret-'))
+        const encryptionKey = randomBytes(32)
+        const secret = buildSecret({
+            id: 'secret-1',
+            keyName: 'room:room-1:secret:OPENAI_API_KEY',
+            plainText: 'local-test-secret',
+            encryptionKey,
+        })
+        const roomSecret = buildRoomSecret({
+            id: 'room-secret-1',
+            roomId: 'room-1',
+            secretId: secret.id,
+            envKey: 'openai_api_key',
+            purpose: 'provider_api_key',
+        })
+
+        const result = await __testing.materializeRoomSecrets({
+            roomSecrets: [roomSecret],
+            runtimeSecretsDir: tempDir,
+            secretById: new Map([[secret.id, secret]]),
+            encryptionKey,
+            reservedEnvKeys: new Set(),
+        })
+
+        expect(result.env).toEqual({})
+        expect(result.secretRefs).toEqual([])
     })
 })

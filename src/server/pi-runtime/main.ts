@@ -40,6 +40,9 @@ import { closeMcpConnections, createMcpTools } from './mcp-bridge'
 import { ensureInternalState } from './internal-state'
 import { createInternalStateTools } from './internal-state-tools'
 import { createRoomTools } from './room-tools'
+import { createWebTools } from './web-tools'
+import { createDocumentTools } from './document-tools'
+import { createImageTools } from './image-tools'
 import { ensureShellWritableDirectory } from './shell-sandbox'
 import { buildAgentRoomSystemPrompt } from './system-prompt'
 import { selectSnapshotThreadKey } from './snapshot-selection'
@@ -51,13 +54,25 @@ import {
     type ThreadIndexFile,
     type ThreadRecord,
 } from './thread-records'
-import { withToolRunContext } from './tool-run-context'
+import { currentToolRunContext, withToolRunContext } from './tool-run-context'
+import {
+    budgetForRunKind,
+    createRunHeartbeat,
+    timeoutMessage,
+    timeoutReasonForHeartbeat,
+    touchRunHeartbeat,
+    RunWatchdog,
+    type RunHeartbeatRecord,
+    type RunKind,
+} from './run-budget'
+import { cleanupBackgroundCommands } from './background-commands'
 
 interface ActiveThread {
     session: AgentSession
     unsubscribe: (() => void) | null
     queue: Promise<void>
     abortController: AbortController | null
+    touchRunHeartbeat: ((reason: string) => Promise<void>) | null
 }
 
 const configPath = process.env.AGENT_ROOM_PI_RUNTIME_CONFIG_PATH
@@ -73,12 +88,13 @@ const threadIndex = await readJsonFile<ThreadIndexFile>(config.paths.threadIndex
     threads: [],
 })
 let eventSeq = 0
+let runtimeEventSeq = 0
 
 const maxRedactedStringChars = 4000
 const maxRedactedArrayItems = 100
 const maxRedactedObjectKeys = 100
 const maxSubagentTaskChars = 24000
-const maxActiveSubagents = 2
+const maxActiveSubagents = 5
 
 threadIndex.threads = normalizeThreadIndexFile(threadIndex).threads
 await ensureRuntimeLayout()
@@ -200,12 +216,23 @@ async function writeJsonFile(path: string, value: unknown): Promise<void> {
 }
 
 async function appendRuntimeEvent(event: string, payload: unknown): Promise<void> {
+    const runContext = currentToolRunContext()
+    const payloadObject = isRecord(payload) ? payload : {}
+    const sessionKey =
+        runContext?.sessionKey ??
+        (typeof payloadObject.sessionKey === 'string' ? payloadObject.sessionKey : null)
+    const runId =
+        runContext?.runId ?? (typeof payloadObject.runId === 'string' ? payloadObject.runId : null)
+    const redactedPayload = redactPayload(payload)
     await writeFile(
         config.paths.runtimeEventsPath,
         `${JSON.stringify({
             ts: Date.now(),
+            seq: ++runtimeEventSeq,
             event,
-            payload: redactPayload(payload),
+            sessionKey,
+            runId,
+            payload: redactedPayload,
         })}\n`,
         {
             encoding: 'utf8',
@@ -636,7 +663,7 @@ async function createPiSession(record: ThreadRecord): Promise<AgentSession> {
         retry: {
             enabled: false,
             provider: {
-                timeoutMs: 120000,
+                timeoutMs: config.budgets.providerIdleTimeoutMs,
                 maxRetries: 0,
                 maxRetryDelayMs: 0,
             },
@@ -661,6 +688,18 @@ async function createPiSession(record: ThreadRecord): Promise<AgentSession> {
             audit: appendRuntimeEvent,
         }),
         ...createRoomTools({
+            config,
+            audit: appendRuntimeEvent,
+        }),
+        ...createWebTools({
+            config,
+            audit: appendRuntimeEvent,
+        }),
+        ...createDocumentTools({
+            config,
+            audit: appendRuntimeEvent,
+        }),
+        ...createImageTools({
             config,
             audit: appendRuntimeEvent,
         }),
@@ -716,6 +755,7 @@ async function getActiveThread(record: ThreadRecord): Promise<ActiveThread> {
         unsubscribe: null,
         queue: Promise.resolve(),
         abortController: null,
+        touchRunHeartbeat: null,
     }
     active.unsubscribe = session.subscribe((event) => {
         void handleSessionEvent(record, event)
@@ -725,6 +765,8 @@ async function getActiveThread(record: ThreadRecord): Promise<ActiveThread> {
 }
 
 async function handleSessionEvent(record: ThreadRecord, event: AgentSessionEvent): Promise<void> {
+    const active = activeThreads.get(record.key)
+    await active?.touchRunHeartbeat?.(event.type)
     updateThreadFromMessages(record)
     if (event.type === 'agent_start' || event.type === 'turn_start') {
         record.status = 'running'
@@ -733,7 +775,6 @@ async function handleSessionEvent(record: ThreadRecord, event: AgentSessionEvent
         record.status = 'compacting'
     }
     if (event.type === 'compaction_end') {
-        const active = activeThreads.get(record.key)
         record.status = event.errorMessage
             ? 'error'
             : active?.session.isStreaming || active?.session.isCompacting
@@ -792,6 +833,13 @@ async function createThread(
         modelProvider: config.provider.piProvider,
         model: config.provider.piModel,
         activeRunId: null,
+        activeRunKind: null,
+        heartbeatAt: null,
+        runStartedAt: null,
+        runBudgetExpiresAt: null,
+        idleTimeoutExpiresAt: null,
+        activeDurationMs: 0,
+        idleDurationMs: 0,
         lastError: null,
         kind: input.kind ?? 'main',
         parentThreadKey: input.parentThreadKey ?? null,
@@ -821,21 +869,81 @@ async function runPrompt(input: {
     message: string
     runId: string
     awaitCompletion: boolean
+    runKind?: RunKind
 }): Promise<string> {
     const execute = async () => {
+        const runKind = input.runKind ?? (input.record.kind === 'subagent' ? 'subagent' : 'manual')
+        const budget = budgetForRunKind(config.budgets, runKind)
+        let heartbeat: RunHeartbeatRecord = createRunHeartbeat({
+            runId: input.runId,
+            runKind,
+            budget,
+        })
+        let watchdogError: RunWatchdog | null = null
+        let watchdog: ReturnType<typeof setInterval> | null = null
         await refreshSystemPrompt(activeThreads.get(input.record.key))
         const active = await getActiveThread(input.record)
         const abortController = new AbortController()
         active.abortController = abortController
+        const touch = async (reason: string) => {
+            const previousHeartbeatAt = heartbeat.heartbeatAt
+            heartbeat = touchRunHeartbeat({
+                record: heartbeat,
+                budget,
+                reason,
+            })
+            input.record.heartbeatAt = heartbeat.heartbeatAt
+            input.record.idleTimeoutExpiresAt = heartbeat.idleTimeoutExpiresAt
+            input.record.activeDurationMs = heartbeat.heartbeatAt - heartbeat.startedAt
+            input.record.idleDurationMs = Math.max(0, heartbeat.heartbeatAt - previousHeartbeatAt)
+            await persistThreadIndex()
+            broadcast(input.record.key, 'run.heartbeat', {
+                sessionKey: input.record.key,
+                runId: input.runId,
+                runKind,
+                reason,
+                heartbeatAt: heartbeat.heartbeatAt,
+                runBudgetExpiresAt: heartbeat.totalBudgetExpiresAt,
+                idleTimeoutExpiresAt: heartbeat.idleTimeoutExpiresAt,
+            })
+        }
+        active.touchRunHeartbeat = touch
         input.record.status = 'running'
         input.record.activeRunId = input.runId
+        input.record.activeRunKind = runKind
+        input.record.heartbeatAt = heartbeat.heartbeatAt
+        input.record.runStartedAt = heartbeat.startedAt
+        input.record.runBudgetExpiresAt = heartbeat.totalBudgetExpiresAt
+        input.record.idleTimeoutExpiresAt = heartbeat.idleTimeoutExpiresAt
+        input.record.activeDurationMs = 0
+        input.record.idleDurationMs = 0
         input.record.lastError = null
         updateThreadFromMessages(input.record)
         await persistThreadIndex()
         broadcast(input.record.key, 'run.accepted', {
             sessionKey: input.record.key,
             runId: input.runId,
+            runKind,
+            runBudgetMs: budget.runBudgetMs,
+            idleTimeoutMs: budget.idleTimeoutMs,
         })
+        watchdog = setInterval(() => {
+            const reason = timeoutReasonForHeartbeat({
+                record: heartbeat,
+            })
+            if (!reason) {
+                return
+            }
+            watchdogError = new RunWatchdog(reason, timeoutMessage(reason))
+            abortController.abort(watchdogError)
+            void active.session.abort()
+            if (watchdog) {
+                clearInterval(watchdog)
+                watchdog = null
+            }
+        }, 1000)
+        watchdog.unref?.()
+        const runStartedAt = heartbeat.startedAt
         try {
             await withToolRunContext(
                 {
@@ -856,24 +964,67 @@ async function runPrompt(input: {
                               },
                     ),
             )
+            if (watchdogError) {
+                throw watchdogError
+            }
             const latestError = latestAssistantErrorMessage(input.record)
             input.record.status = latestError ? 'error' : 'idle'
             input.record.lastError = latestError
         } catch (error) {
-            input.record.status = 'error'
-            input.record.lastError = errorMessage(error)
+            const abortReason =
+                abortController.signal.reason instanceof RunWatchdog
+                    ? abortController.signal.reason
+                    : watchdogError
+            if (abortReason?.reason === 'explicit_abort') {
+                input.record.status = 'idle'
+                input.record.lastError = null
+            } else {
+                input.record.status = 'error'
+                input.record.lastError = errorMessage(abortReason ?? error)
+            }
             broadcast(input.record.key, 'run.error', {
                 sessionKey: input.record.key,
                 runId: input.runId,
                 message: input.record.lastError,
+                reason: abortReason?.reason ?? null,
             })
         } finally {
+            const finishedAt = Date.now()
+            const durationMs = Math.max(0, finishedAt - heartbeat.startedAt)
+            const activeDurationMs = Math.min(durationMs, input.record.activeDurationMs)
+            const idleDurationMs = Math.max(0, durationMs - activeDurationMs)
+            if (watchdog) {
+                clearInterval(watchdog)
+                watchdog = null
+            }
             if (active.abortController === abortController) {
                 active.abortController = null
             }
+            if (active.touchRunHeartbeat === touch) {
+                active.touchRunHeartbeat = null
+            }
             input.record.activeRunId = null
+            input.record.activeRunKind = null
+            input.record.heartbeatAt = heartbeat.heartbeatAt
+            input.record.runStartedAt = null
+            input.record.runBudgetExpiresAt = null
+            input.record.idleTimeoutExpiresAt = null
             updateThreadFromMessages(input.record)
             await persistThreadIndex()
+            await appendRuntimeEvent('run.finished', {
+                sessionKey: input.record.key,
+                runId: input.runId,
+                runKind,
+                status: input.record.status,
+                error: input.record.lastError,
+                provider: config.provider.sourceProvider,
+                model: config.provider.sourceModel,
+                durationMs,
+                activeDurationMs,
+                idleDurationMs,
+                startedAt: new Date(runStartedAt).toISOString(),
+                finishedAt: new Date(finishedAt).toISOString(),
+            })
             broadcast(input.record.key, 'run.finished', {
                 sessionKey: input.record.key,
                 runId: input.runId,
@@ -959,6 +1110,13 @@ async function forkThread(input: {
         modelProvider: config.provider.piProvider,
         model: config.provider.piModel,
         activeRunId: null,
+        activeRunKind: null,
+        heartbeatAt: null,
+        runStartedAt: null,
+        runBudgetExpiresAt: null,
+        idleTimeoutExpiresAt: null,
+        activeDurationMs: 0,
+        idleDurationMs: 0,
         lastError: null,
         kind: input.record.kind,
         parentThreadKey: input.record.key,
@@ -998,7 +1156,7 @@ function mapThread(record: ThreadRecord): RoomExecutionThread {
         lastMessagePreview: record.lastMessagePreview,
         status: record.status,
         updatedAt: record.updatedAt,
-        runtimeMs: null,
+        runtimeMs: record.activeDurationMs > 0 ? record.activeDurationMs : null,
         model: record.model,
         modelProvider: record.modelProvider,
         totalTokens: null,
@@ -1176,11 +1334,19 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
         }
         const runId = randomUUID()
         const awaitCompletion = isRecord(body) && body.awaitCompletion === true
+        const runKind =
+            isRecord(body) &&
+            (body.runKind === 'scheduled' ||
+                body.runKind === 'subagent' ||
+                body.runKind === 'maintenance')
+                ? body.runKind
+                : 'manual'
         const finalStatus = await runPrompt({
             record,
             message,
             runId,
             awaitCompletion,
+            runKind,
         })
         const payload: PiRuntimeSendPayload = {
             runId,
@@ -1219,11 +1385,17 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
             return
         }
         if (active) {
-            active.abortController?.abort()
+            active.abortController?.abort(
+                new RunWatchdog('explicit_abort', timeoutMessage('explicit_abort')),
+            )
             await active.session.abort()
         }
         record.status = 'idle'
         record.activeRunId = null
+        record.activeRunKind = null
+        record.runStartedAt = null
+        record.runBudgetExpiresAt = null
+        record.idleTimeoutExpiresAt = null
         await persistThreadIndex()
         const payload: PiRuntimeAbortPayload = {
             abortedRunId: abortDecision.abortedRunId,
@@ -1312,9 +1484,11 @@ process.on('SIGTERM', () => {
         active.unsubscribe?.()
         active.session.dispose()
     }
-    void closeMcpConnections().finally(() => {
-        server.close(() => {
-            process.exit(0)
+    void cleanupBackgroundCommands(config).finally(() => {
+        void closeMcpConnections().finally(() => {
+            server.close(() => {
+                process.exit(0)
+            })
         })
     })
     setTimeout(() => process.exit(0), 5000).unref()

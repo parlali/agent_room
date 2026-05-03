@@ -16,6 +16,29 @@ const rawEnvSchema = z.object({
     AGENT_ROOM_ROOT_EMAIL: z.email().optional(),
     AGENT_ROOM_ROOT_PASSWORD: z.string().min(12).optional(),
     AGENT_ROOM_SESSION_TTL_HOURS: z.coerce.number().int().positive().default(24),
+    AGENT_ROOM_SEARCH_ENABLED: z
+        .string()
+        .default('true')
+        .transform((value) => value !== '0' && value.toLowerCase() !== 'false'),
+    AGENT_ROOM_SEARCH_BACKEND_URL: z.string().url().default('http://searxng:8080'),
+    AGENT_ROOM_SEARCH_DEFAULT_RESULTS: z.coerce.number().int().positive().max(20).default(5),
+    AGENT_ROOM_SEARCH_TIMEOUT_MS: z.coerce.number().int().positive().max(30000).default(10000),
+    AGENT_ROOM_RUN_BUDGET_MANUAL_MS: z.coerce.number().int().positive().default(8 * 60 * 60 * 1000),
+    AGENT_ROOM_RUN_BUDGET_SCHEDULED_MS: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(8 * 60 * 60 * 1000),
+    AGENT_ROOM_RUN_BUDGET_SUBAGENT_MS: z.coerce.number().int().positive().default(8 * 60 * 60 * 1000),
+    AGENT_ROOM_RUN_BUDGET_MAINTENANCE_MS: z.coerce.number().int().positive().default(10 * 60 * 1000),
+    AGENT_ROOM_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(10 * 60 * 1000),
+    AGENT_ROOM_PROVIDER_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(2 * 60 * 1000),
+    AGENT_ROOM_SHELL_COMMAND_TIMEOUT_MS: z.coerce.number().int().positive().default(30 * 60 * 1000),
+    AGENT_ROOM_WEB_FETCH_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
+    AGENT_ROOM_DOCUMENT_WORKER_TIMEOUT_MS: z.coerce.number().int().positive().default(10 * 60 * 1000),
+    AGENT_ROOM_IMAGE_GENERATION_TIMEOUT_MS: z.coerce.number().int().positive().default(5 * 60 * 1000),
+    AGENT_ROOM_MCP_TOOL_TIMEOUT_MS: z.coerce.number().int().positive().default(2 * 60 * 1000),
+    AGENT_ROOM_SHORT_COMMAND_WAIT_MS: z.coerce.number().int().positive().default(5000),
 })
 
 const generatedBootstrapSchema = z.object({
@@ -38,6 +61,26 @@ export interface AppEnv {
     rootEmail: string
     rootPassword: string
     sessionTtlHours: number
+    search: {
+        enabled: boolean
+        backendUrl: string
+        defaultResultCount: number
+        timeoutMs: number
+    }
+    budgets: {
+        manualTurnMs: number
+        scheduledTurnMs: number
+        subagentTurnMs: number
+        maintenanceTurnMs: number
+        idleTimeoutMs: number
+        providerIdleTimeoutMs: number
+        shellCommandMs: number
+        webFetchMs: number
+        documentWorkerMs: number
+        imageGenerationMs: number
+        mcpToolMs: number
+        shortCommandWaitMs: number
+    }
 }
 
 let cachedEnv: AppEnv | null = null
@@ -175,6 +218,26 @@ export function getAppEnv(): AppEnv {
         rootEmail: bootstrap.payload.rootEmail,
         rootPassword: bootstrap.payload.rootPassword,
         sessionTtlHours: bootstrap.payload.sessionTtlHours,
+        search: {
+            enabled: data.AGENT_ROOM_SEARCH_ENABLED,
+            backendUrl: data.AGENT_ROOM_SEARCH_BACKEND_URL.replace(/\/$/, ''),
+            defaultResultCount: data.AGENT_ROOM_SEARCH_DEFAULT_RESULTS,
+            timeoutMs: data.AGENT_ROOM_SEARCH_TIMEOUT_MS,
+        },
+        budgets: {
+            manualTurnMs: data.AGENT_ROOM_RUN_BUDGET_MANUAL_MS,
+            scheduledTurnMs: data.AGENT_ROOM_RUN_BUDGET_SCHEDULED_MS,
+            subagentTurnMs: data.AGENT_ROOM_RUN_BUDGET_SUBAGENT_MS,
+            maintenanceTurnMs: data.AGENT_ROOM_RUN_BUDGET_MAINTENANCE_MS,
+            idleTimeoutMs: data.AGENT_ROOM_IDLE_TIMEOUT_MS,
+            providerIdleTimeoutMs: data.AGENT_ROOM_PROVIDER_IDLE_TIMEOUT_MS,
+            shellCommandMs: data.AGENT_ROOM_SHELL_COMMAND_TIMEOUT_MS,
+            webFetchMs: data.AGENT_ROOM_WEB_FETCH_TIMEOUT_MS,
+            documentWorkerMs: data.AGENT_ROOM_DOCUMENT_WORKER_TIMEOUT_MS,
+            imageGenerationMs: data.AGENT_ROOM_IMAGE_GENERATION_TIMEOUT_MS,
+            mcpToolMs: data.AGENT_ROOM_MCP_TOOL_TIMEOUT_MS,
+            shortCommandWaitMs: data.AGENT_ROOM_SHORT_COMMAND_WAIT_MS,
+        },
     }
 
     return cachedEnv

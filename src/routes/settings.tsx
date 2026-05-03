@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { toast } from 'sonner'
 import {
+    GlobeIcon,
+    ImageIcon,
     KeyRoundIcon,
     LogOutIcon,
     MonitorIcon,
@@ -11,6 +13,7 @@ import {
     PlugIcon,
     PlusIcon,
     SunIcon,
+    Trash2Icon,
     UserIcon,
     WrenchIcon,
 } from 'lucide-react'
@@ -37,6 +40,14 @@ import {
     SelectValue,
 } from '#/components/ui/select'
 import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '#/components/ui/dialog'
+import {
     Sheet,
     SheetContent,
     SheetDescription,
@@ -48,12 +59,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#/com
 import { describeProviderStatus } from '#/lib/state'
 import { formatRelativeTime } from '#/lib/format'
 import { cn } from '#/lib/utils'
+import { CAPABILITY_OPTIONS } from '#/lib/capabilities'
+import {
+    imageModelOptionsForProvider,
+    providerModelOptionsForProvider,
+    type ModelOption,
+} from '#/lib/model-options'
 import { requireRouteUser } from './-route-auth'
 import { currentUserServer, logoutServer } from './-auth-server'
 import {
+    deleteMcpConnectionServer,
+    deleteProviderConnectionServer,
     getOperatorConfigServer,
     saveMcpConnectionServer,
     saveProviderConnectionServer,
+    updateAppCapabilitySettingsServer,
     updateAppDefaultsServer,
 } from './-operator-config-server'
 import type {
@@ -71,6 +91,19 @@ type ProviderApi = ProviderConnectionSummary['api']
 type ProviderAuthMode = ProviderConnectionSummary['authMode']
 type McpTransport = McpConnectionSummary['transport']
 type McpAuthMode = McpConnectionSummary['authMode']
+type AppCapabilityDefaults = OperatorConfigSnapshot['settings']['capabilityDefaults']
+type AppImageProvider = 'none' | 'openai' | 'gemini'
+type DeleteConnectionTarget =
+    | { kind: 'provider'; entry: ProviderConnectionSummary }
+    | { kind: 'mcp'; entry: McpConnectionSummary }
+
+function capabilityDefaultsEqual(
+    left: AppCapabilityDefaults | null,
+    right: AppCapabilityDefaults | null,
+): boolean {
+    if (!left || !right) return left === right
+    return CAPABILITY_OPTIONS.every((option) => left[option.id] === right[option.id])
+}
 
 const PROVIDER_API_OPTIONS: { value: ProviderApi; label: string }[] = [
     { value: 'openai-completions', label: 'OpenAI compatible' },
@@ -127,7 +160,7 @@ const EMPTY_PROVIDER_FORM: ProviderFormState = {
     api: 'openai-completions',
     authMode: 'api_key',
     baseUrl: '',
-    defaultModel: '',
+    defaultModel: 'openrouter/auto',
     fallbackModels: '',
     apiKey: '',
     replaceApiKey: true,
@@ -247,6 +280,41 @@ function SelectField<T extends string>({
     )
 }
 
+function ModelSelectField({
+    label,
+    id,
+    value,
+    onChange,
+    options,
+    disabled = false,
+    hint,
+}: {
+    label: string
+    id: string
+    value: string
+    onChange: (value: string) => void
+    options: ModelOption[]
+    disabled?: boolean
+    hint?: ReactNode
+}) {
+    return (
+        <FieldGroup label={label} htmlFor={id} hint={hint}>
+            <Select value={value} onValueChange={onChange} disabled={disabled}>
+                <SelectTrigger id={id} className="w-full">
+                    <SelectValue placeholder="Pick a model" />
+                </SelectTrigger>
+                <SelectContent>
+                    {options.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        </FieldGroup>
+    )
+}
+
 function MaskedSecretField({
     label,
     id,
@@ -320,11 +388,15 @@ function ConnectionRow({
     badges,
     meta,
     onEdit,
+    onDelete,
+    deletePending = false,
 }: {
     title: string
     badges: ReactNode
     meta: ReactNode
     onEdit: () => void
+    onDelete: () => void
+    deletePending?: boolean
 }) {
     return (
         <div className="flex items-start justify-between gap-3 px-4 py-3">
@@ -335,10 +407,22 @@ function ConnectionRow({
                 </div>
                 <div className="mt-0.5 text-xs text-muted-foreground">{meta}</div>
             </div>
-            <Button type="button" variant="ghost" size="sm" onClick={onEdit}>
-                <PencilIcon />
-                Edit
-            </Button>
+            <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                <Button type="button" variant="ghost" size="sm" onClick={onEdit}>
+                    <PencilIcon />
+                    Edit
+                </Button>
+                <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={onDelete}
+                    disabled={deletePending}
+                >
+                    <Trash2Icon />
+                    Delete
+                </Button>
+            </div>
         </div>
     )
 }
@@ -519,6 +603,11 @@ function ProviderForm({
     const providerApiOptions = protocol.selectedProvider
         ? PROVIDER_API_OPTIONS.filter((option) => option.value === protocol.selectedProvider?.api)
         : PROVIDER_API_OPTIONS
+    const providerModelOptions = providerModelOptionsForProvider({
+        provider: form.provider,
+        currentModel: form.defaultModel,
+        providerCatalog,
+    })
     return (
         <FormShell
             onSubmit={onSubmit}
@@ -583,12 +672,12 @@ function ProviderForm({
                 placeholder="https://"
                 hint="Optional override for OpenRouter, Ollama, or LM Studio endpoints."
             />
-            <TextField
+            <ModelSelectField
                 id="provider-default-model"
                 label="Default model"
                 value={form.defaultModel}
                 onChange={(defaultModel) => setForm({ defaultModel })}
-                placeholder="provider/model"
+                options={providerModelOptions}
             />
             <TextField
                 id="provider-fallback-models"
@@ -780,13 +869,31 @@ function SettingsPage() {
     const [providerForm, setProviderForm] = useState<ProviderFormState>(EMPTY_PROVIDER_FORM)
     const [mcpSheetOpen, setMcpSheetOpen] = useState(false)
     const [mcpForm, setMcpForm] = useState<McpFormState>(EMPTY_MCP_FORM)
+    const [deleteTarget, setDeleteTarget] = useState<DeleteConnectionTarget | null>(null)
     const [defaultProviderId, setDefaultProviderId] = useState<string | null>(null)
-    const [defaultModel, setDefaultModel] = useState('')
+    const [capabilityDefaults, setCapabilityDefaults] = useState<AppCapabilityDefaults | null>(
+        null,
+    )
+    const [appImageProvider, setAppImageProvider] = useState<AppImageProvider>('none')
+    const [appImageModel, setAppImageModel] = useState('')
+    const [appImageApiKey, setAppImageApiKey] = useState('')
+    const [appImageReplaceApiKey, setAppImageReplaceApiKey] = useState(true)
+    const [appImageHasCredential, setAppImageHasCredential] = useState(false)
 
     useEffect(() => {
         if (!config) return
+        const imageProvider = config.settings.image.provider ?? 'none'
+        const imageOptions =
+            imageProvider === 'none'
+                ? []
+                : imageModelOptionsForProvider(imageProvider, config.settings.image.model)
         setDefaultProviderId(config.settings.defaultProviderConnectionId)
-        setDefaultModel(config.settings.defaultModel ?? '')
+        setCapabilityDefaults({ ...config.settings.capabilityDefaults })
+        setAppImageProvider(imageProvider)
+        setAppImageModel(config.settings.image.model ?? imageOptions[0]?.value ?? '')
+        setAppImageApiKey('')
+        setAppImageReplaceApiKey(!config.settings.image.hasCredential)
+        setAppImageHasCredential(config.settings.image.hasCredential)
     }, [config])
 
     const updateProviderForm = (patch: Partial<ProviderFormState>) =>
@@ -913,12 +1020,44 @@ function SettingsPage() {
             toast.error(error instanceof Error ? error.message : 'Tool save failed'),
     })
 
+    const deleteProviderMutation = useMutation({
+        mutationFn: async (id: string) =>
+            deleteProviderConnectionServer({
+                data: {
+                    id,
+                },
+            }),
+        onSuccess: async () => {
+            toast.success('Provider deleted')
+            setDeleteTarget(null)
+            await invalidateConfig()
+        },
+        onError: (error) =>
+            toast.error(error instanceof Error ? error.message : 'Provider delete failed'),
+    })
+
+    const deleteMcpMutation = useMutation({
+        mutationFn: async (id: string) =>
+            deleteMcpConnectionServer({
+                data: {
+                    id,
+                },
+            }),
+        onSuccess: async () => {
+            toast.success('Connected tool deleted')
+            setDeleteTarget(null)
+            await invalidateConfig()
+        },
+        onError: (error) =>
+            toast.error(error instanceof Error ? error.message : 'Tool delete failed'),
+    })
+
     const updateDefaultsMutation = useMutation({
         mutationFn: async () =>
             updateAppDefaultsServer({
                 data: {
                     defaultProviderConnectionId: defaultProviderId,
-                    defaultModel: defaultModel.trim() ? defaultModel.trim() : null,
+                    defaultModel: null,
                     onboardingCompleted,
                 },
             }),
@@ -928,6 +1067,33 @@ function SettingsPage() {
         },
         onError: (error) =>
             toast.error(error instanceof Error ? error.message : 'Defaults save failed'),
+    })
+
+    const updateCapabilitiesMutation = useMutation({
+        mutationFn: async () => {
+            if (!capabilityDefaults) throw new Error('Capability defaults are not loaded')
+            return updateAppCapabilitySettingsServer({
+                data: {
+                    capabilityDefaults,
+                    image: {
+                        provider: appImageProvider === 'none' ? null : appImageProvider,
+                        model: appImageModel.trim() ? appImageModel.trim() : null,
+                        apiKey:
+                            appImageProvider !== 'none' &&
+                            appImageReplaceApiKey &&
+                            appImageApiKey.trim()
+                                ? appImageApiKey
+                                : undefined,
+                    },
+                },
+            })
+        },
+        onSuccess: async () => {
+            toast.success('Capabilities saved')
+            await invalidateConfig()
+        },
+        onError: (error) =>
+            toast.error(error instanceof Error ? error.message : 'Capability save failed'),
     })
 
     const logoutMutation = useMutation({
@@ -957,13 +1123,87 @@ function SettingsPage() {
         saveMcpMutation.mutate()
     }
 
+    const onDeleteProvider = (entry: ProviderConnectionSummary) => {
+        setDeleteTarget({ kind: 'provider', entry })
+    }
+
+    const onDeleteMcp = (entry: McpConnectionSummary) => {
+        setDeleteTarget({ kind: 'mcp', entry })
+    }
+
+    const onConfirmDeleteConnection = () => {
+        if (!deleteTarget) return
+        if (deleteTarget.kind === 'provider') {
+            deleteProviderMutation.mutate(deleteTarget.entry.id)
+        } else {
+            deleteMcpMutation.mutate(deleteTarget.entry.id)
+        }
+    }
+
+    const onSaveCapabilities = () => {
+        if (appImageProvider !== 'none') {
+            if (!appImageModel.trim()) {
+                toast.error('Default image model is required')
+                return
+            }
+            if (appImageReplaceApiKey && !appImageApiKey.trim() && !appImageHasCredential) {
+                toast.error('Image API key is required')
+                return
+            }
+            if (appImageReplaceApiKey && appImageHasCredential && !appImageApiKey.trim()) {
+                toast.error('Enter a new image API key or cancel replacement')
+                return
+            }
+        }
+        updateCapabilitiesMutation.mutate()
+    }
+
     const defaultsDirty = useMemo(() => {
         if (!config) return false
         return (
             (defaultProviderId ?? null) !== config.settings.defaultProviderConnectionId ||
-            defaultModel.trim() !== (config.settings.defaultModel ?? '')
+            config.settings.defaultModel !== null
         )
-    }, [config, defaultProviderId, defaultModel])
+    }, [config, defaultProviderId])
+    const capabilitiesDirty = useMemo(() => {
+        if (!config || !capabilityDefaults) return false
+        return (
+            !capabilityDefaultsEqual(capabilityDefaults, config.settings.capabilityDefaults) ||
+            (appImageProvider === 'none' ? null : appImageProvider) !==
+                config.settings.image.provider ||
+            appImageModel.trim() !== (config.settings.image.model ?? '') ||
+            (appImageProvider !== 'none' &&
+                appImageReplaceApiKey &&
+                appImageApiKey.trim().length > 0)
+        )
+    }, [
+        appImageApiKey,
+        appImageModel,
+        appImageProvider,
+        appImageReplaceApiKey,
+        capabilityDefaults,
+        config,
+    ])
+    const deleteTargetPending =
+        deleteTarget?.kind === 'provider'
+            ? deleteProviderMutation.isPending
+            : deleteTarget?.kind === 'mcp'
+              ? deleteMcpMutation.isPending
+              : false
+    const deleteTargetName =
+        deleteTarget?.kind === 'provider'
+            ? deleteTarget.entry.label
+            : deleteTarget?.kind === 'mcp'
+              ? deleteTarget.entry.name
+              : ''
+    const deleteTargetTitle =
+        deleteTarget?.kind === 'provider' ? 'Delete this provider?' : 'Delete this connected tool?'
+    const deleteTargetDescription =
+        deleteTarget?.kind === 'provider'
+            ? 'This removes the provider connection and its stored credential if present. Rooms using it must be changed first.'
+            : 'This removes the connected tool and its stored credential if present. Rooms using it must be changed first.'
+    const selectedDefaultProvider =
+        providers.find((entry) => entry.id === defaultProviderId) ?? null
 
     return (
         <AppShell>
@@ -1019,6 +1259,11 @@ function SettingsPage() {
                                         </>
                                     }
                                     onEdit={() => openEditProvider(entry)}
+                                    onDelete={() => onDeleteProvider(entry)}
+                                    deletePending={
+                                        deleteProviderMutation.isPending &&
+                                        deleteProviderMutation.variables === entry.id
+                                    }
                                 />
                             )
                         }}
@@ -1055,6 +1300,11 @@ function SettingsPage() {
                                         </>
                                     }
                                     onEdit={() => openEditMcp(entry)}
+                                    onDelete={() => onDeleteMcp(entry)}
+                                    deletePending={
+                                        deleteMcpMutation.isPending &&
+                                        deleteMcpMutation.variables === entry.id
+                                    }
                                 />
                             )
                         }}
@@ -1064,7 +1314,7 @@ function SettingsPage() {
                         title="App defaults"
                         description="New rooms inherit these unless overridden."
                     >
-                        <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                             <FieldGroup label="Default provider" htmlFor="default-provider">
                                 <Select
                                     value={defaultProviderId ?? '__none'}
@@ -1085,14 +1335,13 @@ function SettingsPage() {
                                     </SelectContent>
                                 </Select>
                             </FieldGroup>
-                            <TextField
-                                id="default-model"
-                                label="Default model"
-                                value={defaultModel}
-                                onChange={setDefaultModel}
-                                placeholder="provider/model"
-                                hint="Override the provider default when creating rooms."
-                            />
+                            <FieldGroup label="Model used by new rooms">
+                                <div className="flex min-h-10 items-center rounded-md border border-border bg-muted/30 px-3 text-sm text-muted-foreground">
+                                    {selectedDefaultProvider
+                                        ? selectedDefaultProvider.defaultModel
+                                        : 'Pick a default provider'}
+                                </div>
+                            </FieldGroup>
                         </div>
                         <div className="mt-4 flex justify-end">
                             <Button
@@ -1103,6 +1352,159 @@ function SettingsPage() {
                                 Save defaults
                             </Button>
                         </div>
+                    </Section>
+
+                    <Section
+                        title="Capabilities"
+                        description="Defaults inherited by rooms unless a room override is set."
+                    >
+                        {!capabilityDefaults ? (
+                            <LoadingRows count={4} />
+                        ) : (
+                            <div className="space-y-4">
+                                <div className="grid gap-2 sm:grid-cols-2">
+                                    {CAPABILITY_OPTIONS.map((option) => (
+                                        <label
+                                            key={option.id}
+                                            className="flex items-start justify-between gap-3 rounded-lg border border-border/60 px-3 py-2.5"
+                                        >
+                                            <span className="min-w-0">
+                                                <span className="flex items-center gap-2 text-sm font-medium text-foreground">
+                                                    {option.id === 'images' ? (
+                                                        <ImageIcon className="size-4 text-muted-foreground" />
+                                                    ) : option.id === 'web_search' ||
+                                                      option.id === 'url_fetch' ? (
+                                                        <GlobeIcon className="size-4 text-muted-foreground" />
+                                                    ) : (
+                                                        <WrenchIcon className="size-4 text-muted-foreground" />
+                                                    )}
+                                                    {option.label}
+                                                </span>
+                                                <span className="mt-0.5 block text-xs text-muted-foreground">
+                                                    {option.description}
+                                                </span>
+                                            </span>
+                                            <Switch
+                                                checked={capabilityDefaults[option.id]}
+                                                onCheckedChange={(next) =>
+                                                    setCapabilityDefaults((current) =>
+                                                        current
+                                                            ? { ...current, [option.id]: next }
+                                                            : current,
+                                                    )
+                                                }
+                                                aria-label={`Toggle ${option.label}`}
+                                            />
+                                        </label>
+                                    ))}
+                                </div>
+                                <div className="rounded-lg border border-border/60 p-3">
+                                    <div className="text-sm font-medium text-foreground">
+                                        Image defaults
+                                    </div>
+                                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                        <FieldGroup label="Provider" htmlFor="app-image-provider">
+                                            <Select
+                                                value={appImageProvider}
+                                                onValueChange={(value) => {
+                                                    const provider = value as AppImageProvider
+                                                    const savedProvider =
+                                                        config?.settings.image.provider ?? 'none'
+                                                    const hasCredential =
+                                                        provider !== 'none' &&
+                                                        provider === savedProvider &&
+                                                        Boolean(config?.settings.image.hasCredential)
+                                                    const options =
+                                                        provider === 'none'
+                                                            ? []
+                                                            : imageModelOptionsForProvider(provider)
+                                                    setAppImageProvider(provider)
+                                                    setAppImageModel(
+                                                        provider === 'none'
+                                                            ? ''
+                                                            : provider === savedProvider
+                                                              ? (config?.settings.image.model ??
+                                                                    options[0]?.value ??
+                                                                    '')
+                                                              : (options[0]?.value ?? ''),
+                                                    )
+                                                    setAppImageApiKey('')
+                                                    setAppImageHasCredential(hasCredential)
+                                                    setAppImageReplaceApiKey(!hasCredential)
+                                                }}
+                                            >
+                                                <SelectTrigger
+                                                    id="app-image-provider"
+                                                    className="w-full"
+                                                >
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="none">None</SelectItem>
+                                                    <SelectItem value="openai">
+                                                        OpenAI Images
+                                                    </SelectItem>
+                                                    <SelectItem value="gemini">
+                                                        Gemini Images
+                                                    </SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </FieldGroup>
+                                        {appImageProvider === 'none' ? (
+                                            <FieldGroup label="Default image model">
+                                                <div className="flex min-h-10 items-center rounded-md border border-border bg-muted/30 px-3 text-sm text-muted-foreground">
+                                                    Images use room overrides only
+                                                </div>
+                                            </FieldGroup>
+                                        ) : (
+                                            <ModelSelectField
+                                                id="app-image-model"
+                                                label="Default image model"
+                                                value={appImageModel}
+                                                onChange={setAppImageModel}
+                                                options={imageModelOptionsForProvider(
+                                                    appImageProvider,
+                                                    appImageModel,
+                                                )}
+                                            />
+                                        )}
+                                    </div>
+                                    {appImageProvider !== 'none' ? (
+                                        <div className="mt-3">
+                                            <MaskedSecretField
+                                                label="Image API key"
+                                                id="app-image-api-key"
+                                                hasCredential={appImageHasCredential}
+                                                replace={appImageReplaceApiKey}
+                                                onToggleReplace={(replace) => {
+                                                    setAppImageReplaceApiKey(replace)
+                                                    if (!replace) setAppImageApiKey('')
+                                                }}
+                                                value={appImageApiKey}
+                                                onChange={setAppImageApiKey}
+                                                placeholder={
+                                                    appImageProvider === 'gemini'
+                                                        ? 'Gemini API key'
+                                                        : 'OpenAI API key'
+                                                }
+                                            />
+                                        </div>
+                                    ) : null}
+                                </div>
+                                <div className="flex justify-end">
+                                    <Button
+                                        type="button"
+                                        onClick={onSaveCapabilities}
+                                        disabled={
+                                            updateCapabilitiesMutation.isPending ||
+                                            !capabilitiesDirty
+                                        }
+                                    >
+                                        Save capabilities
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
                     </Section>
 
                     <Section title="Account" description="Local operator account.">
@@ -1181,6 +1583,46 @@ function SettingsPage() {
                     </Card>
                 </div>
             </div>
+
+            <Dialog
+                open={deleteTarget !== null}
+                onOpenChange={(open) => {
+                    if (!open && !deleteTargetPending) setDeleteTarget(null)
+                }}
+            >
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>{deleteTargetTitle}</DialogTitle>
+                        <DialogDescription className="space-y-2">
+                            <span className="block">{deleteTargetDescription}</span>
+                            {deleteTargetName ? (
+                                <span className="block font-medium text-foreground">
+                                    {deleteTargetName}
+                                </span>
+                            ) : null}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setDeleteTarget(null)}
+                            disabled={deleteTargetPending}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="destructive"
+                            onClick={onConfirmDeleteConnection}
+                            disabled={deleteTargetPending}
+                        >
+                            <Trash2Icon />
+                            Delete
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <EditSheet
                 open={providerSheetOpen}

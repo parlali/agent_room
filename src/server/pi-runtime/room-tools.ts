@@ -1,17 +1,15 @@
 import { createHash } from 'node:crypto'
-import { spawn } from 'node:child_process'
 import { constants as fsConstants } from 'node:fs'
 import { access, copyFile, lstat, readFile, readdir, realpath, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import {
     defineTool,
     type AgentToolResult,
-    type AgentToolUpdateCallback,
     type ToolDefinition,
 } from '@mariozechner/pi-coding-agent'
 import { Type } from '@mariozechner/pi-ai'
+import type { CapabilityConfig } from '../domain/types'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
-import { buildBoundedProcessEnv } from '../security/process-env'
 import { internalStateToolNames } from './internal-state-tools'
 import {
     currentShellSandboxIdentity,
@@ -19,7 +17,15 @@ import {
     ensureShellWritableFile,
     resolveShellSandboxIdentity,
 } from './shell-sandbox'
-import { combineAbortSignals, currentToolRunSignal } from './tool-run-context'
+import { currentToolRunContext } from './tool-run-context'
+import {
+    backgroundCommandMaxOutputBytes,
+    type BackgroundCommandRecord,
+    getBackgroundCommand,
+    listBackgroundCommands,
+    startBackgroundCommand,
+    terminateBackgroundCommand,
+} from './background-commands'
 
 type ToolRoot = 'workspace' | 'store'
 
@@ -35,6 +41,8 @@ interface RoomToolDetails {
     aborted?: boolean
     durationMs?: number
     sandboxMode?: 'dropped' | 'test-unsafe'
+    commandId?: string
+    status?: string
     fileChange?: {
         kind: 'write' | 'edit' | 'artifact_import' | 'artifact_export'
         root: ToolRoot
@@ -56,9 +64,6 @@ const MAX_SEARCH_FILES = 5000
 const MAX_SEARCH_MATCHES = 200
 const MAX_SEARCH_PATTERN_CHARS = 1000
 const MAX_LIST_ENTRIES = 500
-const MAX_SHELL_OUTPUT_BYTES = 128000
-const DEFAULT_SHELL_TIMEOUT_MS = 30000
-const MAX_SHELL_TIMEOUT_MS = 300000
 
 function textResult(text: string, details: RoomToolDetails = {}): AgentToolResult<RoomToolDetails> {
     return {
@@ -213,26 +218,6 @@ function buildSearchMatcher(input: {
         throw new Error('Search pattern is not a valid regular expression')
     }
     return (line) => matcher.test(line)
-}
-
-function boundText(
-    input: string,
-    maxBytes: number,
-): {
-    text: string
-    truncated: boolean
-} {
-    const bytes = Buffer.byteLength(input)
-    if (bytes <= maxBytes) {
-        return {
-            text: input,
-            truncated: false,
-        }
-    }
-    return {
-        text: Buffer.from(input).subarray(0, maxBytes).toString('utf8'),
-        truncated: true,
-    }
 }
 
 function sha256Buffer(buffer: Buffer | string): string {
@@ -554,163 +539,265 @@ function createEditTool(ctx: RoomToolContext): ToolDefinition {
     })
 }
 
-function shellEnv(config: PiRuntimeConfig): NodeJS.ProcessEnv {
-    return buildBoundedProcessEnv({
-        HOME: config.paths.homeDir,
-        TMPDIR: config.paths.tmpDir,
-        AGENT_ROOM_ROOM_ID: config.runtime.roomId,
-        AGENT_ROOM_WORKSPACE_DIR: config.paths.workspaceDir,
-        AGENT_ROOM_STORE_DIR: config.paths.storeDir,
-    })
-}
-
-async function runShell(input: {
-    command: string
-    cwd: string
-    env: NodeJS.ProcessEnv
-    timeoutMs: number
-    signal?: AbortSignal
-    onUpdate?: AgentToolUpdateCallback<RoomToolDetails>
-}): Promise<{
-    output: string
-    exitCode: number | null
-    timedOut: boolean
-    aborted: boolean
-    durationMs: number
-    truncated: boolean
-}> {
-    const startedAt = Date.now()
-    let output = ''
-    let truncated = false
-    let timedOut = false
-    let aborted = false
-    let closed = false
-    const identity = currentShellSandboxIdentity()
-    const child = spawn(input.command, {
-        cwd: input.cwd,
-        shell: '/bin/sh',
-        env: input.env,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        detached: true,
-        ...(identity.uid === undefined ? {} : { uid: identity.uid }),
-        ...(identity.gid === undefined ? {} : { gid: identity.gid }),
-    })
-
-    const append = (chunk: Buffer) => {
-        const next = boundText(output + chunk.toString('utf8'), MAX_SHELL_OUTPUT_BYTES)
-        output = next.text
-        truncated = truncated || next.truncated
-        input.onUpdate?.(
-            textResult(output, {
-                path: input.cwd,
-                byteLength: Buffer.byteLength(output),
-                truncated,
-            }),
-        )
-    }
-
-    child.stdout.on('data', append)
-    child.stderr.on('data', append)
-
-    const terminate = (signal: NodeJS.Signals) => {
-        if (child.pid) {
-            try {
-                process.kill(-child.pid, signal)
-                return
-            } catch {}
-        }
-        child.kill(signal)
-    }
-
-    const kill = () => {
-        if (closed) {
-            return
-        }
-        terminate('SIGTERM')
-        setTimeout(() => {
-            if (!closed) {
-                terminate('SIGKILL')
-            }
-        }, 2000).unref()
-    }
-
-    const abort = () => {
-        aborted = true
-        kill()
-    }
-
-    const timer = setTimeout(() => {
-        timedOut = true
-        kill()
-    }, input.timeoutMs)
-    input.signal?.addEventListener('abort', abort, {
-        once: true,
-    })
-
-    return await new Promise((resolvePromise, reject) => {
-        child.on('error', reject)
-        child.on('close', (exitCode) => {
-            closed = true
-            clearTimeout(timer)
-            input.signal?.removeEventListener('abort', abort)
-            resolvePromise({
-                output,
-                exitCode,
-                timedOut,
-                aborted,
-                durationMs: Date.now() - startedAt,
-                truncated,
-            })
-        })
-    })
-}
-
 function createShellTool(ctx: RoomToolContext): ToolDefinition {
     return defineTool({
         name: 'agent_room_shell',
         label: 'Shell',
-        description: 'Run a bounded shell command from the room workspace.',
+        description:
+            'Start a bounded background shell command from the room workspace and wait briefly for output.',
         promptSnippet:
-            'agent_room_shell runs bounded commands from the room workspace with a minimal environment.',
+            'agent_room_shell starts a room-local command, waits briefly, and returns a command id for polling.',
+        parameters: Type.Object({
+            command: Type.String(),
+            timeoutMs: Type.Optional(Type.Number()),
+            waitMs: Type.Optional(Type.Number()),
+        }),
+        executionMode: 'sequential',
+        execute: async (_toolCallId, input, signal, onUpdate) => {
+            const runContext = currentToolRunContext()
+            const timeoutMs = clampPositiveInteger(
+                input.timeoutMs,
+                ctx.config.budgets.shellCommandMs,
+                ctx.config.budgets.shellCommandMs,
+            )
+            const waitMs = clampPositiveInteger(
+                input.waitMs,
+                ctx.config.budgets.shortCommandWaitMs,
+                ctx.config.budgets.shortCommandWaitMs,
+            )
+            let latest: BackgroundCommandRecord | null = null
+            latest = await startBackgroundCommand({
+                config: ctx.config,
+                command: input.command,
+                timeoutMs,
+                sessionKey: runContext?.sessionKey,
+                runId: runContext?.runId,
+                signal,
+                onOutput: (record) => {
+                    latest = record
+                    onUpdate?.(commandResult(record, false))
+                },
+            })
+            const deadline = Date.now() + waitMs
+            while (latest.status === 'running' && Date.now() < deadline) {
+                await new Promise((resolveDelay) => setTimeout(resolveDelay, 100))
+                latest =
+                    (await getBackgroundCommand({
+                        config: ctx.config,
+                        commandId: latest.commandId,
+                    })) ?? latest
+            }
+            await audit(ctx, 'shell', {
+                path: ctx.config.paths.workspaceDir,
+                sandboxMode: currentShellSandboxIdentity().mode,
+                commandId: latest.commandId,
+                status: latest.status,
+                exitCode: latest.exitCode,
+                timedOut: latest.signal === 'timeout',
+                aborted: latest.signal === 'abort' || latest.signal === 'manual',
+                durationMs: commandDurationMs(latest),
+                truncated: latest.outputTruncated,
+            })
+            return commandResult(latest)
+        },
+    })
+}
+
+function commandDurationMs(record: BackgroundCommandRecord): number {
+    const end = record.finishedAt ? Date.parse(record.finishedAt) : Date.now()
+    return Math.max(0, end - Date.parse(record.startedAt))
+}
+
+function commandHeader(record: BackgroundCommandRecord): string {
+    return [
+        `commandId: ${record.commandId}`,
+        `status: ${record.status}`,
+        `exitCode: ${record.exitCode ?? 'null'}`,
+        `signal: ${record.signal ?? 'null'}`,
+        `startedAt: ${record.startedAt}`,
+        `finishedAt: ${record.finishedAt ?? 'null'}`,
+        `outputTruncated: ${record.outputTruncated}`,
+    ].join('\n')
+}
+
+function commandResult(
+    record: BackgroundCommandRecord,
+    includeOutput = true,
+): AgentToolResult<RoomToolDetails> {
+    const header = commandHeader(record)
+    const outputBudget = Math.max(
+        0,
+        backgroundCommandMaxOutputBytes - Buffer.byteLength(header) - 2,
+    )
+    const outputBytes = Buffer.from(record.output)
+    const outputText =
+        outputBytes.byteLength > outputBudget
+            ? outputBytes.subarray(outputBytes.byteLength - outputBudget).toString('utf8')
+            : record.output
+    const output = includeOutput && outputText.trim() ? `\n\n${outputText}` : ''
+    return textResult(`${header}${output}`, {
+        path: record.cwd,
+        sandboxMode: currentShellSandboxIdentity().mode,
+        byteLength: record.outputByteLength,
+        truncated: record.outputTruncated,
+        exitCode: record.exitCode,
+        timedOut: record.signal === 'timeout',
+        aborted:
+            record.signal === 'abort' ||
+            record.signal === 'manual' ||
+            record.signal === 'runtime_shutdown',
+        durationMs: commandDurationMs(record),
+        commandId: record.commandId,
+        status: record.status,
+    })
+}
+
+function createCommandStartTool(ctx: RoomToolContext): ToolDefinition {
+    return defineTool({
+        name: 'agent_room_command_start',
+        label: 'Start Command',
+        description: 'Start a bounded room-local background command and return its command id.',
+        promptSnippet:
+            'agent_room_command_start starts long room-local commands for later polling.',
         parameters: Type.Object({
             command: Type.String(),
             timeoutMs: Type.Optional(Type.Number()),
         }),
         executionMode: 'sequential',
-        execute: async (_toolCallId, input, signal, onUpdate) => {
-            const combined = combineAbortSignals([signal, currentToolRunSignal()])
-            const timeoutMs = clampPositiveInteger(
-                input.timeoutMs,
-                DEFAULT_SHELL_TIMEOUT_MS,
-                MAX_SHELL_TIMEOUT_MS,
-            )
-            const result = await runShell({
+        execute: async (_toolCallId, input, signal) => {
+            const runContext = currentToolRunContext()
+            const record = await startBackgroundCommand({
+                config: ctx.config,
                 command: input.command,
-                cwd: ctx.config.paths.workspaceDir,
-                env: shellEnv(ctx.config),
-                timeoutMs,
-                signal: combined.signal,
-                onUpdate,
-            }).finally(combined.dispose)
-            await audit(ctx, 'shell', {
-                path: ctx.config.paths.workspaceDir,
-                sandboxMode: currentShellSandboxIdentity().mode,
-                exitCode: result.exitCode,
-                timedOut: result.timedOut,
-                aborted: result.aborted,
-                durationMs: result.durationMs,
-                truncated: result.truncated,
+                timeoutMs: clampPositiveInteger(
+                    input.timeoutMs,
+                    ctx.config.budgets.shellCommandMs,
+                    ctx.config.budgets.shellCommandMs,
+                ),
+                sessionKey: runContext?.sessionKey,
+                runId: runContext?.runId,
+                signal,
             })
-            return textResult(result.output, {
-                path: ctx.config.paths.workspaceDir,
+            await audit(ctx, 'command_start', {
+                path: record.cwd,
+                commandId: record.commandId,
+                status: record.status,
                 sandboxMode: currentShellSandboxIdentity().mode,
-                byteLength: Buffer.byteLength(result.output),
-                truncated: result.truncated,
-                exitCode: result.exitCode,
-                timedOut: result.timedOut,
-                aborted: result.aborted,
-                durationMs: result.durationMs,
             })
+            return commandResult(record, false)
+        },
+    })
+}
+
+function createCommandPollTool(ctx: RoomToolContext): ToolDefinition {
+    return defineTool({
+        name: 'agent_room_command_poll',
+        label: 'Poll Command',
+        description: 'Poll output and status for a room-local background command.',
+        promptSnippet:
+            'agent_room_command_poll reads bounded output and status from a background command id.',
+        parameters: Type.Object({
+            commandId: Type.String(),
+        }),
+        execute: async (_toolCallId, input) => {
+            const record = await getBackgroundCommand({
+                config: ctx.config,
+                commandId: input.commandId,
+            })
+            if (!record) {
+                throw new Error(`Command ${input.commandId} was not found`)
+            }
+            await audit(ctx, 'command_poll', {
+                path: record.cwd,
+                commandId: record.commandId,
+                status: record.status,
+                byteLength: record.outputByteLength,
+                truncated: record.outputTruncated,
+            })
+            return commandResult(record)
+        },
+    })
+}
+
+function createCommandStatusTool(ctx: RoomToolContext): ToolDefinition {
+    return defineTool({
+        name: 'agent_room_command_status',
+        label: 'Command Status',
+        description: 'List recent room-local background commands or read one status by id.',
+        promptSnippet:
+            'agent_room_command_status lists recent background commands without unbounded output.',
+        parameters: Type.Object({
+            commandId: Type.Optional(Type.String()),
+        }),
+        execute: async (_toolCallId, input) => {
+            if (input.commandId) {
+                const record = await getBackgroundCommand({
+                    config: ctx.config,
+                    commandId: input.commandId,
+                })
+                if (!record) {
+                    throw new Error(`Command ${input.commandId} was not found`)
+                }
+                await audit(ctx, 'command_status', {
+                    path: record.cwd,
+                    commandId: record.commandId,
+                    status: record.status,
+                })
+                return commandResult(record, false)
+            }
+
+            const records = await listBackgroundCommands(ctx.config)
+            const rows = records
+                .slice(0, 50)
+                .map((record) =>
+                    [
+                        record.commandId,
+                        record.status,
+                        record.exitCode ?? 'null',
+                        record.startedAt,
+                        record.finishedAt ?? 'null',
+                        record.outputTruncated ? 'truncated' : 'complete',
+                        record.command,
+                    ].join(' '),
+                )
+            const text = rows.join('\n')
+            await audit(ctx, 'command_status', {
+                path: ctx.config.paths.workspaceDir,
+                byteLength: Buffer.byteLength(text),
+                truncated: records.length > 50,
+            })
+            return textResult(text, {
+                path: ctx.config.paths.workspaceDir,
+                byteLength: Buffer.byteLength(text),
+                truncated: records.length > 50,
+            })
+        },
+    })
+}
+
+function createCommandTerminateTool(ctx: RoomToolContext): ToolDefinition {
+    return defineTool({
+        name: 'agent_room_command_terminate',
+        label: 'Terminate Command',
+        description: 'Terminate a running room-local background command by command id.',
+        promptSnippet:
+            'agent_room_command_terminate stops a background command when it is no longer needed.',
+        parameters: Type.Object({
+            commandId: Type.String(),
+        }),
+        executionMode: 'sequential',
+        execute: async (_toolCallId, input) => {
+            const record = await terminateBackgroundCommand({
+                config: ctx.config,
+                commandId: input.commandId,
+            })
+            await audit(ctx, 'command_terminate', {
+                path: record.cwd,
+                commandId: record.commandId,
+                status: record.status,
+                signal: record.signal,
+            })
+            return commandResult(record, false)
         },
     })
 }
@@ -923,6 +1010,10 @@ export function roomToolNamesForProfile(profile: string): string[] {
             'agent_room_search',
             'agent_room_workspace_tree',
             'agent_room_shell',
+            'agent_room_command_start',
+            'agent_room_command_poll',
+            'agent_room_command_status',
+            'agent_room_command_terminate',
         ]
     }
     return [
@@ -934,9 +1025,32 @@ export function roomToolNamesForProfile(profile: string): string[] {
         'agent_room_write',
         'agent_room_edit',
         'agent_room_shell',
+        'agent_room_command_start',
+        'agent_room_command_poll',
+        'agent_room_command_status',
+        'agent_room_command_terminate',
         'agent_room_artifact_import',
         'agent_room_artifact_export',
     ]
+}
+
+export function roomToolNamesForCapabilities(
+    profile: string,
+    capabilities: CapabilityConfig,
+): string[] {
+    const enabled = new Set(roomToolNamesForProfile(profile))
+    if (!capabilities.shellCoding) {
+        enabled.delete('agent_room_write')
+        enabled.delete('agent_room_edit')
+        enabled.delete('agent_room_shell')
+        enabled.delete('agent_room_command_start')
+        enabled.delete('agent_room_command_poll')
+        enabled.delete('agent_room_command_status')
+        enabled.delete('agent_room_command_terminate')
+        enabled.delete('agent_room_artifact_import')
+        enabled.delete('agent_room_artifact_export')
+    }
+    return roomToolNamesForProfile(profile).filter((toolName) => enabled.has(toolName))
 }
 
 export function createRoomTools(ctx: RoomToolContext): ToolDefinition[] {
@@ -948,9 +1062,15 @@ export function createRoomTools(ctx: RoomToolContext): ToolDefinition[] {
         createWriteTool(ctx),
         createEditTool(ctx),
         createShellTool(ctx),
+        createCommandStartTool(ctx),
+        createCommandPollTool(ctx),
+        createCommandStatusTool(ctx),
+        createCommandTerminateTool(ctx),
         createArtifactImportTool(ctx),
         createArtifactExportTool(ctx),
     ]
-    const enabled = new Set(roomToolNamesForProfile(ctx.config.tools.profile))
+    const enabled = new Set(
+        roomToolNamesForCapabilities(ctx.config.tools.profile, ctx.config.capabilities),
+    )
     return tools.filter((tool) => enabled.has(tool.name))
 }

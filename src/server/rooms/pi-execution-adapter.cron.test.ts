@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
         removeJob: vi.fn(),
         claimJob: vi.fn(),
         claimDueJobs: vi.fn(),
+        renewJobLease: vi.fn(),
         finishJob: vi.fn(),
         createRun: vi.fn(),
         finishRun: vi.fn(),
@@ -23,6 +24,9 @@ const mocks = vi.hoisted(() => ({
     roomRuntimeMetadataRepository: {
         findByRoomId: vi.fn(),
     },
+    usageRepository: {
+        appendEvent: vi.fn(),
+    },
     getRoomConfigSnapshot: vi.fn(),
     requestPiRuntime: vi.fn(),
     openPiRuntimeEventStream: vi.fn(),
@@ -32,6 +36,7 @@ vi.mock('../db/repositories', () => ({
     roomCronRepository: mocks.roomCronRepository,
     roomRepository: mocks.roomRepository,
     roomRuntimeMetadataRepository: mocks.roomRuntimeMetadataRepository,
+    usageRepository: mocks.usageRepository,
 }))
 
 vi.mock('../configuration/operator-configuration', () => ({
@@ -58,8 +63,12 @@ function cronJob(overrides: Partial<RoomCronJobRecord> = {}): RoomCronJobRecord 
         targetThreadKey: null,
         nextRunAt: now,
         runningAt: null,
+        heartbeatAt: null,
         lockedUntil: null,
         lockToken: null,
+        lastRenewedAt: null,
+        runBudgetMs: null,
+        recoveryReason: null,
         lastRunAt: null,
         lastRunStatus: null,
         lastError: null,
@@ -132,6 +141,7 @@ describe('Pi cron adapter', () => {
             mocks.roomCronRepository,
             mocks.roomRepository,
             mocks.roomRuntimeMetadataRepository,
+            mocks.usageRepository,
         ]) {
             for (const value of Object.values(repository)) {
                 value.mockReset()
@@ -245,10 +255,11 @@ describe('Pi cron adapter', () => {
             expect.anything(),
             expect.objectContaining({
                 method: 'POST',
-                body: {
+                body: expect.objectContaining({
                     message: 'Summarize today',
                     awaitCompletion: true,
-                },
+                    runKind: 'scheduled',
+                }),
             }),
         )
         expect(mocks.roomCronRepository.createRun).toHaveBeenCalledWith(
@@ -678,10 +689,11 @@ describe('Pi cron adapter', () => {
             expect.anything(),
             expect.objectContaining({
                 method: 'POST',
-                body: {
+                body: expect.objectContaining({
                     message: 'Wake up',
                     awaitCompletion: false,
-                },
+                    runKind: 'manual',
+                }),
             }),
         )
     })

@@ -148,6 +148,7 @@ export interface RoomCronJob {
     enabled: boolean
     sessionTarget: string | null
     wakeMode: string | null
+    everyMinutes: number
     scheduleSummary: string
     payloadSummary: string | null
     nextRunAt: number | null

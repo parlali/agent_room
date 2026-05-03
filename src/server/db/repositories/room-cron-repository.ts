@@ -127,14 +127,30 @@ export const roomCronRepository = {
         roomId: string
         jobId: string
         lockToken: string
-        lockedUntil: Date
+        runBudgetMs: number
+        maxStaleLockMs: number
     }): Promise<RoomCronJobRecord | null> {
         const rows = await sql`
             UPDATE room_cron_jobs
             SET
                 running_at = now(),
-                locked_until = ${input.lockedUntil},
+                heartbeat_at = now(),
+                locked_until = now() + (
+                    LEAST(
+                        ${input.maxStaleLockMs}::bigint,
+                        GREATEST(
+                            300000::bigint,
+                            LEAST(every_minutes::bigint * 60000::bigint, ${input.runBudgetMs}::bigint + 60000::bigint)
+                        )
+                    ) * interval '1 millisecond'
+                ),
                 lock_token = ${input.lockToken},
+                last_renewed_at = now(),
+                run_budget_ms = ${input.runBudgetMs},
+                recovery_reason = CASE
+                    WHEN running_at IS NOT NULL AND (locked_until IS NULL OR locked_until < now()) THEN 'expired_lease'
+                    ELSE NULL
+                END,
                 last_run_at = now(),
                 last_run_status = 'running',
                 last_error = NULL,
@@ -142,7 +158,7 @@ export const roomCronRepository = {
             WHERE
                 room_id = ${input.roomId}
                 AND id = ${input.jobId}
-                AND (running_at IS NULL OR locked_until < now())
+                AND (running_at IS NULL OR locked_until IS NULL OR locked_until < now())
             RETURNING *
         `
         return rows[0] ? mapRoomCronJob(rows[0] as Record<string, unknown>) : null
@@ -150,18 +166,24 @@ export const roomCronRepository = {
 
     async claimDueJobs(input: {
         lockToken: string
-        lockedUntil: Date
+        runBudgetMs: number
+        maxStaleLockMs: number
         limit: number
     }): Promise<RoomCronJobRecord[]> {
         const rows = await sql`
             WITH due AS (
-                SELECT id
+                SELECT
+                    id,
+                    CASE
+                        WHEN running_at IS NOT NULL AND (locked_until IS NULL OR locked_until < now()) THEN 'expired_lease'
+                        ELSE NULL
+                    END AS recovery_reason
                 FROM room_cron_jobs
                 WHERE
                     enabled = true
                     AND next_run_at IS NOT NULL
                     AND next_run_at <= now()
-                    AND (running_at IS NULL OR locked_until < now())
+                    AND (running_at IS NULL OR locked_until IS NULL OR locked_until < now())
                 ORDER BY next_run_at ASC
                 LIMIT ${input.limit}
                 FOR UPDATE SKIP LOCKED
@@ -169,8 +191,20 @@ export const roomCronRepository = {
             UPDATE room_cron_jobs AS job
             SET
                 running_at = now(),
-                locked_until = ${input.lockedUntil},
+                heartbeat_at = now(),
+                locked_until = now() + (
+                    LEAST(
+                        ${input.maxStaleLockMs}::bigint,
+                        GREATEST(
+                            300000::bigint,
+                            LEAST(job.every_minutes::bigint * 60000::bigint, ${input.runBudgetMs}::bigint + 60000::bigint)
+                        )
+                    ) * interval '1 millisecond'
+                ),
                 lock_token = ${input.lockToken},
+                last_renewed_at = now(),
+                run_budget_ms = ${input.runBudgetMs},
+                recovery_reason = due.recovery_reason,
                 last_run_at = now(),
                 last_run_status = 'running',
                 last_error = NULL,
@@ -180,6 +214,29 @@ export const roomCronRepository = {
             RETURNING job.*
         `
         return rows.map((row) => mapRoomCronJob(row as Record<string, unknown>))
+    },
+
+    async renewJobLease(input: {
+        roomId: string
+        jobId: string
+        lockToken: string
+        lockedUntil: Date
+    }): Promise<RoomCronJobRecord | null> {
+        const rows = await sql`
+            UPDATE room_cron_jobs
+            SET
+                heartbeat_at = now(),
+                last_renewed_at = now(),
+                locked_until = ${input.lockedUntil},
+                updated_at = now()
+            WHERE
+                room_id = ${input.roomId}
+                AND id = ${input.jobId}
+                AND lock_token = ${input.lockToken}
+                AND running_at IS NOT NULL
+            RETURNING *
+        `
+        return rows[0] ? mapRoomCronJob(rows[0] as Record<string, unknown>) : null
     },
 
     async finishJob(input: {
@@ -195,8 +252,10 @@ export const roomCronRepository = {
             UPDATE room_cron_jobs
             SET
                 running_at = NULL,
+                heartbeat_at = NULL,
                 locked_until = NULL,
                 lock_token = NULL,
+                last_renewed_at = NULL,
                 next_run_at = ${input.nextRunAt},
                 last_run_status = ${input.status},
                 last_error = ${input.error},

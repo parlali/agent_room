@@ -7,6 +7,7 @@ import {
     roomProviderModes,
     roomToolProfiles,
 } from '#/server/domain/types'
+import type { UsageEventRecord } from '#/server/domain/types'
 
 const roomIdSchema = z.string().uuid()
 
@@ -78,8 +79,33 @@ const roomRunHistoryInputSchema = z.object({
     limit: z.number().int().positive().max(200).optional(),
 })
 
+const roomUsageInputSchema = z.object({
+    roomId: roomIdSchema,
+    limit: z.number().int().positive().max(200).optional(),
+})
+
+const usageInputSchema = z.object({
+    limit: z.number().int().positive().max(500).optional(),
+})
+
 const roomFilesInputSchema = z.object({
     roomId: roomIdSchema,
+})
+
+const readRoomFileInputSchema = z.object({
+    roomId: roomIdSchema,
+    surface: z.enum(['workspace', 'store']),
+    relativePath: z.string().min(1),
+})
+
+const roomMemoryInputSchema = z.object({
+    roomId: roomIdSchema,
+})
+
+const updateRoomMemoryInputSchema = z.object({
+    roomId: roomIdSchema,
+    memory: z.unknown(),
+    expectedHash: z.string().min(1).nullable().optional(),
 })
 
 const deleteRoomInputSchema = z.object({
@@ -149,6 +175,26 @@ async function requireMutationActor() {
     const { assertSameOriginMutation } = await import('#/server/auth/session-auth')
     assertSameOriginMutation()
     return requireAuthenticatedActor()
+}
+
+function summarizeUsageEvents(events: UsageEventRecord[]) {
+    const knownTokenEvents = events.filter((event) => event.totalTokens !== null)
+    const knownCostEvents = events.filter((event) => event.estimatedCostUsd !== null)
+    return {
+        durationMs: events.reduce((sum, event) => sum + (event.durationMs ?? 0), 0),
+        totalTokens:
+            knownTokenEvents.length === 0
+                ? null
+                : knownTokenEvents.reduce((sum, event) => sum + (event.totalTokens ?? 0), 0),
+        estimatedCostUsd:
+            knownCostEvents.length === 0
+                ? null
+                : knownCostEvents.reduce(
+                      (sum, event) => sum + Number(event.estimatedCostUsd ?? 0),
+                      0,
+                  ),
+        unknownTokenEvents: events.length - knownTokenEvents.length,
+    }
 }
 
 export const listRoomsServer = createServerFn({ method: 'GET' }).handler(async () => {
@@ -398,6 +444,46 @@ export const listRoomRunHistoryServer = createServerFn({ method: 'GET' })
         })
     })
 
+export const listRoomUsageServer = createServerFn({ method: 'GET' })
+    .inputValidator((input: unknown) => roomUsageInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        await requireAuthenticatedActor()
+        setResponseHeaders({
+            'cache-control': 'no-store',
+        })
+        const { syncRoomRuntimeUsage } = await import('#/server/rooms/execution-engine')
+        await syncRoomRuntimeUsage(data.roomId)
+        const { usageRepository } = await import('#/server/db/repositories')
+        const events = await usageRepository.listByRoom({
+            roomId: data.roomId,
+            limit: data.limit ?? 100,
+        })
+        return {
+            roomId: data.roomId,
+            events,
+            totals: summarizeUsageEvents(events),
+        }
+    })
+
+export const listUsageServer = createServerFn({ method: 'GET' })
+    .inputValidator((input: unknown) => usageInputSchema.parse(input ?? {}))
+    .handler(async ({ data }) => {
+        await requireAuthenticatedActor()
+        setResponseHeaders({
+            'cache-control': 'no-store',
+        })
+        const { syncAllRuntimeUsage } = await import('#/server/rooms/execution-engine')
+        await syncAllRuntimeUsage()
+        const { usageRepository } = await import('#/server/db/repositories')
+        const events = await usageRepository.listRecent({
+            limit: data.limit ?? 300,
+        })
+        return {
+            events,
+            totals: summarizeUsageEvents(events),
+        }
+    })
+
 export const listRoomFilesServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => roomFilesInputSchema.parse(input))
     .handler(async ({ data }) => {
@@ -407,6 +493,44 @@ export const listRoomFilesServer = createServerFn({ method: 'GET' })
         })
         const { listRoomFiles } = await import('#/server/rooms/file-store')
         return listRoomFiles(data.roomId)
+    })
+
+export const readRoomFileServer = createServerFn({ method: 'GET' })
+    .inputValidator((input: unknown) => readRoomFileInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        await requireAuthenticatedActor()
+        setResponseHeaders({
+            'cache-control': 'no-store',
+        })
+        const { readRoomFileContent } = await import('#/server/rooms/file-store')
+        return readRoomFileContent({
+            roomId: data.roomId,
+            surface: data.surface,
+            relativePath: data.relativePath,
+        })
+    })
+
+export const getRoomMemoryServer = createServerFn({ method: 'GET' })
+    .inputValidator((input: unknown) => roomMemoryInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        await requireAuthenticatedActor()
+        setResponseHeaders({
+            'cache-control': 'no-store',
+        })
+        const { readRoomMemory } = await import('#/server/rooms/room-memory-store')
+        return readRoomMemory(data.roomId)
+    })
+
+export const updateRoomMemoryServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => updateRoomMemoryInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        await requireMutationActor()
+        const { updateRoomMemory } = await import('#/server/rooms/room-memory-store')
+        return updateRoomMemory({
+            roomId: data.roomId,
+            memory: data.memory,
+            expectedHash: data.expectedHash ?? null,
+        })
     })
 
 export const deleteRoomServer = createServerFn({ method: 'POST' })

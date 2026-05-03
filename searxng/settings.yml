@@ -1,0 +1,15 @@
+use_default_settings: true
+
+general:
+    instance_name: Agent Room Search
+
+search:
+    formats:
+        - html
+        - json
+    safe_search: 0
+
+server:
+    limiter: false
+    public_instance: false
+    secret_key: agent-room-local-search

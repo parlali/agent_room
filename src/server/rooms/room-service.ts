@@ -18,7 +18,7 @@ import type {
     RoomRecord,
     RoomToolProfile,
 } from '../domain/types'
-import { archiveFailedRoomFilesystemLayout, getRoomPaths } from './room-paths'
+import { getRoomPaths } from './room-paths'
 import { assertRoomSetupReady } from './runtime-readiness'
 import { roomRuntimeManager } from './runtime-manager'
 
@@ -148,41 +148,34 @@ export async function createRoom(input: {
                 })
             }
         } catch (error) {
-            let diagnosticsPath: string | null = null
-            let diagnosticsArchiveError: string | null = null
-
-            try {
-                diagnosticsPath = await archiveFailedRoomFilesystemLayout(room.id)
-            } catch (archiveError) {
-                diagnosticsArchiveError =
-                    archiveError instanceof Error
-                        ? archiveError.message
-                        : 'unknown diagnostics archive error'
-            }
-
+            const message = error instanceof Error ? error.message : 'unknown runtime start error'
+            await roomRepository.updateRoomDesiredState(room.id, 'stopped')
+            await roomRepository.updateRoomStatus(room.id, 'failed')
+            await roomRuntimeMetadataRepository.upsert({
+                roomId: room.id,
+                port: null,
+                pid: null,
+                configVersion: 0,
+                tokenVersion: 0,
+                healthStatus: 'unhealthy',
+                startedAt: null,
+                lastHealthAt: null,
+                lastError: message,
+            })
             await auditRepository.appendEvent({
                 actorUserId: input.createdByUserId,
                 roomId: room.id,
-                action: 'room.create_failed',
+                action: 'room.start_after_create_failed',
                 payload: {
                     slug: room.slug,
-                    error: error instanceof Error ? error.message : 'unknown runtime start error',
-                    diagnosticsPath,
-                    diagnosticsArchiveError,
+                    error: message,
                 },
             })
-            await roomRepository.deleteRoom(room.id)
-
-            const diagnosticsNotice = diagnosticsPath
-                ? ' Diagnostic files were preserved for support review.'
-                : diagnosticsArchiveError
-                  ? ' Diagnostic files could not be preserved.'
-                  : ''
-            throw new Error(
-                error instanceof Error
-                    ? `Room startup failed: ${error.message}.${diagnosticsNotice}`
-                    : 'Room startup failed',
-            )
+            const updatedRoom = await roomRepository.findRoomById(room.id)
+            if (updatedRoom) {
+                return updatedRoom
+            }
+            return room
         }
     }
 

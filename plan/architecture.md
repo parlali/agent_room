@@ -1,142 +1,63 @@
 # Agent Room Architecture
 
-This document is the canonical architecture direction for Agent Room after the OpenClaw replacement study. It defines the target topology, trust boundary, operating model, and ownership rules for the Pi-based runtime.
-
 ## Scope
 
-- Agent Room is a self-hosted operator UI and control application.
-- Agent Room manages many persistent room runtimes through one room-scoped execution-engine contract.
-- Pi is the target agent kernel. Agent Room owns a custom wrapper around Pi rather than using OpenClaw as the backend.
-- OpenClaw is historical implementation context, not the target architecture.
-- Codex App Server remains a reference point and possible Codex-specific backend, but it is not the primary room runtime direction.
-- One room maps to one dedicated runtime cell and one room brain.
-- A room cell is a dedicated process boundary, filesystem root, credential materialization boundary, loopback network boundary, and runtime state boundary.
-- Agent Room may index and supervise runtime state, but it must not create competing sources of truth for provider identity, room ownership, credentials, runtime configuration, execution state, or audit state.
+Agent Room is a self-hosted web app that supervises persistent room-local agents. Each room is one standalone coworker backed by one room-local runtime cell.
+
+The primary runtime direction is:
+
+- Agent Room owns the product runtime and control plane.
+- Pi owns the agent kernel.
+- The Pi wrapper is Agent Room-owned code.
+- OpenClaw is historical context, not target architecture.
+
+The architecture must make it difficult to create duplicate sources of truth. Provider identity, credentials, room ownership, memory, jobs, artifacts, runtime configuration, and telemetry each need one canonical home.
 
 ## Canonical Topology
 
-The target topology is:
-
-1. Browser clients authenticate to Agent Room.
-2. Agent Room stores app-owned state in Postgres.
-3. Agent Room provisions and supervises one room runtime cell per room.
-4. Each room runtime cell runs an Agent Room-owned Pi wrapper process.
-5. The wrapper process embeds Pi or drives Pi through a narrow local runtime interface.
-6. Each wrapper listens only on loopback with its own bearer token.
-7. Agent Room talks to each wrapper through the execution-engine adapter contract.
-8. The wrapper talks to model providers, room-local tools, allowed MCP servers, and the room workspace using only materialized room config.
-
 ```text
 Browser
-    -> Agent Room UI + API
+    -> Agent Room UI and API
     -> Postgres
-    -> Room Manager + Pi Execution Adapter
-        -> Room A Pi wrapper on 127.0.0.1:<port-a>
-        -> Room B Pi wrapper on 127.0.0.1:<port-b>
+    -> Room supervisor
+    -> Pi execution adapter
+        -> Room runtime cell
 
-Pi wrapper process
-    -> Pi AgentSession / provider registry / event stream
-    -> room-local workspace
-    -> room-local Pi state
-    -> room-local materialized secrets and integration config
-    -> Agent Room-owned MCP bridge
-    -> external model providers and allowed MCP servers
+Room runtime cell
+    -> Pi AgentSession
+    -> room workspace
+    -> room store
+    -> room memory JSON
+    -> built-in Agent Room tools
+    -> allowed MCP servers
+    -> model providers
 ```
 
-There is no shared multi-room runtime endpoint exposed to browsers. Isolation is a product feature, not a later hardening pass.
+The browser never talks directly to a room runtime. It talks to Agent Room. Agent Room talks to each room runtime over a loopback endpoint with a room-local bearer token.
 
-## Execution Engine Contract
+## Room Cell
 
-Agent Room defines one canonical contract per room runtime so control-plane behavior stays stable while the underlying runtime implementation changes.
+One room provisions one runtime cell.
 
-### Contract Responsibilities
+Each room cell has:
 
-- start, stop, restart, and health-check one room runtime instance
-- create, list, read, and select room-scoped threads
-- execute user messages and scheduled messages within that room context
-- stream model, message, tool, error, abort, and completion events
-- abort active turns explicitly
-- expose room runtime truth and adapter-local diagnostics
-- reject unsupported operations explicitly
+- one process boundary
+- one room filesystem root
+- one workspace
+- one durable artifact store
+- one Pi state root
+- one memory JSON document
+- one runtime config
+- one runtime token
+- one provider binding
+- one MCP binding set
+- one telemetry stream
 
-Sessions are parallel conversations inside the same room brain. They are not separate agents.
+Room isolation is an implementation and security property. It is not part of the normal system prompt shown to the model.
 
-### Adapter Rules
+## Runtime Filesystem
 
-- The Pi adapter is the target implementation.
-- Pi-specific payloads must be mapped at the adapter boundary.
-- Control-plane code must not depend on Pi response shapes outside the adapter.
-- Runtime lifecycle, process command composition, and room path materialization must route through the runtime-engine profile boundary.
-- There is no user-facing engine selector in the product surface.
-- OpenClaw code can remain only as a temporary migration path until Pi reaches parity. New product behavior should target the Pi wrapper contract.
-
-## Responsibility Split
-
-### Agent Room Owns
-
-- built-in operator authentication and app sessions
-- room registry, lifecycle, runtime supervision, and health tracking
-- encrypted secret storage and entitlement policy
-- canonical provider records, model defaults, credential bindings, and validation status
-- room-local config, env, secret, model, MCP, and prompt materialization
-- the custom Pi wrapper API
-- DB-backed cron scheduling, locks, run history, and wake behavior
-- app-side thread/session index, titles, status, provider identity, cost summaries, and dashboard read models
-- MCP bridge implementation, including stdio and HTTP transports
-- audit events for operator actions, entitlement changes, secret rotation, provider binding, runtime lifecycle, scheduled runs, and config drift
-- artifact indexing, attachment ingestion, and explicit cross-room share/import workflows
-- UI projection of room runtime state without hiding provider-specific or runtime-specific truth
-
-### Pi Owns
-
-- agent session execution
-- model/provider invocation once given materialized room config
-- message state and persisted transcript files
-- streaming session events
-- compaction
-- model/provider registry hooks
-- provider auth storage primitives where suitable
-- tool execution hooks and event emission
-
-### Custom Pi Wrapper Owns
-
-- room-local HTTP or WebSocket control surface for Agent Room
-- translation between `RoomExecutionAdapter` calls and Pi SDK calls
-- Pi session file placement under the room root
-- event fan-out from Pi to Agent Room SSE shapes
-- room-local system prompt assembly
-- room-local tool registration
-- room-local provider and auth materialization
-- bounded runtime errors and health diagnostics
-- lifecycle cleanup for active sessions, tools, MCP clients, and provider handles
-
-### Agent Room Does Not Outsource To Pi
-
-- cron scheduling
-- app audit trail
-- room ownership checks
-- entitlement enforcement
-- MCP allowlists and secret policy
-- cross-room isolation
-- provider connection validation
-- user-facing room read models
-- deployment and runtime lifecycle
-
-## Conflict Resolution Rules
-
-- Policy truth comes from Agent Room Postgres and the current room materialization.
-- Execution truth comes from the room wrapper, Pi session state, and room disk.
-- Provider truth comes from the canonical Agent Room provider binding plus the exact materialized runtime config used by the room.
-- If Agent Room policy and room runtime state diverge, Agent Room must surface drift and reconcile explicitly.
-- Agent Room must not invent silent fallbacks for ports, tokens, providers, secrets, runtime modes, MCP exposure, provider APIs, or auth profiles.
-
-## Room Cell Runtime Spec
-
-One room provisions one isolated Pi wrapper runtime cell.
-
-### Room Root Layout
-
-Each room gets a dedicated root under the Agent Room data directory:
+Target layout:
 
 ```text
 $AGENT_ROOM_DATA_DIR/rooms/<roomId>/
@@ -150,11 +71,10 @@ $AGENT_ROOM_DATA_DIR/rooms/<roomId>/
     pi-state/
         auth.json
         models.json
-        settings.json
         sessions/
-        packages/
-        extensions/
-        skills/
+        internal/
+            memory.json
+            run-ledger/
     workspace/
     store/
         blobs/
@@ -162,241 +82,367 @@ $AGENT_ROOM_DATA_DIR/rooms/<roomId>/
         exports/
 ```
 
-The exact Pi files may change as implementation discovers the SDK shape, but all Pi state must remain under the room root or another explicitly room-scoped path. Global `~/.pi` or operator-machine auth state must not be used by room runtimes.
+`memory.json` is canonical room memory. It is not split into many hidden memory files.
 
-### Required Runtime Materialization
+Run ledgers are execution bookkeeping. They are not memory.
 
-For every room, Agent Room provisions:
+## Execution Contract
 
-- a dedicated runtime config file for the Pi wrapper
-- a dedicated Pi state root
-- a dedicated workspace at `$AGENT_ROOM_DATA_DIR/rooms/<roomId>/workspace`
-- a dedicated durable artifact root at `$AGENT_ROOM_DATA_DIR/rooms/<roomId>/store`
-- a unique loopback-only listen port
-- a unique bearer token stored in `runtime/token`
-- room-local model/provider materialization
-- room-local prompt materialization
-- room-local MCP exposure derived only from granted entitlements
-- room-local secret files and env references
+Agent Room owns a runtime-neutral room execution contract. The Pi adapter implements it.
 
-Engine-specific env files are generated from canonical DB state and room-local secrets. They must not be hand-edited.
+The contract covers:
 
-### Runtime Metadata Contract
+- room runtime health
+- thread create/list/read/delete/rename
+- send message
+- scheduled send
+- abort run
+- compact thread
+- fork thread where supported
+- stream events
+- list activity
+- list run history
+- expose runtime truth
 
-`runtime/runtime.json` is Agent Room-owned metadata for supervision only. It records:
+Pi-specific payloads are translated at the adapter boundary. Control-plane code should not depend on Pi internals outside the adapter and wrapper.
 
-- `roomId`
-- `port`
-- `pid` when running
-- `startedAt`
-- `configVersion`
-- `tokenVersion`
-- active runtime kind
+## Long-Running Work
 
-It must not mirror messages, provider tokens, workspace contents, transcript bytes, or full tool traces.
+Long-running work uses an idle watchdog plus total run budget.
 
-### Port Allocation
+Concepts:
 
-- Each room gets one unique port bound to `127.0.0.1`.
-- Port allocation is dynamic and app-managed.
-- Port reuse is allowed only after the previous room process is confirmed stopped.
-- If a room cannot get a port, the room stays stopped and surfaces an actionable error.
+- `runBudgetMs`: maximum allowed wall-clock duration
+- `idleTimeoutMs`: maximum allowed time without meaningful activity
+- `heartbeatAt`: last progress update
+- `activeRunId`: current run identity
+- `runKind`: manual, scheduled, subagent, maintenance
+- `abortReason`: user abort, idle timeout, budget timeout, provider error, tool error, runtime stop
 
-### Token Allocation
+Healthy long work keeps heartbeating through model events, tool starts, tool progress, command output, worker progress, or explicit run ledger updates.
 
-- Each room gets one opaque bearer token generated by Agent Room.
-- Tokens are never shown to the browser.
-- Token rotation is explicit, versioned, logged, and forces room reconnection.
-- Missing or unreadable token material is a hard failure.
+Hung work stops when the idle watchdog fires.
 
-### Isolation Policy
+## Shell Execution
 
-Isolation is achieved by the room boundary itself:
+Shell execution is a room tool, not a hidden escape hatch.
 
-- one dedicated wrapper process per room
-- one room-local filesystem root per room
-- one room-local Pi state root per room
-- one loopback-only port per room
-- one bearer token per room
-- one canonical Dockerized deployment path
+The target shell model is background-process based:
 
-Agent Room does not expose room-level sandbox choices, host-runtime modes, or alternate hardening profiles in the product surface.
+- start command
+- poll output
+- inspect status
+- terminate command
 
-### Lifecycle
+Short commands can still use a convenience path that starts and waits briefly. Long commands return a handle.
 
-Room lifecycle is:
+All shell commands must run with:
 
-1. Create the room record.
-2. Allocate the room root, port, token, and runtime metadata.
-3. Materialize provider config, prompt config, MCP config, env, secret files, and entitlement-derived fragments.
-4. Start the Pi wrapper on the room-local port.
-5. Initialize Pi with the room-local state root, workspace, provider materialization, prompt, and tool registry.
-6. Run the wrapper health check and any required provider/MCP readiness checks.
-7. Mark the room healthy only after the health checks succeed.
+- room workspace cwd
+- bounded environment
+- bounded output
+- bounded process ownership
+- explicit timeout/budget policy
+- audit event
 
-Any later config, entitlement, provider, prompt, or secret change increments the config version and triggers explicit reconcile behavior. Reconcile may restart the room if the changed surface is not hot-reload-safe.
+## Subagents
 
-## Provider And Auth Spec
+Subagents are child Pi sessions inside the same room runtime cell.
 
-Agent Room must keep provider configuration typed and canonical.
+Defaults:
 
-### Provider Requirements
+- default max active subagents: 5
+- hard cap: implementation-defined safety maximum
+- no nested subagent spawning in the first pass
 
-The first target provider set is:
+Subagents must record:
 
-- local providers, initially Ollama and LM Studio where Pi supports them directly
-- OpenRouter
-- OpenAI Codex OAuth if legally and technically viable for self-hosted user-owned rooms
+- parent thread
+- parent run
+- child thread
+- child run
+- task
+- role/name
+- status
+- final output
+- usage when available
 
-Additional providers may be added only when they can be represented without hiding provider-specific semantics or introducing fallback chains.
+The main agent should delegate bounded tasks and integrate results. Subagents should not become a second product object outside the room.
 
-### Validation Rules
+## Cron And Scheduled Runs
 
-- Connection tests must exercise the same runtime config, credentials, provider path, and materialization path used by rooms and scheduled jobs.
-- A provider binding must fail closed when credentials, model ids, auth profiles, or provider APIs do not match the selected runtime path.
-- OpenRouter, Gemini, local, Codex OAuth, and other provider paths must report their actual provider/model identity.
-- Bad keys, quota errors, unsupported models, unavailable local endpoints, and malformed provider responses must surface bounded diagnostics and must not silently reroute.
+Agent Room owns scheduling. Pi receives scheduled work through the same execution path as manual work.
 
-### Codex OAuth
+Cron state lives in Postgres:
 
-Codex OAuth is a migration gate, not an assumed solved feature.
+- jobs
+- due times
+- schedule intervals
+- enabled state
+- running state
+- lock token
+- lease expiry
+- heartbeat
+- run history
+- provider/model/config snapshot
 
-The target is a room-scoped OAuth bridge that:
+Locks are renewable leases. A static lock duration is not sufficient.
 
-- never reads or writes global operator auth state
-- stores tokens only in the room's authorized state boundary
-- records room, user, provider, profile identity, and auth mode in audit events
-- fails closed when the OAuth profile cannot be proven room-bound
+Scheduled runs are autonomous. They should not wait for human input. If a scheduled task cannot proceed, it records a failed run with a clear reason and any durable partial output.
 
-If Codex OAuth cannot be implemented safely or permitted under service terms, Agent Room must surface that provider path as unsupported rather than falling back to a shared token.
+## Memory Architecture
 
-## MCP And Tool Spec
+Memory is one canonical JSON document per room.
 
-Pi core does not provide the complete MCP surface Agent Room needs. Agent Room owns the MCP bridge.
+The memory service owns:
 
-### MCP Materialization
+- schema validation
+- migration
+- typed patching
+- optimistic concurrency
+- rendering a two-page prompt brief
+- timestamp cleanup
+- cap enforcement
+- audit metadata
 
-- MCP servers are selected from an app-managed registry.
-- A room grant may restrict the server to a subset of tools or capabilities.
-- A room may receive zero MCP servers.
-- Materialized MCP config is room-local and may include server ids, allowed tools, transport details, and secret references.
-- Unsupported MCP config, failed initialization, or unresolved secret references block room startup when the server is required.
+The main agent reads the rendered memory brief. It can call memory tools to update canonical memory when durable facts, behavior rules, deadlines, reminders, decisions, or current work change.
 
-### MCP Runtime Rules
+A background memory maintainer periodically cleans the same canonical JSON document. It removes or marks expired timed entries, normalizes timestamps, trims low-value entries, and keeps memory inside the cap.
 
-- stdio MCP servers start with bounded env and no ungranted secrets.
-- HTTP and streamable HTTP MCP servers receive only explicit configured headers.
-- Tool schemas are converted through a typed adapter.
-- Allowed tools are registered into Pi only after entitlement checks.
-- Denied tools must not appear in the runtime tool list.
-- Tool outputs and errors must be redacted before they reach logs or browser payloads.
+There is no separate raw memory store.
 
-### File And Shell Tools
+## Built-In Web Search And Fetch
 
-The wrapper owns the allowed file and shell surface exposed to Pi.
+Web search is an Agent Room capability.
 
-- Workspace tools operate only inside the room workspace unless explicitly designed as artifact import/export actions.
-- Shell tools must have bounded cwd, timeout, output size, and environment.
-- File edits must produce inspectable diffs or structured file-change events.
-- Patch application, command execution, and destructive file operations require explicit policy decisions before being enabled.
-- Tool failures must remain visible as tool failures, not be converted into model text only.
+The first backend is an internal SearXNG service in the Docker stack. Agent Room talks to SearXNG through a typed server-side client and exposes a bounded search tool to the agent.
 
-## System Prompt And Context Spec
+Search tool output includes:
 
-Agent Room owns the room prompt builder. Pi may execute with the resulting prompt, but it is not the source of product policy.
+- title
+- URL
+- snippet
+- rank
+- source engine where available
+- fetchedAt
 
-The prompt builder must include:
+Direct URL fetch is a separate tool.
 
-- room identity and purpose
+Fetch must block:
+
+- localhost
+- private IP ranges
+- link-local IP ranges
+- metadata endpoints
+- non-http protocols
+- excessive redirects
+- oversized responses
+- dangerous content types
+
+Browser automation and Chrome MCP are later computer-use capabilities. They should not be required for normal search.
+
+## Office, PDF, And Artifact Workers
+
+Office and PDF support are core capabilities.
+
+Agent Room should provide document workers with typed operations instead of asking the model to mutate proprietary files directly.
+
+Capability modules:
+
+- Documents: DOCX
+- Spreadsheets: XLSX
+- Presentations: PPTX
+- PDF
+
+Each module should support:
+
+- import/inspect
+- create
+- edit
+- export
+- render/preview
+- store artifact
+- return structured errors
+
+The worker may regenerate a file internally when safer than patching the original. The product behavior remains editing the requested file.
+
+Generated and edited artifacts are stored in the room durable store with provenance.
+
+## Image Capability
+
+Images are provider-backed capabilities.
+
+The first provider targets are:
+
+- OpenAI Images
+- Gemini/Nano Banana
+
+The image service owns:
+
+- provider config
+- encrypted credentials
+- model selection
+- request validation
+- generation
+- artifact storage
+- provenance
+- usage/cost recording
+
+Image tools should be disabled unless the room has an enabled image capability with valid provider configuration.
+
+## Capabilities Model
+
+Capabilities are typed product features, not an unbounded plugin free-for-all.
+
+Initial capabilities:
+
+- web search
+- URL fetch
+- documents
+- spreadsheets
+- presentations
+- PDF
+- images
+- MCP
+- shell/coding
+
+Capabilities can have app defaults and room overrides. Disabled capabilities must not register tools. Capability state should appear in room status and settings.
+
+## MCP
+
+Current MCP support remains Agent Room-owned.
+
+Supported now:
+
+- stdio MCP
+- HTTP/streamable HTTP MCP
+- bearer auth
+- allowlisted tools
+- schema conversion
+- redaction
+
+Deferred:
+
+- MCP OAuth
+- marketplace/catalogue
+- resources
+- prompts
+- connector-specific UX
+
+These are important, but not first-pass blockers unless a core capability depends on them.
+
+## Provider And Credential Truth
+
+Provider configuration is canonical in Agent Room.
+
+Rules:
+
+- connection tests must exercise the same materialized path used by real rooms
+- provider identity must not be hidden behind generic fallbacks
+- missing credentials fail closed
+- wrong provider/model combinations fail closed
+- local provider URLs are explicit
+- OAuth is room-scoped where supported
+- secrets are materialized only inside the room boundary and redacted everywhere else
+
+No silent provider fallback is allowed for authentication, authorization, provider identity, credentials, runtime config, or execution.
+
+## Telemetry
+
+Telemetry is app-owned product state.
+
+Agent Room should store and aggregate:
+
+- run duration
+- active duration
+- idle duration
+- input tokens
+- output tokens
+- cached tokens
+- reasoning tokens where available
+- total tokens
+- estimated cost
+- provider
+- model
+- tool calls
+- tool durations
+- document worker usage
+- image usage
+- scheduled run usage
+
+Unknown provider usage stays unknown. The app does not fabricate usage.
+
+Usage is visible at:
+
+- session level
+- job run level
+- room level
+- provider/model level
+- app level
+
+## System Prompt Builder
+
+Agent Room owns the system prompt builder.
+
+The prompt should address the model as the agent for this workspace. It should include:
+
+- agent identity and purpose
+- current date/time and timezone
 - room instructions
-- current provider and model path
-- workspace policy
-- tool and MCP policy
-- scheduling context for cron-triggered runs
-- credential and secret handling rules
-- output and artifact expectations
-- applicable local instruction files such as `AGENTS.md`
+- rendered memory brief
+- current run context
+- enabled capabilities
+- tool expectations
+- work loop
+- planning rules
+- verification rules
+- artifact expectations
+- memory update policy
+- scheduled-run policy
+- communication style
 
-Context loading must be explicit and bounded:
+The prompt should not mention:
 
-- no implicit cross-room context
-- no implicit global memories
-- no silent file ingestion outside the room workspace or selected attachments
-- provider context-window limits must be handled before send
+- other rooms
+- room isolation internals
+- bearer tokens
+- runtime ports
+- process ids
+- internal topology
+- implementation details not needed for execution
 
-## Cron And Wake Spec
+## Data Ownership
 
-Agent Room owns cron and wake behavior.
-
-Cron state lives in Postgres, not in Pi session state. Each scheduled run records:
-
-- room id
-- job id
-- schedule
-- prompt/message
-- provider and model snapshot
-- entitlement snapshot or version
-- run status
-- error summary
-- linked thread/session id where applicable
-
-Due jobs acquire explicit room and job locks, then call the same adapter send path as manual messages. Retry behavior must be bounded and visible.
-
-## Data Ownership Spec
-
-### Agent Room Postgres Owns
+Postgres owns:
 
 - users
 - app sessions
 - rooms
-- room runtime metadata
-- encrypted secrets and secret metadata
-- provider connections and room provider bindings
-- MCP connection definitions and room MCP bindings
-- room cron jobs and run history
-- room thread/session index and dashboard read model
-- artifact index metadata
+- provider connections
+- encrypted secrets
+- MCP connections
+- room config
+- jobs
+- run history
+- telemetry summaries
 - audit events
-- UI-local preferences if they later prove necessary
+- artifact index metadata
 
-### Room Runtime And Disk Own
+Room disk owns:
 
-- Pi transcript files
-- Pi provider/auth state under the room root
-- runtime-local event cache if needed for reconnect
-- workspace contents
+- Pi state
+- Pi transcripts
+- workspace files
+- durable artifact bytes
+- room memory JSON
 - runtime logs
-- adapter-local state needed to resume active sessions
+- runtime-local command state
 
-### Ownership Rules
+Generated runtime files are materialized state, not user-edited truth.
 
-- Agent Room may own a thread/session index, but Pi owns transcript bytes unless explicitly imported into app-owned artifacts.
-- Agent Room must not persist a second canonical message history unless a product requirement justifies it and the migration explicitly changes the contract.
-- Artifact metadata may live in Postgres, but artifact bytes live on disk under the room root.
-- Room deletion must delete the room root only through an explicit destroy path that has already persisted an audit event.
+## Artifact Store
 
-### Reconciliation Rules
-
-- Desired room policy comes from Postgres.
-- Effective execution state comes from the Pi wrapper and room filesystem.
-- If materialized config does not match desired state, Agent Room rewrites the room-local config and records the config version bump.
-- If Pi state cannot be read or reconciled, Agent Room must mark the room degraded rather than fabricate a healthy state.
-
-## File And Artifact Spec
-
-The product needs three distinct file concepts: workspace files, chat attachments, and durable artifacts.
-
-### Workspace
-
-- The workspace is room-owned mutable working state.
-- Tool execution may read or write workspace files only through the allowed tool surface.
-- Agent Room may browse workspace contents, but it does not redefine workspace files as app-owned records.
-
-### Durable Store
-
-`store/` is the room-owned durable artifact vault. It is separate from the workspace so durable records survive thread churn and do not depend on whatever the agent last edited in the workspace.
-
-Physical storage is:
+The room store is content-addressed inside the room.
 
 ```text
 store/
@@ -405,164 +451,53 @@ store/
     exports/
 ```
 
-The blob path is content-addressed within the room. There is no cross-room shared blob store.
+Artifact manifests record:
 
-### Chat Attachments
+- artifact id
+- kind
+- media type
+- sha256
+- byte length
+- source session/job/run
+- source tool/capability
+- provenance
+- createdAt
 
-- Chat attachments are immutable inputs attached to a specific thread or message.
-- Their bytes are stored in the room `store/` as blobs plus manifests.
-- Their manifest kind is `attachment`.
-- They are visible in chat and available for explicit tool use, but they are not silently copied into the workspace.
+Cross-room sharing is explicit and copy-based. There are no shared mutable artifact mounts.
 
-### Durable Artifacts
+## UI Boundary
 
-- Durable artifacts are room-owned outputs that should remain available outside a single chat turn.
-- Their manifest kind is `artifact`.
-- They may originate from user upload, workspace export, tool output promotion, or external ingestion.
-- Promotion from workspace to durable artifact is an explicit action that records provenance.
+The UI should show product concepts:
 
-### Cross-Room Share And Import
+- rooms
+- sessions
+- jobs
+- files
+- memory
+- capabilities
+- usage
+- status
 
-- Cross-room sharing is explicit and copy-based.
-- Import creates a new manifest in the destination room with provenance back to the source room and source artifact id.
-- Imported bytes are copied into the destination room root.
-- There are no shared mutable directories, symlinks, or implicit cross-room mounts.
+The UI should hide implementation internals by default:
 
-## Auth Spec
+- ports
+- PIDs
+- bearer tokens
+- runtime file paths
+- raw provider payloads
+- raw JSON
+- internal process topology
 
-### Built-In Auth Model
+Technical details can appear only inside scoped troubleshooting disclosures.
 
-- Agent Room ships with built-in local auth backed by Postgres.
-- First boot creates an initial root user with a password.
-- Passwords are stored as strong one-way hashes.
-- Browser sessions are app sessions, not room runtime tokens.
-- The browser never receives room bearer tokens or direct room port information.
+## Verification Standard
 
-### Session Model
+Every architecture track must be verified through:
 
-- Sessions are stored server-side with revocable identifiers.
-- Session cookies must be `HttpOnly`.
-- Session cookies must be `SameSite=Lax` or stricter.
-- Session cookies must be `Secure` whenever the app is not running on plain localhost during local development.
+- unit tests
+- integration tests where applicable
+- Docker-path smoke tests
+- browser-visible behavior checks for UI paths
+- downstream-effect checks for duplicated state, stale materialization, and secret leakage
 
-### Reverse-Proxy Assumptions
-
-- Public traffic terminates at Agent Room or at a trusted reverse proxy in front of Agent Room.
-- Room runtimes remain loopback-only and are never exposed directly to the LAN or internet.
-- WebSocket or SSE forwarding must preserve authenticated session context to Agent Room, not to the room runtime.
-
-### Minimum Self-Hosting Security Posture
-
-- TLS is required for non-localhost deployment.
-- Root password setup is mandatory on first boot.
-- Secret encryption at rest is mandatory.
-- Write routes must enforce origin and CSRF protections.
-- Login and privileged mutation routes must be rate-limited.
-- Security-sensitive actions must emit audit events.
-
-Unsupported posture for v0:
-
-- anonymous internet exposure
-- direct browser access to room runtimes
-- shared static room token across multiple rooms
-
-## Realtime And Chat Spec
-
-### Upstream Protocol Handling
-
-- Agent Room talks to rooms using the Pi execution adapter transport.
-- Agent Room may normalize events for rendering, but raw runtime events must remain inspectable for debugging.
-- The adapter must keep provider-specific and tool-specific event semantics visible when they matter.
-
-### Connection Model
-
-- One upstream connection per active room per Agent Room app instance, unless the wrapper proves a simpler polling model is correct for inactive rooms.
-- Fan-out from that upstream connection to all subscribed browser clients for the room.
-- No browser-direct room connections.
-
-### Session Scoping
-
-- Every chat thread is scoped by `roomId` plus an Agent Room `threadKey`.
-- Pi session ids and session file paths are not treated as globally unique across rooms.
-- If an event arrives without enough information to bind it to a room and thread, Agent Room must drop it, log it, and surface a room-level warning if needed.
-
-### Streaming Rendering
-
-- Token deltas render incrementally.
-- Final assistant content is committed only when the upstream stream reaches a terminal event.
-- Partial tool-call arguments render as provisional state until the upstream event confirms the call shape.
-- Interrupted streams remain visibly interrupted rather than being silently stitched into a complete message.
-
-### Tool-Call Rendering
-
-- Tool calls render as explicit typed blocks.
-- Tool name, arguments, status, and result boundaries remain visible.
-- Raw provider payloads may be expandable for debugging, but the visible default should stay concise.
-- Redacted secrets must never be re-expanded from stored UI state.
-
-### Multi-Room Concurrency Assumptions
-
-- Ordering is only meaningful within one room stream.
-- The system makes no promise of global event ordering across rooms.
-- Multiple browser tabs may subscribe to the same room concurrently.
-- If the upstream room connection drops, Agent Room marks the room realtime state degraded, reconnects explicitly, and refreshes from room truth rather than faking missed events.
-
-## Setup UX Spec
-
-The setup surface must stay bounded and managed. The product should expose the smallest set of fields needed to provision a safe room.
-
-### Managed Fields
-
-The default setup flow manages:
-
-- room identity and display name
-- room instructions and description
-- model or provider selection from entitled credentials
-- workspace seed or empty workspace choice
-- enabled MCP servers and tools
-- typed trigger configuration
-
-### Advanced Escape Hatch
-
-An advanced raw config escape hatch is allowed, but it is bounded:
-
-- it is disabled by default
-- it requires explicit operator acknowledgement
-- it is stored as a room-scoped override fragment, not as a replacement full config
-- it may extend only whitelisted config paths
-
-Reserved paths that the escape hatch must not override include:
-
-- listen port
-- bearer token
-- room filesystem roots
-- state directory
-- secret file locations
-- provider auth file locations
-- MCP entitlement scope
-
-### Validation Rules
-
-- Unknown fields fail validation.
-- Unknown entitlement references fail validation.
-- Invalid secret references fail validation.
-- Unsupported provider or MCP combinations fail validation.
-- Conflicting port, path, identity, provider, or auth settings fail validation.
-- Validation failure blocks save or room startup.
-
-### Fail-Closed Setup Behavior
-
-- No implicit provider fallback.
-- No implicit runtime-path fallback.
-- No automatic widening of entitlement scope.
-- No automatic room recreation when reconcile fails.
-- No hidden mutation of raw config to make an invalid room start.
-- No use of global Pi, Codex, OpenClaw, or host-machine auth state.
-
-## Implementation Consequences
-
-- Replace OpenClaw-specific runtime profile, config materialization, provider validation, OAuth flow, adapter, and Docker packaging with Pi wrapper equivalents.
-- Keep the existing `RoomExecutionAdapter` boundary, but make it runtime-neutral where OpenClaw names have leaked into types.
-- Build the Pi wrapper before broad UI changes so direct behavior and downstream effects can be verified.
-- Implement Agent Room-owned MCP, cron, provider validation, session index, and Codex OAuth bridge as first-class product surfaces.
-- Remove global OpenClaw packaging only after Pi rooms pass end-to-end manual chat, provider validation, MCP entitlement, cron, audit, and restart persistence tests.
+Do not mark implementation plan items complete until direct behavior and downstream effects are verified.

@@ -18,6 +18,26 @@ export const roomProviderModes = ['app_default', 'app_connection', 'room_secret'
 export const roomSecretPurposes = ['provider_api_key', 'generic', 'webhook'] as const
 export const roomToolProfiles = ['coding', 'minimal', 'read-only'] as const
 export const cronRunStatuses = ['running', 'complete', 'failed', 'skipped'] as const
+export const capabilityIds = [
+    'web_search',
+    'url_fetch',
+    'documents',
+    'spreadsheets',
+    'presentations',
+    'pdf',
+    'images',
+    'mcp',
+    'shell_coding',
+] as const
+export const imageProviderIds = ['openai', 'gemini'] as const
+export const usageEventKinds = [
+    'run',
+    'provider',
+    'tool',
+    'document_worker',
+    'image',
+    'job',
+] as const
 
 export type RoomStatus = (typeof roomStatuses)[number]
 export type RoomDesiredState = (typeof roomDesiredStates)[number]
@@ -33,6 +53,9 @@ export type RoomProviderMode = (typeof roomProviderModes)[number]
 export type RoomSecretPurpose = (typeof roomSecretPurposes)[number]
 export type RoomToolProfile = (typeof roomToolProfiles)[number]
 export type CronRunStatus = (typeof cronRunStatuses)[number]
+export type CapabilityId = (typeof capabilityIds)[number]
+export type ImageProviderId = (typeof imageProviderIds)[number]
+export type UsageEventKind = (typeof usageEventKinds)[number]
 
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
@@ -135,6 +158,9 @@ export interface AppSettingsRecord {
     id: boolean
     defaultProviderConnectionId: string | null
     defaultModel: string | null
+    capabilityDefaults: JsonValue
+    searchConfig: JsonValue
+    imageConfig: JsonValue
     onboardingCompletedAt: Date | null
     createdAt: Date
     updatedAt: Date
@@ -151,6 +177,10 @@ export interface RoomConfigRecord {
     providerModel: string | null
     providerSecretId: string | null
     toolsProfile: RoomToolProfile
+    capabilityOverrides: JsonValue
+    imageProvider: ImageProviderId | null
+    imageModel: string | null
+    imageSecretId: string | null
     cronTimezone: string
     createdAt: Date
     updatedAt: Date
@@ -216,6 +246,10 @@ export interface RoomCronJobRecord {
     runningAt: Date | null
     lockedUntil: Date | null
     lockToken: string | null
+    heartbeatAt: Date | null
+    lastRenewedAt: Date | null
+    runBudgetMs: number | null
+    recoveryReason: string | null
     lastRunAt: Date | null
     lastRunStatus: string | null
     lastError: string | null
@@ -245,6 +279,70 @@ export interface RoomCronRunRecord {
     finishedAt: Date | null
     durationMs: number | null
     nextRunAt: Date | null
+}
+
+export interface UsageEventRecord {
+    id: string
+    roomId: string | null
+    sessionKey: string | null
+    runId: string | null
+    jobId: string | null
+    kind: UsageEventKind
+    provider: string | null
+    model: string | null
+    toolName: string | null
+    inputTokens: number | null
+    outputTokens: number | null
+    cachedTokens: number | null
+    reasoningTokens: number | null
+    totalTokens: number | null
+    durationMs: number | null
+    activeDurationMs: number | null
+    idleDurationMs: number | null
+    estimatedCostUsd: string | null
+    metadata: JsonValue
+    createdAt: Date
+}
+
+export interface RunBudgetConfig {
+    manualTurnMs: number
+    scheduledTurnMs: number
+    subagentTurnMs: number
+    maintenanceTurnMs: number
+    idleTimeoutMs: number
+    providerIdleTimeoutMs: number
+    shellCommandMs: number
+    webFetchMs: number
+    documentWorkerMs: number
+    imageGenerationMs: number
+    mcpToolMs: number
+    shortCommandWaitMs: number
+}
+
+export interface CapabilityConfig {
+    webSearch: boolean
+    urlFetch: boolean
+    documents: boolean
+    spreadsheets: boolean
+    presentations: boolean
+    pdf: boolean
+    images: boolean
+    mcp: boolean
+    shellCoding: boolean
+}
+
+export interface SearchRuntimeConfig {
+    enabled: boolean
+    backendUrl: string
+    defaultResultCount: number
+    timeoutMs: number
+}
+
+export interface ImageRuntimeConfig {
+    enabled: boolean
+    provider: ImageProviderId | null
+    model: string | null
+    envKey: string | null
 }
 
 export interface RoomPaths {
@@ -329,6 +427,10 @@ export interface MaterializedProviderConfig {
 export interface MaterializedRoomConfiguration {
     instructions: string
     toolsProfile: RoomToolProfile
+    capabilities: CapabilityConfig
+    search: SearchRuntimeConfig
+    image: ImageRuntimeConfig
+    budgets: RunBudgetConfig
     provider: MaterializedProviderConfig
     entitlements: MaterializedEntitlements
 }

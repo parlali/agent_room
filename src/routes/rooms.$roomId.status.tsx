@@ -33,6 +33,7 @@ import {
 import { ScrollArea } from '#/components/ui/scroll-area'
 import { formatDurationMs, formatRelativeTime } from '#/lib/format'
 import { describeJobLastRun, describeSessionState, type Tone } from '#/lib/state'
+import { CAPABILITY_OPTIONS } from '#/lib/capabilities'
 import {
     getRoomExecutionServer,
     getRoomSetupReadinessServer,
@@ -82,6 +83,20 @@ function isSucceeded(e: RoomRunHistoryEntry) {
     return classifyRun(e.status).tone === 'ready'
 }
 
+function capabilityBlockers(config: RoomConfigSnapshot | null): string[] {
+    if (!config) {
+        return []
+    }
+    const blockers: string[] = []
+    if (config.effective.capabilities.webSearch && !config.effective.searchReady) {
+        blockers.push('Web search is enabled but the search backend is not ready.')
+    }
+    if (config.effective.capabilities.images && !config.effective.imageReady) {
+        blockers.push('Images are enabled but provider, model, or room image key is missing.')
+    }
+    return blockers
+}
+
 function buildOverall(input: {
     execution: RoomExecutionSnapshot | null
     config: RoomConfigSnapshot | null
@@ -104,6 +119,10 @@ function buildOverall(input: {
     const blockedReason = config?.effective.blockedReasons[0] ?? null
     if (blockedReason && !config?.effective.ready) {
         return { tone: 'attention', label: 'Needs attention', description: blockedReason }
+    }
+    const capabilityIssue = capabilityBlockers(config)[0] ?? null
+    if (capabilityIssue) {
+        return { tone: 'attention', label: 'Needs attention', description: capabilityIssue }
     }
     if (room?.desiredState === 'stopped') {
         return {
@@ -292,6 +311,44 @@ function setupRow(readiness: RoomSetupReadinessSnapshot | null): CheckRow {
                 ? blocking[0]!.message
                 : `${blocking.length} setup issues need attention. First: ${blocking[0]!.message}`,
         fixTo: '/rooms/$roomId/settings',
+    }
+}
+
+function capabilitiesRow(config: RoomConfigSnapshot | null): CheckRow {
+    if (!config) {
+        return {
+            icon: SparklesIcon,
+            tone: 'muted',
+            label: 'Capabilities',
+            detail: 'Loading capability status.',
+        }
+    }
+    const enabled = CAPABILITY_OPTIONS.filter(
+        (option) => config.effective.capabilities[option.key],
+    )
+    const blockers = capabilityBlockers(config)
+    if (blockers.length > 0) {
+        return {
+            icon: SparklesIcon,
+            tone: 'attention',
+            label: 'Capabilities',
+            detail: blockers[0]!,
+            fixTo: '/rooms/$roomId/settings',
+        }
+    }
+    return {
+        icon: SparklesIcon,
+        tone: 'ready',
+        label: 'Capabilities',
+        detail:
+            enabled.length === 0
+                ? 'No optional capabilities are enabled.'
+                : `${enabled.length} capabilities enabled: ${enabled
+                      .slice(0, 4)
+                      .map((option) => option.label)
+                      .join(', ')}${enabled.length > 4 ? ', and more' : ''}.`,
+        fixTo: '/rooms/$roomId/settings',
+        fixLabel: 'Configure',
     }
 }
 
@@ -571,6 +628,7 @@ function RoomStatusPage() {
     const checks: CheckRow[] = useMemo(
         () => [
             modelConnectionRow(config),
+            capabilitiesRow(config),
             jobsRow(jobs, history),
             {
                 icon: FolderIcon,

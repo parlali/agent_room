@@ -6,19 +6,17 @@ import {
 import { Type } from '@mariozechner/pi-ai'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import {
-    isInternalStateDocumentKind,
-    readInternalStateDocument,
-    writeInternalStateDocument,
-    type InternalStateDocumentKind,
-} from './internal-state'
+    isMemorySectionPath,
+    patchMemory,
+    readMemory,
+    replaceMemory,
+    type MemoryPatch,
+} from './memory'
 
-interface InternalStateToolDetails {
-    document: InternalStateDocumentKind
-    fileName: string
+interface MemoryToolDetails {
+    path: string
     byteLength: number
-    maxBytes: number
-    truncated: boolean
-    sha256: string
+    hash: string
 }
 
 interface InternalStateToolContext {
@@ -28,27 +26,11 @@ interface InternalStateToolContext {
 
 export const internalStateToolNames = [
     'agent_room_memory_read',
-    'agent_room_memory_update',
+    'agent_room_memory_replace',
+    'agent_room_memory_patch',
 ] as const
 
-function documentEnum() {
-    return Type.String()
-}
-
-function normalizeDocument(value: unknown): InternalStateDocumentKind {
-    if (typeof value === 'string') {
-        const normalized = value.trim().replace(/\.md$/i, '')
-        if (isInternalStateDocumentKind(normalized)) {
-            return normalized
-        }
-    }
-    throw new Error('Unknown internal state document')
-}
-
-function textResult(
-    text: string,
-    details: InternalStateToolDetails,
-): AgentToolResult<InternalStateToolDetails> {
+function textResult(text: string, details: MemoryToolDetails): AgentToolResult<MemoryToolDetails> {
     return {
         content: [
             {
@@ -60,16 +42,43 @@ function textResult(
     }
 }
 
-function detailsFromSnapshot(
-    snapshot: Awaited<ReturnType<typeof readInternalStateDocument>>,
-): InternalStateToolDetails {
+function snapshotDetails(snapshot: Awaited<ReturnType<typeof readMemory>>): MemoryToolDetails {
     return {
-        document: snapshot.kind,
-        fileName: snapshot.fileName,
+        path: snapshot.path,
         byteLength: snapshot.byteLength,
-        maxBytes: snapshot.maxBytes,
-        truncated: snapshot.truncated,
-        sha256: snapshot.sha256,
+        hash: snapshot.hash,
+    }
+}
+
+function normalizePatch(value: unknown): MemoryPatch {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error('Memory patch must be an object')
+    }
+    const record = value as Record<string, unknown>
+    const op = record.op
+    const section = record.section
+    if (op !== 'add' && op !== 'update' && op !== 'remove' && op !== 'complete') {
+        throw new Error('Memory patch op must be add, update, remove, or complete')
+    }
+    if (typeof section !== 'string' || !isMemorySectionPath(section)) {
+        throw new Error('Memory patch section must be a canonical memory section')
+    }
+    return {
+        op,
+        section: section as MemoryPatch['section'],
+        id: typeof record.id === 'string' ? record.id : undefined,
+        text: typeof record.text === 'string' ? record.text : undefined,
+        source: typeof record.source === 'string' ? record.source : undefined,
+        priority: typeof record.priority === 'number' ? record.priority : undefined,
+        tags: Array.isArray(record.tags)
+            ? record.tags.filter((tag): tag is string => typeof tag === 'string')
+            : undefined,
+        dueAt: typeof record.dueAt === 'string' ? record.dueAt : undefined,
+        expiresAt: typeof record.expiresAt === 'string' ? record.expiresAt : undefined,
+        recurrence:
+            record.recurrence && typeof record.recurrence === 'object'
+                ? (record.recurrence as MemoryPatch['recurrence'])
+                : undefined,
     }
 }
 
@@ -77,44 +86,131 @@ export function createInternalStateTools(ctx: InternalStateToolContext): ToolDef
     return [
         defineTool({
             name: 'agent_room_memory_read',
-            label: 'Read Internal State',
+            label: 'Read Room Memory',
             description:
-                'Read one hidden internal Agent Room markdown document. Use document memory, plan, tasks, or decisions.',
+                'Read canonical JSON room memory and its deterministic prompt brief with a revision hash.',
             promptSnippet:
-                'agent_room_memory_read reads bounded hidden internal docs that are not exposed in room files.',
-            parameters: Type.Object({
-                document: documentEnum(),
-            }),
-            execute: async (_toolCallId, input) => {
-                const document = normalizeDocument(input.document)
-                const snapshot = await readInternalStateDocument(ctx.config, document)
-                await ctx.audit('tool.internal_state.read', detailsFromSnapshot(snapshot))
-                return textResult(snapshot.content, detailsFromSnapshot(snapshot))
+                'agent_room_memory_read reads the room-local canonical memory JSON and brief.',
+            parameters: Type.Object({}),
+            execute: async () => {
+                const snapshot = await readMemory(ctx.config)
+                await ctx.audit('tool.memory.read', {
+                    path: snapshot.path,
+                    byteLength: snapshot.byteLength,
+                    hash: snapshot.hash,
+                })
+                return textResult(
+                    JSON.stringify(
+                        {
+                            hash: snapshot.hash,
+                            brief: snapshot.brief,
+                            memory: snapshot.memory,
+                        },
+                        null,
+                        4,
+                    ),
+                    snapshotDetails(snapshot),
+                )
             },
         }),
         defineTool({
-            name: 'agent_room_memory_update',
-            label: 'Update Internal State',
+            name: 'agent_room_memory_replace',
+            label: 'Replace Room Memory',
             description:
-                'Replace one hidden internal Agent Room markdown document while enforcing hard byte caps. Use document memory, plan, tasks, or decisions.',
+                'Replace canonical room memory JSON after reading the current hash. Never store secrets or raw chat history.',
             promptSnippet:
-                'agent_room_memory_update replaces hidden internal docs. Keep them concise, structured, and free of raw chat history or secrets.',
+                'agent_room_memory_replace replaces the whole room-local memory JSON using optimistic concurrency.',
             parameters: Type.Object({
-                document: documentEnum(),
-                content: Type.String(),
-                expectedSha256: Type.Optional(Type.String()),
+                memoryJson: Type.String(),
+                expectedHash: Type.Optional(Type.String()),
             }),
             execute: async (_toolCallId, input) => {
-                const document = normalizeDocument(input.document)
-                const snapshot = await writeInternalStateDocument({
+                const memory = JSON.parse(input.memoryJson)
+                const snapshot = await replaceMemory({
                     config: ctx.config,
-                    kind: document,
-                    content: input.content,
-                    expectedSha256:
-                        typeof input.expectedSha256 === 'string' ? input.expectedSha256 : null,
+                    memory,
+                    expectedHash:
+                        typeof input.expectedHash === 'string' ? input.expectedHash : null,
                 })
-                await ctx.audit('tool.internal_state.update', detailsFromSnapshot(snapshot))
-                return textResult(`Updated ${snapshot.fileName}`, detailsFromSnapshot(snapshot))
+                await ctx.audit('tool.memory.replace', {
+                    path: snapshot.path,
+                    byteLength: snapshot.byteLength,
+                    hash: snapshot.hash,
+                })
+                return textResult(
+                    JSON.stringify(
+                        {
+                            hash: snapshot.hash,
+                            brief: snapshot.brief,
+                        },
+                        null,
+                        4,
+                    ),
+                    snapshotDetails(snapshot),
+                )
+            },
+        }),
+        defineTool({
+            name: 'agent_room_memory_patch',
+            label: 'Patch Room Memory',
+            description:
+                'Apply typed add, update, remove, or complete operations to canonical room memory.',
+            promptSnippet:
+                'agent_room_memory_patch updates room memory sections with typed operations and expectedHash.',
+            parameters: Type.Object({
+                patches: Type.Array(
+                    Type.Object({
+                        op: Type.Union([
+                            Type.Literal('add'),
+                            Type.Literal('update'),
+                            Type.Literal('remove'),
+                            Type.Literal('complete'),
+                        ]),
+                        section: Type.String(),
+                        id: Type.Optional(Type.String()),
+                        text: Type.Optional(Type.String()),
+                        source: Type.Optional(Type.String()),
+                        priority: Type.Optional(Type.Number()),
+                        tags: Type.Optional(Type.Array(Type.String())),
+                        dueAt: Type.Optional(Type.String()),
+                        expiresAt: Type.Optional(Type.String()),
+                        recurrence: Type.Optional(
+                            Type.Object({
+                                rule: Type.String(),
+                                timezone: Type.Optional(Type.String()),
+                            }),
+                        ),
+                    }),
+                ),
+                expectedHash: Type.Optional(Type.String()),
+            }),
+            execute: async (_toolCallId, input) => {
+                if (!Array.isArray(input.patches)) {
+                    throw new Error('patches must be an array')
+                }
+                const snapshot = await patchMemory({
+                    config: ctx.config,
+                    patches: input.patches.map(normalizePatch),
+                    expectedHash:
+                        typeof input.expectedHash === 'string' ? input.expectedHash : null,
+                })
+                await ctx.audit('tool.memory.patch', {
+                    path: snapshot.path,
+                    byteLength: snapshot.byteLength,
+                    hash: snapshot.hash,
+                    patchCount: input.patches.length,
+                })
+                return textResult(
+                    JSON.stringify(
+                        {
+                            hash: snapshot.hash,
+                            brief: snapshot.brief,
+                        },
+                        null,
+                        4,
+                    ),
+                    snapshotDetails(snapshot),
+                )
             },
         }),
     ]

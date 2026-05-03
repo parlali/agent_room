@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as UsageRouteImport } from './routes/usage'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as LoginRouteImport } from './routes/login'
@@ -18,13 +19,20 @@ import { Route as ActivityRouteImport } from './routes/activity'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as RoomsRoomIdRouteImport } from './routes/rooms.$roomId'
+import { Route as RoomsRoomIdUsageRouteImport } from './routes/rooms.$roomId.usage'
 import { Route as RoomsRoomIdStatusRouteImport } from './routes/rooms.$roomId.status'
 import { Route as RoomsRoomIdSettingsRouteImport } from './routes/rooms.$roomId.settings'
+import { Route as RoomsRoomIdMemoryRouteImport } from './routes/rooms.$roomId.memory'
 import { Route as RoomsRoomIdJobsRouteImport } from './routes/rooms.$roomId.jobs'
 import { Route as RoomsRoomIdFilesRouteImport } from './routes/rooms.$roomId.files'
 import { Route as RoomsRoomIdSessionsSessionKeyRouteImport } from './routes/rooms.$roomId.sessions.$sessionKey'
 import { Route as ApiRoomsRoomIdSessionsSessionKeyEventsRouteImport } from './routes/api.rooms.$roomId.sessions.$sessionKey.events'
 
+const UsageRoute = UsageRouteImport.update({
+  id: '/usage',
+  path: '/usage',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -70,6 +78,11 @@ const RoomsRoomIdRoute = RoomsRoomIdRouteImport.update({
   path: '/rooms/$roomId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RoomsRoomIdUsageRoute = RoomsRoomIdUsageRouteImport.update({
+  id: '/usage',
+  path: '/usage',
+  getParentRoute: () => RoomsRoomIdRoute,
+} as any)
 const RoomsRoomIdStatusRoute = RoomsRoomIdStatusRouteImport.update({
   id: '/status',
   path: '/status',
@@ -78,6 +91,11 @@ const RoomsRoomIdStatusRoute = RoomsRoomIdStatusRouteImport.update({
 const RoomsRoomIdSettingsRoute = RoomsRoomIdSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => RoomsRoomIdRoute,
+} as any)
+const RoomsRoomIdMemoryRoute = RoomsRoomIdMemoryRouteImport.update({
+  id: '/memory',
+  path: '/memory',
   getParentRoute: () => RoomsRoomIdRoute,
 } as any)
 const RoomsRoomIdJobsRoute = RoomsRoomIdJobsRouteImport.update({
@@ -112,11 +130,14 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
+  '/usage': typeof UsageRoute
   '/rooms/$roomId': typeof RoomsRoomIdRouteWithChildren
   '/rooms/$roomId/files': typeof RoomsRoomIdFilesRoute
   '/rooms/$roomId/jobs': typeof RoomsRoomIdJobsRoute
+  '/rooms/$roomId/memory': typeof RoomsRoomIdMemoryRoute
   '/rooms/$roomId/settings': typeof RoomsRoomIdSettingsRoute
   '/rooms/$roomId/status': typeof RoomsRoomIdStatusRoute
+  '/rooms/$roomId/usage': typeof RoomsRoomIdUsageRoute
   '/rooms/$roomId/sessions/$sessionKey': typeof RoomsRoomIdSessionsSessionKeyRoute
   '/api/rooms/$roomId/sessions/$sessionKey/events': typeof ApiRoomsRoomIdSessionsSessionKeyEventsRoute
 }
@@ -129,11 +150,14 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
+  '/usage': typeof UsageRoute
   '/rooms/$roomId': typeof RoomsRoomIdRouteWithChildren
   '/rooms/$roomId/files': typeof RoomsRoomIdFilesRoute
   '/rooms/$roomId/jobs': typeof RoomsRoomIdJobsRoute
+  '/rooms/$roomId/memory': typeof RoomsRoomIdMemoryRoute
   '/rooms/$roomId/settings': typeof RoomsRoomIdSettingsRoute
   '/rooms/$roomId/status': typeof RoomsRoomIdStatusRoute
+  '/rooms/$roomId/usage': typeof RoomsRoomIdUsageRoute
   '/rooms/$roomId/sessions/$sessionKey': typeof RoomsRoomIdSessionsSessionKeyRoute
   '/api/rooms/$roomId/sessions/$sessionKey/events': typeof ApiRoomsRoomIdSessionsSessionKeyEventsRoute
 }
@@ -147,11 +171,14 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
+  '/usage': typeof UsageRoute
   '/rooms/$roomId': typeof RoomsRoomIdRouteWithChildren
   '/rooms/$roomId/files': typeof RoomsRoomIdFilesRoute
   '/rooms/$roomId/jobs': typeof RoomsRoomIdJobsRoute
+  '/rooms/$roomId/memory': typeof RoomsRoomIdMemoryRoute
   '/rooms/$roomId/settings': typeof RoomsRoomIdSettingsRoute
   '/rooms/$roomId/status': typeof RoomsRoomIdStatusRoute
+  '/rooms/$roomId/usage': typeof RoomsRoomIdUsageRoute
   '/rooms/$roomId/sessions/$sessionKey': typeof RoomsRoomIdSessionsSessionKeyRoute
   '/api/rooms/$roomId/sessions/$sessionKey/events': typeof ApiRoomsRoomIdSessionsSessionKeyEventsRoute
 }
@@ -166,11 +193,14 @@ export interface FileRouteTypes {
     | '/login'
     | '/onboarding'
     | '/settings'
+    | '/usage'
     | '/rooms/$roomId'
     | '/rooms/$roomId/files'
     | '/rooms/$roomId/jobs'
+    | '/rooms/$roomId/memory'
     | '/rooms/$roomId/settings'
     | '/rooms/$roomId/status'
+    | '/rooms/$roomId/usage'
     | '/rooms/$roomId/sessions/$sessionKey'
     | '/api/rooms/$roomId/sessions/$sessionKey/events'
   fileRoutesByTo: FileRoutesByTo
@@ -183,11 +213,14 @@ export interface FileRouteTypes {
     | '/login'
     | '/onboarding'
     | '/settings'
+    | '/usage'
     | '/rooms/$roomId'
     | '/rooms/$roomId/files'
     | '/rooms/$roomId/jobs'
+    | '/rooms/$roomId/memory'
     | '/rooms/$roomId/settings'
     | '/rooms/$roomId/status'
+    | '/rooms/$roomId/usage'
     | '/rooms/$roomId/sessions/$sessionKey'
     | '/api/rooms/$roomId/sessions/$sessionKey/events'
   id:
@@ -200,11 +233,14 @@ export interface FileRouteTypes {
     | '/login'
     | '/onboarding'
     | '/settings'
+    | '/usage'
     | '/rooms/$roomId'
     | '/rooms/$roomId/files'
     | '/rooms/$roomId/jobs'
+    | '/rooms/$roomId/memory'
     | '/rooms/$roomId/settings'
     | '/rooms/$roomId/status'
+    | '/rooms/$roomId/usage'
     | '/rooms/$roomId/sessions/$sessionKey'
     | '/api/rooms/$roomId/sessions/$sessionKey/events'
   fileRoutesById: FileRoutesById
@@ -218,12 +254,20 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   OnboardingRoute: typeof OnboardingRoute
   SettingsRoute: typeof SettingsRoute
+  UsageRoute: typeof UsageRoute
   RoomsRoomIdRoute: typeof RoomsRoomIdRouteWithChildren
   ApiRoomsRoomIdSessionsSessionKeyEventsRoute: typeof ApiRoomsRoomIdSessionsSessionKeyEventsRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/usage': {
+      id: '/usage'
+      path: '/usage'
+      fullPath: '/usage'
+      preLoaderRoute: typeof UsageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -287,6 +331,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RoomsRoomIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/rooms/$roomId/usage': {
+      id: '/rooms/$roomId/usage'
+      path: '/usage'
+      fullPath: '/rooms/$roomId/usage'
+      preLoaderRoute: typeof RoomsRoomIdUsageRouteImport
+      parentRoute: typeof RoomsRoomIdRoute
+    }
     '/rooms/$roomId/status': {
       id: '/rooms/$roomId/status'
       path: '/status'
@@ -299,6 +350,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/rooms/$roomId/settings'
       preLoaderRoute: typeof RoomsRoomIdSettingsRouteImport
+      parentRoute: typeof RoomsRoomIdRoute
+    }
+    '/rooms/$roomId/memory': {
+      id: '/rooms/$roomId/memory'
+      path: '/memory'
+      fullPath: '/rooms/$roomId/memory'
+      preLoaderRoute: typeof RoomsRoomIdMemoryRouteImport
       parentRoute: typeof RoomsRoomIdRoute
     }
     '/rooms/$roomId/jobs': {
@@ -335,16 +393,20 @@ declare module '@tanstack/react-router' {
 interface RoomsRoomIdRouteChildren {
   RoomsRoomIdFilesRoute: typeof RoomsRoomIdFilesRoute
   RoomsRoomIdJobsRoute: typeof RoomsRoomIdJobsRoute
+  RoomsRoomIdMemoryRoute: typeof RoomsRoomIdMemoryRoute
   RoomsRoomIdSettingsRoute: typeof RoomsRoomIdSettingsRoute
   RoomsRoomIdStatusRoute: typeof RoomsRoomIdStatusRoute
+  RoomsRoomIdUsageRoute: typeof RoomsRoomIdUsageRoute
   RoomsRoomIdSessionsSessionKeyRoute: typeof RoomsRoomIdSessionsSessionKeyRoute
 }
 
 const RoomsRoomIdRouteChildren: RoomsRoomIdRouteChildren = {
   RoomsRoomIdFilesRoute: RoomsRoomIdFilesRoute,
   RoomsRoomIdJobsRoute: RoomsRoomIdJobsRoute,
+  RoomsRoomIdMemoryRoute: RoomsRoomIdMemoryRoute,
   RoomsRoomIdSettingsRoute: RoomsRoomIdSettingsRoute,
   RoomsRoomIdStatusRoute: RoomsRoomIdStatusRoute,
+  RoomsRoomIdUsageRoute: RoomsRoomIdUsageRoute,
   RoomsRoomIdSessionsSessionKeyRoute: RoomsRoomIdSessionsSessionKeyRoute,
 }
 
@@ -361,6 +423,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   OnboardingRoute: OnboardingRoute,
   SettingsRoute: SettingsRoute,
+  UsageRoute: UsageRoute,
   RoomsRoomIdRoute: RoomsRoomIdRouteWithChildren,
   ApiRoomsRoomIdSessionsSessionKeyEventsRoute:
     ApiRoomsRoomIdSessionsSessionKeyEventsRoute,

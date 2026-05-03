@@ -2,8 +2,12 @@ import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
+import { strFromU8, unzipSync } from 'fflate'
+import * as XLSX from 'xlsx'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
-import { __testing, createRoomTools } from './room-tools'
+import { __testing, createRoomTools, roomToolNamesForCapabilities } from './room-tools'
+import { createDocumentTools } from './document-tools'
+import { testBudgets, testCapabilities, testImage, testSearch } from './test-runtime-defaults'
 import { withToolRunContext } from './tool-run-context'
 
 function testConfig(root: string): PiRuntimeConfig {
@@ -45,6 +49,10 @@ function testConfig(root: string): PiRuntimeConfig {
         tools: {
             profile: 'coding',
         },
+        capabilities: testCapabilities,
+        search: testSearch,
+        image: testImage,
+        budgets: testBudgets,
         instructions: '',
         mcpServers: [],
         models: {
@@ -98,6 +106,30 @@ async function executeTool(
 ) {
     const events: Array<{ event: string; payload: unknown }> = []
     const tools = createRoomTools({
+        config,
+        audit: async (event, payload) => {
+            events.push({ event, payload })
+        },
+    })
+    const tool = tools.find((entry) => entry.name === name)
+    if (!tool) {
+        throw new Error(`Missing tool ${name}`)
+    }
+    const result = await tool.execute('call-1', input as never, signal, undefined, {} as never)
+    return {
+        result,
+        events,
+    }
+}
+
+async function executeDocumentTool(
+    config: PiRuntimeConfig,
+    name: string,
+    input: object,
+    signal?: AbortSignal,
+) {
+    const events: Array<{ event: string; payload: unknown }> = []
+    const tools = createDocumentTools({
         config,
         audit: async (event, payload) => {
             events.push({ event, payload })
@@ -198,6 +230,14 @@ describe('room Pi tools', () => {
                     overwrite: true,
                 }),
             ).rejects.toThrow(/escapes allowed root/)
+            await expect(
+                executeDocumentTool(config, 'agent_room_pdf', {
+                    operation: 'create',
+                    path: 'outside-link/report.pdf',
+                    title: 'Escape',
+                    paragraphs: ['This should not be written outside the workspace.'],
+                }),
+            ).rejects.toThrow(/escapes allowed root/)
 
             const list = await executeTool(config, 'agent_room_list', {
                 path: '.',
@@ -205,6 +245,19 @@ describe('room Pi tools', () => {
             expect(resultText(list.result)).toContain('link')
             expect(resultText(list.result)).toContain('outside-link')
         })
+    })
+
+    it('removes shell and mutation tool names when shell and coding capability is disabled', () => {
+        const names = roomToolNamesForCapabilities('coding', {
+            ...testCapabilities,
+            shellCoding: false,
+        })
+
+        expect(names).toContain('agent_room_read')
+        expect(names).toContain('agent_room_memory_patch')
+        expect(names).not.toContain('agent_room_shell')
+        expect(names).not.toContain('agent_room_write')
+        expect(names).not.toContain('agent_room_artifact_import')
     })
 
     it('keeps shell-writable tool files owner-only', async () => {
@@ -318,7 +371,7 @@ describe('room Pi tools', () => {
                 timeoutMs: 1000,
             })
 
-            expect(resultText(shell.result)).toBe(join(config.paths.tmpDir, 'tool-temp.txt'))
+            expect(resultText(shell.result)).toContain(join(config.paths.tmpDir, 'tool-temp.txt'))
             await expect(
                 readFile(join(config.paths.tmpDir, 'tool-temp.txt'), 'utf8'),
             ).resolves.toBe('temp')
@@ -396,6 +449,84 @@ describe('room Pi tools', () => {
             await expect(
                 readFile(join(config.paths.workspaceDir, 'exports/report-copy.txt'), 'utf8'),
             ).resolves.toBe('artifact body')
+        })
+    })
+
+    it('creates workbook rows and charts and supports direct cell edits', async () => {
+        await withRoom(async (config) => {
+            const workbookJson = JSON.stringify({
+                sheets: [
+                    {
+                        name: 'Verification Data',
+                        data: [
+                            ['Item', 'Quantity', 'Price', 'Total'],
+                            ['Product A', 10, 5.5, '=B2*C2'],
+                            ['Product B', 20, 2.75, '=B3*C3'],
+                            ['Product C', 15, 7, '=B4*C4'],
+                        ],
+                        charts: [
+                            {
+                                type: 'bar',
+                                title: 'Totals',
+                                categories: {
+                                    sheet: 'Verification Data',
+                                    cells: 'A2:A4',
+                                },
+                                series: [
+                                    {
+                                        sheet: 'Verification Data',
+                                        cells: 'D2:D4',
+                                    },
+                                ],
+                                anchor: 'F2',
+                            },
+                        ],
+                    },
+                ],
+            })
+            await executeDocumentTool(config, 'agent_room_xlsx', {
+                operation: 'create',
+                path: 'plan-verification.xlsx',
+                workbookJson,
+            })
+            const inspected = await executeDocumentTool(config, 'agent_room_xlsx', {
+                operation: 'inspect',
+                path: 'plan-verification.xlsx',
+            })
+            expect(resultText(inspected.result)).toContain('Product A')
+
+            await executeDocumentTool(config, 'agent_room_xlsx', {
+                operation: 'edit',
+                path: 'plan-verification.xlsx',
+                replacementsJson: JSON.stringify([
+                    {
+                        sheet: 'Verification Data',
+                        cell: 'B2',
+                        value: 12,
+                    },
+                ]),
+            })
+
+            const workbook = XLSX.readFile(
+                join(config.paths.workspaceDir, 'plan-verification.xlsx'),
+                {
+                    cellFormula: true,
+                },
+            )
+            const sheet = workbook.Sheets['Verification Data']
+            expect(sheet?.['B2']?.v).toBe(12)
+            expect(sheet?.['D2']?.f).toBe('B2*C2')
+            expect(sheet?.['D2']?.v).toBe(66)
+
+            const zip = unzipSync(
+                new Uint8Array(
+                    await readFile(join(config.paths.workspaceDir, 'plan-verification.xlsx')),
+                ),
+            )
+            expect(zip['xl/charts/chart1.xml']).toBeDefined()
+            expect(strFromU8(zip['xl/charts/chart1.xml']!)).toContain('Verification Data')
+            expect(strFromU8(zip['xl/charts/chart1.xml']!)).toContain('A2:A4')
+            expect(strFromU8(zip['xl/worksheets/sheet1.xml']!)).toContain('<drawing ')
         })
     })
 })

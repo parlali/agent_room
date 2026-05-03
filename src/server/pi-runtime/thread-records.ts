@@ -12,6 +12,13 @@ export interface ThreadRecord {
     modelProvider: string | null
     model: string | null
     activeRunId: string | null
+    activeRunKind: 'manual' | 'scheduled' | 'subagent' | 'maintenance' | null
+    heartbeatAt: number | null
+    runStartedAt: number | null
+    runBudgetExpiresAt: number | null
+    idleTimeoutExpiresAt: number | null
+    activeDurationMs: number
+    idleDurationMs: number
     lastError: string | null
     kind: ThreadKind
     parentThreadKey: string | null
@@ -40,6 +47,13 @@ export function normalizeThreadRecord(
         modelProvider?: string | null
         model?: string | null
         activeRunId?: string | null
+        activeRunKind?: 'manual' | 'scheduled' | 'subagent' | 'maintenance' | null
+        heartbeatAt?: number | null
+        runStartedAt?: number | null
+        runBudgetExpiresAt?: number | null
+        idleTimeoutExpiresAt?: number | null
+        activeDurationMs?: number
+        idleDurationMs?: number
         lastError?: string | null
     },
 ): ThreadRecord {
@@ -55,6 +69,19 @@ export function normalizeThreadRecord(
         modelProvider: record.modelProvider ?? null,
         model: record.model ?? null,
         activeRunId: record.activeRunId ?? null,
+        activeRunKind: record.activeRunKind ?? null,
+        heartbeatAt: record.heartbeatAt ?? null,
+        runStartedAt: record.runStartedAt ?? null,
+        runBudgetExpiresAt: record.runBudgetExpiresAt ?? null,
+        idleTimeoutExpiresAt: record.idleTimeoutExpiresAt ?? null,
+        activeDurationMs:
+            typeof record.activeDurationMs === 'number' && Number.isFinite(record.activeDurationMs)
+                ? record.activeDurationMs
+                : 0,
+        idleDurationMs:
+            typeof record.idleDurationMs === 'number' && Number.isFinite(record.idleDurationMs)
+                ? record.idleDurationMs
+                : 0,
         lastError: record.lastError ?? null,
         kind: record.kind === 'subagent' ? 'subagent' : 'main',
         parentThreadKey: record.parentThreadKey ?? null,

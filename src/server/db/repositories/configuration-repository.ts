@@ -47,6 +47,42 @@ export const appProviderConnectionRepository = {
         return mapAppProviderConnection(rows[0] as Record<string, unknown>)
     },
 
+    async countRoomReferences(id: string): Promise<number> {
+        const rows = await sql`
+            SELECT count(*)::int AS count
+            FROM room_configs
+            WHERE provider_connection_id = ${id}
+        `
+        return Number(rows[0]?.count ?? 0)
+    },
+
+    async deleteByIdIfUnused(id: string): Promise<boolean> {
+        return withTransaction(async (trx) => {
+            const rows = await trx`
+                DELETE FROM app_provider_connections
+                WHERE id = ${id}
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM room_configs
+                        WHERE provider_connection_id = ${id}
+                    )
+                RETURNING id
+            `
+            if (rows.length === 0) {
+                return false
+            }
+            await trx`
+                UPDATE app_settings
+                SET
+                    default_model = NULL,
+                    updated_at = now()
+                WHERE id = true
+                    AND default_provider_connection_id IS NULL
+            `
+            return true
+        })
+    },
+
     async upsert(input: {
         id: string
         label: string
@@ -138,6 +174,29 @@ export const appMcpConnectionRepository = {
             return null
         }
         return mapAppMcpConnection(rows[0] as Record<string, unknown>)
+    },
+
+    async countRoomBindings(id: string): Promise<number> {
+        const rows = await sql`
+            SELECT count(*)::int AS count
+            FROM room_mcp_bindings
+            WHERE mcp_connection_id = ${id}
+        `
+        return Number(rows[0]?.count ?? 0)
+    },
+
+    async deleteByIdIfUnused(id: string): Promise<boolean> {
+        const rows = await sql`
+            DELETE FROM app_mcp_connections
+            WHERE id = ${id}
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM room_mcp_bindings
+                    WHERE mcp_connection_id = ${id}
+                )
+            RETURNING id
+        `
+        return rows.length > 0
     },
 
     async upsert(input: {
@@ -233,12 +292,18 @@ export const appSettingsRepository = {
         defaultProviderConnectionId: string | null
         defaultModel: string | null
         onboardingCompletedAt: Date | null
+        capabilityDefaults?: JsonValue
+        searchConfig?: JsonValue
+        imageConfig?: JsonValue
     }): Promise<AppSettingsRecord> {
         const rows = await sql`
             UPDATE app_settings
             SET
                 default_provider_connection_id = ${input.defaultProviderConnectionId},
                 default_model = ${input.defaultModel},
+                capability_defaults = COALESCE(${input.capabilityDefaults === undefined ? null : sql.json(input.capabilityDefaults)}::jsonb, capability_defaults),
+                search_config = COALESCE(${input.searchConfig === undefined ? null : sql.json(input.searchConfig)}::jsonb, search_config),
+                image_config = COALESCE(${input.imageConfig === undefined ? null : sql.json(input.imageConfig)}::jsonb, image_config),
                 onboarding_completed_at = ${input.onboardingCompletedAt},
                 updated_at = now()
             WHERE id = true
@@ -283,6 +348,10 @@ export const roomConfigRepository = {
         providerModel: string | null
         providerSecretId: string | null
         toolsProfile: string
+        capabilityOverrides: JsonValue
+        imageProvider: string | null
+        imageModel: string | null
+        imageSecretId: string | null
         cronTimezone: string
     }): Promise<RoomConfigRecord> {
         const rows = await sql`
@@ -297,6 +366,10 @@ export const roomConfigRepository = {
                 provider_model,
                 provider_secret_id,
                 tools_profile,
+                capability_overrides,
+                image_provider,
+                image_model,
+                image_secret_id,
                 cron_timezone,
                 created_at,
                 updated_at
@@ -312,6 +385,10 @@ export const roomConfigRepository = {
                 ${input.providerModel},
                 ${input.providerSecretId},
                 ${input.toolsProfile},
+                ${sql.json(input.capabilityOverrides)},
+                ${input.imageProvider},
+                ${input.imageModel},
+                ${input.imageSecretId},
                 ${input.cronTimezone},
                 now(),
                 now()
@@ -327,6 +404,10 @@ export const roomConfigRepository = {
                 provider_model = excluded.provider_model,
                 provider_secret_id = excluded.provider_secret_id,
                 tools_profile = excluded.tools_profile,
+                capability_overrides = excluded.capability_overrides,
+                image_provider = excluded.image_provider,
+                image_model = excluded.image_model,
+                image_secret_id = excluded.image_secret_id,
                 cron_timezone = excluded.cron_timezone,
                 updated_at = now()
             RETURNING *

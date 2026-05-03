@@ -16,6 +16,10 @@ export function currentToolRunSignal(): AbortSignal | null {
     return storage.getStore()?.signal ?? null
 }
 
+export function currentToolRunContext(): ToolRunContext | null {
+    return storage.getStore() ?? null
+}
+
 export function combineAbortSignals(signals: Array<AbortSignal | null | undefined>): {
     signal?: AbortSignal
     dispose: () => void

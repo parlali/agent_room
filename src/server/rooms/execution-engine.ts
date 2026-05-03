@@ -233,6 +233,16 @@ export async function runDueRoomCronJobs(
     return module.runDueRoomCronJobs(input)
 }
 
+export async function syncRoomRuntimeUsage(roomId: string): Promise<void> {
+    const module = await import('./pi-execution-adapter')
+    return module.syncRuntimeUsageEvents(roomId)
+}
+
+export async function syncAllRuntimeUsage(): Promise<void> {
+    const module = await import('./pi-execution-adapter')
+    return module.syncAllRuntimeUsageEvents()
+}
+
 export async function deleteRoomSession(input: {
     roomId: string
     sessionKey: string

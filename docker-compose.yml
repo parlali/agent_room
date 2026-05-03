@@ -16,6 +16,20 @@ services:
             timeout: 5s
             retries: 10
 
+    searxng:
+        image: searxng/searxng:latest
+        container_name: agent-room-searxng
+        environment:
+            SEARXNG_BASE_URL: http://searxng:8080/
+            SEARXNG_SECRET: agent-room-local-search
+            SEARXNG_LIMITER: 'false'
+            SEARXNG_PUBLIC_INSTANCE: 'false'
+        expose:
+            - '8080'
+        volumes:
+            - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+        restart: unless-stopped
+
     app:
         build:
             context: .
@@ -24,6 +38,8 @@ services:
         depends_on:
             postgres:
                 condition: service_healthy
+            searxng:
+                condition: service_started
         ports:
             - '3000:3000'
         environment:
@@ -31,6 +47,7 @@ services:
             PORT: 3000
             DATABASE_URL: postgres://agent_room:agent_room@postgres:5432/agent_room?sslmode=disable
             AGENT_ROOM_DATA_DIR: /app/.agent-room
+            AGENT_ROOM_SEARCH_BACKEND_URL: http://searxng:8080
         volumes:
             - agent-room-data:/app/.agent-room
         restart: unless-stopped

@@ -8,6 +8,7 @@ import {
     contextBudgetForProvider,
     loadInstructionFiles,
 } from './system-prompt'
+import { testBudgets, testCapabilities, testImage, testSearch } from './test-runtime-defaults'
 
 function testConfig(root: string): PiRuntimeConfig {
     return {
@@ -48,6 +49,10 @@ function testConfig(root: string): PiRuntimeConfig {
         tools: {
             profile: 'coding',
         },
+        capabilities: testCapabilities,
+        search: testSearch,
+        image: testImage,
+        budgets: testBudgets,
         instructions: 'Operator-owned instruction',
         mcpServers: [
             {
@@ -103,15 +108,16 @@ describe('Agent Room Pi system prompt', () => {
 
             const prompt = await buildAgentRoomSystemPrompt(config)
 
-            expect(prompt).toContain('Room id: room-1')
+            expect(prompt).toContain('persistent room-local coworker')
             expect(prompt).toContain('Provider: ollama')
             expect(prompt).toContain('Model: ollama/llama3.2')
             expect(prompt).toContain('Enabled built-in tools: agent_room_memory_read')
             expect(prompt).toContain('agent_room_memory_read')
             expect(prompt).toContain('Enabled MCP servers: docs: search')
-            expect(prompt).toContain('Scheduled jobs enter through the same room session path')
-            expect(prompt).toContain('Internal state harness')
-            expect(prompt).toContain('memory.md')
+            expect(prompt).toContain('Scheduled work is autonomous')
+            expect(prompt).toContain('Room memory harness')
+            expect(prompt).not.toContain('memory.md')
+            expect(prompt).not.toContain('Room id')
             expect(prompt).toContain('Operator-owned instruction')
             expect(prompt).toContain('Workspace policy')
             expect(prompt.length).toBeLessThanOrEqual(

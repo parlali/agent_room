@@ -9,6 +9,7 @@ import {
     roomProviderModes,
     roomSecretPurposes,
     roomToolProfiles,
+    capabilityIds,
 } from '#/server/domain/types'
 
 const providerConnectionInputSchema = z.object({
@@ -38,10 +39,29 @@ const mcpConnectionInputSchema = z.object({
     allowedToolsText: z.string().optional(),
 })
 
+const connectionDeleteInputSchema = z.object({
+    id: z.string().uuid(),
+})
+
 const appDefaultsInputSchema = z.object({
     defaultProviderConnectionId: z.string().uuid().nullable(),
     defaultModel: z.string().nullable(),
     onboardingCompleted: z.boolean(),
+})
+
+const appCapabilityInputSchema = z.object({
+    capabilityDefaults: z.record(z.enum(capabilityIds), z.boolean()),
+    search: z.object({
+        enabled: z.boolean(),
+        backendUrl: z.string().url(),
+        defaultResultCount: z.number().int().positive().max(20),
+        timeoutMs: z.number().int().positive().max(30000),
+    }).optional(),
+    image: z.object({
+        provider: z.enum(['openai', 'gemini']).nullable(),
+        model: z.string().nullable(),
+        apiKey: z.string().optional(),
+    }),
 })
 
 const roomConfigInputSchema = z.object({
@@ -55,6 +75,10 @@ const roomConfigInputSchema = z.object({
     providerModel: z.string().nullable().optional(),
     providerApiKey: z.string().optional(),
     toolsProfile: z.enum(roomToolProfiles),
+    capabilityOverrides: z.record(z.string(), z.boolean()).default({}),
+    imageProvider: z.enum(['openai', 'gemini']).nullable().optional(),
+    imageModel: z.string().nullable().optional(),
+    imageApiKey: z.string().optional(),
     cronTimezone: z.string().min(1),
     mcpConnectionIds: z.array(z.string().uuid()).default([]),
 })
@@ -119,12 +143,48 @@ export const saveMcpConnectionServer = createServerFn({ method: 'POST' })
         return saveMcpConnection(data, actor.userId)
     })
 
+export const deleteProviderConnectionServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => connectionDeleteInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { deleteProviderConnection } =
+            await import('#/server/configuration/operator-configuration')
+        return deleteProviderConnection({
+            id: data.id,
+            actorUserId: actor.userId,
+        })
+    })
+
+export const deleteMcpConnectionServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => connectionDeleteInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { deleteMcpConnection } =
+            await import('#/server/configuration/operator-configuration')
+        return deleteMcpConnection({
+            id: data.id,
+            actorUserId: actor.userId,
+        })
+    })
+
 export const updateAppDefaultsServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => appDefaultsInputSchema.parse(input))
     .handler(async ({ data }) => {
         const actor = await requireMutationActor()
         const { updateAppDefaults } = await import('#/server/configuration/operator-configuration')
         return updateAppDefaults({
+            ...data,
+            actorUserId: actor.userId,
+        })
+    })
+
+export const updateAppCapabilitySettingsServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => appCapabilityInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { updateAppCapabilitySettings } =
+            await import('#/server/configuration/operator-configuration')
+        return updateAppCapabilitySettings({
             ...data,
             actorUserId: actor.userId,
         })

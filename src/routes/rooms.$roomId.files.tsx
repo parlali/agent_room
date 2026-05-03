@@ -39,7 +39,11 @@ import { Badge } from '#/components/ui/badge'
 import { RoomDashboardLayout } from '#/components/room-dashboard'
 import { EmptyState, LoadingRows, Section, StateBadge } from '#/components/agent-room'
 import { formatBytes, formatRelativeTime } from '#/lib/format'
-import { getRoomExecutionServer, listRoomFilesServer } from '#/routes/-room-runtime-server'
+import {
+    getRoomExecutionServer,
+    listRoomFilesServer,
+    readRoomFileServer,
+} from '#/routes/-room-runtime-server'
 import { requireRouteUser } from '#/routes/-route-auth'
 
 type RoomFileEntry = {
@@ -85,6 +89,16 @@ const TEXT_EXTENSIONS = new Set([
     'xml',
 ])
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'])
+
+function previewDataUri(preview: {
+    mediaType: string
+    encoding: 'utf8' | 'base64'
+    content: string
+}): string {
+    return preview.encoding === 'base64'
+        ? `data:${preview.mediaType};base64,${preview.content}`
+        : `data:${preview.mediaType};charset=utf-8,${encodeURIComponent(preview.content)}`
+}
 
 function getExtension(name: string): string {
     const idx = name.lastIndexOf('.')
@@ -274,6 +288,7 @@ function FilesContent({ roomId }: { roomId: string }) {
                 </div>
             </Section>
             <PreviewSheet
+                roomId={roomId}
                 entry={previewEntry}
                 onOpenChange={(open) => !open && setPreviewEntry(null)}
             />
@@ -386,14 +401,31 @@ function AttachToSessionPopover({ roomId }: { roomId: string }) {
 }
 
 function PreviewSheet({
+    roomId,
     entry,
     onOpenChange,
 }: {
+    roomId: string
     entry: RoomFileEntry | null
     onOpenChange: (open: boolean) => void
 }) {
     const ext = entry ? getExtension(entry.name) : ''
     const textLike = entry ? TEXT_EXTENSIONS.has(ext) : false
+    const imageLike = entry ? IMAGE_EXTENSIONS.has(ext) : false
+    const previewQuery = useQuery({
+        queryKey: ['room-file-preview', roomId, entry?.surface, entry?.relativePath],
+        queryFn: () =>
+            readRoomFileServer({
+                data: {
+                    roomId,
+                    surface: entry!.surface,
+                    relativePath: entry!.relativePath,
+                },
+            }),
+        enabled: entry !== null && (textLike || imageLike),
+        staleTime: 10_000,
+    })
+    const preview = previewQuery.data
     return (
         <Sheet open={entry !== null} onOpenChange={onOpenChange}>
             <SheetContent side="right" className="gap-0 sm:max-w-md">
@@ -418,20 +450,46 @@ function PreviewSheet({
                                     {formatRelativeTime(entry.updatedAt)}
                                 </span>
                             </div>
-                            <div className="rounded-md border border-dashed border-border/70 bg-muted/30 px-3 py-6 text-center text-muted-foreground">
-                                {textLike
-                                    ? 'Inline preview is not available yet — content streaming will be added once the file API is wired.'
-                                    : 'Binary file. Metadata only.'}
+                            <div className="overflow-hidden rounded-md border border-border/70 bg-muted/30">
+                                {previewQuery.isLoading ? (
+                                    <div className="px-3 py-6 text-center text-muted-foreground">
+                                        Loading preview
+                                    </div>
+                                ) : previewQuery.isError ? (
+                                    <div className="px-3 py-6 text-center text-danger-fg">
+                                        Preview failed
+                                    </div>
+                                ) : imageLike && preview ? (
+                                    <img
+                                        src={previewDataUri(preview)}
+                                        alt={entry.name}
+                                        className="max-h-80 w-full object-contain"
+                                    />
+                                ) : textLike && preview ? (
+                                    <pre className="max-h-80 overflow-auto whitespace-pre-wrap p-3 font-mono text-xs text-foreground">
+                                        {preview.content}
+                                    </pre>
+                                ) : (
+                                    <div className="px-3 py-6 text-center text-muted-foreground">
+                                        Metadata only.
+                                    </div>
+                                )}
                             </div>
                             <div className="flex justify-end">
                                 <Button
                                     size="sm"
                                     variant="outline"
-                                    disabled
-                                    title="Download endpoint not available yet"
+                                    asChild
+                                    disabled={!preview}
+                                    title="Open file data"
                                 >
-                                    <DownloadIcon />
-                                    Download
+                                    <a
+                                        href={preview ? previewDataUri(preview) : '#'}
+                                        download={entry.name}
+                                    >
+                                        <DownloadIcon />
+                                        Download
+                                    </a>
                                 </Button>
                             </div>
                         </div>

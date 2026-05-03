@@ -3,7 +3,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { buildAgentHarnessPrompt } from './agent-harness'
 import { buildInternalStateSummary } from './internal-state'
-import { roomToolNamesForProfile } from './room-tools'
+import { roomToolNamesForCapabilities } from './room-tools'
 
 interface LoadedInstructionFile {
     path: string
@@ -117,34 +117,48 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
         config.instructions.trim(),
         MAX_OPERATOR_INSTRUCTIONS_CHARS,
     )
-    const enabledTools = roomToolNamesForProfile(config.tools.profile)
+    const enabledTools = roomToolNamesForCapabilities(config.tools.profile, config.capabilities)
+    const enabledCapabilities = [
+        config.capabilities.webSearch ? 'web search' : null,
+        config.capabilities.urlFetch ? 'direct URL fetch' : null,
+        config.capabilities.documents ? 'DOCX documents' : null,
+        config.capabilities.spreadsheets ? 'XLSX spreadsheets' : null,
+        config.capabilities.presentations ? 'PPTX presentations' : null,
+        config.capabilities.pdf ? 'PDF export and preview' : null,
+        config.capabilities.images ? 'image generation' : null,
+        config.capabilities.mcp ? 'connected MCP tools' : null,
+        config.capabilities.shellCoding ? 'shell and coding tools' : null,
+    ].filter((capability): capability is string => capability !== null)
     const mcpTools = config.mcpServers.map((server) => {
         const tools =
             server.allowedTools.length > 0 ? server.allowedTools.join(', ') : 'all listed tools'
         return `${server.id}: ${tools}`
     })
+    const now = new Date()
 
     const sections = [
-        `You are the autonomous agent for Agent Room room "${config.runtime.displayName}".`,
+        `You are ${config.runtime.displayName}, a persistent room-local coworker.`,
         [
-            `Room id: ${config.runtime.roomId}`,
-            `Workspace: ${config.paths.workspaceDir}`,
-            `Artifact store: ${config.paths.storeDir}`,
+            `Current datetime: ${now.toISOString()}`,
+            `Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'}`,
             `Provider: ${config.provider.sourceProvider}`,
             `Model: ${config.provider.sourceModel}`,
-            `Provider API: ${config.provider.api}`,
             `Context budget: ${budget.maxInputTokens} input tokens with ${budget.reservedOutputTokens} reserved for output`,
         ].join('\n'),
         [
-            'Operate only inside the configured room workspace and artifact store.',
+            'Own the requested work end to end: understand, inspect, plan when the task is non-trivial, execute, verify direct behavior, update durable memory when needed, then report the result concisely.',
             'Use available tools autonomously when they are needed to complete the operator request.',
-            'Do not ask for approval for ordinary file, shell, MCP, or subagent work inside this room boundary.',
+            'Ask for help only when authentication, missing credentials, destructive external actions, or unavailable user data block progress.',
+            'Operate inside the provided workspace and durable artifact store.',
             'Never read host-global Pi, Codex, provider, or credential files.',
             'Keep provider credentials, room secrets, and MCP authentication values out of responses, files, tool arguments, and logs.',
-            'Treat artifact import/export as the durable path for files that should survive as named outputs.',
-            'Scheduled jobs enter through the same room session path as manual operator messages.',
+            'Use web search for current-world facts, docs lookup, prices, laws, provider details, software versions, and other time-sensitive facts.',
+            'Prefer normal user-facing deliverables: PDF, DOCX, XLSX, PPTX, images, or other durable artifacts when the request implies real-world output.',
+            'Scheduled work is autonomous. If it cannot proceed, produce a clear failed result and any useful durable partial output.',
+            'Final responses should be concise, artifact-aware, and honest about verification.',
         ].join('\n'),
         buildAgentHarnessPrompt(internalState),
+        `Enabled capabilities: ${enabledCapabilities.join(', ') || 'none'}`,
         `Enabled built-in tools: ${enabledTools.join(', ') || 'none'}`,
         `Enabled MCP servers: ${mcpTools.join('; ') || 'none'}`,
     ]

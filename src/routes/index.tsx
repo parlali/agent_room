@@ -170,7 +170,7 @@ function FirstRoomEmpty() {
         <EmptyState
             icon={SparklesIcon}
             title="No rooms yet"
-            description="A room is a persistent AI worker with its own files, jobs, and instructions. Create your first one — you can set it up in seconds."
+            description="A room is a persistent AI worker with its own files, jobs, and instructions. Create your first one and set it up in seconds."
             action={<CreateRoomButton variant="primary" />}
         />
     )
@@ -193,7 +193,12 @@ function CreateRoomButton({ variant = 'primary' }: { variant?: 'primary' | 'comp
         onSuccess: async (room) => {
             await queryClient.invalidateQueries({ queryKey: ['rooms-list'] })
             setOpen(false)
-            toast.success('Room created', { description: `"${room.displayName}" is starting up.` })
+            toast.success('Room created', {
+                description:
+                    room.status === 'failed' || room.desiredState === 'stopped'
+                        ? `"${room.displayName}" needs setup before it can run.`
+                        : `"${room.displayName}" is starting up.`,
+            })
             navigate({ to: '/rooms/$roomId', params: { roomId: room.id } })
         },
         onError: (e: unknown) => {

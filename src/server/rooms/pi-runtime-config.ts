@@ -4,7 +4,11 @@ import type {
     MaterializedProviderConfig,
     MaterializedRoomConfiguration,
     ProviderApi,
+    CapabilityConfig,
+    ImageRuntimeConfig,
+    RunBudgetConfig,
     RoomPaths,
+    SearchRuntimeConfig,
 } from '../domain/types'
 import {
     isLocalProvider,
@@ -81,6 +85,10 @@ export interface PiRuntimeConfig {
     tools: {
         profile: string
     }
+    capabilities: CapabilityConfig
+    search: SearchRuntimeConfig
+    image: ImageRuntimeConfig
+    budgets: RunBudgetConfig
     instructions: string
     mcpServers: MaterializedMcpServer[]
     models: PiModelsJson
@@ -239,6 +247,10 @@ export function buildPiRuntimeConfig(input: {
         tools: {
             profile: input.roomConfiguration.toolsProfile,
         },
+        capabilities: input.roomConfiguration.capabilities,
+        search: input.roomConfiguration.search,
+        image: input.roomConfiguration.image,
+        budgets: input.roomConfiguration.budgets,
         instructions: input.roomConfiguration.instructions,
         mcpServers: input.roomConfiguration.entitlements.mcpServers,
         models: {

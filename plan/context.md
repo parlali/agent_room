@@ -1,135 +1,201 @@
 # Agent Room Context
 
-## What This Is
+## Product Thesis
 
-Agent Room is an OSS, self-hosted, room-first operator UI. One operator UI manages many persistent room runtimes through a room-scoped execution-engine contract. Each agent is a room: a colleague with its own identity, workspace, memory, tools, triggers, and long-running responsibilities. Chat with it, or let it work unattended through scheduled runs and integrations.
+Agent Room is an OSS, self-hosted portal for persistent AI coworkers.
 
-Human analogy: the agent is a colleague at the company, not a session. Threads are separate conversations with that colleague. They remember across threads and keep consistent skills, but each conversation stays scoped to its topic. On top of that, the colleague has work that happens whether or not you are talking to them.
+Each room is one standalone coworker with its own identity, memory, workspace, files, jobs, tools, credentials, provider binding, and runtime state. A room can have many sessions, but those sessions are conversations with the same coworker. A scheduled job is work that coworker performs without an active chat.
 
-The target backend direction is Pi plus an Agent Room-owned wrapper. Pi supplies the agent kernel. Agent Room supplies the product runtime around it.
+The user-facing object is the coworker, not the runtime, model loop, shell, or session file.
 
-## Why This Direction Changed
+## Current Direction
 
-The original plan used OpenClaw as the first room backend because it already packaged a broad agent runtime with Gateway, sessions, cron, hooks, provider auth, tools, and channel adapters. The replacement study changed the verdict.
+The target backend is Pi plus an Agent Room-owned wrapper.
 
-OpenClaw is too broad for the product boundary Agent Room needs. It duplicates orchestration responsibilities that should live in Agent Room, brings a large dependency into every room process, and forces runtime/provider truth through OpenClaw's monolithic Gateway semantics.
+Pi supplies the agent kernel:
 
-The current decision is:
-
-- Drop OpenClaw as the target backend.
-- Use Pi as the agent kernel.
-- Build a custom Agent Room wrapper around Pi.
-- Keep the room execution-engine boundary internal and stable.
-- Keep Codex App Server as a reference or possible Codex-specific backend, not the main runtime.
-
-## Why The Gap Exists Now
-
-Three things had to land simultaneously:
-
-1. Provider breadth across local models, OpenRouter, OpenAI, Gemini, Anthropic, and custom endpoints is now practical enough to support a model-agnostic room product.
-2. Pi provides a small enough coding-agent kernel to build around without inheriting OpenClaw's product surface.
-3. Cheap per-room process isolation is practical in a self-hosted stack.
-
-The missing product is the operator surface and orchestration layer: rooms, scheduling, audit, provider truth, credential boundaries, MCP entitlement, durable artifacts, and multi-room UX.
-
-## Why Not Just Use X
-
-- **Anthropic Managed Agents / Microsoft Agent 365 / Salesforce Agent Fabric** - closed, vendor-locked, single-model or enterprise-only.
-- **LibreChat / LobeChat** - chat-with-tools. No room-first runtime, filesystem, schedule, or colleague model.
-- **Agent Zero** - framework-shaped with a primary agent spawning subordinates. Useful ideas, wrong default object model.
-- **Hermes Agent** - single persistent agent. Useful gateway and continuity ideas, not many room-first colleagues.
-- **Mission Control (builderz-labs)** - strong deploy and observability ideas, but task-board and adapter-layer shaped.
-- **CrewAI / AutoGen / LangGraph** - frameworks, not self-hosted operator UIs.
-- **OpenClaw Control UI** - proves some runtime pieces exist, but keeps the product centered on OpenClaw's monolith rather than Agent Room's room contract.
-- **Codex App Server** - open-source and substantial, but it is a Codex-shaped harness. It is a useful reference and possible backend for Codex-specific flows, but Pi is a better strategic base if provider neutrality matters.
-
-## What Pi Provides
-
-Pi is the agent-kernel dependency, not the product runtime.
-
-Pi should own:
-
+- model and provider invocation
 - session execution
-- provider/model registry hooks
-- provider invocation
-- message state
-- transcript persistence
-- streaming agent events
+- message persistence
+- streaming events
 - compaction
-- auth storage primitives where suitable
+- provider registry hooks
 - tool execution hooks
-- extension points for providers, prompts, and tools
 
-Pi does not remove the need for Agent Room's own runtime layer.
+Agent Room supplies the product runtime:
 
-## What Agent Room Builds
+- room lifecycle
+- runtime supervision
+- provider truth
+- credential materialization
+- room-local memory
+- built-in capabilities
+- MCP exposure
+- jobs and locks
+- audit
+- artifacts
+- telemetry
+- UI read models
 
-- TanStack Start + TypeScript + Tailwind + shadcn/ui. Bun for install and scripts.
-- Control plane that supervises one isolated Pi wrapper endpoint per room.
-- A custom per-room Pi wrapper process with a small local API for health, snapshot, thread list/read/create, send, abort, and event streaming.
-- Room directory across many room brains, with status and health visible before entering a room.
-- Per-room workspace: room brain summary, activity feed, session list, chat, cron, trigger config, memory/workspace visibility, artifacts, and run history.
-- Canonical provider configuration and validation for local providers, OpenRouter, Codex OAuth where viable, and future explicit providers.
-- Agent Room-owned MCP bridge with stdio and HTTP transports, tool allowlists, schema conversion, and secret redaction.
-- Agent Room-owned cron and wake scheduling with locks, run history, audit events, and provider/model snapshots.
-- Agent Room-owned prompt builder for room identity, policy, tools, scheduling context, and local instruction files.
-- Optional integration adapters only when daily use demands them, such as signed webhook verification or non-Gmail email subscribers.
+OpenClaw is historical context, not the target backend. Agent Room moved away from OpenClaw to avoid inheriting a broad monolith that owns too much orchestration, channel, gateway, cron, plugin, and runtime behavior. The replacement direction is not "raw Pi as the whole app." It is "Agent Room owns the coworker product around Pi."
 
-## What Agent Room Does Not Build
+## What Must Be Required, Not Bloat
 
-- A raw model loop from scratch while Pi can supply the kernel.
-- A broad plugin framework before the Pi wrapper proves the room runtime.
-- User-facing sandbox or engine choice.
-- Silent provider fallback or generic model-provider flattening.
-- Duplicate transcript persistence unless a later product requirement explicitly changes the source-of-truth contract.
-- Channel adapters and broad integration surfaces before the core room runtime is stable.
+The product should not copy OpenClaw's large control plane, but it must still provide the capabilities a real coworker needs.
 
-## Architecture
+Required:
 
-Agent Room ships as a separate service that supervises room runtimes. Each room runs one dedicated Pi wrapper process behind the internal adapter boundary.
+- persistent room-local identity and memory
+- long-running autonomous work
+- scheduled jobs
+- web search and direct URL fetch
+- normal office and media artifacts
+- file previews and durable artifact storage
+- provider and model truth
+- secret safety
+- auditability
+- usage and cost telemetry
+- MCP support for ecosystem tools
+- clean failure and recovery behavior
 
-Agent Room owns lifecycle, routing, locks, provider records, secret materialization, MCP entitlement, cron, audit, UI read models, and reconciliation. Pi owns the agent session kernel inside the wrapper. The wrapper translates between Agent Room's room contract and Pi's SDK/event surfaces.
+Bloat:
 
-## Isolation Model
+- a monolithic gateway that owns product state
+- broad channel adapters before the room runtime is stable
+- hidden plugin systems that bypass Agent Room policy
+- duplicated schedulers
+- generic provider flattening that hides provider-specific semantics
+- UI surfaces for ports, tokens, runtime internals, and raw payloads
+- browser automation as the only way to do basic search
 
-Isolation comes from:
+## Room Isolation
 
-- one dedicated wrapper process per room
-- one room-local filesystem root per room
-- one room-local Pi state root per room
-- one bearer token per room
-- one loopback-only port per room
-- one canonical Dockerized deployment path
+Each room is isolated by implementation:
 
-Room runtimes must not use global `~/.pi`, `~/.codex`, `~/.openclaw`, host-machine provider tokens, or shared runtime state.
+- one room root
+- one workspace
+- one artifact store
+- one Pi state root
+- one runtime process
+- one runtime token
+- one provider/materialized config
+- one MCP binding set
+- one memory source
 
-## Principles
+This matters for code and security, but it should not be explained to the model in the normal system prompt. The model should be addressed as the agent for its own workspace. It does not need to know that other rooms exist.
 
-- The agent is a colleague, not a session.
+## Memory Direction
+
+Memory is per room only.
+
+There is no shared personal memory layer. The whole product promise is that the personal assistant room, marketing assistant room, development room, and any other room are separate coworkers with separate context.
+
+The canonical memory source is one JSON document per room. The runtime renders that JSON into a bounded two-page brief and injects it into the prompt. The JSON remains the source of truth. The rendered brief is only a deterministic view.
+
+Memory stores:
+
+- who this agent is
+- what this agent is responsible for
+- relevant operator preferences for this room
+- behavior rules for this room
+- current work
+- deadlines
+- reminders
+- durable decisions
+- high-importance facts
+
+Current date and time are injected by runtime context and are not stored as memory.
+
+## Web Direction
+
+Web search is a built-in Agent Room capability.
+
+The first implementation should not require another paid search service token. The Docker stack should include an internal search backend, with SearXNG as the target default unless implementation proves it insufficient.
+
+The first web tools are:
+
+- search the web
+- fetch a known URL
+
+Browser automation and Chrome MCP are important later, but they belong to a broader computer-use capability. They are not the first search primitive.
+
+## Artifact Direction
+
+Agent Room should speak in normal work formats.
+
+Developers are comfortable with text, Markdown, and JSON. Normal work is done with PDF, DOCX, XLSX, PPTX, images, and eventually video and voice. Internal representations can be structured JSON or Markdown, but final deliverables should match the real-world format implied by the request.
+
+The product must support:
+
+- creating Office files
+- editing Office files
+- exporting PDFs
+- previewing generated artifacts
+- generating images through configured providers
+- storing artifacts durably with provenance
+
+It is acceptable for an implementation to regenerate a document internally when safer than patching in place, but the product behavior remains "edit this document."
+
+## Telemetry Direction
+
+Usage and cost are product features.
+
+Rooms should show real usage data, not placeholders:
+
+- tokens
+- cost estimates
+- runtime
+- tool calls
+- scheduled run history
+- document/image worker usage
+- provider/model breakdowns
+
+Unknown usage must remain explicitly unknown. Agent Room should not invent cost or token values when the provider does not expose them.
+
+## System Prompt Direction
+
+The system prompt is the harness that ties the product together. It must be specific and operational.
+
+It should tell the model:
+
+- who it is
+- what work it owns
+- how to plan
+- how to execute
+- how to verify
+- when to search
+- how to use memory
+- how to produce normal artifacts
+- how to handle scheduled autonomous work
+- how to communicate results
+
+It should not explain room isolation, runtime tokens, ports, other rooms, process boundaries, or implementation topology.
+
+## Product Principles
+
+- The agent is a coworker, not a chat session.
+- A room is standalone.
 - Pi is the kernel, not the product owner.
-- Agent Room owns orchestration, policy, provider truth, scheduling, audit, and UX.
-- The room runtime owns only the execution state it directly produces.
-- Provider semantics stay visible. No generic abstraction may hide provider identity or auth behavior.
-- One strict execution-engine contract now. Add abstraction only when it removes real duplication.
-- Correctness, isolation, auditability, credential safety, and runtime/provider truth beat convenience.
+- Agent Room owns orchestration, provider truth, memory, capabilities, artifacts, jobs, audit, telemetry, and UX.
+- Normal artifacts are first-class.
+- Web access is first-class.
+- Memory is typed, bounded, and room-local.
+- Fallbacks are explicit, bounded, logged, and fail closed where safety matters.
+- The UI should make work understandable without exposing runtime machinery.
 
-## OpenClaw Findings Kept As Historical Context
+## Deployment Readiness Definition
 
-OpenClaw was useful because it proved many runtime surfaces are real:
+Agent Room is ready for personal deployment when a room can:
 
-- Gateway transport can back an external UI.
-- Sessions and event streams are enough to render a room workspace.
-- Cron and wake behavior are valuable product features.
-- Per-runtime filesystem and credential boundaries are the right isolation shape.
-- The bundled Control UI does not solve the room-first operator UX.
+- remember room-local durable facts through JSON memory
+- search the web
+- fetch known URLs safely
+- work for hours without false timeout failure
+- stop hung work
+- run scheduled jobs without duplicate claims
+- create and edit normal files
+- generate images through configured providers
+- show usage and cost telemetry
+- remain auditable and room-local
 
-The replacement study concluded that Agent Room should implement the orchestration pieces directly around Pi instead of inheriting OpenClaw's monolith.
-
-## Locked Product Decisions
-
-1. **Default room view:** hybrid, biased toward recent unattended activity with chat always visible.
-2. **Trigger UX:** typed per-trigger forms first. Add raw JSON only as a bounded advanced escape hatch later.
-3. **UI-local persistence:** no separate UI database for v0 unless a clearly non-derivable concern proves itself.
-4. **Runtime isolation model:** exactly one dedicated Pi wrapper runtime per room. No shared multi-room runtime and no user-facing engine selector.
-5. **Deployment story:** one canonical self-hosting path. Full runtime behavior must work inside the stack with no host OpenClaw dependency.
-6. **Runtime strategy:** implement Pi first behind the existing adapter boundary. Remove OpenClaw only after Pi passes direct room behavior and downstream verification.
+OSS compatibility, public security docs, and release packaging are a separate pass after the core coworker behavior is ready.

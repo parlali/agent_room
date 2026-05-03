@@ -143,7 +143,7 @@ export function describeSchedule(everyMinutes: number | null | undefined): strin
     if (everyMinutes === null || everyMinutes === undefined || everyMinutes <= 0) return 'Manual'
     const preset = schedulePresets.find((p) => p.everyMinutes === everyMinutes)
     if (preset) return preset.label
-    if (everyMinutes < 60) return `Every ${everyMinutes} minutes`
+    if (everyMinutes < 60) return everyMinutes === 1 ? 'Every minute' : `Every ${everyMinutes} minutes`
     if (everyMinutes % (24 * 60) === 0) {
         const days = everyMinutes / (24 * 60)
         return days === 1 ? 'Every day' : `Every ${days} days`

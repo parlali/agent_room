@@ -6,6 +6,8 @@ import {
     CalendarClockIcon,
     ActivityIcon,
     SettingsIcon,
+    BrainIcon,
+    BarChart3Icon,
     PauseIcon,
     PlayIcon,
     type LucideIcon,
@@ -23,7 +25,7 @@ import { RoomGlyph, StateBadge } from '#/components/agent-room'
 import { listRoomsServer, setRoomDesiredStateServer } from '#/routes/-room-runtime-server'
 import type { RoomRuntimeOverview } from '#/server/rooms/execution-types'
 
-export type RoomDashboardTab = 'home' | 'files' | 'jobs' | 'status' | 'settings'
+export type RoomDashboardTab = 'home' | 'files' | 'jobs' | 'memory' | 'usage' | 'status' | 'settings'
 
 interface TabDef {
     id: RoomDashboardTab
@@ -33,6 +35,8 @@ interface TabDef {
         | '/rooms/$roomId'
         | '/rooms/$roomId/files'
         | '/rooms/$roomId/jobs'
+        | '/rooms/$roomId/memory'
+        | '/rooms/$roomId/usage'
         | '/rooms/$roomId/status'
         | '/rooms/$roomId/settings'
 }
@@ -41,6 +45,8 @@ const TABS: TabDef[] = [
     { id: 'home', label: 'Home', icon: HomeIcon, to: '/rooms/$roomId' },
     { id: 'files', label: 'Files', icon: FolderIcon, to: '/rooms/$roomId/files' },
     { id: 'jobs', label: 'Jobs', icon: CalendarClockIcon, to: '/rooms/$roomId/jobs' },
+    { id: 'memory', label: 'Memory', icon: BrainIcon, to: '/rooms/$roomId/memory' },
+    { id: 'usage', label: 'Usage', icon: BarChart3Icon, to: '/rooms/$roomId/usage' },
     { id: 'status', label: 'Status', icon: ActivityIcon, to: '/rooms/$roomId/status' },
     { id: 'settings', label: 'Settings', icon: SettingsIcon, to: '/rooms/$roomId/settings' },
 ]

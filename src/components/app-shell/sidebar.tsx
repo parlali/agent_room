@@ -2,6 +2,7 @@ import { Link, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import {
     ActivityIcon,
+    BarChart3Icon,
     CalendarClockIcon,
     FolderIcon,
     PlusIcon,
@@ -24,6 +25,7 @@ const TOP_LINKS = [
     { to: '/activity', label: 'Activity', icon: ActivityIcon, exact: true },
     { to: '/jobs', label: 'Jobs', icon: CalendarClockIcon, exact: true },
     { to: '/files', label: 'Files', icon: FolderIcon, exact: true },
+    { to: '/usage', label: 'Usage', icon: BarChart3Icon, exact: true },
 ] as const
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {

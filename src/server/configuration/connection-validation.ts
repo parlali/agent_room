@@ -29,6 +29,11 @@ import {
     providerRequiresStoredCredential,
     resolveProviderBaseUrl,
 } from './provider-config'
+import {
+    defaultCapabilities,
+    normalizeBudgets,
+    normalizeSearchConfig,
+} from './capabilities'
 
 export interface ConnectionValidationResult {
     status: ConnectionStatus
@@ -245,6 +250,24 @@ function buildValidationRoomConfiguration(
     return {
         instructions: '',
         toolsProfile: 'read-only',
+        capabilities: {
+            ...defaultCapabilities,
+            documents: false,
+            spreadsheets: false,
+            presentations: false,
+            pdf: false,
+            images: false,
+            mcp: false,
+            shellCoding: false,
+        },
+        search: normalizeSearchConfig(null),
+        image: {
+            enabled: false,
+            provider: null,
+            model: null,
+            envKey: null,
+        },
+        budgets: normalizeBudgets(),
         provider: {
             provider: input.provider,
             authMode: input.authMode,

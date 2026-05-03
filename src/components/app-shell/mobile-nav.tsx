@@ -1,5 +1,12 @@
 import { Link, useRouterState } from '@tanstack/react-router'
-import { ActivityIcon, CalendarClockIcon, FolderIcon, HomeIcon, SettingsIcon } from 'lucide-react'
+import {
+    ActivityIcon,
+    BarChart3Icon,
+    CalendarClockIcon,
+    FolderIcon,
+    HomeIcon,
+    SettingsIcon,
+} from 'lucide-react'
 
 import { cn } from '#/lib/utils'
 
@@ -18,6 +25,7 @@ const ITEMS = [
     },
     { to: '/jobs', label: 'Jobs', icon: CalendarClockIcon, match: (p: string) => p === '/jobs' },
     { to: '/files', label: 'Files', icon: FolderIcon, match: (p: string) => p === '/files' },
+    { to: '/usage', label: 'Usage', icon: BarChart3Icon, match: (p: string) => p === '/usage' },
     {
         to: '/settings',
         label: 'Settings',
@@ -29,7 +37,7 @@ const ITEMS = [
 export function MobileBottomNav() {
     const pathname = useRouterState({ select: (s) => s.location.pathname })
     return (
-        <nav className="fixed inset-x-0 bottom-0 z-30 grid h-14 grid-cols-5 border-t border-border bg-background/95 backdrop-blur md:hidden">
+        <nav className="fixed inset-x-0 bottom-0 z-30 grid h-14 grid-cols-6 border-t border-border bg-background/95 backdrop-blur md:hidden">
             {ITEMS.map((item) => {
                 const Icon = item.icon
                 const active = item.match(pathname)

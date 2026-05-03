@@ -3,6 +3,7 @@ import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import type { MaterializedRoomConfiguration, RoomPaths } from '../domain/types'
+import { testBudgets, testCapabilities, testImage, testSearch } from '../pi-runtime/test-runtime-defaults'
 import { buildPiRuntimeConfig } from './pi-runtime-config'
 import { piRuntimeEngineProfile } from './pi-runtime-engine-profile'
 
@@ -31,6 +32,10 @@ function roomConfiguration(): MaterializedRoomConfiguration {
     return {
         instructions: 'Room policy',
         toolsProfile: 'coding',
+        capabilities: testCapabilities,
+        search: testSearch,
+        image: testImage,
+        budgets: testBudgets,
         provider: {
             provider: 'lmstudio',
             authMode: 'api_key',

@@ -15,6 +15,13 @@ function thread(overrides: Partial<ThreadRecord> = {}): ThreadRecord {
         modelProvider: 'openai-codex',
         model: 'gpt-5.4-mini',
         activeRunId: 'parent-run',
+        activeRunKind: null,
+        heartbeatAt: null,
+        runStartedAt: null,
+        runBudgetExpiresAt: null,
+        idleTimeoutExpiresAt: null,
+        activeDurationMs: 0,
+        idleDurationMs: 0,
         lastError: null,
         kind: 'main',
         parentThreadKey: null,
@@ -92,7 +99,9 @@ describe('subagent tool', () => {
         expect(runPrompt).toHaveBeenCalledWith(
             expect.objectContaining({
                 record: child,
-                message: 'Do a bounded task',
+                message: expect.stringContaining('Task: Do a bounded task'),
+                runId: child.subagentRunId,
+                runKind: 'subagent',
                 awaitCompletion: true,
             }),
         )

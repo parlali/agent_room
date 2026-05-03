@@ -41,6 +41,15 @@ export const secretRepository = {
         return mapSecret(rows[0] as Record<string, unknown>)
     },
 
+    async deleteById(secretId: string): Promise<boolean> {
+        const rows = await sql`
+            DELETE FROM secrets
+            WHERE id = ${secretId}
+            RETURNING id
+        `
+        return rows.length > 0
+    },
+
     async listByIds(secretIds: string[]): Promise<SecretRecord[]> {
         if (secretIds.length === 0) {
             return []

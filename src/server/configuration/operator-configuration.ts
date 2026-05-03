@@ -18,7 +18,10 @@ import type {
     AppMcpConnectionRecord,
     AppProviderConnectionRecord,
     AppSettingsRecord,
+    CapabilityConfig,
+    CapabilityId,
     ConnectionStatus,
+    ImageProviderId,
     JsonValue,
     MaterializedEntitlements,
     MaterializedMcpServer,
@@ -64,6 +67,15 @@ import {
 } from './provider-config'
 import { inspectCodexAuthStatus, type CodexAuthStatus } from './codex-auth'
 import { validateMcpConnection, validateProviderConnection } from './connection-validation'
+import {
+    capabilityConfigToJson,
+    mergeCapabilities,
+    normalizeBudgets,
+    normalizeCapabilityConfig,
+    normalizeImageConfig,
+    normalizeImageProvider,
+    normalizeSearchConfig,
+} from './capabilities'
 
 const providerSaveSchema = z.object({
     id: z.string().uuid().optional(),
@@ -103,6 +115,10 @@ const roomConfigSaveSchema = z.object({
     providerModel: z.string().trim().nullable().optional(),
     providerApiKey: z.string().optional(),
     toolsProfile: z.enum(roomToolProfiles).default('coding'),
+    capabilityOverrides: z.record(z.string(), z.boolean()).default({}),
+    imageProvider: z.enum(['openai', 'gemini']).nullable().optional(),
+    imageModel: z.string().trim().nullable().optional(),
+    imageApiKey: z.string().optional(),
     cronTimezone: z.string().trim().min(1).default('UTC'),
     mcpConnectionIds: z.array(z.string().uuid()).default([]),
 })
@@ -158,6 +174,18 @@ export interface McpConnectionSummary {
 export interface AppSettingsSummary {
     defaultProviderConnectionId: string | null
     defaultModel: string | null
+    capabilityDefaults: Record<CapabilityId, boolean>
+    search: {
+        enabled: boolean
+        backendUrl: string
+        defaultResultCount: number
+        timeoutMs: number
+    }
+    image: {
+        provider: ImageProviderId | null
+        model: string | null
+        hasCredential: boolean
+    }
     onboardingCompletedAt: string | null
 }
 
@@ -194,6 +222,11 @@ export interface RoomConfigSnapshot {
         providerModel: string | null
         hasRoomProviderSecret: boolean
         toolsProfile: RoomToolProfile
+        capabilities: CapabilityConfig
+        capabilityOverrides: Record<string, boolean>
+        imageProvider: ImageProviderId | null
+        imageModel: string | null
+        hasImageProviderSecret: boolean
         cronTimezone: string
         mcpConnectionIds: string[]
     }
@@ -205,6 +238,9 @@ export interface RoomConfigSnapshot {
         provider: string | null
         model: string | null
         mcpServers: string[]
+        capabilities: CapabilityConfig
+        searchReady: boolean
+        imageReady: boolean
         codexAuth: CodexAuthStatus | null
     }
     providers: ProviderConnectionSummary[]
@@ -289,6 +325,33 @@ function nullableText(value: string | null | undefined): string | null {
     return trimmed ? trimmed : null
 }
 
+function imageProviderEnvKey(provider: ImageProviderId): string {
+    return provider === 'openai'
+        ? 'AGENT_ROOM_IMAGE_OPENAI_API_KEY'
+        : 'AGENT_ROOM_IMAGE_GEMINI_API_KEY'
+}
+
+function isImageProviderEnvKey(envKey: string): boolean {
+    const normalized = upperSnake(envKey)
+    return (
+        normalized === imageProviderEnvKey('openai') ||
+        normalized === imageProviderEnvKey('gemini')
+    )
+}
+
+function imageConfigRecord(value: JsonValue): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {}
+}
+
+function imageConfigSecretId(value: JsonValue): string | null {
+    const record = imageConfigRecord(value)
+    return typeof record.secretId === 'string' && record.secretId.trim()
+        ? record.secretId.trim()
+        : null
+}
+
 function validateBaseUrl(baseUrl: string | null): string | null {
     if (!baseUrl) {
         return null
@@ -344,9 +407,24 @@ function summarizeMcp(record: AppMcpConnectionRecord): McpConnectionSummary {
 }
 
 function summarizeSettings(record: AppSettingsRecord): AppSettingsSummary {
+    const search = normalizeSearchConfig(record.searchConfig)
+    const imageConfig = imageConfigRecord(record.imageConfig)
+    const imageSecretId = imageConfigSecretId(record.imageConfig)
     return {
         defaultProviderConnectionId: record.defaultProviderConnectionId,
         defaultModel: record.defaultModel,
+        capabilityDefaults: capabilityConfigToJson(
+            normalizeCapabilityConfig(record.capabilityDefaults),
+        ),
+        search,
+        image: {
+            provider: normalizeImageProvider(imageConfig.provider),
+            model:
+                typeof imageConfig.model === 'string' && imageConfig.model.trim()
+                    ? imageConfig.model.trim()
+                    : null,
+            hasCredential: imageSecretId !== null,
+        },
         onboardingCompletedAt: toIso(record.onboardingCompletedAt),
     }
 }
@@ -504,12 +582,18 @@ export async function saveProviderConnection(
         completedAt: validationCompletedAt,
     })
 
+    const settings = await appSettingsRepository.getOrCreate()
     if (input.makeDefault && saved.status === 'ready') {
-        const settings = await appSettingsRepository.getOrCreate()
         await appSettingsRepository.update({
             defaultProviderConnectionId: saved.id,
-            defaultModel: saved.defaultModel,
+            defaultModel: null,
             onboardingCompletedAt: settings.onboardingCompletedAt ?? new Date(),
+        })
+    } else if (input.id && input.makeDefault === false && settings.defaultProviderConnectionId === saved.id) {
+        await appSettingsRepository.update({
+            defaultProviderConnectionId: null,
+            defaultModel: null,
+            onboardingCompletedAt: settings.onboardingCompletedAt,
         })
     }
 
@@ -656,13 +740,109 @@ export async function saveMcpConnection(
     return summarizeMcp(saved)
 }
 
+export async function deleteProviderConnection(input: {
+    id: string
+    actorUserId: string
+}): Promise<{ id: string }> {
+    const existing = await appProviderConnectionRepository.findById(input.id)
+    if (!existing) {
+        throw new Error('Provider connection does not exist')
+    }
+
+    const roomReferences = await appProviderConnectionRepository.countRoomReferences(existing.id)
+    if (roomReferences > 0) {
+        throw new Error(
+            `Provider connection is used by ${roomReferences} room${roomReferences === 1 ? '' : 's'}. Remove it from those rooms before deleting.`,
+        )
+    }
+
+    const settings = await appSettingsRepository.getOrCreate()
+    const wasDefault = settings.defaultProviderConnectionId === existing.id
+    const deleted = await appProviderConnectionRepository.deleteByIdIfUnused(existing.id)
+    if (!deleted) {
+        const currentReferences = await appProviderConnectionRepository.countRoomReferences(
+            existing.id,
+        )
+        if (currentReferences > 0) {
+            throw new Error(
+                `Provider connection is used by ${currentReferences} room${currentReferences === 1 ? '' : 's'}. Remove it from those rooms before deleting.`,
+            )
+        }
+        throw new Error('Provider connection could not be deleted')
+    }
+
+    if (existing.credentialSecretId) {
+        await secretRepository.deleteById(existing.credentialSecretId)
+    }
+
+    await auditRepository.appendEvent({
+        actorUserId: input.actorUserId,
+        roomId: null,
+        action: 'provider_connection.deleted',
+        payload: {
+            providerConnectionId: existing.id,
+            provider: existing.provider,
+            authMode: existing.authMode,
+            wasDefault,
+            hadCredential: existing.credentialSecretId !== null,
+        },
+    })
+
+    return { id: existing.id }
+}
+
+export async function deleteMcpConnection(input: {
+    id: string
+    actorUserId: string
+}): Promise<{ id: string }> {
+    const existing = await appMcpConnectionRepository.findById(input.id)
+    if (!existing) {
+        throw new Error('Connected tool does not exist')
+    }
+
+    const roomBindings = await appMcpConnectionRepository.countRoomBindings(existing.id)
+    if (roomBindings > 0) {
+        throw new Error(
+            `Connected tool is used by ${roomBindings} room${roomBindings === 1 ? '' : 's'}. Remove it from those rooms before deleting.`,
+        )
+    }
+
+    const deleted = await appMcpConnectionRepository.deleteByIdIfUnused(existing.id)
+    if (!deleted) {
+        const currentBindings = await appMcpConnectionRepository.countRoomBindings(existing.id)
+        if (currentBindings > 0) {
+            throw new Error(
+                `Connected tool is used by ${currentBindings} room${currentBindings === 1 ? '' : 's'}. Remove it from those rooms before deleting.`,
+            )
+        }
+        throw new Error('Connected tool could not be deleted')
+    }
+
+    if (existing.credentialSecretId) {
+        await secretRepository.deleteById(existing.credentialSecretId)
+    }
+
+    await auditRepository.appendEvent({
+        actorUserId: input.actorUserId,
+        roomId: null,
+        action: 'mcp_connection.deleted',
+        payload: {
+            mcpConnectionId: existing.id,
+            serverKey: existing.serverKey,
+            transport: existing.transport,
+            hadCredential: existing.credentialSecretId !== null,
+        },
+    })
+
+    return { id: existing.id }
+}
+
 export async function updateAppDefaults(input: {
     defaultProviderConnectionId: string | null
     defaultModel: string | null
     onboardingCompleted: boolean
     actorUserId: string
 }): Promise<AppSettingsSummary> {
-    let defaultModel = nullableText(input.defaultModel)
     if (input.defaultProviderConnectionId) {
         const provider = await appProviderConnectionRepository.findById(
             input.defaultProviderConnectionId,
@@ -676,23 +856,18 @@ export async function updateAppDefaults(input: {
                     `Default provider connection ${provider.label} is not ready`,
             )
         }
-        if (defaultModel) {
-            defaultModel = normalizeProviderModel(provider.provider, defaultModel)
-            if (!defaultModel.startsWith(`${provider.provider}/`)) {
-                throw new Error('Default model must belong to the selected default provider')
-            }
-        }
-    } else {
-        defaultModel = null
     }
 
     const current = await appSettingsRepository.getOrCreate()
     const saved = await appSettingsRepository.update({
         defaultProviderConnectionId: input.defaultProviderConnectionId,
-        defaultModel,
+        defaultModel: null,
         onboardingCompletedAt: input.onboardingCompleted
             ? (current.onboardingCompletedAt ?? new Date())
             : null,
+        capabilityDefaults: undefined,
+        searchConfig: undefined,
+        imageConfig: undefined,
     })
 
     await auditRepository.appendEvent({
@@ -701,8 +876,99 @@ export async function updateAppDefaults(input: {
         action: 'app_settings.updated',
         payload: {
             defaultProviderConnectionId: saved.defaultProviderConnectionId,
-            hasDefaultModel: saved.defaultModel !== null,
+            hasDefaultModel: false,
             onboardingCompleted: saved.onboardingCompletedAt !== null,
+        },
+    })
+
+    return summarizeSettings(saved)
+}
+
+export async function updateAppCapabilitySettings(input: {
+    capabilityDefaults: Record<string, boolean>
+    search?: {
+        enabled: boolean
+        backendUrl: string
+        defaultResultCount: number
+        timeoutMs: number
+    }
+    image: {
+        provider: ImageProviderId | null
+        model: string | null
+        apiKey?: string
+    }
+    actorUserId: string
+}): Promise<AppSettingsSummary> {
+    const current = await appSettingsRepository.getOrCreate()
+    const capabilities = normalizeCapabilityConfig(input.capabilityDefaults)
+    const search = normalizeSearchConfig((input.search ?? current.searchConfig) as JsonValue)
+    const currentImageProvider = normalizeImageProvider(imageConfigRecord(current.imageConfig).provider)
+    const currentImageSecretId = imageConfigSecretId(current.imageConfig)
+    const imageProvider = input.image.provider
+    const imageModel = imageProvider ? nullableText(input.image.model) : null
+    const imageApiKey = input.image.apiKey?.trim() ?? ''
+    let imageSecretId: string | null = null
+
+    if (imageProvider && !imageModel) {
+        throw new Error('Default image model is required when image generation is enabled')
+    }
+
+    if (imageProvider && imageModel) {
+        if (imageApiKey) {
+            const secret = await upsertEncryptedSecret({
+                keyName: `app_image:${imageProvider}:api_key`,
+                plainText: imageApiKey,
+            })
+            imageSecretId = secret.id
+        } else if (currentImageProvider === imageProvider && currentImageSecretId) {
+            const existingSecret = await resolveSecret(currentImageSecretId)
+            if (!existingSecret) {
+                throw new Error('Saved image API key is missing; enter a new image API key')
+            }
+            imageSecretId = existingSecret.id
+        } else {
+            throw new Error('Image API key is required when enabling an app image provider')
+        }
+    }
+
+    const imageConfig =
+        imageProvider && imageModel && imageSecretId
+            ? {
+                  provider: imageProvider,
+                  model: imageModel,
+                  secretId: imageSecretId,
+              }
+            : {
+                  provider: null,
+                  model: null,
+                  secretId: null,
+              }
+
+    const saved = await appSettingsRepository.update({
+        defaultProviderConnectionId: current.defaultProviderConnectionId,
+        defaultModel: current.defaultModel,
+        onboardingCompletedAt: current.onboardingCompletedAt,
+        capabilityDefaults: capabilityConfigToJson(capabilities),
+        searchConfig: search as unknown as JsonValue,
+        imageConfig: imageConfig as JsonValue,
+    })
+
+    if (currentImageSecretId && currentImageSecretId !== imageSecretId) {
+        await secretRepository.deleteById(currentImageSecretId)
+    }
+
+    await auditRepository.appendEvent({
+        actorUserId: input.actorUserId,
+        roomId: null,
+        action: 'app_capabilities.updated',
+        payload: {
+            enabledCapabilities: Object.entries(capabilityConfigToJson(capabilities))
+                .filter(([, enabled]) => enabled)
+                .map(([key]) => key),
+            searchEnabled: search.enabled,
+            imageProvider: imageConfig.provider,
+            hasImageModel: imageConfig.model !== null,
+            hasImageCredential: imageConfig.secretId !== null,
         },
     })
 
@@ -735,6 +1001,31 @@ async function upsertRoomProviderSecret(input: {
     return secret
 }
 
+async function upsertRoomImageSecret(input: {
+    roomId: string
+    actorUserId: string
+    provider: ImageProviderId
+    apiKey: string
+}): Promise<SecretRecord> {
+    const envKey = imageProviderEnvKey(input.provider)
+    const secret = await upsertEncryptedSecret({
+        keyName: `room:${input.roomId}:image:${input.provider}:api_key`,
+        plainText: input.apiKey,
+    })
+
+    await roomSecretRepository.upsert({
+        roomId: input.roomId,
+        secretId: secret.id,
+        label: `${input.provider} image key`,
+        envKey,
+        purpose: 'provider_api_key',
+        provider: input.provider,
+        createdByUserId: input.actorUserId,
+    })
+
+    return secret
+}
+
 export async function saveRoomConfig(
     rawInput: RoomConfigSaveInput,
     actorUserId: string,
@@ -746,7 +1037,10 @@ export async function saveRoomConfig(
     }
 
     const existing = await roomConfigRepository.getOrCreate(input.roomId)
+    const previousProviderSecretId = existing.providerSecretId
+    const previousImageSecretId = existing.imageSecretId
     let providerSecretId = existing.providerSecretId
+    let imageSecretId = existing.imageSecretId
     const provider = nullableText(input.provider)
         ? normalizeProviderId(nullableText(input.provider) ?? '')
         : null
@@ -846,6 +1140,35 @@ export async function saveRoomConfig(
         }
     }
 
+    const imageProvider = normalizeImageProvider(input.imageProvider)
+    const imageModel = nullableText(input.imageModel)
+    const imageApiKey = input.imageApiKey?.trim() ?? ''
+    if (imageProvider && imageModel) {
+        if (imageApiKey) {
+            const secret = await upsertRoomImageSecret({
+                roomId: input.roomId,
+                actorUserId,
+                provider: imageProvider,
+                apiKey: imageApiKey,
+            })
+            imageSecretId = secret.id
+            await auditRepository.appendEvent({
+                actorUserId,
+                roomId: input.roomId,
+                action: 'room_image_secret.rotated',
+                payload: {
+                    provider: imageProvider,
+                },
+            })
+        } else if (!imageSecretId) {
+            imageSecretId = null
+        } else if (existing.imageProvider !== imageProvider) {
+            imageSecretId = null
+        }
+    } else {
+        imageSecretId = null
+    }
+
     const config = await roomConfigRepository.upsert({
         roomId: input.roomId,
         instructions: input.instructions.trim(),
@@ -858,6 +1181,10 @@ export async function saveRoomConfig(
         providerModel: input.providerMode === 'room_secret' ? normalizedProviderModel : null,
         providerSecretId: input.providerMode === 'room_secret' ? providerSecretId : null,
         toolsProfile: input.toolsProfile,
+        capabilityOverrides: input.capabilityOverrides as JsonValue,
+        imageProvider,
+        imageModel: imageProvider ? imageModel : null,
+        imageSecretId,
         cronTimezone: input.cronTimezone,
     })
 
@@ -879,8 +1206,42 @@ export async function saveRoomConfig(
             providerConnectionId: config.providerConnectionId,
             mcpConnectionCount: input.mcpConnectionIds.length,
             hasInstructions: config.instructions.length > 0,
+            enabledCapabilities: Object.entries(
+                config.capabilityOverrides &&
+                    typeof config.capabilityOverrides === 'object' &&
+                    !Array.isArray(config.capabilityOverrides)
+                    ? config.capabilityOverrides
+                    : {},
+            )
+                .filter(([, value]) => value === true)
+                .map(([key]) => key),
+            imageProvider: config.imageProvider,
+            hasImageProviderSecret: config.imageSecretId !== null,
         },
     })
+
+    const retainedSecretIds = new Set(
+        [config.providerSecretId, config.imageSecretId].filter(
+            (secretId): secretId is string => typeof secretId === 'string',
+        ),
+    )
+    const staleSecretIds = [previousProviderSecretId, previousImageSecretId].filter(
+        (secretId): secretId is string =>
+            typeof secretId === 'string' && !retainedSecretIds.has(secretId),
+    )
+    for (const secretId of [...new Set(staleSecretIds)]) {
+        await secretRepository.deleteById(secretId)
+    }
+    if (staleSecretIds.length > 0) {
+        await auditRepository.appendEvent({
+            actorUserId,
+            roomId: input.roomId,
+            action: 'room_credential_secret.cleaned',
+            payload: {
+                count: new Set(staleSecretIds).size,
+            },
+        })
+    }
 
     return getRoomConfigSnapshot(input.roomId)
 }
@@ -945,7 +1306,20 @@ export async function saveRoomSecret(
 function summarizeRoomConfig(input: {
     config: RoomConfigRecord
     bindings: RoomMcpBindingRecord[]
+    settings: AppSettingsRecord
 }): RoomConfigSnapshot['config'] {
+    const capabilities = mergeCapabilities({
+        defaults: input.settings.capabilityDefaults,
+        overrides: input.config.capabilityOverrides,
+        toolsProfile: input.config.toolsProfile,
+        mcpConnectionCount: input.bindings.filter((binding) => binding.enabled).length,
+    })
+    const capabilityOverrides =
+        input.config.capabilityOverrides &&
+        typeof input.config.capabilityOverrides === 'object' &&
+        !Array.isArray(input.config.capabilityOverrides)
+            ? (input.config.capabilityOverrides as Record<string, boolean>)
+            : {}
     return {
         instructions: input.config.instructions,
         providerMode: input.config.providerMode,
@@ -956,6 +1330,11 @@ function summarizeRoomConfig(input: {
         providerModel: input.config.providerModel,
         hasRoomProviderSecret: input.config.providerSecretId !== null,
         toolsProfile: input.config.toolsProfile,
+        capabilities,
+        capabilityOverrides,
+        imageProvider: input.config.imageProvider,
+        imageModel: input.config.imageModel,
+        hasImageProviderSecret: input.config.imageSecretId !== null,
         cronTimezone: input.config.cronTimezone,
         mcpConnectionIds: input.bindings
             .filter((binding) => binding.enabled)
@@ -977,6 +1356,29 @@ async function resolveEffectiveRoomSummary(input: {
     let provider: string | null = null
     let model: string | null = null
     let codexAuth: CodexAuthStatus | null = null
+    const capabilities = mergeCapabilities({
+        defaults: input.settings.capabilityDefaults,
+        overrides: input.config.capabilityOverrides,
+        toolsProfile: input.config.toolsProfile,
+        mcpConnectionCount: input.bindings.filter((binding) => binding.enabled).length,
+    })
+    const search = normalizeSearchConfig(input.settings.searchConfig)
+    const appImageProvider = normalizeImageProvider(
+        imageConfigRecord(input.settings.imageConfig).provider,
+    )
+    const appImageSecretId = imageConfigSecretId(input.settings.imageConfig)
+    const imageEnvKey =
+        input.config.imageProvider && input.config.imageSecretId
+            ? imageProviderEnvKey(input.config.imageProvider)
+            : !input.config.imageProvider && appImageProvider && appImageSecretId
+              ? imageProviderEnvKey(appImageProvider)
+              : null
+    const image = normalizeImageConfig({
+        appConfig: input.settings.imageConfig,
+        roomProvider: input.config.imageProvider,
+        roomModel: input.config.imageModel,
+        envKey: imageEnvKey,
+    })
 
     if (input.config.providerMode === 'room_secret') {
         providerSource = 'room_secret'
@@ -1014,10 +1416,7 @@ async function resolveEffectiveRoomSummary(input: {
         } else {
             providerLabel = providerConnection.label
             provider = providerConnection.provider
-            model =
-                input.config.providerMode === 'app_default'
-                    ? (input.settings.defaultModel ?? providerConnection.defaultModel)
-                    : providerConnection.defaultModel
+            model = providerConnection.defaultModel
             if (providerConnection.authMode === 'oauth') {
                 codexAuth =
                     providerConnection.provider === 'openai-codex' ||
@@ -1080,6 +1479,9 @@ async function resolveEffectiveRoomSummary(input: {
                 )
                 return connection?.serverKey ?? binding.mcpConnectionId
             }),
+        capabilities,
+        searchReady: capabilities.webSearch && search.enabled,
+        imageReady: capabilities.images && image.enabled,
         codexAuth,
     }
 }
@@ -1099,6 +1501,7 @@ export async function getRoomConfigSnapshot(roomId: string): Promise<RoomConfigS
         config: summarizeRoomConfig({
             config,
             bindings,
+            settings,
         }),
         effective: await resolveEffectiveRoomSummary({
             roomId,
@@ -1217,10 +1620,7 @@ async function resolveProviderForMaterialization(input: {
         authMode: providerConnection.authMode,
         api: providerConnection.api,
         baseUrl: providerConnection.baseUrl,
-        model:
-            input.config.providerMode === 'app_default'
-                ? (input.settings.defaultModel ?? providerConnection.defaultModel)
-                : providerConnection.defaultModel,
+        model: providerConnection.defaultModel,
         fallbackModels: toStringArray(providerConnection.fallbackModels),
         secret: requiresCredential ? secret : null,
     }
@@ -1300,6 +1700,9 @@ async function materializeRoomSecrets(input: {
     const usedEnvKeys = new Set(input.reservedEnvKeys)
 
     for (const roomSecret of input.roomSecrets) {
+        if (roomSecret.purpose === 'provider_api_key') {
+            continue
+        }
         const envKey = upperSnake(roomSecret.envKey)
         assertNoReservedRoomRuntimeEnvKeys(
             {
@@ -1337,6 +1740,44 @@ async function materializeRoomSecrets(input: {
     return {
         env,
         secretRefs,
+    }
+}
+
+async function materializeImageSecret(input: {
+    provider: ImageProviderId
+    secret: SecretRecord | null
+    runtimeSecretsDir: string
+    encryptionKey: Buffer
+    entitlementId: string
+}): Promise<Pick<MaterializedEntitlements, 'env' | 'secretRefs'>> {
+    if (!input.secret) {
+        return {
+            env: {},
+            secretRefs: [],
+        }
+    }
+
+    const envKey = imageProviderEnvKey(input.provider)
+    const plainText = decryptSecretRecord(input.secret, input.encryptionKey)
+    const secretFilePath = join(input.runtimeSecretsDir, `${envKey.toLowerCase()}.secret`)
+    await writeFile(secretFilePath, plainText, {
+        encoding: 'utf8',
+        mode: 0o600,
+    })
+    await chmod(secretFilePath, 0o600)
+
+    return {
+        env: {
+            [envKey]: plainText,
+        },
+        secretRefs: [
+            {
+                entitlementId: input.entitlementId,
+                secretId: input.secret.id,
+                filePath: secretFilePath,
+                envKey,
+            },
+        ],
     }
 }
 
@@ -1421,8 +1862,33 @@ export async function materializeRoomConfiguration(input: {
         secret: providerSelection.secret,
         encryptionKey: env.encryptionKey,
     })
+    const appImageProvider = normalizeImageProvider(imageConfigRecord(settings.imageConfig).provider)
+    const appImageSecretId = imageConfigSecretId(settings.imageConfig)
+    const imageRoomSecret = config.imageSecretId
+        ? roomSecrets.find((roomSecret) => roomSecret.secretId === config.imageSecretId) ?? null
+        : null
+    const imageSecretId = config.imageProvider ? config.imageSecretId : appImageSecretId
+    const imageProvider = config.imageProvider ?? appImageProvider
+    const imageSecret = imageSecretId ? await resolveSecret(imageSecretId) : null
+    const imageMaterialization =
+        imageProvider && imageSecret
+            ? await materializeImageSecret({
+                  provider: imageProvider,
+                  secret: imageSecret,
+                  runtimeSecretsDir: input.runtimeSecretsDir,
+                  encryptionKey: env.encryptionKey,
+                  entitlementId: config.imageProvider ? 'room_image' : 'app_image',
+              })
+            : {
+                  env: {},
+                  secretRefs: [],
+              }
     const materializedRoomSecrets = roomSecrets.filter(
-        (roomSecret) => roomSecret.secretId !== providerSelection.secret?.id,
+        (roomSecret) =>
+            roomSecret.purpose !== 'provider_api_key' &&
+            roomSecret.secretId !== providerSelection.secret?.id &&
+            roomSecret.secretId !== imageRoomSecret?.secretId &&
+            !isImageProviderEnvKey(roomSecret.envKey),
     )
     const roomSecretRecords = await Promise.all(
         materializedRoomSecrets.map((roomSecret) => secretRepository.findById(roomSecret.secretId)),
@@ -1438,28 +1904,50 @@ export async function materializeRoomConfiguration(input: {
         runtimeSecretsDir: input.runtimeSecretsDir,
         secretById: roomSecretById,
         encryptionKey: env.encryptionKey,
-        reservedEnvKeys: new Set(Object.keys(providerMaterialization.entitlements.env)),
+        reservedEnvKeys: new Set([
+            ...Object.keys(providerMaterialization.entitlements.env),
+            ...Object.keys(imageMaterialization.env),
+        ]),
     })
     const mcpServers = await materializeMcpBindings({
         bindings,
         runtimeSecretsDir: input.runtimeSecretsDir,
         encryptionKey: env.encryptionKey,
     })
+    const enabledBindings = bindings.filter((binding) => binding.enabled)
+    const capabilities = mergeCapabilities({
+        defaults: settings.capabilityDefaults,
+        overrides: config.capabilityOverrides,
+        toolsProfile: config.toolsProfile,
+        mcpConnectionCount: enabledBindings.length,
+    })
+    const image = normalizeImageConfig({
+        appConfig: settings.imageConfig,
+        roomProvider: config.imageProvider,
+        roomModel: config.imageModel,
+        envKey: imageProvider && imageSecret ? imageProviderEnvKey(imageProvider) : null,
+    })
 
     return {
         instructions: config.instructions,
         toolsProfile: config.toolsProfile,
+        capabilities,
+        search: normalizeSearchConfig(settings.searchConfig),
+        image,
+        budgets: normalizeBudgets(),
         provider: providerMaterialization.provider,
         entitlements: {
             env: {
                 ...providerMaterialization.entitlements.env,
+                ...imageMaterialization.env,
                 ...roomSecretMaterialization.env,
             },
             secretRefs: [
                 ...providerMaterialization.entitlements.secretRefs,
+                ...imageMaterialization.secretRefs,
                 ...roomSecretMaterialization.secretRefs,
             ],
-            mcpServers,
+            mcpServers: capabilities.mcp ? mcpServers : [],
         },
     }
 }

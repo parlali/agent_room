@@ -26,6 +26,7 @@ export interface CreateSubagentToolInput {
         message: string
         runId: string
         awaitCompletion: boolean
+        runKind?: 'manual' | 'scheduled' | 'subagent' | 'maintenance'
     }) => Promise<string>
     readThreadMessages: (record: ThreadRecord, limit: number) => RoomExecutionMessage[]
     audit: (event: string, payload: unknown) => Promise<void>
@@ -46,10 +47,11 @@ export function createSubagentTool(input: CreateSubagentToolInput): ToolDefiniti
         label: 'Subagent',
         description:
             'Run a bounded child Pi session inside this Agent Room and return its final text.',
-        parameters: Type.Object({
-            task: Type.String(),
-            name: Type.Optional(Type.String()),
-        }),
+            parameters: Type.Object({
+                task: Type.String(),
+                name: Type.Optional(Type.String()),
+                writeScope: Type.Optional(Type.String()),
+            }),
         execute: async (_toolCallId, params) => {
             const task = String(params.task ?? '').trim()
             if (!task) {
@@ -88,11 +90,20 @@ export function createSubagentTool(input: CreateSubagentToolInput): ToolDefiniti
                 name,
             })
 
+            const writeScope =
+                typeof params.writeScope === 'string' && params.writeScope.trim()
+                    ? `\n\nWrite scope: ${input.shortText(params.writeScope, 1200)}`
+                    : ''
             await input.runPrompt({
                 record,
-                message: task,
+                message: [
+                    'You are a bounded subagent for this room.',
+                    'Do the assigned task only, do not spawn child agents, and return a concise final result with changed files or findings.',
+                    `Task: ${task}${writeScope}`,
+                ].join('\n\n'),
                 runId,
                 awaitCompletion: true,
+                runKind: 'subagent',
             })
 
             record.completedAt = Date.now()

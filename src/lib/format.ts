@@ -4,10 +4,10 @@ const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 const WEEK = 7 * DAY
 
-export function formatRelativeTime(input: number | string | null | undefined): string {
-    if (input === null || input === undefined) return '—'
-    const ts = typeof input === 'string' ? Date.parse(input) : input
-    if (!Number.isFinite(ts)) return '—'
+export function formatRelativeTime(input: number | string | Date | null | undefined): string {
+    if (input === null || input === undefined) return '-'
+    const ts = input instanceof Date ? input.getTime() : typeof input === 'string' ? Date.parse(input) : input
+    if (!Number.isFinite(ts)) return '-'
 
     const diff = Date.now() - ts
     const abs = Math.abs(diff)
@@ -34,12 +34,12 @@ export function formatRelativeTime(input: number | string | null | undefined): s
 }
 
 export function formatDateTime(
-    input: number | string | null | undefined,
+    input: number | string | Date | null | undefined,
     opts: { dateOnly?: boolean } = {},
 ): string {
-    if (input === null || input === undefined) return '—'
-    const ts = typeof input === 'string' ? Date.parse(input) : input
-    if (!Number.isFinite(ts)) return '—'
+    if (input === null || input === undefined) return '-'
+    const ts = input instanceof Date ? input.getTime() : typeof input === 'string' ? Date.parse(input) : input
+    if (!Number.isFinite(ts)) return '-'
     const date = new Date(ts)
     if (opts.dateOnly) {
         return date.toLocaleDateString(undefined, {
@@ -57,7 +57,7 @@ export function formatDateTime(
 }
 
 export function formatBytes(bytes: number | null | undefined): string {
-    if (bytes === null || bytes === undefined || !Number.isFinite(bytes)) return '—'
+    if (bytes === null || bytes === undefined || !Number.isFinite(bytes)) return '-'
     if (bytes < 1024) return `${bytes} B`
     const units = ['KB', 'MB', 'GB', 'TB']
     let value = bytes / 1024
@@ -70,7 +70,7 @@ export function formatBytes(bytes: number | null | undefined): string {
 }
 
 export function formatDurationMs(ms: number | null | undefined): string {
-    if (ms === null || ms === undefined || !Number.isFinite(ms)) return '—'
+    if (ms === null || ms === undefined || !Number.isFinite(ms)) return '-'
     if (ms < 1000) return `${Math.round(ms)} ms`
     if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`
     if (ms < 3_600_000) {
@@ -84,14 +84,14 @@ export function formatDurationMs(ms: number | null | undefined): string {
 }
 
 export function formatTokens(count: number | null | undefined): string {
-    if (count === null || count === undefined || !Number.isFinite(count)) return '—'
+    if (count === null || count === undefined || !Number.isFinite(count)) return '-'
     if (count < 1000) return String(count)
     if (count < 1_000_000) return `${(count / 1000).toFixed(count < 10_000 ? 1 : 0)}k`
     return `${(count / 1_000_000).toFixed(1)}M`
 }
 
 export function formatCostUsd(usd: number | null | undefined): string {
-    if (usd === null || usd === undefined || !Number.isFinite(usd)) return '—'
+    if (usd === null || usd === undefined || !Number.isFinite(usd)) return '-'
     if (usd < 0.01) return '<$0.01'
     if (usd < 1) return `$${usd.toFixed(3)}`
     return `$${usd.toFixed(2)}`
@@ -101,7 +101,7 @@ export function pluralize(count: number, singular: string, plural?: string): str
     return count === 1 ? singular : (plural ?? `${singular}s`)
 }
 
-export function initialsFromName(name: string | null | undefined, fallback = '··'): string {
+export function initialsFromName(name: string | null | undefined, fallback = '..'): string {
     if (!name) return fallback
     const trimmed = name.trim()
     if (!trimmed) return fallback

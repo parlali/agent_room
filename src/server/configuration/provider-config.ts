@@ -14,6 +14,12 @@ export const providerCatalog = [
         model: 'openrouter/auto',
     },
     {
+        provider: 'google',
+        label: 'Google Gemini',
+        api: 'google-generative-ai' as const,
+        model: 'google/gemini-2.5-flash',
+    },
+    {
         provider: 'ollama',
         label: 'Ollama',
         api: 'openai-completions' as const,

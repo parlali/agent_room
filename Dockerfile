@@ -5,7 +5,7 @@ ARG TARGETARCH
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl git tini \
+    && apt-get install -y --no-install-recommends ca-certificates curl fonts-dejavu git libreoffice poppler-utils tini \
     && rm -rf /var/lib/apt/lists/*
 
 RUN case "${TARGETARCH}" in \
