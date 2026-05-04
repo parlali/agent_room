@@ -17,7 +17,7 @@ tmp
 .tmp_bootstrap
 .agent-room
 room-data
-.claude/settings.local.json
+.claude
 dbmate
 db/schema.sql
 *.pid
