@@ -7,63 +7,15 @@ import * as XLSX from 'xlsx'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { __testing, createRoomTools, roomToolNamesForCapabilities } from './room-tools'
 import { createDocumentTools } from './document-tools'
-import { testBudgets, testCapabilities, testImage, testSearch } from './test-runtime-defaults'
+import {
+    createTestPiRuntimeConfig,
+    ensureTestPiRuntimeDirectories,
+    testCapabilities,
+} from './test-runtime-defaults'
 import { withToolRunContext } from './tool-run-context'
 
 function testConfig(root: string): PiRuntimeConfig {
-    return {
-        runtime: {
-            kind: 'pi',
-            roomId: 'room-1',
-            displayName: 'Room One',
-            bindHost: '127.0.0.1',
-            port: 32123,
-            token: 'token-token-token-token-token',
-        },
-        paths: {
-            roomRootDir: root,
-            stateDir: join(root, 'pi-state'),
-            workspaceDir: join(root, 'workspace'),
-            storeDir: join(root, 'store'),
-            sessionsDir: join(root, 'pi-state', 'sessions'),
-            internalStateDir: join(root, 'pi-state', 'internal-state'),
-            authPath: join(root, 'pi-state', 'auth.json'),
-            modelsPath: join(root, 'pi-state', 'models.json'),
-            threadIndexPath: join(root, 'pi-state', 'threads.json'),
-            runtimeEventsPath: join(root, 'pi-state', 'runtime-events.jsonl'),
-            homeDir: join(root, 'pi-state', 'home'),
-            tmpDir: join(root, 'pi-state', 'tmp'),
-        },
-        provider: {
-            sourceProvider: 'ollama',
-            sourceModel: 'llama',
-            piProvider: 'ollama',
-            piModel: 'llama',
-            api: 'openai-completions',
-            authMode: 'api_key',
-            baseUrl: 'http://127.0.0.1:11434/v1',
-            envKey: null,
-            kind: 'local',
-            fallbackModels: [],
-        },
-        tools: {
-            profile: 'coding',
-        },
-        capabilities: testCapabilities,
-        search: testSearch,
-        image: testImage,
-        budgets: testBudgets,
-        instructions: '',
-        mcpServers: [],
-        models: {
-            providers: {},
-        },
-        compaction: {
-            enabled: true,
-            reserveTokens: 16384,
-            keepRecentTokens: 20000,
-        },
-    }
+    return createTestPiRuntimeConfig({ root })
 }
 
 async function withRoom<T>(fn: (config: PiRuntimeConfig) => Promise<T>): Promise<T> {
@@ -71,18 +23,7 @@ async function withRoom<T>(fn: (config: PiRuntimeConfig) => Promise<T>): Promise
     const config = testConfig(root)
     const previousUnsandboxedShell = process.env.AGENT_ROOM_UNSAFE_ALLOW_UNSANDBOXED_SHELL
     process.env.AGENT_ROOM_UNSAFE_ALLOW_UNSANDBOXED_SHELL = '1'
-    await mkdir(config.paths.workspaceDir, {
-        recursive: true,
-    })
-    await mkdir(config.paths.storeDir, {
-        recursive: true,
-    })
-    await mkdir(config.paths.homeDir, {
-        recursive: true,
-    })
-    await mkdir(config.paths.tmpDir, {
-        recursive: true,
-    })
+    await ensureTestPiRuntimeDirectories(config)
     try {
         return await fn(config)
     } finally {

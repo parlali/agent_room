@@ -256,7 +256,7 @@ function JobRow({
     onRun: () => void
     onDelete: () => void
 }) {
-    const schedule = job.scheduleSummary || describeSchedule(null)
+    const schedule = job.scheduleSummary || describeSchedule(job.everyMinutes)
     const running = job.runningAt !== null
     return (
         <JobListRow

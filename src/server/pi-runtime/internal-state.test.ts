@@ -10,73 +10,16 @@ import {
 } from './internal-state'
 import { createInternalStateTools } from './internal-state-tools'
 import { emptyRoomMemory, patchMemory, readMemory, replaceMemory } from './memory'
-import { testBudgets, testCapabilities, testImage, testSearch } from './test-runtime-defaults'
+import { createTestPiRuntimeConfig, ensureTestPiRuntimeDirectories } from './test-runtime-defaults'
 
 function testConfig(root: string): PiRuntimeConfig {
-    return {
-        runtime: {
-            kind: 'pi',
-            roomId: 'room-1',
-            displayName: 'Room One',
-            bindHost: '127.0.0.1',
-            port: 32123,
-            token: 'token-token-token-token-token',
-        },
-        paths: {
-            roomRootDir: root,
-            stateDir: join(root, 'pi-state'),
-            workspaceDir: join(root, 'workspace'),
-            storeDir: join(root, 'store'),
-            sessionsDir: join(root, 'pi-state', 'sessions'),
-            internalStateDir: join(root, 'pi-state', 'internal-state'),
-            authPath: join(root, 'pi-state', 'auth.json'),
-            modelsPath: join(root, 'pi-state', 'models.json'),
-            threadIndexPath: join(root, 'pi-state', 'threads.json'),
-            runtimeEventsPath: join(root, 'pi-state', 'runtime-events.jsonl'),
-            homeDir: join(root, 'pi-state', 'home'),
-            tmpDir: join(root, 'pi-state', 'tmp'),
-        },
-        provider: {
-            sourceProvider: 'ollama',
-            sourceModel: 'llama',
-            piProvider: 'ollama',
-            piModel: 'llama',
-            api: 'openai-completions',
-            authMode: 'api_key',
-            baseUrl: 'http://127.0.0.1:11434/v1',
-            envKey: null,
-            kind: 'local',
-            fallbackModels: [],
-        },
-        tools: {
-            profile: 'coding',
-        },
-        capabilities: testCapabilities,
-        search: testSearch,
-        image: testImage,
-        budgets: testBudgets,
-        instructions: '',
-        mcpServers: [],
-        models: {
-            providers: {},
-        },
-        compaction: {
-            enabled: true,
-            reserveTokens: 16384,
-            keepRecentTokens: 20000,
-        },
-    }
+    return createTestPiRuntimeConfig({ root })
 }
 
 async function withRoom<T>(fn: (config: PiRuntimeConfig) => Promise<T>): Promise<T> {
     const root = await mkdtemp(join(tmpdir(), 'agent-room-internal-state-'))
     const config = testConfig(root)
-    await mkdir(config.paths.workspaceDir, {
-        recursive: true,
-    })
-    await mkdir(config.paths.storeDir, {
-        recursive: true,
-    })
+    await ensureTestPiRuntimeDirectories(config)
     try {
         return await fn(config)
     } finally {

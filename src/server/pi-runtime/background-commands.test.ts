@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -8,7 +8,7 @@ import {
     startBackgroundCommand,
     terminateBackgroundCommand,
 } from './background-commands'
-import { testBudgets, testCapabilities, testImage, testSearch } from './test-runtime-defaults'
+import { createTestPiRuntimeConfig, ensureTestPiRuntimeDirectories } from './test-runtime-defaults'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 
 let previousUnsandboxedShell: string | undefined
@@ -28,44 +28,13 @@ afterEach(() => {
 
 async function testConfig(): Promise<PiRuntimeConfig> {
     const root = await mkdtemp(join(tmpdir(), 'agent-room-command-test-'))
-    const stateDir = join(root, 'state')
-    const workspaceDir = join(root, 'workspace')
-    const storeDir = join(root, 'store')
-    const sessionsDir = join(root, 'sessions')
-    const internalStateDir = join(stateDir, 'internal-state')
-    const homeDir = join(root, 'home')
-    const tmpDir = join(root, 'tmp')
-    await Promise.all([
-        mkdir(stateDir, { recursive: true }),
-        mkdir(workspaceDir, { recursive: true }),
-        mkdir(storeDir, { recursive: true }),
-        mkdir(sessionsDir, { recursive: true }),
-        mkdir(internalStateDir, { recursive: true }),
-        mkdir(homeDir, { recursive: true }),
-        mkdir(tmpDir, { recursive: true }),
-    ])
-    return {
+    const config = createTestPiRuntimeConfig({
+        root,
         runtime: {
-            kind: 'pi',
             roomId: 'room-test',
             displayName: 'Test Room',
-            bindHost: '127.0.0.1',
             port: 0,
             token: 'token',
-        },
-        paths: {
-            roomRootDir: root,
-            stateDir,
-            workspaceDir,
-            storeDir,
-            sessionsDir,
-            internalStateDir,
-            authPath: join(stateDir, 'auth.json'),
-            modelsPath: join(stateDir, 'models.json'),
-            threadIndexPath: join(stateDir, 'threads.json'),
-            runtimeEventsPath: join(stateDir, 'events.jsonl'),
-            homeDir,
-            tmpDir,
         },
         provider: {
             sourceProvider: 'openai',
@@ -77,26 +46,14 @@ async function testConfig(): Promise<PiRuntimeConfig> {
             baseUrl: null,
             envKey: null,
             kind: 'builtin',
-            fallbackModels: [],
-        },
-        tools: {
-            profile: 'coding',
-        },
-        capabilities: testCapabilities,
-        search: testSearch,
-        image: testImage,
-        budgets: testBudgets,
-        instructions: '',
-        mcpServers: [],
-        models: {
-            providers: {},
         },
         compaction: {
-            enabled: true,
             reserveTokens: 4000,
             keepRecentTokens: 12000,
         },
-    }
+    })
+    await ensureTestPiRuntimeDirectories(config)
+    return config
 }
 
 async function waitForCommand(config: PiRuntimeConfig, commandId: string) {

@@ -8,51 +8,19 @@ import {
     contextBudgetForProvider,
     loadInstructionFiles,
 } from './system-prompt'
-import { testBudgets, testCapabilities, testImage, testSearch } from './test-runtime-defaults'
+import { createTestPiRuntimeConfig, ensureTestPiRuntimeDirectories } from './test-runtime-defaults'
 
 function testConfig(root: string): PiRuntimeConfig {
-    return {
+    return createTestPiRuntimeConfig({
+        root,
         runtime: {
-            kind: 'pi',
-            roomId: 'room-1',
             displayName: 'Ops',
-            bindHost: '127.0.0.1',
             port: 3001,
-            token: 'token-token-token-token-token',
-        },
-        paths: {
-            roomRootDir: root,
-            stateDir: join(root, 'pi-state'),
-            workspaceDir: join(root, 'workspace'),
-            storeDir: join(root, 'store'),
-            sessionsDir: join(root, 'pi-state', 'sessions'),
-            internalStateDir: join(root, 'pi-state', 'internal-state'),
-            authPath: join(root, 'pi-state', 'auth.json'),
-            modelsPath: join(root, 'pi-state', 'models.json'),
-            threadIndexPath: join(root, 'pi-state', 'threads.json'),
-            runtimeEventsPath: join(root, 'pi-state', 'runtime-events.jsonl'),
-            homeDir: join(root, 'pi-state', 'home'),
-            tmpDir: join(root, 'pi-state', 'tmp'),
         },
         provider: {
-            sourceProvider: 'ollama',
             sourceModel: 'ollama/llama3.2',
-            piProvider: 'ollama',
             piModel: 'llama3.2',
-            api: 'openai-completions',
-            authMode: 'api_key',
-            baseUrl: 'http://127.0.0.1:11434/v1',
-            envKey: null,
-            kind: 'local',
-            fallbackModels: [],
         },
-        tools: {
-            profile: 'coding',
-        },
-        capabilities: testCapabilities,
-        search: testSearch,
-        image: testImage,
-        budgets: testBudgets,
         instructions: 'Operator-owned instruction',
         mcpServers: [
             {
@@ -67,26 +35,13 @@ function testConfig(root: string): PiRuntimeConfig {
                 headers: {},
             },
         ],
-        models: {
-            providers: {},
-        },
-        compaction: {
-            enabled: true,
-            reserveTokens: 16384,
-            keepRecentTokens: 20000,
-        },
-    }
+    })
 }
 
 async function withConfig<T>(fn: (config: PiRuntimeConfig) => Promise<T>): Promise<T> {
     const root = await mkdtemp(join(tmpdir(), 'agent-room-prompt-'))
     const config = testConfig(root)
-    await mkdir(config.paths.workspaceDir, {
-        recursive: true,
-    })
-    await mkdir(config.paths.storeDir, {
-        recursive: true,
-    })
+    await ensureTestPiRuntimeDirectories(config)
     try {
         return await fn(config)
     } finally {

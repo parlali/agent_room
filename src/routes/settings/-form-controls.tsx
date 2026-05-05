@@ -3,6 +3,7 @@ import { type FormEvent, type ReactNode } from 'react'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
+import { ModelSelect } from '#/components/agent-room/model-select'
 import {
     Select,
     SelectContent,
@@ -122,18 +123,13 @@ export function ModelSelectField({
 }) {
     return (
         <FieldGroup label={label} htmlFor={id} hint={hint}>
-            <Select value={value} onValueChange={onChange} disabled={disabled}>
-                <SelectTrigger id={id} className="w-full">
-                    <SelectValue placeholder="Pick a model" />
-                </SelectTrigger>
-                <SelectContent>
-                    {options.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                        </SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
+            <ModelSelect
+                id={id}
+                value={value}
+                onChange={onChange}
+                options={options}
+                disabled={disabled}
+            />
         </FieldGroup>
     )
 }
