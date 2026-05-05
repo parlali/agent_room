@@ -90,11 +90,7 @@ export const usageRepository = {
         return rows.map((row) => mapUsageEvent(row as Record<string, unknown>))
     },
 
-    async attachJobToRun(input: {
-        roomId: string
-        runId: string
-        jobId: string
-    }): Promise<number> {
+    async attachJobToRun(input: { roomId: string; runId: string; jobId: string }): Promise<number> {
         const rows = await sql`
             UPDATE usage_events
             SET job_id = ${input.jobId}

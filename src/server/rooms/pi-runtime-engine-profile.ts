@@ -5,7 +5,7 @@ import type {
     RuntimeEngineCommand,
     RuntimeEngineProfile,
     RuntimeEngineProfileBuildInput,
-} from './runtime-engine-profile'
+} from './runtime-engine-profile-contract'
 import { assertNoReservedRoomRuntimeEnvKeys } from '../security/process-env'
 
 function resolvePiRuntimeCommand(): RuntimeEngineCommand {

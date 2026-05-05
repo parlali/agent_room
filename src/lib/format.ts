@@ -4,10 +4,20 @@ const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 const WEEK = 7 * DAY
 
+function timestampFromInput(input: number | string | Date | null | undefined): number | null {
+    if (input === null || input === undefined) return null
+    const ts =
+        input instanceof Date
+            ? input.getTime()
+            : typeof input === 'string'
+              ? Date.parse(input)
+              : input
+    return Number.isFinite(ts) ? ts : null
+}
+
 export function formatRelativeTime(input: number | string | Date | null | undefined): string {
-    if (input === null || input === undefined) return '-'
-    const ts = input instanceof Date ? input.getTime() : typeof input === 'string' ? Date.parse(input) : input
-    if (!Number.isFinite(ts)) return '-'
+    const ts = timestampFromInput(input)
+    if (ts === null) return '-'
 
     const diff = Date.now() - ts
     const abs = Math.abs(diff)
@@ -37,9 +47,8 @@ export function formatDateTime(
     input: number | string | Date | null | undefined,
     opts: { dateOnly?: boolean } = {},
 ): string {
-    if (input === null || input === undefined) return '-'
-    const ts = input instanceof Date ? input.getTime() : typeof input === 'string' ? Date.parse(input) : input
-    if (!Number.isFinite(ts)) return '-'
+    const ts = timestampFromInput(input)
+    if (ts === null) return '-'
     const date = new Date(ts)
     if (opts.dateOnly) {
         return date.toLocaleDateString(undefined, {

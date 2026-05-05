@@ -30,6 +30,22 @@ function normalizeSlug(value: string) {
         .replace(/^-+|-+$/g, '')
 }
 
+function isUniqueViolation(error: unknown): boolean {
+    return (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        String((error as { code: unknown }).code) === '23505'
+    )
+}
+
+function throwRoomSlugConflict(error: unknown, slug: string): never {
+    if (isUniqueViolation(error)) {
+        throw new Error(`Room slug "${slug}" already exists`)
+    }
+    throw error
+}
+
 export async function createRoom(input: {
     displayName: string
     slug?: string
@@ -73,15 +89,7 @@ export async function createRoom(input: {
             createdByUserId: input.createdByUserId,
         })
     } catch (error) {
-        if (
-            typeof error === 'object' &&
-            error !== null &&
-            'code' in error &&
-            String((error as { code: unknown }).code) === '23505'
-        ) {
-            throw new Error(`Room slug "${slug}" already exists`)
-        }
-        throw error
+        throwRoomSlugConflict(error, slug)
     }
 
     await auditRepository.appendEvent({
@@ -223,15 +231,7 @@ export async function updateRoomIdentity(input: {
             displayName,
         })
     } catch (error) {
-        if (
-            typeof error === 'object' &&
-            error !== null &&
-            'code' in error &&
-            String((error as { code: unknown }).code) === '23505'
-        ) {
-            throw new Error(`Room slug "${slug}" already exists`)
-        }
-        throw error
+        throwRoomSlugConflict(error, slug)
     }
 
     await auditRepository.appendEvent({

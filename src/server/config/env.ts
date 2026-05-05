@@ -23,21 +23,57 @@ const rawEnvSchema = z.object({
     AGENT_ROOM_SEARCH_BACKEND_URL: z.string().url().default('http://searxng:8080'),
     AGENT_ROOM_SEARCH_DEFAULT_RESULTS: z.coerce.number().int().positive().max(20).default(5),
     AGENT_ROOM_SEARCH_TIMEOUT_MS: z.coerce.number().int().positive().max(30000).default(10000),
-    AGENT_ROOM_RUN_BUDGET_MANUAL_MS: z.coerce.number().int().positive().default(8 * 60 * 60 * 1000),
+    AGENT_ROOM_RUN_BUDGET_MANUAL_MS: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(8 * 60 * 60 * 1000),
     AGENT_ROOM_RUN_BUDGET_SCHEDULED_MS: z.coerce
         .number()
         .int()
         .positive()
         .default(8 * 60 * 60 * 1000),
-    AGENT_ROOM_RUN_BUDGET_SUBAGENT_MS: z.coerce.number().int().positive().default(8 * 60 * 60 * 1000),
-    AGENT_ROOM_RUN_BUDGET_MAINTENANCE_MS: z.coerce.number().int().positive().default(10 * 60 * 1000),
-    AGENT_ROOM_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(10 * 60 * 1000),
-    AGENT_ROOM_PROVIDER_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(2 * 60 * 1000),
-    AGENT_ROOM_SHELL_COMMAND_TIMEOUT_MS: z.coerce.number().int().positive().default(30 * 60 * 1000),
+    AGENT_ROOM_RUN_BUDGET_SUBAGENT_MS: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(8 * 60 * 60 * 1000),
+    AGENT_ROOM_RUN_BUDGET_MAINTENANCE_MS: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(10 * 60 * 1000),
+    AGENT_ROOM_IDLE_TIMEOUT_MS: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(10 * 60 * 1000),
+    AGENT_ROOM_PROVIDER_IDLE_TIMEOUT_MS: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(2 * 60 * 1000),
+    AGENT_ROOM_SHELL_COMMAND_TIMEOUT_MS: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(30 * 60 * 1000),
     AGENT_ROOM_WEB_FETCH_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
-    AGENT_ROOM_DOCUMENT_WORKER_TIMEOUT_MS: z.coerce.number().int().positive().default(10 * 60 * 1000),
-    AGENT_ROOM_IMAGE_GENERATION_TIMEOUT_MS: z.coerce.number().int().positive().default(5 * 60 * 1000),
-    AGENT_ROOM_MCP_TOOL_TIMEOUT_MS: z.coerce.number().int().positive().default(2 * 60 * 1000),
+    AGENT_ROOM_DOCUMENT_WORKER_TIMEOUT_MS: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(10 * 60 * 1000),
+    AGENT_ROOM_IMAGE_GENERATION_TIMEOUT_MS: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(5 * 60 * 1000),
+    AGENT_ROOM_MCP_TOOL_TIMEOUT_MS: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(2 * 60 * 1000),
     AGENT_ROOM_SHORT_COMMAND_WAIT_MS: z.coerce.number().int().positive().default(5000),
 })
 

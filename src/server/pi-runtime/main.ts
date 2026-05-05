@@ -1,59 +1,23 @@
-import { randomUUID, timingSafeEqual } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
-import { dirname } from 'node:path'
+import { readFile, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
 import {
-    AuthStorage,
-    createAgentSession,
-    ModelRegistry,
     SessionManager,
-    SettingsManager,
     type AgentSession,
     type AgentSessionEvent,
     type SessionEntry,
 } from '@mariozechner/pi-coding-agent'
-import {
-    emptyRuntimePart,
-    extractTextFromRuntimeContent,
-    normalizeRuntimeRole,
-    toRuntimeSerializable,
-} from '#/lib/runtime-message'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import type { RoomExecutionMessage, RoomExecutionThread } from '../rooms/execution-types'
 import type {
-    RoomExecutionActivity,
-    RoomExecutionAgent,
-    RoomExecutionMessage,
-    RoomExecutionMessagePart,
-    RoomExecutionThread,
-} from '../rooms/execution-types'
-import type {
-    PiRuntimeAbortPayload,
     PiRuntimeCompactPayload,
     PiRuntimeForkPayload,
-    PiRuntimeSendPayload,
-    PiRuntimeSnapshotPayload,
     PiRuntimeThreadCreatePayload,
 } from './protocol'
-import { createPiResourceLoader } from './resource-loader'
 import { closeMcpConnections, createMcpTools } from './mcp-bridge'
-import { ensureInternalState } from './internal-state'
-import { createInternalStateTools } from './internal-state-tools'
-import { createRoomTools } from './room-tools'
-import { createWebTools } from './web-tools'
-import { createDocumentTools } from './document-tools'
-import { createImageTools } from './image-tools'
-import { ensureShellWritableDirectory } from './shell-sandbox'
 import { buildAgentRoomSystemPrompt } from './system-prompt'
-import { selectSnapshotThreadKey } from './snapshot-selection'
-import { createSubagentTool } from './subagent-tool'
-import { resolveAbortDecision } from './run-control'
-import {
-    normalizeThreadIndexFile,
-    subagentAgentId,
-    type ThreadIndexFile,
-    type ThreadRecord,
-} from './thread-records'
+import { normalizeThreadIndexFile, type ThreadIndexFile, type ThreadRecord } from './thread-records'
 import { currentToolRunContext, withToolRunContext } from './tool-run-context'
 import {
     budgetForRunKind,
@@ -66,6 +30,21 @@ import {
     type RunKind,
 } from './run-budget'
 import { cleanupBackgroundCommands } from './background-commands'
+import { createRuntimeRedactor, isRecord } from './runtime-redaction'
+import { readJsonFile, writeJsonFile } from './runtime-files'
+import { ensureRuntimeLayout } from './runtime-layout'
+import { sendError } from './runtime-http'
+import {
+    completedToolCallIds,
+    entryTimestamp,
+    latestAssistantErrorMessage as latestAssistantErrorMessageFromEntries,
+    mapSessionEntry,
+    shortText,
+} from './session-entry-mapper'
+import { createPiRuntimeSession } from './pi-runtime-session'
+import { createRuntimeEventBus } from './runtime-event-bus'
+import { buildRuntimeSnapshot } from './runtime-snapshot'
+import { createPiRuntimeRouter } from './pi-runtime-router'
 
 interface ActiveThread {
     session: AgentSession
@@ -81,139 +60,31 @@ if (!configPath) {
 }
 
 const config = JSON.parse(await readFile(configPath, 'utf8')) as PiRuntimeConfig
+const { redactPayload, redactString, errorMessage } = createRuntimeRedactor(config)
 const activeThreads = new Map<string, ActiveThread>()
-const subscribers = new Map<string, Set<ReadableStreamDefaultController<Uint8Array>>>()
 const threadIndex = await readJsonFile<ThreadIndexFile>(config.paths.threadIndexPath, {
     version: 1,
     threads: [],
 })
-let eventSeq = 0
 let runtimeEventSeq = 0
 
-const maxRedactedStringChars = 4000
-const maxRedactedArrayItems = 100
-const maxRedactedObjectKeys = 100
 const maxSubagentTaskChars = 24000
 const maxActiveSubagents = 5
 
 threadIndex.threads = normalizeThreadIndexFile(threadIndex).threads
-await ensureRuntimeLayout()
+await ensureRuntimeLayout(config)
 await writeJsonFile(config.paths.modelsPath, config.models)
 const mcpTools = await createMcpTools({
     servers: config.mcpServers,
     cwd: config.paths.workspaceDir,
 })
 let systemPrompt = await buildAgentRoomSystemPrompt(config)
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function isNotFoundError(error: unknown): boolean {
-    return (
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error &&
-        String((error as { code: unknown }).code) === 'ENOENT'
-    )
-}
-
-async function readJsonFile<T>(path: string, fallback: T): Promise<T> {
-    try {
-        return JSON.parse(await readFile(path, 'utf8')) as T
-    } catch (error) {
-        if (isNotFoundError(error)) {
-            return fallback
-        }
-        throw new Error(`Failed to read runtime JSON file ${path}`)
-    }
-}
-
-function isSensitiveEnvKey(key: string): boolean {
-    return /TOKEN|SECRET|KEY|AUTH|PASSWORD|CREDENTIAL/i.test(key)
-}
-
-function bearerTokenParts(value: string): string[] {
-    const match = value.match(/^Bearer\s+(.+)$/i)
-    return match ? [value, match[1]!] : [value]
-}
-
-function redactionSecrets(): string[] {
-    const values: string[] = [config.runtime.token]
-    for (const server of config.mcpServers) {
-        for (const value of [...Object.values(server.env), ...Object.values(server.headers)]) {
-            values.push(...bearerTokenParts(value))
-        }
-    }
-    for (const [key, value] of Object.entries(process.env)) {
-        if (value && isSensitiveEnvKey(key)) {
-            values.push(value)
-        }
-    }
-    return [...new Set(values.filter((value) => value.trim().length >= 6))].sort(
-        (left, right) => right.length - left.length,
-    )
-}
-
-function boundRuntimeString(value: string): string {
-    if (value.length <= maxRedactedStringChars) {
-        return value
-    }
-    return `${value.slice(0, maxRedactedStringChars)}...[truncated]`
-}
-
-function redactString(value: string): string {
-    let output = value
-    for (const secret of redactionSecrets()) {
-        output = output.replaceAll(secret, '[redacted]')
-    }
-    return boundRuntimeString(output)
-}
-
-function redactPayload(value: unknown, depth = 0): unknown {
-    if (typeof value === 'string') {
-        return redactString(value)
-    }
-    if (
-        value === null ||
-        typeof value === 'number' ||
-        typeof value === 'boolean' ||
-        value === undefined
-    ) {
-        return value ?? null
-    }
-    if (depth > 8) {
-        return '[truncated]'
-    }
-    if (Array.isArray(value)) {
-        return value.slice(0, maxRedactedArrayItems).map((entry) => redactPayload(entry, depth + 1))
-    }
-    if (isRecord(value)) {
-        const output: Record<string, unknown> = {}
-        for (const [key, entry] of Object.entries(value).slice(0, maxRedactedObjectKeys)) {
-            output[key] = redactPayload(entry, depth + 1)
-        }
-        return output
-    }
-    return redactString(String(value))
-}
-
-function errorMessage(error: unknown): string {
-    return redactString(error instanceof Error ? error.message : 'Unknown Pi runtime error')
-}
-
-async function writeJsonFile(path: string, value: unknown): Promise<void> {
-    await mkdir(dirname(path), {
-        recursive: true,
-        mode: 0o700,
-    })
-    const tempPath = `${path}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`
-    await writeFile(tempPath, JSON.stringify(value, null, 4), {
-        encoding: 'utf8',
-        mode: 0o600,
-    })
-    await rename(tempPath, path)
-}
+const { broadcast, createEventStream } = createRuntimeEventBus({
+    roomId: config.runtime.roomId,
+    redactPayload,
+    stateVersionForThread: (sessionKey) =>
+        threadIndex.threads.find((thread) => thread.key === sessionKey)?.updatedAt,
+})
 
 async function appendRuntimeEvent(event: string, payload: unknown): Promise<void> {
     const runContext = currentToolRunContext()
@@ -242,286 +113,11 @@ async function appendRuntimeEvent(event: string, payload: unknown): Promise<void
     )
 }
 
-async function ensureRuntimeLayout(): Promise<void> {
-    const shellEnabled = config.tools.profile !== 'read-only'
-    await Promise.all([
-        mkdir(config.paths.stateDir, { recursive: true, mode: 0o700 }),
-        mkdir(config.paths.sessionsDir, { recursive: true, mode: 0o700 }),
-        mkdir(config.paths.internalStateDir, { recursive: true, mode: 0o700 }),
-        mkdir(config.paths.workspaceDir, { recursive: true, mode: 0o700 }),
-        mkdir(config.paths.storeDir, { recursive: true, mode: 0o700 }),
-        mkdir(config.paths.homeDir, { recursive: true, mode: 0o700 }),
-        mkdir(config.paths.tmpDir, { recursive: true, mode: 0o700 }),
-    ])
-    await Promise.all([
-        chmod(config.paths.roomRootDir, shellEnabled ? 0o711 : 0o700),
-        chmod(config.paths.stateDir, shellEnabled ? 0o711 : 0o700),
-        chmod(config.paths.sessionsDir, 0o700),
-        chmod(config.paths.internalStateDir, 0o700),
-        chmod(config.paths.workspaceDir, 0o700),
-        chmod(config.paths.storeDir, 0o700),
-        chmod(config.paths.homeDir, 0o700),
-        chmod(config.paths.tmpDir, 0o700),
-    ])
-    if (shellEnabled) {
-        await Promise.all([
-            ensureShellWritableDirectory(config.paths.workspaceDir),
-            ensureShellWritableDirectory(config.paths.storeDir),
-            ensureShellWritableDirectory(config.paths.homeDir),
-            ensureShellWritableDirectory(config.paths.tmpDir),
-        ])
-    }
-    await ensureInternalState(config)
-}
-
 async function refreshSystemPrompt(active?: ActiveThread): Promise<void> {
     systemPrompt = await buildAgentRoomSystemPrompt(config)
     if (active) {
         await active.session.reload()
     }
-}
-
-function encodeSse(event: string, payload: unknown): Uint8Array {
-    return new TextEncoder().encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`)
-}
-
-function broadcast(sessionKey: string, event: string, payload: unknown): void {
-    const targets = subscribers.get(sessionKey)
-    if (!targets || targets.size === 0) {
-        return
-    }
-    const redactedPayload = redactPayload(payload)
-    const frame = encodeSse('room-event', {
-        event,
-        payload: redactedPayload,
-        seq: ++eventSeq,
-        stateVersion: threadIndex.threads.find((thread) => thread.key === sessionKey)?.updatedAt,
-        receivedAt: Date.now(),
-    })
-    for (const controller of targets) {
-        try {
-            controller.enqueue(frame)
-        } catch {
-            targets.delete(controller)
-        }
-    }
-}
-
-function getRequestBody(request: IncomingMessage): Promise<unknown> {
-    return new Promise((resolve, reject) => {
-        let body = ''
-        request.on('data', (chunk) => {
-            body += String(chunk)
-            if (body.length > 1_000_000) {
-                reject(new Error('Request body is too large'))
-                request.destroy()
-            }
-        })
-        request.on('end', () => {
-            if (!body.trim()) {
-                resolve(null)
-                return
-            }
-            try {
-                resolve(JSON.parse(body))
-            } catch {
-                reject(new Error('Request body is not valid JSON'))
-            }
-        })
-        request.on('error', reject)
-    })
-}
-
-function assertAuthorized(request: IncomingMessage): void {
-    const expected = `Bearer ${config.runtime.token}`
-    const received = request.headers.authorization ?? ''
-    const expectedBytes = Buffer.from(expected)
-    const receivedBytes = Buffer.from(received)
-    const matches =
-        expectedBytes.byteLength === receivedBytes.byteLength &&
-        timingSafeEqual(expectedBytes, receivedBytes)
-    if (!matches) {
-        throw new HttpError(401, 'Invalid runtime token')
-    }
-}
-
-class HttpError extends Error {
-    constructor(
-        readonly status: number,
-        message: string,
-    ) {
-        super(message)
-    }
-}
-
-function sendJson(response: ServerResponse, status: number, payload: unknown): void {
-    response.writeHead(status, {
-        'content-type': 'application/json; charset=utf-8',
-        'cache-control': 'no-store',
-    })
-    response.end(JSON.stringify(payload))
-}
-
-function sendError(response: ServerResponse, error: unknown): void {
-    const status = error instanceof HttpError ? error.status : 500
-    sendJson(response, status, { message: errorMessage(error) })
-}
-
-function shortText(value: string, length = 120): string {
-    const trimmed = value.replace(/\s+/g, ' ').trim()
-    return trimmed.length > length ? `${trimmed.slice(0, length - 3)}...` : trimmed
-}
-
-function textPart(text: string): RoomExecutionMessagePart {
-    return emptyRuntimePart({
-        type: 'text',
-        text,
-    })
-}
-
-function toolCallPart(
-    block: Record<string, unknown>,
-    completedIds: Set<string>,
-): RoomExecutionMessagePart {
-    const toolCallId = typeof block.id === 'string' ? block.id : null
-    return emptyRuntimePart({
-        type: 'tool_call',
-        text: typeof block.name === 'string' ? block.name : '',
-        toolName: typeof block.name === 'string' ? block.name : null,
-        toolCallId,
-        status: toolCallId && completedIds.has(toolCallId) ? 'complete' : 'running',
-        input: toRuntimeSerializable(block.arguments ?? {}),
-        rawType: 'toolCall',
-    })
-}
-
-function toolResultPart(message: Record<string, unknown>): RoomExecutionMessagePart {
-    const text = extractTextFromRuntimeContent(message.content)
-    return emptyRuntimePart({
-        type: 'tool_result',
-        text,
-        toolCallId: typeof message.toolCallId === 'string' ? message.toolCallId : null,
-        toolName: typeof message.toolName === 'string' ? message.toolName : null,
-        status: 'complete',
-        result: toRuntimeSerializable(message.content ?? text),
-        rawType: 'toolResult',
-    })
-}
-
-function entryTimestamp(entry: SessionEntry): number | null {
-    return Number.isFinite(Date.parse(entry.timestamp)) ? Date.parse(entry.timestamp) : null
-}
-
-function mapCompactionEntry(entry: SessionEntry, index: number): RoomExecutionMessage | null {
-    if (entry.type !== 'compaction') {
-        return null
-    }
-    const tokensBefore =
-        typeof entry.tokensBefore === 'number' && Number.isFinite(entry.tokensBefore)
-            ? entry.tokensBefore
-            : null
-    const text = tokensBefore
-        ? `Context compacted after ${tokensBefore.toLocaleString()} tokens. Recent work and a summary were kept.`
-        : 'Context compacted. Recent work and a summary were kept.'
-    return {
-        id: entry.id || `compaction-${index + 1}`,
-        role: 'system',
-        text,
-        parts: [
-            emptyRuntimePart({
-                type: 'raw',
-                text,
-                status: 'complete',
-                rawType: 'compaction',
-                result: toRuntimeSerializable({
-                    tokensBefore,
-                }),
-            }),
-        ],
-        timestamp: entryTimestamp(entry),
-    }
-}
-
-function mapSessionEntry(
-    entry: SessionEntry,
-    index: number,
-    completedIds: Set<string>,
-): RoomExecutionMessage | null {
-    const compaction = mapCompactionEntry(entry, index)
-    if (compaction) {
-        return compaction
-    }
-    if (entry.type !== 'message') {
-        return null
-    }
-    const message = entry.message as unknown as Record<string, unknown>
-    const role = normalizeRuntimeRole(message.role)
-    if (role === 'tool') {
-        const part = toolResultPart(message)
-        return {
-            id: entry.id || `message-${index + 1}`,
-            role,
-            text: part.text,
-            parts: [part],
-            timestamp: entryTimestamp(entry),
-        }
-    }
-    const content = message.content
-    const parts: RoomExecutionMessagePart[] = []
-    if (Array.isArray(content)) {
-        for (const block of content) {
-            if (!isRecord(block)) {
-                continue
-            }
-            if (block.type === 'text') {
-                const text = extractTextFromRuntimeContent(block)
-                if (text) {
-                    parts.push(textPart(text))
-                }
-            } else if (block.type === 'thinking') {
-                continue
-            } else if (block.type === 'toolCall') {
-                parts.push(toolCallPart(block, completedIds))
-            } else {
-                parts.push(
-                    emptyRuntimePart({
-                        rawType: typeof block.type === 'string' ? block.type : null,
-                        input: toRuntimeSerializable(block),
-                    }),
-                )
-            }
-        }
-    } else {
-        const text = extractTextFromRuntimeContent(content)
-        if (text) {
-            parts.push(textPart(text))
-        }
-    }
-    const text =
-        extractTextFromRuntimeContent(content) ||
-        (typeof message.errorMessage === 'string' ? message.errorMessage : '')
-
-    return {
-        id: entry.id || `message-${index + 1}`,
-        role,
-        text,
-        parts,
-        timestamp: entryTimestamp(entry),
-    }
-}
-
-function completedToolCallIds(entries: SessionEntry[]): Set<string> {
-    const out = new Set<string>()
-    for (const entry of entries) {
-        if (entry.type !== 'message') {
-            continue
-        }
-        const message = entry.message as unknown as Record<string, unknown>
-        if (typeof message.toolCallId === 'string') {
-            out.add(message.toolCallId)
-        }
-    }
-    return out
 }
 
 function readThreadEntries(record: ThreadRecord): SessionEntry[] {
@@ -602,27 +198,7 @@ function firstUserTitle(messages: RoomExecutionMessage[], fallback: string): str
 
 function latestAssistantErrorMessage(record: ThreadRecord): string | null {
     try {
-        const entries = readThreadEntries(record)
-        for (let index = entries.length - 1; index >= 0; index -= 1) {
-            const entry = entries[index]
-            if (!entry || entry.type !== 'message') {
-                continue
-            }
-            const message = entry.message as unknown as Record<string, unknown>
-            if (message.role !== 'assistant') {
-                continue
-            }
-            if (message.stopReason === 'aborted') {
-                return null
-            }
-            if (typeof message.errorMessage === 'string' && message.errorMessage.trim()) {
-                return shortText(redactString(message.errorMessage), 600)
-            }
-            if (message.stopReason === 'error') {
-                return 'Provider returned stop reason error'
-            }
-        }
-        return null
+        return latestAssistantErrorMessageFromEntries(readThreadEntries(record), redactString)
     } catch {
         return null
     }
@@ -646,101 +222,25 @@ function updateThreadFromMessages(record: ThreadRecord): void {
 }
 
 async function createPiSession(record: ThreadRecord): Promise<AgentSession> {
-    const authStorage = AuthStorage.create(config.paths.authPath)
-    const modelRegistry = ModelRegistry.create(authStorage, config.paths.modelsPath)
-    const model = modelRegistry.find(config.provider.piProvider, config.provider.piModel)
-    if (!model) {
-        throw new Error(
-            `Pi model ${config.provider.piProvider}/${config.provider.piModel} is not available`,
-        )
-    }
-    const settingsManager = SettingsManager.inMemory({
-        compaction: {
-            enabled: config.compaction.enabled,
-            reserveTokens: config.compaction.reserveTokens,
-            keepRecentTokens: config.compaction.keepRecentTokens,
-        },
-        retry: {
-            enabled: false,
-            provider: {
-                timeoutMs: config.budgets.providerIdleTimeoutMs,
-                maxRetries: 0,
-                maxRetryDelayMs: 0,
-            },
-        },
+    return createPiRuntimeSession({
+        config,
+        record,
+        systemPrompt: () => systemPrompt,
+        mcpTools,
+        audit: appendRuntimeEvent,
+        shortText,
+        redactString,
+        maxSubagentTaskChars,
+        maxActiveSubagents,
+        activeSubagentCount: () =>
+            threadIndex.threads.filter(
+                (thread) => thread.kind === 'subagent' && thread.status === 'running',
+            ).length,
+        createThread,
+        findThread,
+        runPrompt,
+        readThreadMessages,
     })
-    const sessionManager = existsSync(record.sessionFile)
-        ? SessionManager.open(
-              record.sessionFile,
-              config.paths.sessionsDir,
-              config.paths.workspaceDir,
-          )
-        : SessionManager.create(config.paths.workspaceDir, config.paths.sessionsDir)
-    if (!existsSync(record.sessionFile)) {
-        sessionManager.newSession({
-            id: record.sessionId,
-        })
-        record.sessionFile = sessionManager.getSessionFile() ?? record.sessionFile
-    }
-    const customTools = [
-        ...createInternalStateTools({
-            config,
-            audit: appendRuntimeEvent,
-        }),
-        ...createRoomTools({
-            config,
-            audit: appendRuntimeEvent,
-        }),
-        ...createWebTools({
-            config,
-            audit: appendRuntimeEvent,
-        }),
-        ...createDocumentTools({
-            config,
-            audit: appendRuntimeEvent,
-        }),
-        ...createImageTools({
-            config,
-            audit: appendRuntimeEvent,
-        }),
-        ...(record.kind === 'subagent'
-            ? []
-            : [
-                  createSubagentTool({
-                      parentRecord: record,
-                      maxTaskChars: maxSubagentTaskChars,
-                      activeCount: () =>
-                          threadIndex.threads.filter(
-                              (thread) => thread.kind === 'subagent' && thread.status === 'running',
-                          ).length,
-                      maxActive: maxActiveSubagents,
-                      shortText,
-                      redactString,
-                      createThread,
-                      findThread,
-                      runPrompt,
-                      readThreadMessages,
-                      audit: appendRuntimeEvent,
-                  }),
-              ]),
-        ...mcpTools,
-    ]
-    const { session } = await createAgentSession({
-        cwd: config.paths.workspaceDir,
-        agentDir: config.paths.stateDir,
-        authStorage,
-        modelRegistry,
-        model,
-        thinkingLevel: 'medium',
-        resourceLoader: createPiResourceLoader(() => systemPrompt),
-        sessionManager,
-        settingsManager,
-        tools: customTools.map((tool) => tool.name),
-        customTools,
-    })
-    session.setAutoCompactionEnabled(config.compaction.enabled)
-    session.setAutoRetryEnabled(false)
-    return session
 }
 
 async function getActiveThread(record: ThreadRecord): Promise<ActiveThread> {
@@ -1144,338 +644,34 @@ async function forkThread(input: {
     }
 }
 
-function mapThread(record: ThreadRecord): RoomExecutionThread {
-    const agentId = record.kind === 'subagent' ? subagentAgentId(record) : 'main'
-    return {
-        key: record.key,
-        sessionId: record.sessionId,
-        agentId,
-        kind: record.kind,
-        parentThreadKey: record.parentThreadKey,
-        title: record.title,
-        lastMessagePreview: record.lastMessagePreview,
-        status: record.status,
-        updatedAt: record.updatedAt,
-        runtimeMs: record.activeDurationMs > 0 ? record.activeDurationMs : null,
-        model: record.model,
-        modelProvider: record.modelProvider,
-        totalTokens: null,
-        estimatedCostUsd: null,
-        compaction: compactionStats(record),
-    }
-}
-
-function roomAgent(threads: RoomExecutionThread[]): RoomExecutionAgent {
-    return {
-        id: 'main',
-        name: config.runtime.displayName,
-        workspace: config.paths.workspaceDir,
-        modelPrimary: `${config.provider.piProvider}/${config.provider.piModel}`,
-        modelFallbacks: config.provider.fallbackModels,
-        identity: {
-            name: config.runtime.displayName,
-            theme: 'agent-room',
-            emoji: null,
-            avatarUrl: null,
-        },
-        threadCount: threads.length,
-        activeThreadCount: threads.filter((thread) => thread.status === 'running').length,
-        latestActivityAt: threads.reduce<number | null>((latest, thread) => {
-            if (thread.updatedAt === null) {
-                return latest
-            }
-            return latest === null || thread.updatedAt > latest ? thread.updatedAt : latest
-        }, null),
-    }
-}
-
-function snapshot(input: {
-    selectedThreadKey?: string | null
-    messageLimit?: number
-}): PiRuntimeSnapshotPayload {
-    const limit =
-        input.messageLimit && Number.isFinite(input.messageLimit)
-            ? Math.max(1, Math.floor(input.messageLimit))
-            : 200
-    const orderedRecords = [...threadIndex.threads].sort(
-        (left, right) => right.updatedAt - left.updatedAt,
-    )
-    const threads = orderedRecords.map(mapThread)
-    const extraAgentIds = orderedRecords
-        .filter((record) => record.kind === 'subagent')
-        .map(subagentAgentId)
-    const selectedThreadKey = selectSnapshotThreadKey({
-        requestedThreadKey: input.selectedThreadKey,
-        orderedThreadKeys: threads.map((thread) => thread.key),
-    })
-    const selectedRecord = selectedThreadKey ? findThread(selectedThreadKey) : null
-    const selectedThreadMessages = selectedRecord ? readThreadMessages(selectedRecord, limit) : []
-
-    return {
-        roomAgent: roomAgent(threads),
-        extraAgentIds,
-        threads,
-        selectedThreadKey,
-        selectedThreadMessages,
-        recentActivity: threads.slice(0, 30).map(
-            (thread): RoomExecutionActivity => ({
-                key: thread.key,
-                agentId: thread.agentId,
-                title: thread.title,
-                status: thread.status,
-                updatedAt: thread.updatedAt,
-                runtimeMs: thread.runtimeMs,
-                totalTokens: thread.totalTokens,
-                estimatedCostUsd: thread.estimatedCostUsd,
-            }),
-        ),
-    }
-}
-
-function createEventStream(sessionKey: string): ReadableStream<Uint8Array> {
-    let controllerRef: ReadableStreamDefaultController<Uint8Array> | null = null
-    let timer: ReturnType<typeof setInterval> | null = null
-
-    const removeController = () => {
-        if (timer) {
-            clearInterval(timer)
-            timer = null
-        }
-        const set = subscribers.get(sessionKey)
-        if (!set || !controllerRef) {
-            return
-        }
-        set.delete(controllerRef)
-        if (set.size === 0) {
-            subscribers.delete(sessionKey)
-        }
-    }
-
-    return new ReadableStream<Uint8Array>({
-        start(controller) {
-            controllerRef = controller
-            const set = subscribers.get(sessionKey) ?? new Set()
-            set.add(controller)
-            subscribers.set(sessionKey, set)
-            controller.enqueue(
-                encodeSse('ready', {
-                    roomId: config.runtime.roomId,
-                    sessionKey,
-                    subscribed: true,
-                }),
-            )
-            timer = setInterval(() => {
-                try {
-                    controller.enqueue(
-                        encodeSse('heartbeat', {
-                            ts: Date.now(),
-                        }),
-                    )
-                } catch {
-                    removeController()
-                }
-            }, 15000)
-            timer.unref?.()
-        },
-        cancel() {
-            removeController()
-        },
+function snapshot(input: { selectedThreadKey?: string | null; messageLimit?: number }) {
+    return buildRuntimeSnapshot({
+        config,
+        records: threadIndex.threads,
+        selectedThreadKey: input.selectedThreadKey,
+        messageLimit: input.messageLimit,
+        findThread,
+        readThreadMessages,
+        compactionStats,
     })
 }
 
-async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const url = new URL(
-        request.url ?? '/',
-        `http://${config.runtime.bindHost}:${config.runtime.port}`,
-    )
-    if (url.pathname === '/health') {
-        sendJson(response, 200, {
-            healthy: true,
-            roomId: config.runtime.roomId,
-            runtime: 'pi',
-        })
-        return
-    }
-
-    assertAuthorized(request)
-
-    if (request.method === 'GET' && url.pathname === '/snapshot') {
-        sendJson(
-            response,
-            200,
-            snapshot({
-                selectedThreadKey: url.searchParams.get('selectedThreadKey'),
-                messageLimit: Number(url.searchParams.get('messageLimit') ?? 200),
-            }),
-        )
-        return
-    }
-
-    if (request.method === 'POST' && url.pathname === '/threads') {
-        const body = await getRequestBody(request)
-        const firstMessage =
-            isRecord(body) && typeof body.firstMessage === 'string' ? body.firstMessage : null
-        sendJson(response, 200, await createThread({ firstMessage }))
-        return
-    }
-
-    const threadSendMatch = url.pathname.match(/^\/threads\/([^/]+)\/send$/)
-    if (request.method === 'POST' && threadSendMatch) {
-        const sessionKey = decodeURIComponent(threadSendMatch[1]!)
-        const record = findThread(sessionKey)
-        if (!record) {
-            throw new HttpError(404, `Thread ${sessionKey} does not exist`)
-        }
-        const body = await getRequestBody(request)
-        const message =
-            isRecord(body) && typeof body.message === 'string' ? body.message.trim() : ''
-        if (!message) {
-            throw new HttpError(400, 'Message cannot be empty')
-        }
-        const runId = randomUUID()
-        const awaitCompletion = isRecord(body) && body.awaitCompletion === true
-        const runKind =
-            isRecord(body) &&
-            (body.runKind === 'scheduled' ||
-                body.runKind === 'subagent' ||
-                body.runKind === 'maintenance')
-                ? body.runKind
-                : 'manual'
-        const finalStatus = await runPrompt({
-            record,
-            message,
-            runId,
-            awaitCompletion,
-            runKind,
-        })
-        const payload: PiRuntimeSendPayload = {
-            runId,
-            status: awaitCompletion ? finalStatus : 'accepted',
-            messageSeq: null,
-            interruptedActiveRun: false,
-            error: record.lastError,
-        }
-        sendJson(response, 200, payload)
-        return
-    }
-
-    const threadAbortMatch = url.pathname.match(/^\/threads\/([^/]+)\/abort$/)
-    if (request.method === 'POST' && threadAbortMatch) {
-        const sessionKey = decodeURIComponent(threadAbortMatch[1]!)
-        const record = findThread(sessionKey)
-        if (!record) {
-            throw new HttpError(404, `Thread ${sessionKey} does not exist`)
-        }
-        const body = await getRequestBody(request)
-        const requestedRunId =
-            isRecord(body) && typeof body.runId === 'string' && body.runId.trim()
-                ? body.runId.trim()
-                : null
-        const active = activeThreads.get(sessionKey)
-        const abortDecision = resolveAbortDecision({
-            requestedRunId,
-            activeRunId: record.activeRunId,
-        })
-        if (!abortDecision.shouldAbort) {
-            const payload: PiRuntimeAbortPayload = {
-                abortedRunId: abortDecision.abortedRunId,
-                status: abortDecision.status,
-            }
-            sendJson(response, 200, payload)
-            return
-        }
-        if (active) {
-            active.abortController?.abort(
-                new RunWatchdog('explicit_abort', timeoutMessage('explicit_abort')),
-            )
-            await active.session.abort()
-        }
-        record.status = 'idle'
-        record.activeRunId = null
-        record.activeRunKind = null
-        record.runStartedAt = null
-        record.runBudgetExpiresAt = null
-        record.idleTimeoutExpiresAt = null
-        await persistThreadIndex()
-        const payload: PiRuntimeAbortPayload = {
-            abortedRunId: abortDecision.abortedRunId,
-            status: abortDecision.status,
-        }
-        sendJson(response, 200, payload)
-        return
-    }
-
-    const threadCompactMatch = url.pathname.match(/^\/threads\/([^/]+)\/compact$/)
-    if (request.method === 'POST' && threadCompactMatch) {
-        const sessionKey = decodeURIComponent(threadCompactMatch[1]!)
-        const record = findThread(sessionKey)
-        if (!record) {
-            throw new HttpError(404, `Thread ${sessionKey} does not exist`)
-        }
-        const body = await getRequestBody(request)
-        const instructions =
-            isRecord(body) && typeof body.instructions === 'string' ? body.instructions : null
-        sendJson(
-            response,
-            200,
-            await compactThread({
-                record,
-                instructions,
-            }),
-        )
-        return
-    }
-
-    const threadForkMatch = url.pathname.match(/^\/threads\/([^/]+)\/fork$/)
-    if (request.method === 'POST' && threadForkMatch) {
-        const sessionKey = decodeURIComponent(threadForkMatch[1]!)
-        const record = findThread(sessionKey)
-        if (!record) {
-            throw new HttpError(404, `Thread ${sessionKey} does not exist`)
-        }
-        const body = await getRequestBody(request)
-        const title = isRecord(body) && typeof body.title === 'string' ? body.title : null
-        const entryId = isRecord(body) && typeof body.entryId === 'string' ? body.entryId : null
-        const payload: PiRuntimeForkPayload = await forkThread({
-            record,
-            title,
-            entryId,
-        })
-        sendJson(response, 200, payload)
-        return
-    }
-
-    const eventsMatch = url.pathname.match(/^\/threads\/([^/]+)\/events$/)
-    if (request.method === 'GET' && eventsMatch) {
-        const sessionKey = decodeURIComponent(eventsMatch[1]!)
-        if (!findThread(sessionKey)) {
-            throw new HttpError(404, `Thread ${sessionKey} does not exist`)
-        }
-        response.writeHead(200, {
-            'content-type': 'text/event-stream; charset=utf-8',
-            'cache-control': 'no-store',
-            connection: 'keep-alive',
-        })
-        const reader = createEventStream(sessionKey).getReader()
-        request.on('close', () => {
-            void reader.cancel()
-        })
-        while (true) {
-            const next = await reader.read()
-            if (next.done) {
-                response.end()
-                return
-            }
-            response.write(next.value)
-        }
-    }
-
-    throw new HttpError(404, `Pi runtime route ${url.pathname} was not found`)
-}
+const route = createPiRuntimeRouter({
+    config,
+    activeThreads,
+    findThread,
+    createThread,
+    runPrompt,
+    compactThread,
+    forkThread,
+    snapshot,
+    createEventStream,
+    persistThreadIndex,
+})
 
 const server = createServer((request, response) => {
     void route(request, response).catch((error) => {
-        sendError(response, error)
+        sendError(response, error, errorMessage)
     })
 })
 

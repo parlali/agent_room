@@ -30,9 +30,7 @@ describe('run budgets', () => {
             idleTimeoutMs: budgets.idleTimeoutMs,
             providerIdleTimeoutMs: budgets.providerIdleTimeoutMs,
         })
-        expect(budgetForRunKind(budgets, 'scheduled').runBudgetMs).toBe(
-            budgets.scheduledTurnMs,
-        )
+        expect(budgetForRunKind(budgets, 'scheduled').runBudgetMs).toBe(budgets.scheduledTurnMs)
         expect(budgetForRunKind(budgets, 'subagent').runBudgetMs).toBe(budgets.subagentTurnMs)
     })
 

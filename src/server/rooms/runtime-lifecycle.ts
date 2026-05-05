@@ -222,6 +222,40 @@ async function writeRoomRuntimeMetadataFile(input: {
     })
 }
 
+async function persistRoomRuntimeState(input: {
+    roomId: string
+    status: RoomRecord['status']
+    metadataPath: string
+    port: number
+    pid: number | null
+    startedAt: Date | null
+    configVersion: number
+    tokenVersion: number
+    healthStatus: RoomRuntimeMetadataRecord['healthStatus']
+    lastError: string | null
+}): Promise<void> {
+    await roomRepository.updateRoomStatus(input.roomId, input.status)
+    await writeRoomRuntimeMetadataFile({
+        path: input.metadataPath,
+        roomId: input.roomId,
+        port: input.port,
+        pid: input.pid,
+        startedAt: input.startedAt,
+        configVersion: input.configVersion,
+        tokenVersion: input.tokenVersion,
+    })
+    await persistRuntimeMetadata({
+        roomId: input.roomId,
+        port: input.port,
+        pid: input.pid,
+        configVersion: input.configVersion,
+        tokenVersion: input.tokenVersion,
+        healthStatus: input.healthStatus,
+        startedAt: input.startedAt,
+        lastError: input.lastError,
+    })
+}
+
 async function restartRoomIfDesiredAfterStop(input: {
     roomId: string
     restart: (room: RoomRecord) => Promise<void>
@@ -272,24 +306,16 @@ async function startRoomProcessUnlocked(room: RoomRecord): Promise<void> {
         }
 
         startupLogStream = await streamLogs(child, paths.runtimeLogPath)
-        await roomRepository.updateRoomStatus(room.id, 'starting')
-        await writeRoomRuntimeMetadataFile({
-            path: paths.runtimeMetadataPath,
+        await persistRoomRuntimeState({
             roomId: room.id,
+            status: 'starting',
+            metadataPath: paths.runtimeMetadataPath,
             port,
             pid,
             startedAt,
-            configVersion: materialized.configVersion,
-            tokenVersion: materialized.tokenVersion,
-        })
-        await persistRuntimeMetadata({
-            roomId: room.id,
-            port,
-            pid,
             configVersion: materialized.configVersion,
             tokenVersion: materialized.tokenVersion,
             healthStatus: 'unknown',
-            startedAt,
             lastError: null,
         })
 
@@ -329,24 +355,16 @@ async function startRoomProcessUnlocked(room: RoomRecord): Promise<void> {
         ])
         clearStartupFailureListeners()
 
-        await roomRepository.updateRoomStatus(room.id, 'running')
-        await writeRoomRuntimeMetadataFile({
-            path: paths.runtimeMetadataPath,
+        await persistRoomRuntimeState({
             roomId: room.id,
+            status: 'running',
+            metadataPath: paths.runtimeMetadataPath,
             port,
             pid,
             startedAt,
-            configVersion: materialized.configVersion,
-            tokenVersion: materialized.tokenVersion,
-        })
-        await persistRuntimeMetadata({
-            roomId: room.id,
-            port,
-            pid,
             configVersion: materialized.configVersion,
             tokenVersion: materialized.tokenVersion,
             healthStatus: 'healthy',
-            startedAt,
             lastError: null,
         })
 

@@ -1,33 +1,12 @@
-import type { MaterializedRoomConfiguration, RoomPaths } from '../domain/types'
 import { piRuntimeEngineProfile } from './pi-runtime-engine-profile'
+import type { RuntimeEngineProfile } from './runtime-engine-profile-contract'
 
-export interface RuntimeEngineCommand {
-    command: string
-    args: string[]
-}
-
-export interface RuntimeEngineProfileBuildInput {
-    roomId: string
-    displayName: string
-    port: number
-    token: string
-    paths: RoomPaths
-    roomConfiguration: MaterializedRoomConfiguration
-}
-
-export interface RuntimeEngineProfileBuildResult {
-    config: unknown
-    env: Record<string, string>
-}
-
-export interface RuntimeEngineProfile {
-    stateDirName: string
-    runtimeConfigFileName: string
-    runtimeEnvFileName: string
-    runtimeLogFileName: string
-    resolveCommand: () => RuntimeEngineCommand
-    buildRuntimeProfile: (input: RuntimeEngineProfileBuildInput) => RuntimeEngineProfileBuildResult
-}
+export type {
+    RuntimeEngineCommand,
+    RuntimeEngineProfile,
+    RuntimeEngineProfileBuildInput,
+    RuntimeEngineProfileBuildResult,
+} from './runtime-engine-profile-contract'
 
 export function getRuntimeEngineProfile(): RuntimeEngineProfile {
     return piRuntimeEngineProfile

@@ -1,12 +1,9 @@
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
-import {
-    defineTool,
-    type AgentToolResult,
-    type ToolDefinition,
-} from '@mariozechner/pi-coding-agent'
+import { defineTool, type ToolDefinition } from '@mariozechner/pi-coding-agent'
 import { Type } from '@mariozechner/pi-ai'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { clampPositiveInteger, textToolResult } from './tool-helpers'
 
 interface WebToolContext {
     config: PiRuntimeConfig
@@ -47,24 +44,6 @@ const maxFetchBytes = 512000
 const maxReturnedTextBytes = 128000
 const maxRedirects = 5
 const maxDomainFilters = 50
-
-function textResult(text: string, details: WebToolDetails = {}): AgentToolResult<WebToolDetails> {
-    return {
-        content: [
-            {
-                type: 'text',
-                text,
-            },
-        ],
-        details,
-    }
-}
-
-function clampPositiveInteger(value: unknown, fallback: number, max: number): number {
-    const number =
-        typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : fallback
-    return Math.min(max, Math.max(1, number))
-}
 
 function normalizeStringArray(value: unknown): string[] {
     if (!Array.isArray(value)) {
@@ -595,7 +574,7 @@ function createWebSearchTool(ctx: WebToolContext): ToolDefinition {
                     resultCount: results.length,
                     status: 'complete',
                 })
-                return textResult(formatSearchResults(results), {
+                return textToolResult<WebToolDetails>(formatSearchResults(results), {
                     resultCount: results.length,
                 })
             } catch (error) {
@@ -653,7 +632,7 @@ function createFetchUrlTool(ctx: WebToolContext): ToolDefinition {
                 ]
                     .filter((line): line is string => line !== null)
                     .join('\n')
-                return textResult(`${header}\n\n${result.text}`, {
+                return textToolResult<WebToolDetails>(`${header}\n\n${result.text}`, {
                     url: loggedUrl,
                     finalUrl: loggedFinalUrl,
                     status: result.status,

@@ -323,9 +323,7 @@ function capabilitiesRow(config: RoomConfigSnapshot | null): CheckRow {
             detail: 'Loading capability status.',
         }
     }
-    const enabled = CAPABILITY_OPTIONS.filter(
-        (option) => config.effective.capabilities[option.key],
-    )
+    const enabled = CAPABILITY_OPTIONS.filter((option) => config.effective.capabilities[option.key])
     const blockers = capabilityBlockers(config)
     if (blockers.length > 0) {
         return {

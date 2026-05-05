@@ -51,12 +51,14 @@ const appDefaultsInputSchema = z.object({
 
 const appCapabilityInputSchema = z.object({
     capabilityDefaults: z.record(z.enum(capabilityIds), z.boolean()),
-    search: z.object({
-        enabled: z.boolean(),
-        backendUrl: z.string().url(),
-        defaultResultCount: z.number().int().positive().max(20),
-        timeoutMs: z.number().int().positive().max(30000),
-    }).optional(),
+    search: z
+        .object({
+            enabled: z.boolean(),
+            backendUrl: z.string().url(),
+            defaultResultCount: z.number().int().positive().max(20),
+            timeoutMs: z.number().int().positive().max(30000),
+        })
+        .optional(),
     image: z.object({
         provider: z.enum(['openai', 'gemini']).nullable(),
         model: z.string().nullable(),

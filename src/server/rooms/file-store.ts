@@ -1,5 +1,6 @@
 import { lstat, open, readdir, realpath } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { join, relative } from 'node:path'
+import { assertPathInsideRoot } from '../security/path-boundary'
 import { getRoomPaths } from './room-paths'
 
 export interface RoomFileEntry {
@@ -110,13 +111,7 @@ export async function listRoomFiles(roomId: string): Promise<RoomFileEntry[]> {
 }
 
 function assertInside(candidate: string, root: string): string {
-    const normalizedRoot = resolve(root)
-    const normalizedCandidate = resolve(candidate)
-    const diff = relative(normalizedRoot, normalizedCandidate)
-    if (diff === '' || (!diff.startsWith('..') && !isAbsolute(diff))) {
-        return normalizedCandidate
-    }
-    throw new Error('File path escapes the room boundary')
+    return assertPathInsideRoot(candidate, root, 'File path escapes the room boundary')
 }
 
 function mediaTypeFor(path: string): string {

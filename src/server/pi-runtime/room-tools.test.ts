@@ -433,19 +433,39 @@ describe('room Pi tools', () => {
     it('imports and exports artifacts through the room store', async () => {
         await withRoom(async (config) => {
             await writeFile(join(config.paths.workspaceDir, 'report.txt'), 'artifact body', 'utf8')
-            const imported = await executeTool(config, 'agent_room_artifact_import', {
-                path: 'report.txt',
-                mediaType: 'text/plain',
-            })
+            const imported = await withToolRunContext(
+                {
+                    sessionKey: 'thread-1',
+                    runId: 'run-1',
+                    signal: new AbortController().signal,
+                },
+                () =>
+                    executeTool(config, 'agent_room_artifact_import', {
+                        path: 'report.txt',
+                        mediaType: 'text/plain',
+                    }),
+            )
             const artifact = JSON.parse(resultText(imported.result) || '{}') as {
                 artifactId: string
             }
+            const manifest = JSON.parse(
+                await readFile(
+                    join(config.paths.storeDir, 'manifests', `${artifact.artifactId}.json`),
+                    'utf8',
+                ),
+            ) as Record<string, unknown>
 
             await executeTool(config, 'agent_room_artifact_export', {
                 artifactId: artifact.artifactId,
                 path: 'exports/report-copy.txt',
             })
 
+            expect(manifest).toMatchObject({
+                sourcePath: 'report.txt',
+                mediaType: 'text/plain',
+                sessionKey: 'thread-1',
+                runId: 'run-1',
+            })
             await expect(
                 readFile(join(config.paths.workspaceDir, 'exports/report-copy.txt'), 'utf8'),
             ).resolves.toBe('artifact body')

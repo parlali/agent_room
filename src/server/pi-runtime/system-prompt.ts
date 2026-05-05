@@ -1,6 +1,7 @@
 import { readFile, realpath } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { join } from 'node:path'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { assertPathInsideRoot } from '../security/path-boundary'
 import { buildAgentHarnessPrompt } from './agent-harness'
 import { buildInternalStateSummary } from './internal-state'
 import { roomToolNamesForCapabilities } from './room-tools'
@@ -21,13 +22,11 @@ const MAX_INSTRUCTION_FILE_BYTES = 32000
 const MAX_OPERATOR_INSTRUCTIONS_CHARS = 24000
 
 function assertInside(candidate: string, root: string): string {
-    const normalizedRoot = resolve(root)
-    const normalizedCandidate = resolve(candidate)
-    const diff = relative(normalizedRoot, normalizedCandidate)
-    if (diff === '' || (!diff.startsWith('..') && !isAbsolute(diff))) {
-        return normalizedCandidate
-    }
-    throw new Error(`Instruction file escapes room workspace: ${candidate}`)
+    return assertPathInsideRoot(
+        candidate,
+        root,
+        (path) => `Instruction file escapes room workspace: ${path}`,
+    )
 }
 
 function boundedText(

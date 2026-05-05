@@ -1,70 +1,10 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { toast } from 'sonner'
-import {
-    GlobeIcon,
-    ImageIcon,
-    KeyRoundIcon,
-    LogOutIcon,
-    MonitorIcon,
-    MoonIcon,
-    PencilIcon,
-    PlugIcon,
-    PlusIcon,
-    SunIcon,
-    Trash2Icon,
-    UserIcon,
-    WrenchIcon,
-} from 'lucide-react'
 import { AppShell, useThemeMode } from '#/components/app-shell'
-import {
-    AttentionBanner,
-    BrandMark,
-    EmptyState,
-    LoadingRows,
-    PageHeader,
-    Section,
-    StateBadge,
-} from '#/components/agent-room'
-import { Button } from '#/components/ui/button'
-import { Input } from '#/components/ui/input'
-import { Label } from '#/components/ui/label'
-import { Textarea } from '#/components/ui/textarea'
-import { Switch } from '#/components/ui/switch'
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '#/components/ui/select'
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from '#/components/ui/dialog'
-import {
-    Sheet,
-    SheetContent,
-    SheetDescription,
-    SheetFooter,
-    SheetHeader,
-    SheetTitle,
-} from '#/components/ui/sheet'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#/components/ui/card'
-import { describeProviderStatus } from '#/lib/state'
-import { formatRelativeTime } from '#/lib/format'
-import { cn } from '#/lib/utils'
-import { CAPABILITY_OPTIONS } from '#/lib/capabilities'
-import {
-    imageModelOptionsForProvider,
-    providerModelOptionsForProvider,
-    type ModelOption,
-} from '#/lib/model-options'
+import { PageHeader } from '#/components/agent-room'
+import { imageModelOptionsForProvider } from '#/lib/model-options'
 import { requireRouteUser } from './-route-auth'
 import { currentUserServer, logoutServer } from './-auth-server'
 import {
@@ -81,769 +21,36 @@ import type {
     OperatorConfigSnapshot,
     ProviderConnectionSummary,
 } from '#/server/configuration/operator-configuration'
+import {
+    EditSheet,
+    EMPTY_MCP_FORM,
+    EMPTY_PROVIDER_FORM,
+    McpForm,
+    type McpFormState,
+    ProviderForm,
+    type ProviderFormState,
+    capabilityDefaultsEqual,
+    type DeleteConnectionTarget,
+    resolveProviderFormProtocol,
+} from './settings/-forms'
+import {
+    AccountSection,
+    AppDefaultsSection,
+    CapabilitiesSection,
+    DeleteConnectionDialog,
+    McpConnectionsSection,
+    ProductInfoCard,
+    ProviderConnectionsSection,
+    SetupBanner,
+    ThemeSettingsSection,
+    type AppCapabilityDefaults,
+    type AppImageProvider,
+} from './settings/-sections'
 
 export const Route = createFileRoute('/settings')({
     beforeLoad: requireRouteUser,
     component: SettingsPage,
 })
-
-type ProviderApi = ProviderConnectionSummary['api']
-type ProviderAuthMode = ProviderConnectionSummary['authMode']
-type McpTransport = McpConnectionSummary['transport']
-type McpAuthMode = McpConnectionSummary['authMode']
-type AppCapabilityDefaults = OperatorConfigSnapshot['settings']['capabilityDefaults']
-type AppImageProvider = 'none' | 'openai' | 'gemini'
-type DeleteConnectionTarget =
-    | { kind: 'provider'; entry: ProviderConnectionSummary }
-    | { kind: 'mcp'; entry: McpConnectionSummary }
-
-function capabilityDefaultsEqual(
-    left: AppCapabilityDefaults | null,
-    right: AppCapabilityDefaults | null,
-): boolean {
-    if (!left || !right) return left === right
-    return CAPABILITY_OPTIONS.every((option) => left[option.id] === right[option.id])
-}
-
-const PROVIDER_API_OPTIONS: { value: ProviderApi; label: string }[] = [
-    { value: 'openai-completions', label: 'OpenAI compatible' },
-    { value: 'openai-responses', label: 'OpenAI Responses' },
-    { value: 'openai-codex-responses', label: 'OpenAI Codex (OAuth)' },
-    { value: 'anthropic-messages', label: 'Anthropic' },
-    { value: 'google-generative-ai', label: 'Google Gemini' },
-]
-
-const TRANSPORT_OPTIONS: { value: McpTransport; label: string }[] = [
-    { value: 'stdio', label: 'Local command (stdio)' },
-    { value: 'http', label: 'HTTP endpoint' },
-    { value: 'streamable_http', label: 'Streamable HTTP' },
-]
-
-interface ProviderFormState {
-    id?: string
-    label: string
-    provider: string
-    api: ProviderApi
-    authMode: ProviderAuthMode
-    baseUrl: string
-    defaultModel: string
-    fallbackModels: string
-    apiKey: string
-    replaceApiKey: boolean
-    hasCredential: boolean
-    makeDefault: boolean
-}
-
-function resolveProviderFormProtocol(
-    form: ProviderFormState,
-    providerCatalog: OperatorConfigSnapshot['providerCatalog'],
-): {
-    selectedProvider: OperatorConfigSnapshot['providerCatalog'][number] | null
-    api: ProviderApi
-    authMode: ProviderAuthMode
-} {
-    const selectedProvider =
-        providerCatalog.find((entry) => entry.provider === form.provider.trim()) ?? null
-    const api = selectedProvider?.api ?? form.api
-    const authMode = api === 'openai-codex-responses' ? 'oauth' : form.authMode
-
-    return {
-        selectedProvider,
-        api,
-        authMode,
-    }
-}
-
-const EMPTY_PROVIDER_FORM: ProviderFormState = {
-    label: '',
-    provider: 'openrouter',
-    api: 'openai-completions',
-    authMode: 'api_key',
-    baseUrl: '',
-    defaultModel: 'openrouter/auto',
-    fallbackModels: '',
-    apiKey: '',
-    replaceApiKey: true,
-    hasCredential: false,
-    makeDefault: false,
-}
-
-interface McpFormState {
-    id?: string
-    name: string
-    serverKey: string
-    transport: McpTransport
-    command: string
-    argsText: string
-    url: string
-    headersText: string
-    authMode: McpAuthMode
-    bearerToken: string
-    replaceBearerToken: boolean
-    hasCredential: boolean
-    allowedToolsText: string
-}
-const EMPTY_MCP_FORM: McpFormState = {
-    name: '',
-    serverKey: '',
-    transport: 'stdio',
-    command: '',
-    argsText: '',
-    url: '',
-    headersText: '',
-    authMode: 'none',
-    bearerToken: '',
-    replaceBearerToken: true,
-    hasCredential: false,
-    allowedToolsText: '',
-}
-
-function FieldGroup({
-    label,
-    htmlFor,
-    hint,
-    children,
-    className,
-}: {
-    label: ReactNode
-    htmlFor?: string
-    hint?: ReactNode
-    children: ReactNode
-    className?: string
-}) {
-    return (
-        <div className={cn('flex flex-col gap-1.5', className)}>
-            <Label htmlFor={htmlFor} className="text-xs font-medium text-muted-foreground">
-                {label}
-            </Label>
-            {children}
-            {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
-        </div>
-    )
-}
-
-function TextField({
-    label,
-    id,
-    value,
-    onChange,
-    placeholder,
-    hint,
-}: {
-    label: string
-    id: string
-    value: string
-    onChange: (value: string) => void
-    placeholder?: string
-    hint?: ReactNode
-}) {
-    return (
-        <FieldGroup label={label} htmlFor={id} hint={hint}>
-            <Input
-                id={id}
-                value={value}
-                onChange={(e) => onChange(e.target.value)}
-                placeholder={placeholder}
-            />
-        </FieldGroup>
-    )
-}
-
-function SelectField<T extends string>({
-    label,
-    id,
-    value,
-    onChange,
-    options,
-}: {
-    label: string
-    id: string
-    value: T
-    onChange: (value: T) => void
-    options: { value: T; label: string }[]
-}) {
-    return (
-        <FieldGroup label={label} htmlFor={id}>
-            <Select value={value} onValueChange={(v) => onChange(v as T)}>
-                <SelectTrigger id={id} className="w-full">
-                    <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                    {options.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                        </SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
-        </FieldGroup>
-    )
-}
-
-function ModelSelectField({
-    label,
-    id,
-    value,
-    onChange,
-    options,
-    disabled = false,
-    hint,
-}: {
-    label: string
-    id: string
-    value: string
-    onChange: (value: string) => void
-    options: ModelOption[]
-    disabled?: boolean
-    hint?: ReactNode
-}) {
-    return (
-        <FieldGroup label={label} htmlFor={id} hint={hint}>
-            <Select value={value} onValueChange={onChange} disabled={disabled}>
-                <SelectTrigger id={id} className="w-full">
-                    <SelectValue placeholder="Pick a model" />
-                </SelectTrigger>
-                <SelectContent>
-                    {options.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                        </SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
-        </FieldGroup>
-    )
-}
-
-function MaskedSecretField({
-    label,
-    id,
-    hasCredential,
-    replace,
-    onToggleReplace,
-    value,
-    onChange,
-    placeholder,
-}: {
-    label: string
-    id: string
-    hasCredential: boolean
-    replace: boolean
-    onToggleReplace: (replace: boolean) => void
-    value: string
-    onChange: (value: string) => void
-    placeholder?: string
-}) {
-    if (hasCredential && !replace) {
-        return (
-            <FieldGroup label={label}>
-                <div className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-sm">
-                    <span className="font-mono tracking-widest text-muted-foreground">
-                        ••••••••••••
-                    </span>
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onToggleReplace(true)}
-                    >
-                        Replace
-                    </Button>
-                </div>
-            </FieldGroup>
-        )
-    }
-    return (
-        <FieldGroup
-            label={label}
-            htmlFor={id}
-            hint={hasCredential ? 'Submitting will overwrite the saved value.' : undefined}
-        >
-            <div className="flex items-center gap-2">
-                <Input
-                    id={id}
-                    type="password"
-                    autoComplete="off"
-                    value={value}
-                    onChange={(e) => onChange(e.target.value)}
-                    placeholder={placeholder}
-                />
-                {hasCredential ? (
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onToggleReplace(false)}
-                    >
-                        Cancel
-                    </Button>
-                ) : null}
-            </div>
-        </FieldGroup>
-    )
-}
-
-function ConnectionRow({
-    title,
-    badges,
-    meta,
-    onEdit,
-    onDelete,
-    deletePending = false,
-}: {
-    title: string
-    badges: ReactNode
-    meta: ReactNode
-    onEdit: () => void
-    onDelete: () => void
-    deletePending?: boolean
-}) {
-    return (
-        <div className="flex items-start justify-between gap-3 px-4 py-3">
-            <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                    <span className="truncate text-sm font-medium text-foreground">{title}</span>
-                    {badges}
-                </div>
-                <div className="mt-0.5 text-xs text-muted-foreground">{meta}</div>
-            </div>
-            <div className="flex shrink-0 flex-wrap justify-end gap-1">
-                <Button type="button" variant="ghost" size="sm" onClick={onEdit}>
-                    <PencilIcon />
-                    Edit
-                </Button>
-                <Button
-                    type="button"
-                    variant="destructive"
-                    size="sm"
-                    onClick={onDelete}
-                    disabled={deletePending}
-                >
-                    <Trash2Icon />
-                    Delete
-                </Button>
-            </div>
-        </div>
-    )
-}
-
-function ChipBadge({ children }: { children: ReactNode }) {
-    return (
-        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            {children}
-        </span>
-    )
-}
-
-function ConnectionsSection<T extends { id: string }>({
-    title,
-    description,
-    addLabel,
-    emptyIcon,
-    emptyTitle,
-    emptyDescription,
-    loading,
-    items,
-    onAdd,
-    renderRow,
-}: {
-    title: string
-    description: string
-    addLabel: string
-    emptyIcon: typeof PlugIcon
-    emptyTitle: string
-    emptyDescription: string
-    loading: boolean
-    items: T[]
-    onAdd: () => void
-    renderRow: (item: T) => ReactNode
-}) {
-    const addButton = (
-        <Button type="button" size="sm" onClick={onAdd}>
-            <PlusIcon />
-            {addLabel}
-        </Button>
-    )
-    return (
-        <Section title={title} description={description} actions={addButton} bodyClassName="p-0">
-            {loading ? (
-                <div className="p-4">
-                    <LoadingRows count={2} />
-                </div>
-            ) : items.length === 0 ? (
-                <div className="p-4">
-                    <EmptyState
-                        icon={emptyIcon}
-                        title={emptyTitle}
-                        description={emptyDescription}
-                        action={addButton}
-                    />
-                </div>
-            ) : (
-                <div className="divide-y divide-border/60">{items.map(renderRow)}</div>
-            )}
-        </Section>
-    )
-}
-
-function EditSheet({
-    open,
-    onOpenChange,
-    title,
-    description,
-    children,
-}: {
-    open: boolean
-    onOpenChange: (open: boolean) => void
-    title: string
-    description: string
-    children: ReactNode
-}) {
-    return (
-        <Sheet open={open} onOpenChange={onOpenChange}>
-            <SheetContent className="flex w-full flex-col gap-0 sm:max-w-lg">
-                <SheetHeader className="border-b border-border/60">
-                    <SheetTitle>{title}</SheetTitle>
-                    <SheetDescription>{description}</SheetDescription>
-                </SheetHeader>
-                {children}
-            </SheetContent>
-        </Sheet>
-    )
-}
-
-function ThemeChoice({
-    active,
-    icon,
-    label,
-    onClick,
-}: {
-    active: boolean
-    icon: ReactNode
-    label: string
-    onClick: () => void
-}) {
-    return (
-        <Button
-            type="button"
-            variant="outline"
-            onClick={onClick}
-            data-active={active}
-            className="h-auto justify-between gap-2 px-3 py-2.5 text-sm font-normal data-[active=true]:border-primary data-[active=true]:bg-primary/5"
-        >
-            <span className="flex items-center gap-2">
-                {icon}
-                {label}
-            </span>
-            <span
-                aria-hidden
-                className={cn(
-                    'size-2 rounded-full ring-1 ring-border',
-                    active && 'bg-primary ring-primary',
-                )}
-            />
-        </Button>
-    )
-}
-
-function FormShell({
-    onSubmit,
-    onCancel,
-    pending,
-    submitLabel,
-    submitIcon,
-    children,
-}: {
-    onSubmit: (event: FormEvent<HTMLFormElement>) => void
-    onCancel: () => void
-    pending: boolean
-    submitLabel: string
-    submitIcon: ReactNode
-    children: ReactNode
-}) {
-    return (
-        <form className="flex min-h-0 flex-1 flex-col" onSubmit={onSubmit}>
-            <div className="flex-1 space-y-4 overflow-y-auto p-4">{children}</div>
-            <SheetFooter className="border-t border-border/60">
-                <div className="flex justify-end gap-2">
-                    <Button type="button" variant="outline" onClick={onCancel}>
-                        Cancel
-                    </Button>
-                    <Button type="submit" disabled={pending}>
-                        {submitIcon}
-                        {submitLabel}
-                    </Button>
-                </div>
-            </SheetFooter>
-        </form>
-    )
-}
-
-function ProviderForm({
-    form,
-    setForm,
-    onSubmit,
-    onCancel,
-    pending,
-    providerCatalog,
-}: {
-    form: ProviderFormState
-    setForm: (patch: Partial<ProviderFormState>) => void
-    onSubmit: (event: FormEvent<HTMLFormElement>) => void
-    onCancel: () => void
-    pending: boolean
-    providerCatalog: OperatorConfigSnapshot['providerCatalog']
-}) {
-    const protocol = resolveProviderFormProtocol(form, providerCatalog)
-    const usesOAuth = protocol.authMode === 'oauth' || protocol.api === 'openai-codex-responses'
-    const providerOptions = providerCatalog.map((entry) => ({
-        value: entry.provider,
-        label: entry.label,
-    }))
-    const providerApiOptions = protocol.selectedProvider
-        ? PROVIDER_API_OPTIONS.filter((option) => option.value === protocol.selectedProvider?.api)
-        : PROVIDER_API_OPTIONS
-    const providerModelOptions = providerModelOptionsForProvider({
-        provider: form.provider,
-        currentModel: form.defaultModel,
-        providerCatalog,
-    })
-    return (
-        <FormShell
-            onSubmit={onSubmit}
-            onCancel={onCancel}
-            pending={pending}
-            submitLabel={form.id ? 'Save provider' : 'Create provider'}
-            submitIcon={<KeyRoundIcon />}
-        >
-            <TextField
-                id="provider-label"
-                label="Label"
-                value={form.label}
-                onChange={(label) => setForm({ label })}
-                placeholder="OpenRouter"
-            />
-            <div className="grid gap-3 sm:grid-cols-2">
-                <SelectField
-                    id="provider-key"
-                    label="Provider"
-                    value={form.provider}
-                    onChange={(provider) => {
-                        const selected = providerCatalog.find(
-                            (entry) => entry.provider === provider,
-                        )
-                        setForm({
-                            provider,
-                            api: selected?.api ?? form.api,
-                            authMode:
-                                selected?.api === 'openai-codex-responses'
-                                    ? 'oauth'
-                                    : form.authMode === 'oauth'
-                                      ? 'api_key'
-                                      : form.authMode,
-                            defaultModel: selected?.model ?? form.defaultModel,
-                        })
-                    }}
-                    options={providerOptions}
-                />
-                <SelectField
-                    id="provider-api"
-                    label="API"
-                    value={protocol.api}
-                    onChange={(api) => setForm({ api })}
-                    options={providerApiOptions}
-                />
-            </div>
-            <SelectField<ProviderAuthMode>
-                id="provider-auth"
-                label="Auth mode"
-                value={protocol.authMode}
-                onChange={(authMode) => setForm({ authMode })}
-                options={[
-                    { value: 'api_key', label: 'API key' },
-                    { value: 'oauth', label: 'OAuth (browser)' },
-                ]}
-            />
-            <TextField
-                id="provider-base-url"
-                label="Base URL"
-                value={form.baseUrl}
-                onChange={(baseUrl) => setForm({ baseUrl })}
-                placeholder="https://"
-                hint="Optional override for OpenRouter, Ollama, or LM Studio endpoints."
-            />
-            <ModelSelectField
-                id="provider-default-model"
-                label="Default model"
-                value={form.defaultModel}
-                onChange={(defaultModel) => setForm({ defaultModel })}
-                options={providerModelOptions}
-            />
-            <TextField
-                id="provider-fallback-models"
-                label="Fallback models"
-                value={form.fallbackModels}
-                onChange={(fallbackModels) => setForm({ fallbackModels })}
-                placeholder="provider/model, provider/model"
-                hint="Comma separated. Used in order if the default fails."
-            />
-            {usesOAuth ? (
-                <AttentionBanner
-                    tone="info"
-                    title="Browser login"
-                    description="OAuth providers complete sign-in per room. No API key is stored."
-                />
-            ) : (
-                <MaskedSecretField
-                    label="API key"
-                    id="provider-api-key"
-                    hasCredential={form.hasCredential}
-                    replace={form.replaceApiKey}
-                    onToggleReplace={(replace) =>
-                        setForm({ replaceApiKey: replace, apiKey: replace ? form.apiKey : '' })
-                    }
-                    value={form.apiKey}
-                    onChange={(apiKey) => setForm({ apiKey })}
-                    placeholder="sk-..."
-                />
-            )}
-            <label className="flex items-start justify-between gap-3 rounded-lg border border-border/60 px-3 py-2.5">
-                <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-foreground">Use as app default</div>
-                    <p className="text-xs text-muted-foreground">
-                        New rooms inherit this connection unless overridden.
-                    </p>
-                </div>
-                <Switch
-                    checked={form.makeDefault}
-                    onCheckedChange={(makeDefault) => setForm({ makeDefault })}
-                />
-            </label>
-        </FormShell>
-    )
-}
-
-function McpForm({
-    form,
-    setForm,
-    onSubmit,
-    onCancel,
-    pending,
-}: {
-    form: McpFormState
-    setForm: (patch: Partial<McpFormState>) => void
-    onSubmit: (event: FormEvent<HTMLFormElement>) => void
-    onCancel: () => void
-    pending: boolean
-}) {
-    return (
-        <FormShell
-            onSubmit={onSubmit}
-            onCancel={onCancel}
-            pending={pending}
-            submitLabel={form.id ? 'Save tool' : 'Create tool'}
-            submitIcon={<WrenchIcon />}
-        >
-            <div className="grid gap-3 sm:grid-cols-2">
-                <TextField
-                    id="mcp-name"
-                    label="Name"
-                    value={form.name}
-                    onChange={(name) => setForm({ name })}
-                    placeholder="Documentation Search"
-                />
-                <TextField
-                    id="mcp-server-key"
-                    label="Server key"
-                    value={form.serverKey}
-                    onChange={(serverKey) => setForm({ serverKey })}
-                    placeholder="docs"
-                />
-            </div>
-            <SelectField
-                id="mcp-transport"
-                label="Transport"
-                value={form.transport}
-                onChange={(transport) => setForm({ transport })}
-                options={TRANSPORT_OPTIONS}
-            />
-            {form.transport === 'stdio' ? (
-                <>
-                    <TextField
-                        id="mcp-command"
-                        label="Command"
-                        value={form.command}
-                        onChange={(command) => setForm({ command })}
-                        placeholder="uvx context7-mcp"
-                    />
-                    <TextField
-                        id="mcp-args"
-                        label="Arguments"
-                        value={form.argsText}
-                        onChange={(argsText) => setForm({ argsText })}
-                        placeholder='["--flag", "value"]'
-                        hint='JSON array or shell-style ("--flag", value).'
-                    />
-                </>
-            ) : (
-                <TextField
-                    id="mcp-url"
-                    label="Endpoint URL"
-                    value={form.url}
-                    onChange={(url) => setForm({ url })}
-                    placeholder="https://mcp.example.com"
-                />
-            )}
-            <FieldGroup
-                label="Headers"
-                htmlFor="mcp-headers"
-                hint="JSON object of header names to values."
-            >
-                <Textarea
-                    id="mcp-headers"
-                    rows={3}
-                    value={form.headersText}
-                    onChange={(e) => setForm({ headersText: e.target.value })}
-                    placeholder='{"X-Tenant": "agent-room"}'
-                />
-            </FieldGroup>
-            <SelectField<McpAuthMode>
-                id="mcp-auth"
-                label="Auth mode"
-                value={form.authMode}
-                onChange={(authMode) => setForm({ authMode })}
-                options={[
-                    { value: 'none', label: 'None' },
-                    { value: 'bearer', label: 'Bearer token' },
-                ]}
-            />
-            {form.authMode === 'bearer' ? (
-                <MaskedSecretField
-                    label="Bearer token"
-                    id="mcp-bearer-token"
-                    hasCredential={form.hasCredential}
-                    replace={form.replaceBearerToken}
-                    onToggleReplace={(replace) =>
-                        setForm({
-                            replaceBearerToken: replace,
-                            bearerToken: replace ? form.bearerToken : '',
-                        })
-                    }
-                    value={form.bearerToken}
-                    onChange={(bearerToken) => setForm({ bearerToken })}
-                />
-            ) : null}
-            <TextField
-                id="mcp-allowed-tools"
-                label="Allowed tools"
-                value={form.allowedToolsText}
-                onChange={(allowedToolsText) => setForm({ allowedToolsText })}
-                placeholder="search, fetch"
-                hint="Comma separated. Empty allows all advertised tools."
-            />
-        </FormShell>
-    )
-}
 
 function SettingsPage() {
     const queryClient = useQueryClient()
@@ -871,9 +78,7 @@ function SettingsPage() {
     const [mcpForm, setMcpForm] = useState<McpFormState>(EMPTY_MCP_FORM)
     const [deleteTarget, setDeleteTarget] = useState<DeleteConnectionTarget | null>(null)
     const [defaultProviderId, setDefaultProviderId] = useState<string | null>(null)
-    const [capabilityDefaults, setCapabilityDefaults] = useState<AppCapabilityDefaults | null>(
-        null,
-    )
+    const [capabilityDefaults, setCapabilityDefaults] = useState<AppCapabilityDefaults | null>(null)
     const [appImageProvider, setAppImageProvider] = useState<AppImageProvider>('none')
     const [appImageModel, setAppImageModel] = useState('')
     const [appImageApiKey, setAppImageApiKey] = useState('')
@@ -1215,414 +420,84 @@ function SettingsPage() {
                 />
 
                 <div className="mt-6 flex flex-col gap-5">
-                    {!onboardingCompleted ? (
-                        <AttentionBanner
-                            tone="info"
-                            title="Finish setup"
-                            description="Add a provider connection and pick an app default to enable rooms."
-                        />
-                    ) : null}
+                    <SetupBanner onboardingCompleted={onboardingCompleted} />
 
-                    <ConnectionsSection
-                        title="Provider connections"
-                        description="Saved providers can be used by any room."
-                        addLabel="Add provider"
-                        emptyIcon={PlugIcon}
-                        emptyTitle="No provider connections"
-                        emptyDescription="Add an OpenAI, Anthropic, or compatible provider to enable rooms."
+                    <ProviderConnectionsSection
+                        providers={providers}
+                        defaultProviderId={config?.settings.defaultProviderConnectionId}
                         loading={configQuery.isLoading}
-                        items={providers}
+                        deletingProviderId={
+                            deleteProviderMutation.isPending
+                                ? deleteProviderMutation.variables
+                                : undefined
+                        }
                         onAdd={openNewProvider}
-                        renderRow={(entry) => {
-                            const status = describeProviderStatus(entry.status)
-                            const isDefault =
-                                config?.settings.defaultProviderConnectionId === entry.id
-                            return (
-                                <ConnectionRow
-                                    key={entry.id}
-                                    title={entry.label}
-                                    badges={
-                                        <>
-                                            {isDefault ? <ChipBadge>Default</ChipBadge> : null}
-                                            <StateBadge tone={status.tone} label={status.label} />
-                                        </>
-                                    }
-                                    meta={
-                                        <>
-                                            <div className="truncate">
-                                                {entry.provider} · {entry.api} ·{' '}
-                                                {entry.defaultModel}
-                                            </div>
-                                            <div className="mt-0.5">
-                                                Updated {formatRelativeTime(entry.updatedAt)}
-                                            </div>
-                                        </>
-                                    }
-                                    onEdit={() => openEditProvider(entry)}
-                                    onDelete={() => onDeleteProvider(entry)}
-                                    deletePending={
-                                        deleteProviderMutation.isPending &&
-                                        deleteProviderMutation.variables === entry.id
-                                    }
-                                />
-                            )
-                        }}
+                        onEdit={openEditProvider}
+                        onDelete={onDeleteProvider}
                     />
 
-                    <ConnectionsSection
-                        title="Connected tools"
-                        description="MCP servers exposed to rooms."
-                        addLabel="Add tool"
-                        emptyIcon={WrenchIcon}
-                        emptyTitle="No tools connected"
-                        emptyDescription="Attach MCP servers so rooms can call external tools."
+                    <McpConnectionsSection
+                        mcpConnections={mcpConnections}
                         loading={configQuery.isLoading}
-                        items={mcpConnections}
+                        deletingMcpId={
+                            deleteMcpMutation.isPending ? deleteMcpMutation.variables : undefined
+                        }
                         onAdd={openNewMcp}
-                        renderRow={(entry) => {
-                            const status = describeProviderStatus(entry.status)
-                            return (
-                                <ConnectionRow
-                                    key={entry.id}
-                                    title={entry.name}
-                                    badges={
-                                        <>
-                                            <ChipBadge>{entry.transport}</ChipBadge>
-                                            <StateBadge tone={status.tone} label={status.label} />
-                                        </>
-                                    }
-                                    meta={
-                                        <>
-                                            <div className="truncate">{entry.serverKey}</div>
-                                            <div className="mt-0.5">
-                                                Updated {formatRelativeTime(entry.updatedAt)}
-                                            </div>
-                                        </>
-                                    }
-                                    onEdit={() => openEditMcp(entry)}
-                                    onDelete={() => onDeleteMcp(entry)}
-                                    deletePending={
-                                        deleteMcpMutation.isPending &&
-                                        deleteMcpMutation.variables === entry.id
-                                    }
-                                />
-                            )
-                        }}
+                        onEdit={openEditMcp}
+                        onDelete={onDeleteMcp}
                     />
 
-                    <Section
-                        title="App defaults"
-                        description="New rooms inherit these unless overridden."
-                    >
-                        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                            <FieldGroup label="Default provider" htmlFor="default-provider">
-                                <Select
-                                    value={defaultProviderId ?? '__none'}
-                                    onValueChange={(value) =>
-                                        setDefaultProviderId(value === '__none' ? null : value)
-                                    }
-                                >
-                                    <SelectTrigger id="default-provider" className="w-full">
-                                        <SelectValue placeholder="No default" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="__none">No default</SelectItem>
-                                        {providers.map((entry) => (
-                                            <SelectItem key={entry.id} value={entry.id}>
-                                                {entry.label}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </FieldGroup>
-                            <FieldGroup label="Model used by new rooms">
-                                <div className="flex min-h-10 items-center rounded-md border border-border bg-muted/30 px-3 text-sm text-muted-foreground">
-                                    {selectedDefaultProvider
-                                        ? selectedDefaultProvider.defaultModel
-                                        : 'Pick a default provider'}
-                                </div>
-                            </FieldGroup>
-                        </div>
-                        <div className="mt-4 flex justify-end">
-                            <Button
-                                type="button"
-                                onClick={() => updateDefaultsMutation.mutate()}
-                                disabled={updateDefaultsMutation.isPending || !defaultsDirty}
-                            >
-                                Save defaults
-                            </Button>
-                        </div>
-                    </Section>
+                    <AppDefaultsSection
+                        providers={providers}
+                        defaultProviderId={defaultProviderId}
+                        selectedDefaultProvider={selectedDefaultProvider}
+                        defaultsDirty={defaultsDirty}
+                        pending={updateDefaultsMutation.isPending}
+                        onChangeDefaultProvider={setDefaultProviderId}
+                        onSave={() => updateDefaultsMutation.mutate()}
+                    />
 
-                    <Section
-                        title="Capabilities"
-                        description="Defaults inherited by rooms unless a room override is set."
-                    >
-                        {!capabilityDefaults ? (
-                            <LoadingRows count={4} />
-                        ) : (
-                            <div className="space-y-4">
-                                <div className="grid gap-2 sm:grid-cols-2">
-                                    {CAPABILITY_OPTIONS.map((option) => (
-                                        <label
-                                            key={option.id}
-                                            className="flex items-start justify-between gap-3 rounded-lg border border-border/60 px-3 py-2.5"
-                                        >
-                                            <span className="min-w-0">
-                                                <span className="flex items-center gap-2 text-sm font-medium text-foreground">
-                                                    {option.id === 'images' ? (
-                                                        <ImageIcon className="size-4 text-muted-foreground" />
-                                                    ) : option.id === 'web_search' ||
-                                                      option.id === 'url_fetch' ? (
-                                                        <GlobeIcon className="size-4 text-muted-foreground" />
-                                                    ) : (
-                                                        <WrenchIcon className="size-4 text-muted-foreground" />
-                                                    )}
-                                                    {option.label}
-                                                </span>
-                                                <span className="mt-0.5 block text-xs text-muted-foreground">
-                                                    {option.description}
-                                                </span>
-                                            </span>
-                                            <Switch
-                                                checked={capabilityDefaults[option.id]}
-                                                onCheckedChange={(next) =>
-                                                    setCapabilityDefaults((current) =>
-                                                        current
-                                                            ? { ...current, [option.id]: next }
-                                                            : current,
-                                                    )
-                                                }
-                                                aria-label={`Toggle ${option.label}`}
-                                            />
-                                        </label>
-                                    ))}
-                                </div>
-                                <div className="rounded-lg border border-border/60 p-3">
-                                    <div className="text-sm font-medium text-foreground">
-                                        Image defaults
-                                    </div>
-                                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                                        <FieldGroup label="Provider" htmlFor="app-image-provider">
-                                            <Select
-                                                value={appImageProvider}
-                                                onValueChange={(value) => {
-                                                    const provider = value as AppImageProvider
-                                                    const savedProvider =
-                                                        config?.settings.image.provider ?? 'none'
-                                                    const hasCredential =
-                                                        provider !== 'none' &&
-                                                        provider === savedProvider &&
-                                                        Boolean(config?.settings.image.hasCredential)
-                                                    const options =
-                                                        provider === 'none'
-                                                            ? []
-                                                            : imageModelOptionsForProvider(provider)
-                                                    setAppImageProvider(provider)
-                                                    setAppImageModel(
-                                                        provider === 'none'
-                                                            ? ''
-                                                            : provider === savedProvider
-                                                              ? (config?.settings.image.model ??
-                                                                    options[0]?.value ??
-                                                                    '')
-                                                              : (options[0]?.value ?? ''),
-                                                    )
-                                                    setAppImageApiKey('')
-                                                    setAppImageHasCredential(hasCredential)
-                                                    setAppImageReplaceApiKey(!hasCredential)
-                                                }}
-                                            >
-                                                <SelectTrigger
-                                                    id="app-image-provider"
-                                                    className="w-full"
-                                                >
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="none">None</SelectItem>
-                                                    <SelectItem value="openai">
-                                                        OpenAI Images
-                                                    </SelectItem>
-                                                    <SelectItem value="gemini">
-                                                        Gemini Images
-                                                    </SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </FieldGroup>
-                                        {appImageProvider === 'none' ? (
-                                            <FieldGroup label="Default image model">
-                                                <div className="flex min-h-10 items-center rounded-md border border-border bg-muted/30 px-3 text-sm text-muted-foreground">
-                                                    Images use room overrides only
-                                                </div>
-                                            </FieldGroup>
-                                        ) : (
-                                            <ModelSelectField
-                                                id="app-image-model"
-                                                label="Default image model"
-                                                value={appImageModel}
-                                                onChange={setAppImageModel}
-                                                options={imageModelOptionsForProvider(
-                                                    appImageProvider,
-                                                    appImageModel,
-                                                )}
-                                            />
-                                        )}
-                                    </div>
-                                    {appImageProvider !== 'none' ? (
-                                        <div className="mt-3">
-                                            <MaskedSecretField
-                                                label="Image API key"
-                                                id="app-image-api-key"
-                                                hasCredential={appImageHasCredential}
-                                                replace={appImageReplaceApiKey}
-                                                onToggleReplace={(replace) => {
-                                                    setAppImageReplaceApiKey(replace)
-                                                    if (!replace) setAppImageApiKey('')
-                                                }}
-                                                value={appImageApiKey}
-                                                onChange={setAppImageApiKey}
-                                                placeholder={
-                                                    appImageProvider === 'gemini'
-                                                        ? 'Gemini API key'
-                                                        : 'OpenAI API key'
-                                                }
-                                            />
-                                        </div>
-                                    ) : null}
-                                </div>
-                                <div className="flex justify-end">
-                                    <Button
-                                        type="button"
-                                        onClick={onSaveCapabilities}
-                                        disabled={
-                                            updateCapabilitiesMutation.isPending ||
-                                            !capabilitiesDirty
-                                        }
-                                    >
-                                        Save capabilities
-                                    </Button>
-                                </div>
-                            </div>
-                        )}
-                    </Section>
+                    <CapabilitiesSection
+                        config={config}
+                        capabilityDefaults={capabilityDefaults}
+                        appImageProvider={appImageProvider}
+                        appImageModel={appImageModel}
+                        appImageApiKey={appImageApiKey}
+                        appImageHasCredential={appImageHasCredential}
+                        appImageReplaceApiKey={appImageReplaceApiKey}
+                        savePending={updateCapabilitiesMutation.isPending}
+                        capabilitiesDirty={capabilitiesDirty}
+                        setCapabilityDefaults={setCapabilityDefaults}
+                        setAppImageProvider={setAppImageProvider}
+                        setAppImageModel={setAppImageModel}
+                        setAppImageApiKey={setAppImageApiKey}
+                        setAppImageHasCredential={setAppImageHasCredential}
+                        setAppImageReplaceApiKey={setAppImageReplaceApiKey}
+                        onSaveCapabilities={onSaveCapabilities}
+                    />
 
-                    <Section title="Account" description="Local operator account.">
-                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                            <div className="flex items-center gap-3">
-                                <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                                    <UserIcon className="size-5" aria-hidden />
-                                </span>
-                                <div className="min-w-0">
-                                    <div className="truncate text-sm font-medium text-foreground">
-                                        {userQuery.data?.email ?? 'Unknown'}
-                                    </div>
-                                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
-                                        {userQuery.data?.role ?? '—'}
-                                    </div>
-                                </div>
-                            </div>
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => logoutMutation.mutate()}
-                                disabled={logoutMutation.isPending}
-                            >
-                                <LogOutIcon />
-                                Sign out
-                            </Button>
-                        </div>
-                    </Section>
+                    <AccountSection
+                        email={userQuery.data?.email}
+                        role={userQuery.data?.role}
+                        pending={logoutMutation.isPending}
+                        onLogout={() => logoutMutation.mutate()}
+                    />
 
-                    <Section title="Theme" description="Choose how Agent Room renders.">
-                        <div className="grid gap-2 sm:grid-cols-3">
-                            <ThemeChoice
-                                active={themeMode === 'light'}
-                                icon={<SunIcon className="size-4" />}
-                                label="Light"
-                                onClick={() => setThemeMode('light')}
-                            />
-                            <ThemeChoice
-                                active={themeMode === 'dark'}
-                                icon={<MoonIcon className="size-4" />}
-                                label="Dark"
-                                onClick={() => setThemeMode('dark')}
-                            />
-                            <ThemeChoice
-                                active={themeMode === 'system'}
-                                icon={<MonitorIcon className="size-4" />}
-                                label="System"
-                                onClick={() => setThemeMode('system')}
-                            />
-                        </div>
-                    </Section>
+                    <ThemeSettingsSection themeMode={themeMode} setThemeMode={setThemeMode} />
 
-                    <Card>
-                        <CardHeader>
-                            <div className="flex items-center gap-3">
-                                <span className="flex size-9 items-center justify-center rounded-lg bg-muted text-foreground">
-                                    <BrandMark size={20} />
-                                </span>
-                                <div className="min-w-0">
-                                    <CardTitle className="text-sm">Agent Room</CardTitle>
-                                    <CardDescription className="text-xs">
-                                        Self-hosted agent orchestration. Rooms keep instructions,
-                                        tools, secrets, and sessions in one auditable workspace.
-                                    </CardDescription>
-                                </div>
-                            </div>
-                        </CardHeader>
-                        <CardContent className="px-4 pb-4 pt-0">
-                            <Link
-                                to="/about"
-                                className="text-xs font-medium text-primary hover:underline"
-                            >
-                                Learn more about Agent Room
-                            </Link>
-                        </CardContent>
-                    </Card>
+                    <ProductInfoCard />
                 </div>
             </div>
 
-            <Dialog
-                open={deleteTarget !== null}
-                onOpenChange={(open) => {
-                    if (!open && !deleteTargetPending) setDeleteTarget(null)
-                }}
-            >
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>{deleteTargetTitle}</DialogTitle>
-                        <DialogDescription className="space-y-2">
-                            <span className="block">{deleteTargetDescription}</span>
-                            {deleteTargetName ? (
-                                <span className="block font-medium text-foreground">
-                                    {deleteTargetName}
-                                </span>
-                            ) : null}
-                        </DialogDescription>
-                    </DialogHeader>
-                    <DialogFooter>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setDeleteTarget(null)}
-                            disabled={deleteTargetPending}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            type="button"
-                            variant="destructive"
-                            onClick={onConfirmDeleteConnection}
-                            disabled={deleteTargetPending}
-                        >
-                            <Trash2Icon />
-                            Delete
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+            <DeleteConnectionDialog
+                target={deleteTarget}
+                pending={deleteTargetPending}
+                targetName={deleteTargetName}
+                title={deleteTargetTitle}
+                description={deleteTargetDescription}
+                onCancel={() => setDeleteTarget(null)}
+                onConfirm={onConfirmDeleteConnection}
+            />
 
             <EditSheet
                 open={providerSheetOpen}

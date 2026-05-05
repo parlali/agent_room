@@ -4,6 +4,7 @@ import type {
     AppSettingsRecord,
     ArtifactIndexRecord,
     AuditEventRecord,
+    ConnectionStatus,
     HealthStatus,
     JsonValue,
     RoomDesiredState,
@@ -30,6 +31,29 @@ export function asJsonValue(value: unknown): JsonValue {
     return value as JsonValue
 }
 
+function nullableValue<T>(value: unknown): T | null {
+    return (value as T | null) ?? null
+}
+
+function nullableNumber(value: unknown): number | null {
+    if (value === null || value === undefined) {
+        return null
+    }
+    return Number(value)
+}
+
+function mapConnectionValidationFields(row: DbRow) {
+    return {
+        credentialSecretId: nullableValue<string>(row.credential_secret_id),
+        status: row.status as ConnectionStatus,
+        validationMessage: nullableValue<string>(row.validation_message),
+        lastValidatedAt: nullableValue<Date>(row.last_validated_at),
+        createdByUserId: nullableValue<string>(row.created_by_user_id),
+        createdAt: row.created_at as Date,
+        updatedAt: row.updated_at as Date,
+    }
+}
+
 export function mapUser(row: DbRow): UserRecord {
     return {
         id: String(row.id),
@@ -48,10 +72,10 @@ export function mapSession(row: DbRow): SessionRecord {
         tokenHash: String(row.token_hash),
         expiresAt: row.expires_at as Date,
         createdAt: row.created_at as Date,
-        lastSeenAt: (row.last_seen_at as Date | null) ?? null,
-        revokedAt: (row.revoked_at as Date | null) ?? null,
-        userAgent: (row.user_agent as string | null) ?? null,
-        ipAddress: (row.ip_address as string | null) ?? null,
+        lastSeenAt: nullableValue<Date>(row.last_seen_at),
+        revokedAt: nullableValue<Date>(row.revoked_at),
+        userAgent: nullableValue<string>(row.user_agent),
+        ipAddress: nullableValue<string>(row.ip_address),
     }
 }
 
@@ -71,14 +95,14 @@ export function mapRoom(row: DbRow): RoomRecord {
 export function mapRuntimeMetadata(row: DbRow): RoomRuntimeMetadataRecord {
     return {
         roomId: String(row.room_id),
-        port: (row.port as number | null) ?? null,
-        pid: (row.pid as number | null) ?? null,
+        port: nullableValue<number>(row.port),
+        pid: nullableValue<number>(row.pid),
         configVersion: Number(row.config_version),
         tokenVersion: Number(row.token_version),
         healthStatus: row.health_status as HealthStatus,
-        startedAt: (row.started_at as Date | null) ?? null,
-        lastHealthAt: (row.last_health_at as Date | null) ?? null,
-        lastError: (row.last_error as string | null) ?? null,
+        startedAt: nullableValue<Date>(row.started_at),
+        lastHealthAt: nullableValue<Date>(row.last_health_at),
+        lastError: nullableValue<string>(row.last_error),
         updatedAt: row.updated_at as Date,
     }
 }
@@ -106,16 +130,10 @@ export function mapAppProviderConnection(row: DbRow): AppProviderConnectionRecor
                 ? 'oauth'
                 : ('api_key' satisfies AppProviderConnectionRecord['authMode']),
         api: row.api as AppProviderConnectionRecord['api'],
-        baseUrl: (row.base_url as string | null) ?? null,
+        baseUrl: nullableValue<string>(row.base_url),
         defaultModel: String(row.default_model),
         fallbackModels: asJsonValue(row.fallback_models),
-        credentialSecretId: (row.credential_secret_id as string | null) ?? null,
-        status: row.status as AppProviderConnectionRecord['status'],
-        validationMessage: (row.validation_message as string | null) ?? null,
-        lastValidatedAt: (row.last_validated_at as Date | null) ?? null,
-        createdByUserId: (row.created_by_user_id as string | null) ?? null,
-        createdAt: row.created_at as Date,
-        updatedAt: row.updated_at as Date,
+        ...mapConnectionValidationFields(row),
     }
 }
 
@@ -125,31 +143,25 @@ export function mapAppMcpConnection(row: DbRow): AppMcpConnectionRecord {
         name: String(row.name),
         serverKey: String(row.server_key),
         transport: row.transport as AppMcpConnectionRecord['transport'],
-        command: (row.command as string | null) ?? null,
+        command: nullableValue<string>(row.command),
         args: asJsonValue(row.args),
-        url: (row.url as string | null) ?? null,
+        url: nullableValue<string>(row.url),
         headers: asJsonValue(row.headers),
         authMode: row.auth_mode as AppMcpConnectionRecord['authMode'],
-        credentialSecretId: (row.credential_secret_id as string | null) ?? null,
         allowedTools: asJsonValue(row.allowed_tools),
-        status: row.status as AppMcpConnectionRecord['status'],
-        validationMessage: (row.validation_message as string | null) ?? null,
-        lastValidatedAt: (row.last_validated_at as Date | null) ?? null,
-        createdByUserId: (row.created_by_user_id as string | null) ?? null,
-        createdAt: row.created_at as Date,
-        updatedAt: row.updated_at as Date,
+        ...mapConnectionValidationFields(row),
     }
 }
 
 export function mapAppSettings(row: DbRow): AppSettingsRecord {
     return {
         id: Boolean(row.id),
-        defaultProviderConnectionId: (row.default_provider_connection_id as string | null) ?? null,
-        defaultModel: (row.default_model as string | null) ?? null,
+        defaultProviderConnectionId: nullableValue<string>(row.default_provider_connection_id),
+        defaultModel: nullableValue<string>(row.default_model),
         capabilityDefaults: asJsonValue(row.capability_defaults ?? {}),
         searchConfig: asJsonValue(row.search_config ?? {}),
         imageConfig: asJsonValue(row.image_config ?? {}),
-        onboardingCompletedAt: (row.onboarding_completed_at as Date | null) ?? null,
+        onboardingCompletedAt: nullableValue<Date>(row.onboarding_completed_at),
         createdAt: row.created_at as Date,
         updatedAt: row.updated_at as Date,
     }
@@ -160,17 +172,17 @@ export function mapRoomConfig(row: DbRow): RoomConfigRecord {
         roomId: String(row.room_id),
         instructions: String(row.instructions),
         providerMode: row.provider_mode as RoomConfigRecord['providerMode'],
-        providerConnectionId: (row.provider_connection_id as string | null) ?? null,
-        provider: (row.provider as string | null) ?? null,
+        providerConnectionId: nullableValue<string>(row.provider_connection_id),
+        provider: nullableValue<string>(row.provider),
         providerApi: (row.provider_api as RoomConfigRecord['providerApi']) ?? null,
-        providerBaseUrl: (row.provider_base_url as string | null) ?? null,
-        providerModel: (row.provider_model as string | null) ?? null,
-        providerSecretId: (row.provider_secret_id as string | null) ?? null,
+        providerBaseUrl: nullableValue<string>(row.provider_base_url),
+        providerModel: nullableValue<string>(row.provider_model),
+        providerSecretId: nullableValue<string>(row.provider_secret_id),
         toolsProfile: row.tools_profile as RoomToolProfile,
         capabilityOverrides: asJsonValue(row.capability_overrides ?? {}),
         imageProvider: (row.image_provider as RoomConfigRecord['imageProvider']) ?? null,
-        imageModel: (row.image_model as string | null) ?? null,
-        imageSecretId: (row.image_secret_id as string | null) ?? null,
+        imageModel: nullableValue<string>(row.image_model),
+        imageSecretId: nullableValue<string>(row.image_secret_id),
         cronTimezone: String(row.cron_timezone),
         createdAt: row.created_at as Date,
         updatedAt: row.updated_at as Date,
@@ -196,8 +208,8 @@ export function mapRoomSecret(row: DbRow): RoomSecretRecord {
         label: String(row.label),
         envKey: String(row.env_key),
         purpose: row.purpose as RoomSecretRecord['purpose'],
-        provider: (row.provider as string | null) ?? null,
-        createdByUserId: (row.created_by_user_id as string | null) ?? null,
+        provider: nullableValue<string>(row.provider),
+        createdByUserId: nullableValue<string>(row.created_by_user_id),
         createdAt: row.created_at as Date,
         updatedAt: row.updated_at as Date,
     }
@@ -223,8 +235,8 @@ export function mapArtifact(row: DbRow): ArtifactIndexRecord {
 export function mapAudit(row: DbRow): AuditEventRecord {
     return {
         id: Number(row.id),
-        actorUserId: (row.actor_user_id as string | null) ?? null,
-        roomId: (row.room_id as string | null) ?? null,
+        actorUserId: nullableValue<string>(row.actor_user_id),
+        roomId: nullableValue<string>(row.room_id),
         action: String(row.action),
         payload: asJsonValue(row.payload),
         createdAt: row.created_at as Date,
@@ -241,31 +253,22 @@ export function mapRoomCronJob(row: DbRow): RoomCronJobRecord {
         everyMinutes: Number(row.every_minutes),
         timezone: String(row.timezone),
         sessionTarget: row.session_target === 'selected' ? 'selected' : 'isolated',
-        targetThreadKey: (row.target_thread_key as string | null) ?? null,
-        nextRunAt: (row.next_run_at as Date | null) ?? null,
-        runningAt: (row.running_at as Date | null) ?? null,
-        lockedUntil: (row.locked_until as Date | null) ?? null,
-        lockToken: (row.lock_token as string | null) ?? null,
-        heartbeatAt: (row.heartbeat_at as Date | null) ?? null,
-        lastRenewedAt: (row.last_renewed_at as Date | null) ?? null,
-        runBudgetMs:
-            row.run_budget_ms === null || row.run_budget_ms === undefined
-                ? null
-                : Number(row.run_budget_ms),
-        recoveryReason: (row.recovery_reason as string | null) ?? null,
-        lastRunAt: (row.last_run_at as Date | null) ?? null,
-        lastRunStatus: (row.last_run_status as string | null) ?? null,
-        lastError: (row.last_error as string | null) ?? null,
-        lastDurationMs:
-            row.last_duration_ms === null || row.last_duration_ms === undefined
-                ? null
-                : Number(row.last_duration_ms),
-        provider: (row.provider as string | null) ?? null,
-        model: (row.model as string | null) ?? null,
-        configVersion:
-            row.config_version === null || row.config_version === undefined
-                ? null
-                : Number(row.config_version),
+        targetThreadKey: nullableValue<string>(row.target_thread_key),
+        nextRunAt: nullableValue<Date>(row.next_run_at),
+        runningAt: nullableValue<Date>(row.running_at),
+        lockedUntil: nullableValue<Date>(row.locked_until),
+        lockToken: nullableValue<string>(row.lock_token),
+        heartbeatAt: nullableValue<Date>(row.heartbeat_at),
+        lastRenewedAt: nullableValue<Date>(row.last_renewed_at),
+        runBudgetMs: nullableNumber(row.run_budget_ms),
+        recoveryReason: nullableValue<string>(row.recovery_reason),
+        lastRunAt: nullableValue<Date>(row.last_run_at),
+        lastRunStatus: nullableValue<string>(row.last_run_status),
+        lastError: nullableValue<string>(row.last_error),
+        lastDurationMs: nullableNumber(row.last_duration_ms),
+        provider: nullableValue<string>(row.provider),
+        model: nullableValue<string>(row.model),
+        configVersion: nullableNumber(row.config_version),
         createdAt: row.created_at as Date,
         updatedAt: row.updated_at as Date,
     }
@@ -275,74 +278,44 @@ export function mapRoomCronRun(row: DbRow): RoomCronRunRecord {
     return {
         id: String(row.id),
         roomId: String(row.room_id),
-        jobId: (row.job_id as string | null) ?? null,
-        jobName: (row.job_name as string | null) ?? null,
+        jobId: nullableValue<string>(row.job_id),
+        jobName: nullableValue<string>(row.job_name),
         attempt: Number(row.attempt),
         status: row.status as RoomCronRunRecord['status'],
-        summary: (row.summary as string | null) ?? null,
-        error: (row.error as string | null) ?? null,
-        sessionKey: (row.session_key as string | null) ?? null,
-        sessionId: (row.session_id as string | null) ?? null,
-        provider: (row.provider as string | null) ?? null,
-        model: (row.model as string | null) ?? null,
-        configVersion:
-            row.config_version === null || row.config_version === undefined
-                ? null
-                : Number(row.config_version),
+        summary: nullableValue<string>(row.summary),
+        error: nullableValue<string>(row.error),
+        sessionKey: nullableValue<string>(row.session_key),
+        sessionId: nullableValue<string>(row.session_id),
+        provider: nullableValue<string>(row.provider),
+        model: nullableValue<string>(row.model),
+        configVersion: nullableNumber(row.config_version),
         startedAt: row.started_at as Date,
-        finishedAt: (row.finished_at as Date | null) ?? null,
-        durationMs:
-            row.duration_ms === null || row.duration_ms === undefined
-                ? null
-                : Number(row.duration_ms),
-        nextRunAt: (row.next_run_at as Date | null) ?? null,
+        finishedAt: nullableValue<Date>(row.finished_at),
+        durationMs: nullableNumber(row.duration_ms),
+        nextRunAt: nullableValue<Date>(row.next_run_at),
     }
 }
 
 export function mapUsageEvent(row: DbRow): UsageEventRecord {
     return {
         id: String(row.id),
-        roomId: (row.room_id as string | null) ?? null,
-        sessionKey: (row.session_key as string | null) ?? null,
-        runId: (row.run_id as string | null) ?? null,
-        jobId: (row.job_id as string | null) ?? null,
+        roomId: nullableValue<string>(row.room_id),
+        sessionKey: nullableValue<string>(row.session_key),
+        runId: nullableValue<string>(row.run_id),
+        jobId: nullableValue<string>(row.job_id),
         kind: row.kind as UsageEventKind,
-        provider: (row.provider as string | null) ?? null,
-        model: (row.model as string | null) ?? null,
-        toolName: (row.tool_name as string | null) ?? null,
-        inputTokens:
-            row.input_tokens === null || row.input_tokens === undefined
-                ? null
-                : Number(row.input_tokens),
-        outputTokens:
-            row.output_tokens === null || row.output_tokens === undefined
-                ? null
-                : Number(row.output_tokens),
-        cachedTokens:
-            row.cached_tokens === null || row.cached_tokens === undefined
-                ? null
-                : Number(row.cached_tokens),
-        reasoningTokens:
-            row.reasoning_tokens === null || row.reasoning_tokens === undefined
-                ? null
-                : Number(row.reasoning_tokens),
-        totalTokens:
-            row.total_tokens === null || row.total_tokens === undefined
-                ? null
-                : Number(row.total_tokens),
-        durationMs:
-            row.duration_ms === null || row.duration_ms === undefined
-                ? null
-                : Number(row.duration_ms),
-        activeDurationMs:
-            row.active_duration_ms === null || row.active_duration_ms === undefined
-                ? null
-                : Number(row.active_duration_ms),
-        idleDurationMs:
-            row.idle_duration_ms === null || row.idle_duration_ms === undefined
-                ? null
-                : Number(row.idle_duration_ms),
-        estimatedCostUsd: (row.estimated_cost_usd as string | null) ?? null,
+        provider: nullableValue<string>(row.provider),
+        model: nullableValue<string>(row.model),
+        toolName: nullableValue<string>(row.tool_name),
+        inputTokens: nullableNumber(row.input_tokens),
+        outputTokens: nullableNumber(row.output_tokens),
+        cachedTokens: nullableNumber(row.cached_tokens),
+        reasoningTokens: nullableNumber(row.reasoning_tokens),
+        totalTokens: nullableNumber(row.total_tokens),
+        durationMs: nullableNumber(row.duration_ms),
+        activeDurationMs: nullableNumber(row.active_duration_ms),
+        idleDurationMs: nullableNumber(row.idle_duration_ms),
+        estimatedCostUsd: nullableValue<string>(row.estimated_cost_usd),
         metadata: asJsonValue(row.metadata ?? {}),
         createdAt: row.created_at as Date,
     }

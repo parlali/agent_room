@@ -1,17 +1,15 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { constants as fsConstants } from 'node:fs'
-import { access, mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
-import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
-import {
-    defineTool,
-    type AgentToolResult,
-    type ToolDefinition,
-} from '@mariozechner/pi-coding-agent'
+import { access, mkdir, realpath, writeFile } from 'node:fs/promises'
+import { join, relative } from 'node:path'
+import { defineTool, type ToolDefinition } from '@mariozechner/pi-coding-agent'
 import { Type } from '@mariozechner/pi-ai'
 import type { ImageProviderId } from '../domain/types'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { assertPathInsideRoot } from '../security/path-boundary'
+import { promoteRuntimeArtifact } from './runtime-artifacts'
 import { ensureShellWritableDirectory, ensureShellWritableFile } from './shell-sandbox'
-import { currentToolRunContext } from './tool-run-context'
+import { clampPositiveInteger, textToolResult } from './tool-helpers'
 
 interface ImageToolContext {
     config: PiRuntimeConfig
@@ -41,31 +39,6 @@ interface GeneratedImage {
 const openAiEndpoint = 'https://api.openai.com/v1/images/generations'
 const geminiEndpointBase = 'https://generativelanguage.googleapis.com/v1beta/models'
 
-function textResult(
-    text: string,
-    details: ImageToolDetails = {},
-): AgentToolResult<ImageToolDetails> {
-    return {
-        content: [
-            {
-                type: 'text',
-                text,
-            },
-        ],
-        details,
-    }
-}
-
-function clampPositiveInteger(value: unknown, fallback: number, max: number): number {
-    const number =
-        typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : fallback
-    return Math.min(max, Math.max(1, number))
-}
-
-function sha256Buffer(buffer: Buffer | string): string {
-    return createHash('sha256').update(buffer).digest('hex')
-}
-
 function extensionForMediaType(mediaType: string): string {
     if (mediaType === 'image/jpeg') {
         return '.jpg'
@@ -76,21 +49,8 @@ function extensionForMediaType(mediaType: string): string {
     return '.png'
 }
 
-function artifactIdFor(path: string, sha256: string): string {
-    const base = basename(path, extname(path))
-        .replace(/[^a-zA-Z0-9_-]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-    return `${base || 'image'}-${sha256.slice(0, 16)}`
-}
-
 function assertInside(candidate: string, root: string): string {
-    const normalizedRoot = resolve(root)
-    const normalizedCandidate = resolve(candidate)
-    const diff = relative(normalizedRoot, normalizedCandidate)
-    if (diff === '' || (!diff.startsWith('..') && !isAbsolute(diff))) {
-        return normalizedCandidate
-    }
-    throw new Error(`Path escapes allowed root: ${candidate}`)
+    return assertPathInsideRoot(candidate, root, (path) => `Path escapes allowed root: ${path}`)
 }
 
 function isNotFoundFsError(error: unknown): boolean {
@@ -134,43 +94,17 @@ async function promoteImageArtifact(
     sha256: string
     byteLength: number
 }> {
-    const buffer = await readFile(input.path)
-    const sha256 = sha256Buffer(buffer)
-    const artifactId = artifactIdFor(input.path, sha256)
-    const blobPath = join(ctx.config.paths.storeDir, 'blobs', sha256)
-    const manifestPath = join(ctx.config.paths.storeDir, 'manifests', `${artifactId}.json`)
-    const runContext = currentToolRunContext()
-    await ensureShellWritableDirectory(dirname(blobPath))
-    await ensureShellWritableDirectory(dirname(manifestPath))
-    await writeFile(blobPath, buffer)
-    await ensureShellWritableFile(blobPath)
-    await writeFile(
-        manifestPath,
-        JSON.stringify(
-            {
-                artifactId,
-                sha256,
-                byteLength: buffer.byteLength,
-                mediaType: input.mediaType,
-                sourcePath: relative(ctx.config.paths.workspaceDir, input.path),
-                provider: input.provider,
-                model: input.model,
-                metadata: input.metadata,
-                createdAt: new Date().toISOString(),
-                sessionKey: runContext?.sessionKey ?? null,
-                runId: runContext?.runId ?? null,
-            },
-            null,
-            4,
-        ),
-        'utf8',
-    )
-    await ensureShellWritableFile(manifestPath)
-    return {
-        artifactId,
-        sha256,
-        byteLength: buffer.byteLength,
-    }
+    return promoteRuntimeArtifact({
+        config: ctx.config,
+        path: input.path,
+        mediaType: input.mediaType,
+        fallbackName: 'image',
+        metadata: {
+            provider: input.provider,
+            model: input.model,
+            metadata: input.metadata,
+        },
+    })
 }
 
 function configuredProvider(
@@ -542,7 +476,7 @@ function createImageGenerateTool(ctx: ImageToolContext): ToolDefinition {
                     promptLength: input.prompt.length,
                     status: 'complete',
                 })
-                return textResult(
+                return textToolResult<ImageToolDetails>(
                     saved
                         .map(
                             (image) =>

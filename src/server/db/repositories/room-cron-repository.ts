@@ -2,6 +2,13 @@ import type { RoomCronJobRecord, RoomCronRunRecord } from '../../domain/types'
 import { sql } from '../client'
 import { mapRoomCronJob, mapRoomCronRun } from './row-mappers'
 
+function mapRequiredRoomCronJob(row: unknown, jobId: string): RoomCronJobRecord {
+    if (!row) {
+        throw new Error(`Cron job ${jobId} does not exist`)
+    }
+    return mapRoomCronJob(row as Record<string, unknown>)
+}
+
 export const roomCronRepository = {
     async listJobsByRoomId(roomId: string): Promise<RoomCronJobRecord[]> {
         const rows = await sql`
@@ -77,10 +84,7 @@ export const roomCronRepository = {
             WHERE room_id = ${input.roomId} AND id = ${input.jobId}
             RETURNING *
         `
-        if (!rows[0]) {
-            throw new Error(`Cron job ${input.jobId} does not exist`)
-        }
-        return mapRoomCronJob(rows[0] as Record<string, unknown>)
+        return mapRequiredRoomCronJob(rows[0], input.jobId)
     },
 
     async updateJob(input: {
@@ -108,10 +112,7 @@ export const roomCronRepository = {
             WHERE room_id = ${input.roomId} AND id = ${input.jobId}
             RETURNING *
         `
-        if (!rows[0]) {
-            throw new Error(`Cron job ${input.jobId} does not exist`)
-        }
-        return mapRoomCronJob(rows[0] as Record<string, unknown>)
+        return mapRequiredRoomCronJob(rows[0], input.jobId)
     },
 
     async removeJob(input: { roomId: string; jobId: string }): Promise<boolean> {

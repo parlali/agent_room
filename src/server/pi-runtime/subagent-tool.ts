@@ -47,11 +47,11 @@ export function createSubagentTool(input: CreateSubagentToolInput): ToolDefiniti
         label: 'Subagent',
         description:
             'Run a bounded child Pi session inside this Agent Room and return its final text.',
-            parameters: Type.Object({
-                task: Type.String(),
-                name: Type.Optional(Type.String()),
-                writeScope: Type.Optional(Type.String()),
-            }),
+        parameters: Type.Object({
+            task: Type.String(),
+            name: Type.Optional(Type.String()),
+            writeScope: Type.Optional(Type.String()),
+        }),
         execute: async (_toolCallId, params) => {
             const task = String(params.task ?? '').trim()
             if (!task) {

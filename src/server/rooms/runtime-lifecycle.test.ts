@@ -3,11 +3,14 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import type { WriteStream } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RoomRecord } from '../domain/types'
+import { __testing, stopRoomProcess } from './runtime-lifecycle'
 import { deleteRuntimeProcess, setRuntimeProcess } from './runtime-process-store'
 
 const mocks = vi.hoisted(() => ({
     appendEvent: vi.fn(),
     findRoomById: vi.fn(),
+    findRuntimeMetadataByRoomId: vi.fn(),
+    upsertRuntimeMetadata: vi.fn(),
 }))
 
 vi.mock('../db/repositories', () => ({
@@ -17,6 +20,10 @@ vi.mock('../db/repositories', () => ({
     roomRepository: {
         findRoomById: mocks.findRoomById,
         updateRoomStatus: vi.fn(),
+    },
+    roomRuntimeMetadataRepository: {
+        findByRoomId: mocks.findRuntimeMetadataByRoomId,
+        upsert: mocks.upsertRuntimeMetadata,
     },
 }))
 
@@ -40,6 +47,15 @@ describe('runtime lifecycle', () => {
         mocks.appendEvent.mockResolvedValue(undefined)
         mocks.findRoomById.mockReset()
         mocks.findRoomById.mockResolvedValue(null)
+        mocks.findRuntimeMetadataByRoomId.mockReset()
+        mocks.findRuntimeMetadataByRoomId.mockResolvedValue(null)
+        mocks.upsertRuntimeMetadata.mockReset()
+        mocks.upsertRuntimeMetadata.mockImplementation((input) =>
+            Promise.resolve({
+                ...input,
+                updatedAt: new Date(),
+            }),
+        )
     })
 
     afterEach(() => {
@@ -59,7 +75,6 @@ describe('runtime lifecycle', () => {
             } as unknown as WriteStream,
         })
 
-        const { stopRoomProcess } = await import('./runtime-lifecycle')
         let resolved = false
         const stopped = stopRoomProcess('room-stop-race', 'user-1').then(() => {
             resolved = true
@@ -99,7 +114,6 @@ describe('runtime lifecycle', () => {
         const restart = vi.fn().mockResolvedValue(undefined)
         mocks.findRoomById.mockResolvedValue(room)
 
-        const { __testing } = await import('./runtime-lifecycle')
         await expect(
             __testing.restartRoomIfDesiredAfterStop({
                 roomId: 'room-restart',
@@ -123,7 +137,6 @@ describe('runtime lifecycle', () => {
             desiredState: 'stopped',
         })
 
-        const { __testing } = await import('./runtime-lifecycle')
         await expect(
             __testing.restartRoomIfDesiredAfterStop({
                 roomId: 'room-restart',

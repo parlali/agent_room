@@ -2,38 +2,14 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import {
-    ArrowRightIcon,
-    CalendarClockIcon,
-    ClockIcon,
-    Loader2Icon,
-    PlayIcon,
-    Trash2Icon,
-} from 'lucide-react'
+import { ArrowRightIcon, CalendarClockIcon, Loader2Icon, PlayIcon, Trash2Icon } from 'lucide-react'
 
 import { AppShell } from '#/components/app-shell'
-import {
-    EmptyState,
-    LoadingRows,
-    PageHeader,
-    RoomGlyph,
-    Section,
-    StateBadge,
-    StatusDot,
-} from '#/components/agent-room'
+import { EmptyState, LoadingRows, PageHeader, RoomGlyph, Section } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
-import { Switch } from '#/components/ui/switch'
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from '#/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '#/components/ui/tooltip'
 import { formatRelativeTime, pluralize } from '#/lib/format'
-import { describeJobLastRun, describeSchedule } from '#/lib/state'
+import { describeSchedule } from '#/lib/state'
 import {
     listCronJobsServer,
     listRoomsServer,
@@ -43,6 +19,8 @@ import {
 } from './-room-runtime-server'
 import { requireRouteUser } from './-route-auth'
 import type { RoomCronJob, RoomRuntimeOverview } from '#/server/rooms/execution-types'
+import { JobDeleteDialog } from './-jobs/delete-dialog'
+import { JobListRow } from './-jobs/job-row'
 
 export const Route = createFileRoute('/jobs')({
     beforeLoad: requireRouteUser,
@@ -194,51 +172,22 @@ function JobsPage() {
                 </div>
             </TooltipProvider>
 
-            <Dialog
-                open={deleteTarget !== null}
+            <JobDeleteDialog
+                jobName={deleteTarget?.job.name ?? null}
+                pending={removeMutation.isPending}
                 onOpenChange={(open) => {
                     if (!open) setDeleteTarget(null)
                 }}
-            >
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Delete this job?</DialogTitle>
-                        <DialogDescription>
-                            {deleteTarget
-                                ? `"${deleteTarget.job.name}" will stop running. This cannot be undone.`
-                                : null}
-                        </DialogDescription>
-                    </DialogHeader>
-                    <DialogFooter>
-                        <Button
-                            variant="outline"
-                            onClick={() => setDeleteTarget(null)}
-                            disabled={removeMutation.isPending}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            variant="destructive"
-                            onClick={() => {
-                                if (deleteTarget) {
-                                    removeMutation.mutate({
-                                        roomId: deleteTarget.roomId,
-                                        jobId: deleteTarget.job.id,
-                                    })
-                                }
-                            }}
-                            disabled={removeMutation.isPending}
-                        >
-                            {removeMutation.isPending ? (
-                                <Loader2Icon className="animate-spin" />
-                            ) : (
-                                <Trash2Icon />
-                            )}
-                            Delete
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+                onCancel={() => setDeleteTarget(null)}
+                onDelete={() => {
+                    if (deleteTarget) {
+                        removeMutation.mutate({
+                            roomId: deleteTarget.roomId,
+                            jobId: deleteTarget.job.id,
+                        })
+                    }
+                }}
+            />
         </AppShell>
     )
 }
@@ -307,82 +256,64 @@ function JobRow({
     onRun: () => void
     onDelete: () => void
 }) {
-    const last = describeJobLastRun(job.lastRunStatus)
     const schedule = job.scheduleSummary || describeSchedule(null)
     const running = job.runningAt !== null
     return (
-        <li className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
-            <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                    <StatusDot tone={job.enabled ? 'ready' : 'muted'} pulse={running} />
-                    <h3 className="truncate text-sm font-medium text-foreground">{job.name}</h3>
-                </div>
-                {job.description || job.payloadSummary ? (
-                    <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
-                        {job.description ?? job.payloadSummary}
-                    </p>
-                ) : null}
-                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1">
-                        <ClockIcon className="size-3" />
-                        {schedule}
-                    </span>
+        <JobListRow
+            job={job}
+            busy={busy}
+            schedule={schedule}
+            onToggle={onToggle}
+            secondaryTiming={
+                <>
                     <span>Next: {formatRelativeTime(job.nextRunAt)}</span>
                     {job.lastRunAt ? (
                         <span>Last run {formatRelativeTime(job.lastRunAt)}</span>
                     ) : null}
-                </div>
-                {job.lastError ? (
-                    <p className="mt-1 line-clamp-1 text-xs text-danger-fg">{job.lastError}</p>
-                ) : null}
-            </div>
-            <div className="flex items-center gap-2 sm:gap-3">
-                <StateBadge tone={last.tone} label={last.label} />
-                <Switch
-                    checked={job.enabled}
-                    disabled={busy}
-                    onCheckedChange={(checked) => onToggle(checked)}
-                    aria-label={job.enabled ? 'Disable job' : 'Enable job'}
-                />
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={onRun}
-                            disabled={busy || running}
-                            aria-label="Run now"
-                        >
-                            {busy ? <Loader2Icon className="animate-spin" /> : <PlayIcon />}
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Run now</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Link to="/rooms/$roomId/jobs" params={{ roomId }}>
-                            <Button variant="ghost" size="icon-sm" aria-label="View room">
-                                <ArrowRightIcon />
+                </>
+            }
+            actions={
+                <>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                onClick={onRun}
+                                disabled={busy || running}
+                                aria-label="Run now"
+                            >
+                                {busy ? <Loader2Icon className="animate-spin" /> : <PlayIcon />}
                             </Button>
-                        </Link>
-                    </TooltipTrigger>
-                    <TooltipContent>View room</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={onDelete}
-                            aria-label="Delete job"
-                            className="text-muted-foreground hover:text-destructive"
-                        >
-                            <Trash2Icon />
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Delete</TooltipContent>
-                </Tooltip>
-            </div>
-        </li>
+                        </TooltipTrigger>
+                        <TooltipContent>Run now</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Link to="/rooms/$roomId/jobs" params={{ roomId }}>
+                                <Button variant="ghost" size="icon-sm" aria-label="View room">
+                                    <ArrowRightIcon />
+                                </Button>
+                            </Link>
+                        </TooltipTrigger>
+                        <TooltipContent>View room</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                onClick={onDelete}
+                                aria-label="Delete job"
+                                className="text-muted-foreground hover:text-destructive"
+                            >
+                                <Trash2Icon />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Delete</TooltipContent>
+                    </Tooltip>
+                </>
+            }
+        />
     )
 }

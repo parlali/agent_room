@@ -1,81 +1,47 @@
-import { createHash } from 'node:crypto'
 import { constants as fsConstants } from 'node:fs'
-import { access, copyFile, lstat, readFile, readdir, realpath, writeFile } from 'node:fs/promises'
-import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import {
-    defineTool,
-    type AgentToolResult,
-    type ToolDefinition,
-} from '@mariozechner/pi-coding-agent'
+    access,
+    copyFile,
+    lstat,
+    open,
+    readFile,
+    readdir,
+    realpath,
+    writeFile,
+} from 'node:fs/promises'
+import { dirname, isAbsolute, join, relative } from 'node:path'
+import { defineTool, type ToolDefinition } from '@mariozechner/pi-coding-agent'
 import { Type } from '@mariozechner/pi-ai'
 import type { CapabilityConfig } from '../domain/types'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { assertPathInsideRoot } from '../security/path-boundary'
 import { internalStateToolNames } from './internal-state-tools'
+import { promoteRuntimeArtifact, sha256Buffer } from './runtime-artifacts'
 import {
-    currentShellSandboxIdentity,
     ensureShellWritableDirectory,
     ensureShellWritableFile,
     resolveShellSandboxIdentity,
 } from './shell-sandbox'
-import { currentToolRunContext } from './tool-run-context'
 import {
-    backgroundCommandMaxOutputBytes,
-    type BackgroundCommandRecord,
-    getBackgroundCommand,
-    listBackgroundCommands,
-    startBackgroundCommand,
-    terminateBackgroundCommand,
-} from './background-commands'
-
-type ToolRoot = 'workspace' | 'store'
-
-interface RoomToolDetails {
-    root?: ToolRoot
-    path?: string
-    artifactId?: string
-    sha256?: string
-    byteLength?: number
-    truncated?: boolean
-    exitCode?: number | null
-    timedOut?: boolean
-    aborted?: boolean
-    durationMs?: number
-    sandboxMode?: 'dropped' | 'test-unsafe'
-    commandId?: string
-    status?: string
-    fileChange?: {
-        kind: 'write' | 'edit' | 'artifact_import' | 'artifact_export'
-        root: ToolRoot
-        path: string
-        beforeSha256?: string | null
-        afterSha256: string
-        byteLength: number
-        diff?: string[]
-    }
-}
-
-interface RoomToolContext {
-    config: PiRuntimeConfig
-    audit: (event: string, payload: unknown) => Promise<void>
-}
+    createCommandPollTool,
+    createCommandStartTool,
+    createCommandStatusTool,
+    createCommandTerminateTool,
+    createShellTool,
+} from './room-tools/command-tools'
+import {
+    audit,
+    clampPositiveInteger,
+    textResult,
+    type RoomToolContext,
+    type ToolRoot,
+} from './room-tools/shared'
 
 const MAX_READ_BYTES = 128000
 const MAX_SEARCH_FILES = 5000
 const MAX_SEARCH_MATCHES = 200
 const MAX_SEARCH_PATTERN_CHARS = 1000
 const MAX_LIST_ENTRIES = 500
-
-function textResult(text: string, details: RoomToolDetails = {}): AgentToolResult<RoomToolDetails> {
-    return {
-        content: [
-            {
-                type: 'text',
-                text,
-            },
-        ],
-        details,
-    }
-}
 
 function rootPath(config: PiRuntimeConfig, root: ToolRoot): string {
     return root === 'store' ? config.paths.storeDir : config.paths.workspaceDir
@@ -86,13 +52,7 @@ function normalizeRoot(value: unknown): ToolRoot {
 }
 
 function assertInside(candidate: string, root: string): string {
-    const normalizedRoot = resolve(root)
-    const normalizedCandidate = resolve(candidate)
-    const diff = relative(normalizedRoot, normalizedCandidate)
-    if (diff === '' || (!diff.startsWith('..') && !isAbsolute(diff))) {
-        return normalizedCandidate
-    }
-    throw new Error(`Path escapes allowed root: ${candidate}`)
+    return assertPathInsideRoot(candidate, root, (path) => `Path escapes allowed root: ${path}`)
 }
 
 function resolveToolPath(config: PiRuntimeConfig, root: ToolRoot, path: string): string {
@@ -185,12 +145,6 @@ async function resolveWriteTargetPath(
     }
 }
 
-function clampPositiveInteger(value: unknown, fallback: number, max: number): number {
-    const number =
-        typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : fallback
-    return Math.min(max, Math.max(1, number))
-}
-
 function buildSearchMatcher(input: {
     pattern: string
     ignoreCase?: boolean
@@ -220,10 +174,6 @@ function buildSearchMatcher(input: {
     return (line) => matcher.test(line)
 }
 
-function sha256Buffer(buffer: Buffer | string): string {
-    return createHash('sha256').update(buffer).digest('hex')
-}
-
 function conciseDiff(before: string, after: string): string[] {
     const beforeLines = before.split(/\r?\n/)
     const afterLines = after.split(/\r?\n/)
@@ -241,8 +191,34 @@ function conciseDiff(before: string, after: string): string[] {
     return rows
 }
 
-async function audit(ctx: RoomToolContext, event: string, payload: unknown): Promise<void> {
-    await ctx.audit(`tool.${event}`, payload)
+async function readBoundedFile(input: {
+    path: string
+    offset: number
+    limitBytes: number
+}): Promise<{
+    buffer: Buffer
+    byteLength: number
+    truncated: boolean
+}> {
+    const fileStat = await lstat(input.path)
+    if (!fileStat.isFile()) {
+        throw new Error('Read only supports regular files')
+    }
+    const readLength = Math.max(0, Math.min(input.limitBytes, fileStat.size - input.offset))
+    const handle = await open(input.path, 'r')
+    let buffer: Buffer
+    try {
+        const target = Buffer.alloc(readLength)
+        const result = await handle.read(target, 0, readLength, input.offset)
+        buffer = target.subarray(0, result.bytesRead)
+    } finally {
+        await handle.close()
+    }
+    return {
+        buffer,
+        byteLength: fileStat.size,
+        truncated: input.offset + buffer.byteLength < fileStat.size,
+    }
 }
 
 function createReadTool(ctx: RoomToolContext): ToolDefinition {
@@ -266,20 +242,22 @@ function createReadTool(ctx: RoomToolContext): ToolDefinition {
                 MAX_READ_BYTES,
                 MAX_READ_BYTES,
             )
-            const buffer = await readFile(path)
-            const slice = buffer.subarray(offset, offset + limitBytes)
-            const truncated = offset + limitBytes < buffer.byteLength
+            const read = await readBoundedFile({
+                path,
+                offset,
+                limitBytes,
+            })
             await audit(ctx, 'read', {
                 root,
                 path,
-                byteLength: slice.byteLength,
-                truncated,
+                byteLength: read.buffer.byteLength,
+                truncated: read.truncated,
             })
-            return textResult(slice.toString('utf8'), {
+            return textResult(read.buffer.toString('utf8'), {
                 root,
                 path,
-                byteLength: slice.byteLength,
-                truncated,
+                byteLength: read.buffer.byteLength,
+                truncated: read.truncated,
             })
         },
     })
@@ -398,15 +376,23 @@ function createSearchTool(ctx: RoomToolContext): ToolDefinition {
                 ignoreCase: input.ignoreCase,
                 literal: input.literal,
             })
+            const displayRoot = await realpath(rootPath(ctx.config, root))
             const files = await walkFiles(searchRoot, MAX_SEARCH_FILES)
             const matches: string[] = []
+            let fileContentTruncated = false
             for (const file of files) {
                 if (matches.length >= limit) {
                     break
                 }
                 let content = ''
                 try {
-                    content = (await readFile(file, 'utf8')).slice(0, MAX_READ_BYTES)
+                    const read = await readBoundedFile({
+                        path: file,
+                        offset: 0,
+                        limitBytes: MAX_READ_BYTES,
+                    })
+                    content = read.buffer.toString('utf8')
+                    fileContentTruncated = fileContentTruncated || read.truncated
                 } catch {
                     continue
                 }
@@ -414,14 +400,13 @@ function createSearchTool(ctx: RoomToolContext): ToolDefinition {
                 for (let index = 0; index < lines.length && matches.length < limit; index += 1) {
                     const line = lines[index]!
                     if (matcher(line)) {
-                        matches.push(
-                            `${relative(rootPath(ctx.config, root), file)}:${index + 1}:${line}`,
-                        )
+                        matches.push(`${relative(displayRoot, file)}:${index + 1}:${line}`)
                     }
                 }
             }
             const text = matches.join('\n')
-            const truncated = matches.length >= limit || files.length >= MAX_SEARCH_FILES
+            const truncated =
+                matches.length >= limit || files.length >= MAX_SEARCH_FILES || fileContentTruncated
             await audit(ctx, 'search', {
                 root,
                 path: searchRoot,
@@ -539,278 +524,8 @@ function createEditTool(ctx: RoomToolContext): ToolDefinition {
     })
 }
 
-function createShellTool(ctx: RoomToolContext): ToolDefinition {
-    return defineTool({
-        name: 'agent_room_shell',
-        label: 'Shell',
-        description:
-            'Start a bounded background shell command from the room workspace and wait briefly for output.',
-        promptSnippet:
-            'agent_room_shell starts a room-local command, waits briefly, and returns a command id for polling.',
-        parameters: Type.Object({
-            command: Type.String(),
-            timeoutMs: Type.Optional(Type.Number()),
-            waitMs: Type.Optional(Type.Number()),
-        }),
-        executionMode: 'sequential',
-        execute: async (_toolCallId, input, signal, onUpdate) => {
-            const runContext = currentToolRunContext()
-            const timeoutMs = clampPositiveInteger(
-                input.timeoutMs,
-                ctx.config.budgets.shellCommandMs,
-                ctx.config.budgets.shellCommandMs,
-            )
-            const waitMs = clampPositiveInteger(
-                input.waitMs,
-                ctx.config.budgets.shortCommandWaitMs,
-                ctx.config.budgets.shortCommandWaitMs,
-            )
-            let latest: BackgroundCommandRecord | null = null
-            latest = await startBackgroundCommand({
-                config: ctx.config,
-                command: input.command,
-                timeoutMs,
-                sessionKey: runContext?.sessionKey,
-                runId: runContext?.runId,
-                signal,
-                onOutput: (record) => {
-                    latest = record
-                    onUpdate?.(commandResult(record, false))
-                },
-            })
-            const deadline = Date.now() + waitMs
-            while (latest.status === 'running' && Date.now() < deadline) {
-                await new Promise((resolveDelay) => setTimeout(resolveDelay, 100))
-                latest =
-                    (await getBackgroundCommand({
-                        config: ctx.config,
-                        commandId: latest.commandId,
-                    })) ?? latest
-            }
-            await audit(ctx, 'shell', {
-                path: ctx.config.paths.workspaceDir,
-                sandboxMode: currentShellSandboxIdentity().mode,
-                commandId: latest.commandId,
-                status: latest.status,
-                exitCode: latest.exitCode,
-                timedOut: latest.signal === 'timeout',
-                aborted: latest.signal === 'abort' || latest.signal === 'manual',
-                durationMs: commandDurationMs(latest),
-                truncated: latest.outputTruncated,
-            })
-            return commandResult(latest)
-        },
-    })
-}
-
-function commandDurationMs(record: BackgroundCommandRecord): number {
-    const end = record.finishedAt ? Date.parse(record.finishedAt) : Date.now()
-    return Math.max(0, end - Date.parse(record.startedAt))
-}
-
-function commandHeader(record: BackgroundCommandRecord): string {
-    return [
-        `commandId: ${record.commandId}`,
-        `status: ${record.status}`,
-        `exitCode: ${record.exitCode ?? 'null'}`,
-        `signal: ${record.signal ?? 'null'}`,
-        `startedAt: ${record.startedAt}`,
-        `finishedAt: ${record.finishedAt ?? 'null'}`,
-        `outputTruncated: ${record.outputTruncated}`,
-    ].join('\n')
-}
-
-function commandResult(
-    record: BackgroundCommandRecord,
-    includeOutput = true,
-): AgentToolResult<RoomToolDetails> {
-    const header = commandHeader(record)
-    const outputBudget = Math.max(
-        0,
-        backgroundCommandMaxOutputBytes - Buffer.byteLength(header) - 2,
-    )
-    const outputBytes = Buffer.from(record.output)
-    const outputText =
-        outputBytes.byteLength > outputBudget
-            ? outputBytes.subarray(outputBytes.byteLength - outputBudget).toString('utf8')
-            : record.output
-    const output = includeOutput && outputText.trim() ? `\n\n${outputText}` : ''
-    return textResult(`${header}${output}`, {
-        path: record.cwd,
-        sandboxMode: currentShellSandboxIdentity().mode,
-        byteLength: record.outputByteLength,
-        truncated: record.outputTruncated,
-        exitCode: record.exitCode,
-        timedOut: record.signal === 'timeout',
-        aborted:
-            record.signal === 'abort' ||
-            record.signal === 'manual' ||
-            record.signal === 'runtime_shutdown',
-        durationMs: commandDurationMs(record),
-        commandId: record.commandId,
-        status: record.status,
-    })
-}
-
-function createCommandStartTool(ctx: RoomToolContext): ToolDefinition {
-    return defineTool({
-        name: 'agent_room_command_start',
-        label: 'Start Command',
-        description: 'Start a bounded room-local background command and return its command id.',
-        promptSnippet:
-            'agent_room_command_start starts long room-local commands for later polling.',
-        parameters: Type.Object({
-            command: Type.String(),
-            timeoutMs: Type.Optional(Type.Number()),
-        }),
-        executionMode: 'sequential',
-        execute: async (_toolCallId, input, signal) => {
-            const runContext = currentToolRunContext()
-            const record = await startBackgroundCommand({
-                config: ctx.config,
-                command: input.command,
-                timeoutMs: clampPositiveInteger(
-                    input.timeoutMs,
-                    ctx.config.budgets.shellCommandMs,
-                    ctx.config.budgets.shellCommandMs,
-                ),
-                sessionKey: runContext?.sessionKey,
-                runId: runContext?.runId,
-                signal,
-            })
-            await audit(ctx, 'command_start', {
-                path: record.cwd,
-                commandId: record.commandId,
-                status: record.status,
-                sandboxMode: currentShellSandboxIdentity().mode,
-            })
-            return commandResult(record, false)
-        },
-    })
-}
-
-function createCommandPollTool(ctx: RoomToolContext): ToolDefinition {
-    return defineTool({
-        name: 'agent_room_command_poll',
-        label: 'Poll Command',
-        description: 'Poll output and status for a room-local background command.',
-        promptSnippet:
-            'agent_room_command_poll reads bounded output and status from a background command id.',
-        parameters: Type.Object({
-            commandId: Type.String(),
-        }),
-        execute: async (_toolCallId, input) => {
-            const record = await getBackgroundCommand({
-                config: ctx.config,
-                commandId: input.commandId,
-            })
-            if (!record) {
-                throw new Error(`Command ${input.commandId} was not found`)
-            }
-            await audit(ctx, 'command_poll', {
-                path: record.cwd,
-                commandId: record.commandId,
-                status: record.status,
-                byteLength: record.outputByteLength,
-                truncated: record.outputTruncated,
-            })
-            return commandResult(record)
-        },
-    })
-}
-
-function createCommandStatusTool(ctx: RoomToolContext): ToolDefinition {
-    return defineTool({
-        name: 'agent_room_command_status',
-        label: 'Command Status',
-        description: 'List recent room-local background commands or read one status by id.',
-        promptSnippet:
-            'agent_room_command_status lists recent background commands without unbounded output.',
-        parameters: Type.Object({
-            commandId: Type.Optional(Type.String()),
-        }),
-        execute: async (_toolCallId, input) => {
-            if (input.commandId) {
-                const record = await getBackgroundCommand({
-                    config: ctx.config,
-                    commandId: input.commandId,
-                })
-                if (!record) {
-                    throw new Error(`Command ${input.commandId} was not found`)
-                }
-                await audit(ctx, 'command_status', {
-                    path: record.cwd,
-                    commandId: record.commandId,
-                    status: record.status,
-                })
-                return commandResult(record, false)
-            }
-
-            const records = await listBackgroundCommands(ctx.config)
-            const rows = records
-                .slice(0, 50)
-                .map((record) =>
-                    [
-                        record.commandId,
-                        record.status,
-                        record.exitCode ?? 'null',
-                        record.startedAt,
-                        record.finishedAt ?? 'null',
-                        record.outputTruncated ? 'truncated' : 'complete',
-                        record.command,
-                    ].join(' '),
-                )
-            const text = rows.join('\n')
-            await audit(ctx, 'command_status', {
-                path: ctx.config.paths.workspaceDir,
-                byteLength: Buffer.byteLength(text),
-                truncated: records.length > 50,
-            })
-            return textResult(text, {
-                path: ctx.config.paths.workspaceDir,
-                byteLength: Buffer.byteLength(text),
-                truncated: records.length > 50,
-            })
-        },
-    })
-}
-
-function createCommandTerminateTool(ctx: RoomToolContext): ToolDefinition {
-    return defineTool({
-        name: 'agent_room_command_terminate',
-        label: 'Terminate Command',
-        description: 'Terminate a running room-local background command by command id.',
-        promptSnippet:
-            'agent_room_command_terminate stops a background command when it is no longer needed.',
-        parameters: Type.Object({
-            commandId: Type.String(),
-        }),
-        executionMode: 'sequential',
-        execute: async (_toolCallId, input) => {
-            const record = await terminateBackgroundCommand({
-                config: ctx.config,
-                commandId: input.commandId,
-            })
-            await audit(ctx, 'command_terminate', {
-                path: record.cwd,
-                commandId: record.commandId,
-                status: record.status,
-                signal: record.signal,
-            })
-            return commandResult(record, false)
-        },
-    })
-}
-
 export const __testing = {
     resolveShellSandboxIdentity,
-}
-
-function artifactIdFor(path: string, sha256: string): string {
-    const base = basename(path, extname(path))
-        .replace(/[^a-zA-Z0-9_-]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-    return `${base || 'artifact'}-${sha256.slice(0, 16)}`
 }
 
 function createArtifactImportTool(ctx: RoomToolContext): ToolDefinition {
@@ -827,67 +542,46 @@ function createArtifactImportTool(ctx: RoomToolContext): ToolDefinition {
         }),
         execute: async (_toolCallId, input) => {
             const source = await resolveExistingToolPath(ctx.config, 'workspace', input.path)
-            const buffer = await readFile(source)
-            const sha256 = sha256Buffer(buffer)
-            const artifactId = artifactIdFor(source, sha256)
-            const blobPath = join(ctx.config.paths.storeDir, 'blobs', sha256)
-            const manifestPath = join(ctx.config.paths.storeDir, 'manifests', `${artifactId}.json`)
-            await ensureShellWritableDirectory(dirname(blobPath))
-            await ensureShellWritableDirectory(dirname(manifestPath))
-            await writeFile(blobPath, buffer)
-            await ensureShellWritableFile(blobPath)
-            await writeFile(
-                manifestPath,
-                JSON.stringify(
-                    {
-                        artifactId,
-                        sha256,
-                        byteLength: buffer.byteLength,
-                        mediaType: input.mediaType ?? 'application/octet-stream',
-                        sourcePath: relative(ctx.config.paths.workspaceDir, source),
-                        createdAt: new Date().toISOString(),
-                    },
-                    null,
-                    4,
-                ),
-                'utf8',
-            )
-            await ensureShellWritableFile(manifestPath)
+            const artifact = await promoteRuntimeArtifact({
+                config: ctx.config,
+                path: source,
+                mediaType: input.mediaType ?? 'application/octet-stream',
+            })
             await audit(ctx, 'artifact_import', {
                 path: source,
-                artifactId,
-                sha256,
-                byteLength: buffer.byteLength,
+                artifactId: artifact.artifactId,
+                sha256: artifact.sha256,
+                byteLength: artifact.byteLength,
                 fileChange: {
                     kind: 'artifact_import',
                     root: 'store',
-                    path: manifestPath,
-                    afterSha256: sha256,
-                    byteLength: buffer.byteLength,
+                    path: artifact.manifestPath,
+                    afterSha256: artifact.sha256,
+                    byteLength: artifact.byteLength,
                 },
             })
             return textResult(
                 JSON.stringify(
                     {
-                        artifactId,
-                        sha256,
-                        byteLength: buffer.byteLength,
+                        artifactId: artifact.artifactId,
+                        sha256: artifact.sha256,
+                        byteLength: artifact.byteLength,
                     },
                     null,
                     4,
                 ),
                 {
                     root: 'store',
-                    path: manifestPath,
-                    artifactId,
-                    sha256,
-                    byteLength: buffer.byteLength,
+                    path: artifact.manifestPath,
+                    artifactId: artifact.artifactId,
+                    sha256: artifact.sha256,
+                    byteLength: artifact.byteLength,
                     fileChange: {
                         kind: 'artifact_import',
                         root: 'store',
-                        path: manifestPath,
-                        afterSha256: sha256,
-                        byteLength: buffer.byteLength,
+                        path: artifact.manifestPath,
+                        afterSha256: artifact.sha256,
+                        byteLength: artifact.byteLength,
                     },
                 },
             )
@@ -970,11 +664,10 @@ function createWorkspaceTreeTool(ctx: RoomToolContext): ToolDefinition {
         }),
         execute: async (_toolCallId, input) => {
             const root = await resolveExistingToolPath(ctx.config, 'workspace', input.path ?? '.')
+            const displayRoot = await realpath(ctx.config.paths.workspaceDir)
             const limit = clampPositiveInteger(input.limit, 200, 1000)
             const files = await walkFiles(root, limit)
-            const text = files
-                .map((file) => relative(ctx.config.paths.workspaceDir, file))
-                .join('\n')
+            const text = files.map((file) => relative(displayRoot, file)).join('\n')
             const truncated = files.length >= limit
             await audit(ctx, 'workspace_tree', {
                 path: root,

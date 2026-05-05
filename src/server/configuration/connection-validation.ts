@@ -29,11 +29,7 @@ import {
     providerRequiresStoredCredential,
     resolveProviderBaseUrl,
 } from './provider-config'
-import {
-    defaultCapabilities,
-    normalizeBudgets,
-    normalizeSearchConfig,
-} from './capabilities'
+import { defaultCapabilities, normalizeBudgets, normalizeSearchConfig } from './capabilities'
 
 export interface ConnectionValidationResult {
     status: ConnectionStatus
@@ -295,6 +291,20 @@ function buildValidationRoomConfiguration(
 }
 
 function extractPiProbeError(session: AgentSession): string | null {
+    const message = latestPiProbeAssistantMessage(session)
+    if (!message) {
+        return null
+    }
+    if (typeof message.errorMessage === 'string' && message.errorMessage.trim()) {
+        return message.errorMessage
+    }
+    if (message.stopReason === 'error' || message.stopReason === 'aborted') {
+        return `Provider returned stop reason ${String(message.stopReason)}`
+    }
+    return null
+}
+
+function latestPiProbeAssistantMessage(session: AgentSession): Record<string, unknown> | null {
     const entries = session.sessionManager.getEntries()
     for (let index = entries.length - 1; index >= 0; index -= 1) {
         const entry = entries[index]
@@ -305,42 +315,27 @@ function extractPiProbeError(session: AgentSession): string | null {
         if (message.role !== 'assistant') {
             continue
         }
-        if (typeof message.errorMessage === 'string' && message.errorMessage.trim()) {
-            return message.errorMessage
-        }
-        if (message.stopReason === 'error' || message.stopReason === 'aborted') {
-            return `Provider returned stop reason ${String(message.stopReason)}`
-        }
+        return message
     }
     return null
 }
 
 function extractPiProbeAssistantText(session: AgentSession): string | null {
-    const entries = session.sessionManager.getEntries()
-    for (let index = entries.length - 1; index >= 0; index -= 1) {
-        const entry = entries[index]
-        if (!entry || entry.type !== 'message') {
-            continue
-        }
-        const message = entry.message as unknown as Record<string, unknown>
-        if (message.role !== 'assistant') {
-            continue
-        }
-        const content = message.content
-        if (typeof content === 'string') {
-            return content
-        }
-        if (Array.isArray(content)) {
-            return content
-                .map((part) => {
-                    if (!part || typeof part !== 'object') {
-                        return ''
-                    }
-                    const record = part as Record<string, unknown>
-                    return typeof record.text === 'string' ? record.text : ''
-                })
-                .join('')
-        }
+    const message = latestPiProbeAssistantMessage(session)
+    const content = message?.content
+    if (typeof content === 'string') {
+        return content
+    }
+    if (Array.isArray(content)) {
+        return content
+            .map((part) => {
+                if (!part || typeof part !== 'object') {
+                    return ''
+                }
+                const record = part as Record<string, unknown>
+                return typeof record.text === 'string' ? record.text : ''
+            })
+            .join('')
     }
     return null
 }
