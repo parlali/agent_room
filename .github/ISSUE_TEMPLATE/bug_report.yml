@@ -1,0 +1,55 @@
+name: Bug report
+description: Report a reproducible problem in Agent Room
+title: '[Bug]: '
+labels:
+    - bug
+body:
+    - type: markdown
+      attributes:
+          value: |
+              Thanks for taking the time to report a bug.
+
+              Do not include provider keys, OAuth tokens, generated root credentials, `.env`, `.agent-room`, database dumps, or private room data.
+    - type: textarea
+      id: summary
+      attributes:
+          label: Summary
+          description: What happened?
+      validations:
+          required: true
+    - type: textarea
+      id: expected
+      attributes:
+          label: Expected behavior
+          description: What did you expect to happen?
+      validations:
+          required: true
+    - type: textarea
+      id: steps
+      attributes:
+          label: Steps to reproduce
+          description: Include the smallest reproduction you can.
+          placeholder: |
+              1. Start the Docker stack
+              2. Open a room
+              3. Run ...
+      validations:
+          required: true
+    - type: textarea
+      id: logs
+      attributes:
+          label: Relevant logs
+          description: Paste sanitized logs only.
+          render: text
+    - type: input
+      id: commit
+      attributes:
+          label: Version or commit
+          description: Commit SHA, branch, or release tag.
+    - type: checkboxes
+      id: safety
+      attributes:
+          label: Safety check
+          options:
+              - label: I removed secrets, tokens, generated credentials, private room data, and personal infrastructure details.
+                required: true

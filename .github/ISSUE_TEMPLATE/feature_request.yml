@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest an improvement for Agent Room
+title: '[Feature]: '
+labels:
+    - enhancement
+body:
+    - type: textarea
+      id: problem
+      attributes:
+          label: Problem
+          description: What user or operator problem would this solve?
+      validations:
+          required: true
+    - type: textarea
+      id: proposal
+      attributes:
+          label: Proposal
+          description: What should Agent Room do?
+      validations:
+          required: true
+    - type: textarea
+      id: safety
+      attributes:
+          label: Safety and isolation notes
+          description: Does this touch auth, room isolation, credentials, provider binding, runtime config, tools, files, or scheduled jobs?
+    - type: textarea
+      id: alternatives
+      attributes:
+          label: Alternatives considered
+          description: Optional.

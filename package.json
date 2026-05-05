@@ -1,7 +1,25 @@
 {
-    "name": "agent_room",
+    "name": "agent-room",
     "private": true,
+    "license": "MIT",
+    "author": "Parsa Lalianpour",
+    "description": "A self-hosted home for persistent AI coworkers, where each room has its own memory, files, tools, scheduled work, and history.",
+    "keywords": [
+        "agents",
+        "ai",
+        "orchestration",
+        "self-hosted",
+        "automation"
+    ],
     "type": "module",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/parlali/agent_room.git"
+    },
+    "bugs": {
+        "url": "https://github.com/parlali/agent_room/issues"
+    },
+    "homepage": "https://github.com/parlali/agent_room#readme",
     "imports": {
         "#/*": "./src/*"
     },
@@ -14,7 +32,8 @@
         "lint": "eslint .",
         "format": "prettier --check .",
         "format:write": "prettier --write .",
-        "check": "bun run format:write && bun run lint && bun run typecheck && bun run test",
+        "check": "bun run format && bun run lint && bun run typecheck && bun run test",
+        "fix": "bun run format:write",
         "db:migrate": "bun run scripts/dbmate.ts up",
         "db:rollback": "bun run scripts/dbmate.ts down",
         "db:new": "bun run scripts/dbmate.ts new",

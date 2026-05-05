@@ -24,7 +24,6 @@ RUN bun run build
 
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV DATABASE_URL=postgres://agent_room:agent_room@postgres:5432/agent_room?sslmode=disable
 ENV AGENT_ROOM_DATA_DIR=/app/.agent-room
 
 EXPOSE 3000
