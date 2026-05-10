@@ -7,6 +7,12 @@ describe('session auth helpers', () => {
         expect(__testing.resolveCookieSecureFlag('http://127.0.0.1:3000')).toBe(false)
         expect(__testing.resolveCookieSecureFlag('https://localhost:3000')).toBe(true)
         expect(__testing.resolveCookieSecureFlag('http://agent-room.internal')).toBe(true)
+        expect(
+            __testing.resolveCookieSecureFlag(
+                'http://agent-room.internal',
+                'https://agent.example.ts.net',
+            ),
+        ).toBe(true)
     })
 
     it('bounds cookie max-age at zero', () => {
@@ -26,5 +32,23 @@ describe('session auth helpers', () => {
             false,
         )
         expect(__testing.isSameOrigin('not-a-url', 'http://localhost:3000/path')).toBe(false)
+    })
+
+    it('resolves a configured public origin for reverse-proxied requests', () => {
+        expect(
+            __testing.resolveEffectiveRequestUrl(
+                'http://agent-room.example.test/_server',
+                'https://agent-room.example.test',
+            ),
+        ).toBe('https://agent-room.example.test/_server')
+        expect(
+            __testing.isSameOrigin(
+                'https://agent-room.example.test',
+                __testing.resolveEffectiveRequestUrl(
+                    'http://agent-room.example.test/_server',
+                    'https://agent-room.example.test',
+                ),
+            ),
+        ).toBe(true)
     })
 })

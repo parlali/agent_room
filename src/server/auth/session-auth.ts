@@ -6,6 +6,7 @@ import {
     setResponseStatus,
 } from '@tanstack/react-start/server'
 import type { UserRole } from '../domain/types'
+import { getAppEnv } from '../config/env'
 import { validateSessionToken } from './auth-service'
 
 export const sessionCookieName = 'agent_room_session'
@@ -32,8 +33,20 @@ function isSameOrigin(sourceUrl: string, targetUrl: string): boolean {
     }
 }
 
-function resolveCookieSecureFlag(requestUrl: string): boolean {
-    const url = new URL(requestUrl)
+function resolveEffectiveRequestUrl(requestUrl: string, publicOrigin: string | null): string {
+    if (!publicOrigin) {
+        return requestUrl
+    }
+
+    const request = new URL(requestUrl)
+    const origin = new URL(publicOrigin)
+    request.protocol = origin.protocol
+    request.host = origin.host
+    return request.toString()
+}
+
+function resolveCookieSecureFlag(requestUrl: string, publicOrigin: string | null = null): boolean {
+    const url = new URL(resolveEffectiveRequestUrl(requestUrl, publicOrigin))
     if (url.protocol === 'https:') {
         return true
     }
@@ -56,22 +69,24 @@ export function getSessionTokenFromCookie(): string | null {
 
 export function writeSessionCookie(token: string, expiresAt: Date): void {
     const request = getRequest()
+    const publicOrigin = getAppEnv().publicOrigin
     setCookie(sessionCookieName, token, {
         path: '/',
         httpOnly: true,
         sameSite: 'lax',
-        secure: resolveCookieSecureFlag(request.url),
+        secure: resolveCookieSecureFlag(request.url, publicOrigin),
         maxAge: resolveCookieMaxAge(expiresAt),
     })
 }
 
 export function clearSessionCookie(): void {
     const request = getRequest()
+    const publicOrigin = getAppEnv().publicOrigin
     deleteCookie(sessionCookieName, {
         path: '/',
         httpOnly: true,
         sameSite: 'lax',
-        secure: resolveCookieSecureFlag(request.url),
+        secure: resolveCookieSecureFlag(request.url, publicOrigin),
     })
 }
 
@@ -114,12 +129,13 @@ export function assertSameOriginMutation(): void {
     const originHeader = request.headers.get('origin')
     const refererHeader = request.headers.get('referer')
     const sourceHeader = originHeader ?? refererHeader
+    const targetUrl = resolveEffectiveRequestUrl(request.url, getAppEnv().publicOrigin)
     if (!sourceHeader) {
         setResponseStatus(403, 'Forbidden')
         throw new Error('Mutation request missing origin metadata')
     }
 
-    if (!isSameOrigin(sourceHeader, request.url)) {
+    if (!isSameOrigin(sourceHeader, targetUrl)) {
         setResponseStatus(403, 'Forbidden')
         throw new Error('Cross-origin mutation request blocked')
     }
@@ -128,6 +144,7 @@ export function assertSameOriginMutation(): void {
 export const __testing = {
     isLoopbackHost,
     isSameOrigin,
+    resolveEffectiveRequestUrl,
     resolveCookieSecureFlag,
     resolveCookieMaxAge,
 }

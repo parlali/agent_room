@@ -16,6 +16,7 @@ const rawEnvSchema = z.object({
     AGENT_ROOM_ROOT_EMAIL: z.email().optional(),
     AGENT_ROOM_ROOT_PASSWORD: z.string().min(12).optional(),
     AGENT_ROOM_SESSION_TTL_HOURS: z.coerce.number().int().positive().default(24),
+    AGENT_ROOM_PUBLIC_ORIGIN: z.string().url().optional(),
     AGENT_ROOM_SEARCH_ENABLED: z
         .string()
         .default('true')
@@ -97,6 +98,7 @@ export interface AppEnv {
     rootEmail: string
     rootPassword: string
     sessionTtlHours: number
+    publicOrigin: string | null
     search: {
         enabled: boolean
         backendUrl: string
@@ -254,6 +256,9 @@ export function getAppEnv(): AppEnv {
         rootEmail: bootstrap.payload.rootEmail,
         rootPassword: bootstrap.payload.rootPassword,
         sessionTtlHours: bootstrap.payload.sessionTtlHours,
+        publicOrigin: data.AGENT_ROOM_PUBLIC_ORIGIN
+            ? new URL(data.AGENT_ROOM_PUBLIC_ORIGIN).origin
+            : null,
         search: {
             enabled: data.AGENT_ROOM_SEARCH_ENABLED,
             backendUrl: data.AGENT_ROOM_SEARCH_BACKEND_URL.replace(/\/$/, ''),
