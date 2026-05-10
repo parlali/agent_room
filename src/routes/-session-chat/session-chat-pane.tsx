@@ -77,7 +77,11 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             setStreamTurn(emptyStreamTurnState)
             return
         }
-        if (!streamTurn.finished || executionQuery.isFetching || !streamTurnHasContent(streamTurn)) {
+        if (
+            !streamTurn.finished ||
+            executionQuery.isFetching ||
+            !streamTurnHasContent(streamTurn)
+        ) {
             return
         }
         const timer = setTimeout(() => {

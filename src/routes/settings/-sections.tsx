@@ -1,12 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import type { Dispatch, SetStateAction } from 'react'
-import {
-    GlobeIcon,
-    ImageIcon,
-    PlugIcon,
-    Trash2Icon,
-    WrenchIcon,
-} from 'lucide-react'
+import { GlobeIcon, ImageIcon, PlugIcon, Trash2Icon, WrenchIcon } from 'lucide-react'
 
 import {
     AttentionBanner,
@@ -442,15 +436,21 @@ export function ProductInfoCard() {
             <CardContent className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
                 <div>
                     <div className="font-medium text-foreground">Room-local state</div>
-                    <p className="mt-1">Files, memory, logs, and runtime auth stay scoped to a room.</p>
+                    <p className="mt-1">
+                        Files, memory, logs, and runtime auth stay scoped to a room.
+                    </p>
                 </div>
                 <div>
                     <div className="font-medium text-foreground">Provider truth</div>
-                    <p className="mt-1">Rooms inherit app defaults or bind to explicit connections.</p>
+                    <p className="mt-1">
+                        Rooms inherit app defaults or bind to explicit connections.
+                    </p>
                 </div>
                 <div>
                     <div className="font-medium text-foreground">Auditable work</div>
-                    <p className="mt-1">Sessions, tools, jobs, and usage create an inspectable trail.</p>
+                    <p className="mt-1">
+                        Sessions, tools, jobs, and usage create an inspectable trail.
+                    </p>
                 </div>
             </CardContent>
         </Card>

@@ -97,7 +97,12 @@ function buildTimelineItems(events: UsageEventLike[]): UsageTimelineItem[] {
     return events
         .filter((event) => {
             if (event.kind === 'run' || event.kind === 'job') return true
-            return !event.runId || !eventsByRunId.get(event.runId)?.some((entry) => entry.kind === 'run' || entry.kind === 'job')
+            return (
+                !event.runId ||
+                !eventsByRunId
+                    .get(event.runId)
+                    ?.some((entry) => entry.kind === 'run' || entry.kind === 'job')
+            )
         })
         .map((event) => {
             const related = event.runId ? (eventsByRunId.get(event.runId) ?? []) : []
@@ -122,7 +127,10 @@ function buildTimelineItems(events: UsageEventLike[]): UsageTimelineItem[] {
             return {
                 id: event.id,
                 event,
-                title: event.kind === 'run' || event.kind === 'job' ? runTitle(event) : standaloneTitle(event),
+                title:
+                    event.kind === 'run' || event.kind === 'job'
+                        ? runTitle(event)
+                        : standaloneTitle(event),
                 detail:
                     details.length > 0
                         ? details.join(' · ')

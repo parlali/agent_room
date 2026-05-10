@@ -400,9 +400,7 @@ function SidebarSessionActions({
                             <CopyIcon className="size-4" />
                             Copy link
                         </DropdownMenuItem>
-                        <DropdownMenuItem
-                            onSelect={() => setDialog({ type: 'rename', title })}
-                        >
+                        <DropdownMenuItem onSelect={() => setDialog({ type: 'rename', title })}>
                             <PencilIcon className="size-4" />
                             Rename
                         </DropdownMenuItem>

@@ -521,7 +521,6 @@ async function runPreviewProcess(input: {
             detached: true,
             stdio: ['ignore', 'pipe', 'pipe'],
         })
-        let timer: ReturnType<typeof setTimeout>
         const finish = (error: Error | null) => {
             if (settled) return
             settled = true
@@ -538,7 +537,7 @@ async function runPreviewProcess(input: {
                 }
             }
         }
-        timer = setTimeout(() => {
+        const timer = setTimeout(() => {
             terminate()
             finish(new Error(`${input.command} timed out`))
         }, previewTimeoutMs)

@@ -270,7 +270,9 @@ async function deleteThread(record: ThreadRecord): Promise<void> {
     }
     const active = activeThreads.get(record.key)
     if (active) {
-        active.abortController?.abort(new RunWatchdog('explicit_abort', timeoutMessage('explicit_abort')))
+        active.abortController?.abort(
+            new RunWatchdog('explicit_abort', timeoutMessage('explicit_abort')),
+        )
         active.unsubscribe?.()
         active.session.dispose()
         activeThreads.delete(record.key)

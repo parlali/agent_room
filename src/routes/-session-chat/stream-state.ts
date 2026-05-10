@@ -141,7 +141,8 @@ export function reduceRoomStreamEvent(
     if (event.type === 'toolcall_start') {
         return {
             ...state,
-            status: state.status === 'idle' || state.status === 'queued' ? 'thinking' : state.status,
+            status:
+                state.status === 'idle' || state.status === 'queued' ? 'thinking' : state.status,
             updatedAt: realtime.receivedAt,
         }
     }
@@ -193,9 +194,7 @@ export function shouldRefetchForRoomEvent(realtime: RoomRealtimeEvent): boolean 
         return message?.role === 'assistant'
     }
     return (
-        event.type === 'turn_end' ||
-        event.type === 'compaction_end' ||
-        event.type === 'agent_end'
+        event.type === 'turn_end' || event.type === 'compaction_end' || event.type === 'agent_end'
     )
 }
 
@@ -316,10 +315,7 @@ function upsertToolTask(
     }
 }
 
-function settleToolTasks(
-    state: StreamTurnState,
-    status: 'complete' | 'error',
-): StreamTurnState {
+function settleToolTasks(state: StreamTurnState, status: 'complete' | 'error'): StreamTurnState {
     return {
         ...state,
         items: state.items.map((item) => {
@@ -333,9 +329,7 @@ function settleToolTasks(
                         status,
                         result:
                             task.result ??
-                            (status === 'error'
-                                ? 'The tool did not finish'
-                                : 'The tool finished'),
+                            (status === 'error' ? 'The tool did not finish' : 'The tool finished'),
                     }
                 }),
             }
@@ -343,10 +337,7 @@ function settleToolTasks(
     }
 }
 
-function mergeToolTask(
-    existing: ToolActivityTask,
-    incoming: ToolActivityTask,
-): ToolActivityTask {
+function mergeToolTask(existing: ToolActivityTask, incoming: ToolActivityTask): ToolActivityTask {
     if (isTerminalToolStatus(existing.status) && !isTerminalToolStatus(incoming.status)) {
         return {
             ...existing,

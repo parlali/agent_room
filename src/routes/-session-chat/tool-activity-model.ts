@@ -169,14 +169,17 @@ const SENSITIVE_KEY_PATTERN = /(secret|token|password|credential|authorization|a
 
 export function toolTasksFromParts(parts: RoomExecutionMessagePart[]): ToolActivityTask[] {
     return groupToolSteps(parts).map((step, index) =>
-        projectToolTask({
-            id: step.id,
-            name: step.name,
-            status: toolStatusFromStep(step),
-            input: step.call?.input ?? null,
-            result: step.result?.result ?? null,
-            text: step.result?.text ?? step.call?.text ?? null,
-        }, index),
+        projectToolTask(
+            {
+                id: step.id,
+                name: step.name,
+                status: toolStatusFromStep(step),
+                input: step.call?.input ?? null,
+                result: step.result?.result ?? null,
+                text: step.result?.text ?? step.call?.text ?? null,
+            },
+            index,
+        ),
     )
 }
 
@@ -193,11 +196,7 @@ export function toolTaskFromRuntimeEvent(event: Record<string, unknown>): ToolAc
         id: toolCallId ?? `${toolName ?? 'tool'}-${String(event.type ?? 'event')}`,
         name: toolName,
         status:
-            event.type === 'tool_execution_end'
-                ? isError
-                    ? 'error'
-                    : 'complete'
-                : 'in_progress',
+            event.type === 'tool_execution_end' ? (isError ? 'error' : 'complete') : 'in_progress',
         input: event.args ?? null,
         result: result ?? null,
         text:

@@ -69,12 +69,7 @@ export function MessageList({
                     />
                 ))}
                 {stream.items.map((item) => (
-                    <StreamRow
-                        key={item.id}
-                        room={room}
-                        item={item}
-                        timestamp={stream.updatedAt}
-                    />
+                    <StreamRow key={item.id} room={room} item={item} timestamp={stream.updatedAt} />
                 ))}
                 {isWorking && !hasStreamContent ? (
                     <div className="flex items-center gap-2 px-2 text-xs text-muted-foreground">
@@ -232,9 +227,7 @@ function MessageActions({
                 align === 'end' ? 'justify-end' : 'justify-start',
             )}
         >
-            {align === 'end' ? (
-                <MessageDate timestamp={timestamp} className="mr-1" />
-            ) : null}
+            {align === 'end' ? <MessageDate timestamp={timestamp} className="mr-1" /> : null}
             <Button
                 type="button"
                 variant="ghost"
@@ -258,9 +251,7 @@ function MessageActions({
                     <PencilIcon className="size-3.5" />
                 </Button>
             ) : null}
-            {align === 'start' ? (
-                <MessageDate timestamp={timestamp} className="ml-1" />
-            ) : null}
+            {align === 'start' ? <MessageDate timestamp={timestamp} className="ml-1" /> : null}
         </div>
     )
 }

@@ -441,7 +441,9 @@ function MemoryContent({ roomId }: { roomId: string }) {
                                 }
                                 onDelete={(itemId) =>
                                     setDraftMemory((current) =>
-                                        current ? deleteItem(current, section.key, itemId) : current,
+                                        current
+                                            ? deleteItem(current, section.key, itemId)
+                                            : current,
                                     )
                                 }
                                 onChange={(itemId, text) =>
