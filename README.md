@@ -129,16 +129,18 @@ Before restoring to a new machine, make sure you also restore any deployment-own
 
 The Docker path works without required environment variables. These values are commonly customized:
 
-| Variable                        | Purpose                                          | Default                   |
-| ------------------------------- | ------------------------------------------------ | ------------------------- |
-| `AGENT_ROOM_PORT`               | Host port for the web app                        | `3000`                    |
-| `AGENT_ROOM_POSTGRES_PASSWORD`  | Internal Postgres password used by Compose       | `agent_room_local_only`   |
-| `AGENT_ROOM_ENCRYPTION_KEY_B64` | Base64 32-byte encryption key for stored secrets | Generated on first boot   |
-| `AGENT_ROOM_ROOT_EMAIL`         | Initial root email                               | Generated on first boot   |
-| `AGENT_ROOM_ROOT_PASSWORD`      | Initial root password                            | Generated on first boot   |
-| `AGENT_ROOM_SESSION_TTL_HOURS`  | Login session lifetime                           | `24`                      |
-| `AGENT_ROOM_DATA_DIR`           | App data directory inside the container          | `/app/.agent-room`        |
-| `AGENT_ROOM_SEARCH_SECRET`      | Private SearXNG secret used inside Compose       | `agent-room-local-search` |
+| Variable                        | Purpose                                          | Default                 |
+| ------------------------------- | ------------------------------------------------ | ----------------------- |
+| `AGENT_ROOM_PORT`               | Host port for the web app                        | `3000`                  |
+| `AGENT_ROOM_POSTGRES_PASSWORD`  | Internal Postgres password used by Compose       | `agent_room`            |
+| `AGENT_ROOM_ENCRYPTION_KEY_B64` | Base64 32-byte encryption key for stored secrets | Generated on first boot |
+| `AGENT_ROOM_ROOT_EMAIL`         | Initial root email                               | Generated on first boot |
+| `AGENT_ROOM_ROOT_PASSWORD`      | Initial root password                            | Generated on first boot |
+| `AGENT_ROOM_SESSION_TTL_HOURS`  | Login session lifetime                           | `24`                    |
+| `AGENT_ROOM_DATA_DIR`           | App data directory inside the container          | `/app/.agent-room`      |
+| `AGENT_ROOM_SEARXNG_TAG`        | SearXNG Docker image tag                         | `2026.5.2-aefc3c316`    |
+
+`AGENT_ROOM_POSTGRES_PASSWORD` is only applied when the Postgres Docker volume is initialized. If you change it after first boot, update the existing database role password explicitly or recreate the Postgres volume intentionally.
 
 ## Development
 

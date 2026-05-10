@@ -104,6 +104,37 @@ describe('Pi runtime config materialization', () => {
         expect(Object.keys(config.paths)).not.toContain('cronJobsPath')
     })
 
+    it('keeps built-in Pi model metadata and pricing for known providers', () => {
+        const root = '/tmp/agent-room-test/room-1'
+        const roomConfig = roomConfiguration()
+        roomConfig.provider = {
+            provider: 'openai-codex',
+            authMode: 'oauth',
+            api: 'openai-codex-responses',
+            model: 'openai-codex/gpt-5.5',
+            fallbackModels: [],
+            baseUrl: null,
+            envKey: null,
+        }
+
+        const config = buildPiRuntimeConfig({
+            roomId: 'room-1',
+            displayName: 'Room One',
+            port: 31234,
+            token: 'token-token-token-token-token',
+            paths: roomPaths(root),
+            roomConfiguration: roomConfig,
+        })
+
+        expect(config.models.providers['openai-codex']).toMatchObject({
+            api: 'openai-codex-responses',
+            modelOverrides: {
+                'gpt-5.5': {},
+            },
+        })
+        expect(config.models.providers['openai-codex'].models).toBeUndefined()
+    })
+
     it('materializes runtime env tokens and process directories under the room root', async () => {
         const root = await mkdtemp(join(tmpdir(), 'agent-room-pi-profile-'))
         try {

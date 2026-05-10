@@ -239,6 +239,7 @@ export interface RoomCronJobRecord {
     message: string
     enabled: boolean
     everyMinutes: number
+    schedule: JsonValue
     timezone: string
     sessionTarget: 'isolated' | 'selected'
     targetThreadKey: string | null

@@ -3,13 +3,8 @@ import type { Dispatch, SetStateAction } from 'react'
 import {
     GlobeIcon,
     ImageIcon,
-    LogOutIcon,
-    MonitorIcon,
-    MoonIcon,
     PlugIcon,
-    SunIcon,
     Trash2Icon,
-    UserIcon,
     WrenchIcon,
 } from 'lucide-react'
 
@@ -55,15 +50,14 @@ import {
     FieldGroup,
     MaskedSecretField,
     ModelSelectField,
-    ThemeChoice,
     type DeleteConnectionTarget,
 } from './-forms'
 
 export type AppCapabilityDefaults = OperatorConfigSnapshot['settings']['capabilityDefaults']
 export type AppImageProvider = 'none' | 'openai' | 'gemini'
-export type SettingsThemeMode = 'light' | 'dark' | 'system'
 
-export function SetupBanner({ onboardingCompleted }: { onboardingCompleted: boolean }) {
+export function SetupBanner({ onboardingCompleted }: { onboardingCompleted: boolean | null }) {
+    if (onboardingCompleted === null) return null
     if (onboardingCompleted) return null
     return (
         <AttentionBanner
@@ -425,96 +419,39 @@ export function CapabilitiesSection({
     )
 }
 
-export function AccountSection({
-    email,
-    role,
-    pending,
-    onLogout,
-}: {
-    email: string | undefined
-    role: string | undefined
-    pending: boolean
-    onLogout: () => void
-}) {
-    return (
-        <Section title="Account" description="Local operator account.">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-3">
-                    <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                        <UserIcon className="size-5" aria-hidden />
-                    </span>
-                    <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-foreground">
-                            {email ?? 'Unknown'}
-                        </div>
-                        <div className="text-xs uppercase tracking-wide text-muted-foreground">
-                            {role ?? '—'}
-                        </div>
-                    </div>
-                </div>
-                <Button type="button" variant="outline" onClick={onLogout} disabled={pending}>
-                    <LogOutIcon />
-                    Sign out
-                </Button>
-            </div>
-        </Section>
-    )
-}
-
-export function ThemeSettingsSection({
-    themeMode,
-    setThemeMode,
-}: {
-    themeMode: SettingsThemeMode
-    setThemeMode: (mode: SettingsThemeMode) => void
-}) {
-    return (
-        <Section title="Theme" description="Choose how Agent Room renders.">
-            <div className="grid gap-2 sm:grid-cols-3">
-                <ThemeChoice
-                    active={themeMode === 'light'}
-                    icon={<SunIcon className="size-4" />}
-                    label="Light"
-                    onClick={() => setThemeMode('light')}
-                />
-                <ThemeChoice
-                    active={themeMode === 'dark'}
-                    icon={<MoonIcon className="size-4" />}
-                    label="Dark"
-                    onClick={() => setThemeMode('dark')}
-                />
-                <ThemeChoice
-                    active={themeMode === 'system'}
-                    icon={<MonitorIcon className="size-4" />}
-                    label="System"
-                    onClick={() => setThemeMode('system')}
-                />
-            </div>
-        </Section>
-    )
-}
-
 export function ProductInfoCard() {
     return (
-        <Card>
+        <Card className="overflow-hidden">
             <CardHeader>
-                <div className="flex items-center gap-3">
-                    <span className="flex size-9 items-center justify-center rounded-lg bg-muted text-foreground">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
                         <BrandMark size={20} />
                     </span>
-                    <div className="min-w-0">
-                        <CardTitle className="text-sm">Agent Room</CardTitle>
-                        <CardDescription className="text-xs">
-                            Self-hosted agent orchestration. Rooms keep instructions, tools,
-                            secrets, and sessions in one auditable workspace.
+                    <div className="min-w-0 flex-1">
+                        <CardTitle>How Agent Room Works</CardTitle>
+                        <CardDescription>
+                            A short operator guide to rooms, sessions, provider bindings, tools,
+                            memory, and scheduled work.
                         </CardDescription>
                     </div>
+                    <Button asChild variant="outline" size="sm" className="shrink-0">
+                        <Link to="/about">Learn more</Link>
+                    </Button>
                 </div>
             </CardHeader>
-            <CardContent className="px-4 pb-4 pt-0">
-                <Link to="/about" className="text-xs font-medium text-primary hover:underline">
-                    Learn more about Agent Room
-                </Link>
+            <CardContent className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
+                <div>
+                    <div className="font-medium text-foreground">Room-local state</div>
+                    <p className="mt-1">Files, memory, logs, and runtime auth stay scoped to a room.</p>
+                </div>
+                <div>
+                    <div className="font-medium text-foreground">Provider truth</div>
+                    <p className="mt-1">Rooms inherit app defaults or bind to explicit connections.</p>
+                </div>
+                <div>
+                    <div className="font-medium text-foreground">Auditable work</div>
+                    <p className="mt-1">Sessions, tools, jobs, and usage create an inspectable trail.</p>
+                </div>
             </CardContent>
         </Card>
     )

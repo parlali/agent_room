@@ -7,6 +7,13 @@ import type { RoomCronJobRecord, RoomCronRunRecord } from '../../domain/types'
 import type { RoomCronJob, RoomRunHistorySnapshot } from '../execution-types'
 
 import { createRoomThread, sendRoomThreadMessage } from './thread-operations'
+import {
+    computeNextRunAt,
+    describeJobSchedule,
+    intervalMinutes,
+    normalizeJobSchedule,
+    type JobSchedule,
+} from '#/lib/job-schedule'
 
 const maxCronStaleLockMs = 12 * 60 * 60 * 1000
 const cronLeaseRenewalMs = 30000
@@ -25,7 +32,7 @@ async function prepareCronJobWrite(input: {
     roomId: string
     name: string
     message: string
-    everyMinutes: number
+    schedule: JobSchedule
 }) {
     const name = input.name.trim()
     if (!name) {
@@ -37,9 +44,8 @@ async function prepareCronJobWrite(input: {
         throw new Error('Cron job message cannot be empty')
     }
 
-    if (!Number.isFinite(input.everyMinutes) || input.everyMinutes <= 0) {
-        throw new Error('Cron job interval must be a positive minute value')
-    }
+    const schedule = normalizeJobSchedule(input.schedule)
+    const everyMinutes = intervalMinutes(schedule)
 
     const [config, runtimeMetadata] = await Promise.all([
         getRoomConfigSnapshot(input.roomId),
@@ -48,7 +54,8 @@ async function prepareCronJobWrite(input: {
     return {
         name,
         message,
-        everyMinutes: Math.max(1, Math.floor(input.everyMinutes)),
+        schedule,
+        everyMinutes,
         config,
         runtimeMetadata,
     }
@@ -58,17 +65,22 @@ export async function createRoomCronJob(input: {
     roomId: string
     name: string
     message: string
-    everyMinutes: number
+    schedule: JobSchedule
 }): Promise<RoomCronJob> {
-    const { name, message, everyMinutes, config, runtimeMetadata } =
+    const { name, message, schedule, everyMinutes, config, runtimeMetadata } =
         await prepareCronJobWrite(input)
     const job = await roomCronRepository.createJob({
         roomId: input.roomId,
         name,
         message,
         everyMinutes,
+        schedule,
         timezone: config.config.cronTimezone,
-        nextRunAt: new Date(Date.now() + everyMinutes * 60000),
+        nextRunAt: computeNextRunAt({
+            schedule,
+            after: new Date(),
+            timezone: config.config.cronTimezone,
+        }),
         provider: config.effective.provider,
         model: config.effective.model,
         configVersion: runtimeMetadata?.configVersion ?? null,
@@ -81,7 +93,7 @@ export async function updateRoomCronJob(input: {
     jobId: string
     name: string
     message: string
-    everyMinutes: number
+    schedule: JobSchedule
 }): Promise<RoomCronJob> {
     const existing = await roomCronRepository.findJobById({
         roomId: input.roomId,
@@ -91,7 +103,7 @@ export async function updateRoomCronJob(input: {
         throw new Error(`Cron job ${input.jobId} does not exist`)
     }
 
-    const { name, message, everyMinutes, config, runtimeMetadata } =
+    const { name, message, schedule, everyMinutes, config, runtimeMetadata } =
         await prepareCronJobWrite(input)
     const job = await roomCronRepository.updateJob({
         roomId: input.roomId,
@@ -99,7 +111,14 @@ export async function updateRoomCronJob(input: {
         name,
         message,
         everyMinutes,
-        nextRunAt: existing.enabled ? new Date(Date.now() + everyMinutes * 60000) : null,
+        schedule,
+        nextRunAt: existing.enabled
+            ? computeNextRunAt({
+                  schedule,
+                  after: new Date(),
+                  timezone: existing.timezone,
+              })
+            : null,
         provider: config.effective.provider,
         model: config.effective.model,
         configVersion: runtimeMetadata?.configVersion ?? existing.configVersion,
@@ -121,7 +140,13 @@ export async function updateRoomCronJobEnabled(input: {
             roomId: input.roomId,
             jobId: input.jobId,
             enabled: input.enabled,
-            nextRunAt: input.enabled ? new Date(Date.now() + existing.everyMinutes * 60000) : null,
+            nextRunAt: input.enabled
+                ? computeNextRunAt({
+                      schedule: normalizeJobSchedule(existing.schedule, existing.everyMinutes),
+                      after: new Date(),
+                      timezone: existing.timezone,
+                  })
+                : null,
         }),
     )
 }
@@ -202,8 +227,13 @@ async function executeClaimedCronJob(input: {
             throw new Error(sendResult.error ?? 'Scheduled run failed in the Pi runtime')
         }
 
+        const schedule = normalizeJobSchedule(input.job.schedule, input.job.everyMinutes)
         const nextRunAt = input.job.enabled
-            ? new Date(Date.now() + input.job.everyMinutes * 60000)
+            ? computeNextRunAt({
+                  schedule,
+                  after: new Date(),
+                  timezone: input.job.timezone,
+              })
             : null
         await roomCronRepository.finishRun({
             runId: run.id,
@@ -226,8 +256,13 @@ async function executeClaimedCronJob(input: {
         }
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Scheduled run failed'
+        const schedule = normalizeJobSchedule(input.job.schedule, input.job.everyMinutes)
         const nextRunAt = input.job.enabled
-            ? new Date(Date.now() + input.job.everyMinutes * 60000)
+            ? computeNextRunAt({
+                  schedule,
+                  after: new Date(),
+                  timezone: input.job.timezone,
+              })
             : null
         if (run) {
             await roomCronRepository.finishRun({
@@ -336,6 +371,7 @@ export async function removeRoomCronJob(input: { roomId: string; jobId: string }
 }
 
 function mapCronJobRecord(job: RoomCronJobRecord): RoomCronJob {
+    const schedule = normalizeJobSchedule(job.schedule, job.everyMinutes)
     return {
         id: job.id,
         agentId: 'main',
@@ -346,7 +382,9 @@ function mapCronJobRecord(job: RoomCronJobRecord): RoomCronJob {
         sessionTarget: job.sessionTarget,
         wakeMode: 'now',
         everyMinutes: job.everyMinutes,
-        scheduleSummary: scheduleSummary(job.everyMinutes),
+        schedule,
+        timezone: job.timezone,
+        scheduleSummary: describeJobSchedule(schedule),
         payloadSummary: job.message,
         nextRunAt: job.nextRunAt ? job.nextRunAt.getTime() : null,
         runningAt: job.runningAt ? job.runningAt.getTime() : null,
@@ -355,21 +393,6 @@ function mapCronJobRecord(job: RoomCronJobRecord): RoomCronJob {
         lastError: job.lastError,
         lastDurationMs: job.lastDurationMs,
     }
-}
-
-function scheduleSummary(everyMinutes: number): string {
-    if (everyMinutes < 60) {
-        return everyMinutes === 1 ? 'Every minute' : `Every ${everyMinutes} minutes`
-    }
-    if (everyMinutes % (24 * 60) === 0) {
-        const days = everyMinutes / (24 * 60)
-        return days === 1 ? 'Every day' : `Every ${days} days`
-    }
-    if (everyMinutes % 60 === 0) {
-        const hours = everyMinutes / 60
-        return hours === 1 ? 'Every hour' : `Every ${hours} hours`
-    }
-    return `Every ${everyMinutes} minutes`
 }
 
 function mapCronRunRecord(run: RoomCronRunRecord): RoomRunHistorySnapshot['entries'][number] {

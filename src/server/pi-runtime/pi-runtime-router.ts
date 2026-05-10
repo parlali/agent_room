@@ -28,6 +28,8 @@ export function createPiRuntimeRouter({
     findThread,
     createThread,
     runPrompt,
+    renameThread,
+    deleteThread,
     compactThread,
     forkThread,
     snapshot,
@@ -45,6 +47,8 @@ export function createPiRuntimeRouter({
         awaitCompletion: boolean
         runKind?: RunKind
     }) => Promise<string>
+    renameThread: (input: { record: ThreadRecord; title: string }) => Promise<void>
+    deleteThread: (record: ThreadRecord) => Promise<void>
     compactThread: (input: {
         record: ThreadRecord
         instructions?: string | null
@@ -134,6 +138,32 @@ export function createPiRuntimeRouter({
                 error: record.lastError,
             }
             sendJson(response, 200, payload)
+            return
+        }
+
+        const threadRenameMatch = url.pathname.match(/^\/threads\/([^/]+)\/rename$/)
+        if (request.method === 'POST' && threadRenameMatch) {
+            const sessionKey = decodeURIComponent(threadRenameMatch[1]!)
+            const record = findThread(sessionKey)
+            if (!record) {
+                throw new HttpError(404, `Thread ${sessionKey} does not exist`)
+            }
+            const body = await getRequestBody(request)
+            const title = isRecord(body) && typeof body.title === 'string' ? body.title : ''
+            await renameThread({ record, title })
+            sendJson(response, 200, { ok: true })
+            return
+        }
+
+        const threadDeleteMatch = url.pathname.match(/^\/threads\/([^/]+)$/)
+        if (request.method === 'DELETE' && threadDeleteMatch) {
+            const sessionKey = decodeURIComponent(threadDeleteMatch[1]!)
+            const record = findThread(sessionKey)
+            if (!record) {
+                throw new HttpError(404, `Thread ${sessionKey} does not exist`)
+            }
+            await deleteThread(record)
+            sendJson(response, 200, { ok: true })
             return
         }
 

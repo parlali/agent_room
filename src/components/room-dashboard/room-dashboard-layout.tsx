@@ -8,6 +8,8 @@ import {
     SettingsIcon,
     BrainIcon,
     BarChart3Icon,
+    CheckIcon,
+    ChevronDownIcon,
     PauseIcon,
     PlayIcon,
     type LucideIcon,
@@ -16,12 +18,19 @@ import { toast } from 'sonner'
 import type { ReactNode } from 'react'
 
 import { cn } from '#/lib/utils'
-import { describeRoomState } from '#/lib/state'
 import { Button } from '#/components/ui/button'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '#/components/ui/dropdown-menu'
 import { Skeleton } from '#/components/ui/skeleton'
 import { ScrollArea } from '#/components/ui/scroll-area'
 import { AppShell } from '#/components/app-shell'
-import { RoomGlyph, StateBadge } from '#/components/agent-room'
+import { RoomGlyph } from '#/components/agent-room'
 import { listRoomsServer, setRoomDesiredStateServer } from '#/routes/-room-runtime-server'
 import type { RoomRuntimeOverview } from '#/server/rooms/execution-types'
 
@@ -37,6 +46,7 @@ export type RoomDashboardTab =
 interface TabDef {
     id: RoomDashboardTab
     label: string
+    description: string
     icon: LucideIcon
     to:
         | '/rooms/$roomId'
@@ -48,14 +58,88 @@ interface TabDef {
         | '/rooms/$roomId/settings'
 }
 
-const TABS: TabDef[] = [
-    { id: 'home', label: 'Home', icon: HomeIcon, to: '/rooms/$roomId' },
-    { id: 'files', label: 'Files', icon: FolderIcon, to: '/rooms/$roomId/files' },
-    { id: 'jobs', label: 'Jobs', icon: CalendarClockIcon, to: '/rooms/$roomId/jobs' },
-    { id: 'memory', label: 'Memory', icon: BrainIcon, to: '/rooms/$roomId/memory' },
-    { id: 'usage', label: 'Usage', icon: BarChart3Icon, to: '/rooms/$roomId/usage' },
-    { id: 'status', label: 'Status', icon: ActivityIcon, to: '/rooms/$roomId/status' },
-    { id: 'settings', label: 'Settings', icon: SettingsIcon, to: '/rooms/$roomId/settings' },
+interface TabGroup {
+    id: string
+    label: string
+    heading: string
+    icon: LucideIcon
+    tabs: TabDef[]
+}
+
+const TAB_GROUPS: TabGroup[] = [
+    {
+        id: 'workspace',
+        label: 'Workspace',
+        heading: 'Room workspace',
+        icon: HomeIcon,
+        tabs: [
+            {
+                id: 'home',
+                label: 'Home',
+                description: 'Overview, recent activity, and quick actions',
+                icon: HomeIcon,
+                to: '/rooms/$roomId',
+            },
+            {
+                id: 'files',
+                label: 'Files',
+                description: 'Uploads and files produced by the room',
+                icon: FolderIcon,
+                to: '/rooms/$roomId/files',
+            },
+            {
+                id: 'jobs',
+                label: 'Jobs',
+                description: 'Scheduled recurring work',
+                icon: CalendarClockIcon,
+                to: '/rooms/$roomId/jobs',
+            },
+        ],
+    },
+    {
+        id: 'knowledge',
+        label: 'Knowledge',
+        heading: 'Room knowledge',
+        icon: BrainIcon,
+        tabs: [
+            {
+                id: 'memory',
+                label: 'Memory',
+                description: 'Durable room memory and user-facing facts',
+                icon: BrainIcon,
+                to: '/rooms/$roomId/memory',
+            },
+        ],
+    },
+    {
+        id: 'operations',
+        label: 'Operations',
+        heading: 'Room operations',
+        icon: ActivityIcon,
+        tabs: [
+            {
+                id: 'usage',
+                label: 'Usage',
+                description: 'Activity, runtime, token, and cost reporting',
+                icon: BarChart3Icon,
+                to: '/rooms/$roomId/usage',
+            },
+            {
+                id: 'status',
+                label: 'Status',
+                description: 'Readiness, health, and runtime state',
+                icon: ActivityIcon,
+                to: '/rooms/$roomId/status',
+            },
+            {
+                id: 'settings',
+                label: 'Settings',
+                description: 'Model, OAuth, capabilities, and room configuration',
+                icon: SettingsIcon,
+                to: '/rooms/$roomId/settings',
+            },
+        ],
+    },
 ]
 
 export function RoomDashboardLayout({
@@ -147,32 +231,18 @@ function RoomHeaderContent({
     headerActions?: ReactNode
     setDesired: ReturnType<typeof useMutation<unknown, unknown, 'running' | 'stopped'>>
 }) {
-    const state = describeRoomState({
-        status: room.status,
-        desiredState: room.desiredState,
-        healthStatus: room.healthStatus,
-    })
     const paused = room.desiredState === 'stopped'
     return (
         <header className="flex flex-col gap-3 border-b border-border/60 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-6">
             <div className="flex min-w-0 items-center gap-3">
                 <RoomGlyph name={room.displayName} seed={room.roomId} size="lg" />
                 <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                        <h1 className="truncate text-lg font-semibold tracking-tight sm:text-xl">
-                            {room.displayName}
-                        </h1>
-                        <StateBadge
-                            tone={state.tone}
-                            label={state.label}
-                            pulse={state.tone === 'working'}
-                        />
-                    </div>
+                    <h1 className="truncate text-lg font-semibold tracking-tight sm:text-xl">
+                        {room.displayName}
+                    </h1>
                     {room.lastError ? (
                         <p className="mt-0.5 truncate text-xs text-danger-fg">{room.lastError}</p>
-                    ) : (
-                        <p className="text-xs text-muted-foreground">/{room.slug}</p>
-                    )}
+                    ) : null}
                 </div>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -194,27 +264,65 @@ function RoomHeaderContent({
 function RoomTabs({ roomId, activeTab }: { roomId: string; activeTab: RoomDashboardTab }) {
     return (
         <nav
-            className="sticky top-0 z-10 flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border/60 bg-background/95 px-2 backdrop-blur sm:px-4"
-            role="tablist"
+            className="sticky top-0 z-10 flex shrink-0 items-center gap-2 border-b border-border/60 bg-background/95 px-4 py-2 backdrop-blur sm:px-6"
+            aria-label="Room navigation"
         >
-            {TABS.map((tab) => {
-                const Icon = tab.icon
-                const isActive = tab.id === activeTab
+            {TAB_GROUPS.map((group) => {
+                const GroupIcon = group.icon
+                const activeItem = group.tabs.find((tab) => tab.id === activeTab) ?? null
+                const isActive = activeItem !== null
                 return (
-                    <Link
-                        key={tab.id}
-                        to={tab.to}
-                        params={{ roomId }}
-                        role="tab"
-                        aria-selected={isActive}
-                        className={cn(
-                            'relative flex h-11 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3 text-sm text-muted-foreground transition-colors hover:text-foreground',
-                            isActive && 'border-foreground text-foreground',
-                        )}
-                    >
-                        <Icon className="size-3.5" />
-                        {tab.label}
-                    </Link>
+                    <DropdownMenu key={group.id}>
+                        <DropdownMenuTrigger asChild>
+                            <Button
+                                variant={isActive ? 'secondary' : 'ghost'}
+                                size="sm"
+                                className={cn('gap-2', isActive && 'text-foreground')}
+                            >
+                                <GroupIcon className="size-4" />
+                                <span>{group.label}</span>
+                                {activeItem ? (
+                                    <span className="hidden max-w-28 truncate text-muted-foreground sm:inline">
+                                        {activeItem.label}
+                                    </span>
+                                ) : null}
+                                <ChevronDownIcon className="size-3.5 text-muted-foreground" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" className="w-72">
+                            <DropdownMenuLabel>{group.heading}</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            {group.tabs.map((tab) => {
+                                const Icon = tab.icon
+                                const tabActive = tab.id === activeTab
+                                return (
+                                    <DropdownMenuItem
+                                        key={tab.id}
+                                        asChild
+                                        className={cn(
+                                            'items-start gap-2 py-2',
+                                            tabActive && 'bg-accent text-accent-foreground',
+                                        )}
+                                    >
+                                        <Link to={tab.to} params={{ roomId }}>
+                                            <Icon className="mt-0.5 size-4" />
+                                            <span className="min-w-0 flex-1">
+                                                <span className="block font-medium">
+                                                    {tab.label}
+                                                </span>
+                                                <span className="mt-0.5 block text-xs leading-snug text-muted-foreground group-focus/dropdown-menu-item:text-accent-foreground">
+                                                    {tab.description}
+                                                </span>
+                                            </span>
+                                            {tabActive ? (
+                                                <CheckIcon className="ml-auto mt-0.5 size-4" />
+                                            ) : null}
+                                        </Link>
+                                    </DropdownMenuItem>
+                                )
+                            })}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                 )
             })}
         </nav>

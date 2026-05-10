@@ -6,6 +6,7 @@ import { AttentionBanner, Section, StateBadge } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
+import { copyText } from '#/lib/clipboard'
 import {
     cancelCodexOAuthSessionServer,
     getCodexOAuthSessionServer,
@@ -33,7 +34,7 @@ export function CodexOAuthSection({ roomId }: { roomId: string }) {
 
     const copyAuthUrl = async (authUrl: string) => {
         try {
-            await navigator.clipboard.writeText(authUrl)
+            await copyText(authUrl)
             toast.success('OpenAI sign-in link copied')
         } catch {
             toast.error('Could not copy sign-in link')

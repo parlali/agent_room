@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Loader2Icon, MoreHorizontalIcon, PencilIcon, Trash2Icon } from 'lucide-react'
+import { CopyIcon, Loader2Icon, MoreHorizontalIcon, PencilIcon, Trash2Icon } from 'lucide-react'
 
 import { Button } from '#/components/ui/button'
 import {
@@ -21,6 +21,8 @@ import {
 } from '#/components/ui/dropdown-menu'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
+import { copyText } from '#/lib/clipboard'
+import { cn } from '#/lib/utils'
 import { deleteSessionServer, renameSessionServer } from '#/routes/-room-runtime-server'
 
 type DialogState = { type: 'closed' } | { type: 'rename'; title: string } | { type: 'delete' }
@@ -44,7 +46,11 @@ export function SessionContextMenu({
     const renameMutation = useMutation({
         mutationFn: (title: string) => renameSessionServer({ data: { roomId, sessionKey, title } }),
         onSuccess: async () => {
-            await queryClient.invalidateQueries({ queryKey: ['room-execution', roomId] })
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId] }),
+                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId, 'sidebar'] }),
+                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId, sessionKey] }),
+            ])
             toast.success('Session renamed')
             setDialog({ type: 'closed' })
         },
@@ -57,7 +63,11 @@ export function SessionContextMenu({
     const deleteMutation = useMutation({
         mutationFn: () => deleteSessionServer({ data: { roomId, sessionKey } }),
         onSuccess: async () => {
-            await queryClient.invalidateQueries({ queryKey: ['room-execution', roomId] })
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId] }),
+                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId, 'sidebar'] }),
+                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId, sessionKey] }),
+            ])
             toast.success('Session deleted')
             setDialog({ type: 'closed' })
             onDeleted?.()
@@ -70,11 +80,25 @@ export function SessionContextMenu({
 
     const isPending = renameMutation.isPending || deleteMutation.isPending
 
+    const copySessionLink = async () => {
+        try {
+            const path = `/rooms/${encodeURIComponent(roomId)}/sessions/${encodeURIComponent(sessionKey)}`
+            await copyText(`${window.location.origin}${path}`)
+            toast.success('Session link copied')
+        } catch {
+            toast.error('Could not copy session link')
+        }
+    }
+
     return (
         <>
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem onSelect={() => void copySessionLink()}>
+                        <CopyIcon className="size-4" />
+                        Copy link
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                         onSelect={() => setDialog({ type: 'rename', title: sessionTitle })}
                     >
@@ -196,14 +220,15 @@ export function SessionContextMenu({
 
 export function SessionContextMenuTrigger({ className }: { className?: string }) {
     return (
-        <Button
-            variant="ghost"
-            size="icon-xs"
-            className={className}
-            onClick={(e) => e.preventDefault()}
+        <button
+            type="button"
+            className={cn(
+                'inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50',
+                className,
+            )}
         >
-            <MoreHorizontalIcon className="size-4" />
+            <MoreHorizontalIcon className="size-3.5" />
             <span className="sr-only">Session options</span>
-        </Button>
+        </button>
     )
 }

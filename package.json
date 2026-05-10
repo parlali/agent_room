@@ -41,6 +41,7 @@
     },
     "dependencies": {
         "@fontsource-variable/geist": "^5.2.8",
+        "@mariozechner/pi-ai": "0.70.6",
         "@mariozechner/pi-coding-agent": "0.70.6",
         "@modelcontextprotocol/sdk": "1.29.0",
         "@tailwindcss/vite": "^4.1.18",
@@ -50,6 +51,7 @@
         "@tanstack/react-router-devtools": "latest",
         "@tanstack/react-start": "latest",
         "@tanstack/router-plugin": "^1.132.0",
+        "chat": "^4.27.0",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "cmdk": "^1.1.1",

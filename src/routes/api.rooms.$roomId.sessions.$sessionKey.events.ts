@@ -1,19 +1,7 @@
-import { parse } from 'cookie'
 import { createFileRoute } from '@tanstack/react-router'
-import { validateSessionToken } from '#/server/auth/auth-service'
-import { sessionCookieName } from '#/server/auth/session-auth'
+import { requireApiSession } from '#/server/auth/api-session'
 import { ensureRuntimeSupervisorBoot } from '#/server/rooms/runtime-supervisor-bootstrap'
 import { createRoomSessionEventStream } from '#/server/rooms/execution-engine'
-
-async function requireApiSession(request: Request) {
-    const cookies = parse(request.headers.get('cookie') ?? '')
-    const token = cookies[sessionCookieName]?.trim()
-    if (!token) {
-        return false
-    }
-
-    return (await validateSessionToken(token)) !== null
-}
 
 export const Route = createFileRoute('/api/rooms/$roomId/sessions/$sessionKey/events')({
     server: {

@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { getModel } from '@mariozechner/pi-ai'
 import type {
     MaterializedMcpServer,
     MaterializedProviderConfig,
@@ -41,6 +42,16 @@ export interface PiModelProviderConfig {
             cacheWrite: number
         }
     }>
+    modelOverrides?: Record<
+        string,
+        {
+            name?: string
+            reasoning?: boolean
+            input?: Array<'text' | 'image'>
+            contextWindow?: number
+            maxTokens?: number
+        }
+    >
 }
 
 export interface PiModelsJson {
@@ -119,7 +130,11 @@ function stripProviderPrefix(provider: string, model: string): string {
         : trimmed
 }
 
-function modelCost() {
+function builtInPiModel(provider: string, model: string) {
+    return getModel(provider as never, model as never)
+}
+
+function zeroModelCost() {
     return {
         input: 0,
         output: 0,
@@ -162,18 +177,30 @@ function buildProviderModels(input: {
                   },
               }
             : {}),
-        models: [
-            {
-                id: input.piModel,
-                name: provider.model,
-                reasoning: provider.api !== 'openai-completions',
-                input: ['text'],
-                contextWindow: 128000,
-                maxTokens: 16384,
-                cost: modelCost(),
-            },
-        ],
     }
+
+    if (input.kind === 'builtin' && builtInPiModel(input.piProvider, input.piModel)) {
+        return {
+            [input.piProvider]: {
+                ...config,
+                modelOverrides: {
+                    [input.piModel]: {},
+                },
+            },
+        }
+    }
+
+    config.models = [
+        {
+            id: input.piModel,
+            name: provider.model,
+            reasoning: provider.api !== 'openai-completions',
+            input: ['text'],
+            contextWindow: 128000,
+            maxTokens: 16384,
+            cost: zeroModelCost(),
+        },
+    ]
 
     return {
         [input.piProvider]: config,

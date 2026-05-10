@@ -1,8 +1,19 @@
 import { Link } from '@tanstack/react-router'
-import { ArrowLeftIcon } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ArrowLeftIcon, Loader2Icon, PencilIcon } from 'lucide-react'
 
 import { RoomGlyph, StateBadge } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '#/components/ui/dialog'
+import { Input } from '#/components/ui/input'
+import { Label } from '#/components/ui/label'
 import type { describeSessionState } from '#/lib/state'
 import type { RoomExecutionSnapshot, RoomRuntimeOverview } from '#/server/rooms/execution-types'
 
@@ -15,6 +26,8 @@ export function ChatHeader({
     model,
     compaction,
     onBack,
+    onRename,
+    renaming,
 }: {
     room: RoomRuntimeOverview
     sessionTitle: string
@@ -24,7 +37,11 @@ export function ChatHeader({
     model: string | null
     compaction: RoomExecutionSnapshot['threads'][number]['compaction'] | null
     onBack: () => void
+    onRename: (title: string) => Promise<unknown>
+    renaming: boolean
 }) {
+    const [renameOpen, setRenameOpen] = useState(false)
+    const [renameTitle, setRenameTitle] = useState(sessionTitle)
     const modelLabel = [provider, model].filter(Boolean).join(' / ')
     const compactionLabel = compaction
         ? compaction.compacting
@@ -35,33 +52,113 @@ export function ChatHeader({
                 ? 'Auto-compact on'
                 : 'Auto-compact off'
         : null
+
+    useEffect(() => {
+        if (!renameOpen) setRenameTitle(sessionTitle)
+    }, [renameOpen, sessionTitle])
+
+    const submitRename = async () => {
+        const title = renameTitle.trim()
+        if (!title || title === sessionTitle.trim()) {
+            setRenameOpen(false)
+            return
+        }
+        await onRename(title)
+        setRenameOpen(false)
+    }
+
     return (
-        <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background/95 px-3 py-2.5 backdrop-blur sm:px-6">
-            <Button variant="ghost" size="icon-sm" onClick={onBack} aria-label="Back to room">
-                <ArrowLeftIcon />
-            </Button>
-            <RoomGlyph name={room.displayName} seed={room.roomId} size="sm" />
-            <div className="flex min-w-0 flex-1 flex-col leading-tight">
-                <Link
-                    to="/rooms/$roomId"
-                    params={{ roomId: room.roomId }}
-                    className="truncate text-xs font-medium text-muted-foreground hover:text-foreground"
-                >
-                    {room.displayName}
-                </Link>
-                <span className="truncate text-sm font-medium text-foreground">{sessionTitle}</span>
-                {modelLabel ? (
-                    <span className="truncate text-[0.6875rem] text-muted-foreground">
-                        {modelLabel}
-                        {compactionLabel ? ` · ${compactionLabel}` : ''}
-                    </span>
-                ) : null}
-            </div>
-            <StateBadge
-                tone={sessionToneKey}
-                label={sessionLabel}
-                pulse={sessionToneKey === 'working'}
-            />
-        </header>
+        <>
+            <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background/95 px-3 py-2.5 backdrop-blur sm:px-6">
+                <Button variant="ghost" size="icon-sm" onClick={onBack} aria-label="Back to room">
+                    <ArrowLeftIcon />
+                </Button>
+                <RoomGlyph name={room.displayName} seed={room.roomId} size="sm" />
+                <div className="flex min-w-0 flex-1 flex-col leading-tight">
+                    <Link
+                        to="/rooms/$roomId"
+                        params={{ roomId: room.roomId }}
+                        className="truncate text-xs font-medium text-muted-foreground hover:text-foreground"
+                    >
+                        {room.displayName}
+                    </Link>
+                    <div className="flex min-w-0 items-center gap-1">
+                        <span className="truncate text-sm font-medium text-foreground">
+                            {sessionTitle}
+                        </span>
+                        <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="shrink-0 text-muted-foreground"
+                            onClick={() => setRenameOpen(true)}
+                            aria-label="Rename session"
+                        >
+                            <PencilIcon className="size-3.5" />
+                        </Button>
+                    </div>
+                    {modelLabel ? (
+                        <span className="truncate text-[0.6875rem] text-muted-foreground">
+                            {modelLabel}
+                            {compactionLabel ? ` · ${compactionLabel}` : ''}
+                        </span>
+                    ) : null}
+                </div>
+                <StateBadge
+                    tone={sessionToneKey}
+                    label={sessionLabel}
+                    pulse={sessionToneKey === 'working'}
+                />
+            </header>
+            <Dialog
+                open={renameOpen}
+                onOpenChange={(open) => {
+                    if (!open && !renaming) setRenameOpen(false)
+                    if (open) setRenameOpen(true)
+                }}
+            >
+                <DialogContent>
+                    <form
+                        onSubmit={(event) => {
+                            event.preventDefault()
+                            void submitRename()
+                        }}
+                    >
+                        <DialogHeader>
+                            <DialogTitle>Rename session</DialogTitle>
+                            <DialogDescription>
+                                Give this conversation a title that is easy to find later.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="py-4">
+                            <Label htmlFor="chat-session-title" className="sr-only">
+                                Session title
+                            </Label>
+                            <Input
+                                id="chat-session-title"
+                                value={renameTitle}
+                                onChange={(event) => setRenameTitle(event.target.value)}
+                                placeholder="Session title"
+                                autoFocus
+                                disabled={renaming}
+                            />
+                        </div>
+                        <DialogFooter>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => setRenameOpen(false)}
+                                disabled={renaming}
+                            >
+                                Cancel
+                            </Button>
+                            <Button type="submit" disabled={renaming || !renameTitle.trim()}>
+                                {renaming ? <Loader2Icon className="animate-spin" /> : null}
+                                Save
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </DialogContent>
+            </Dialog>
+        </>
     )
 }

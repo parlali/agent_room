@@ -6,14 +6,12 @@ import { AppShell } from '#/components/app-shell'
 import { EmptyState, LoadingRows, PageHeader, Section } from '#/components/agent-room'
 import { listRoomsServer, listUsageServer } from './-room-runtime-server'
 import { requireRouteUser } from './-route-auth'
-import { UsageEventRow, UsageTotalsGrid } from './-usage/usage-components'
+import { UsageTimeline, UsageTotalsGrid, usageTimelineCount } from './-usage/usage-components'
 
 export const Route = createFileRoute('/usage')({
     beforeLoad: requireRouteUser,
     component: UsagePage,
 })
-
-type UsageEvent = Awaited<ReturnType<typeof listUsageServer>>['events'][number]
 
 function UsagePage() {
     const usageQuery = useQuery({
@@ -44,53 +42,34 @@ function UsagePage() {
                         {usageQuery.isLoading ? (
                             <LoadingRows count={2} />
                         ) : (
-                            <UsageTotalsGrid eventCount={events.length} totals={totals} />
+                            <UsageTotalsGrid
+                                activityCount={usageTimelineCount(events)}
+                                totals={totals}
+                            />
                         )}
                     </Section>
 
-                    <Section title="Recent Events" description="Most recent usage records first.">
+                    <Section title="Recent Activity" description="Most recent room work first.">
                         {usageQuery.isLoading ? (
                             <LoadingRows count={6} />
                         ) : events.length === 0 ? (
                             <EmptyState
                                 icon={BarChart3Icon}
-                                title="No usage recorded"
+                                title="No activity recorded"
                                 description="Room work, tools, jobs, documents, and image requests will appear here."
                             />
                         ) : (
-                            <ul className="divide-y divide-border/60">
-                                {events.map((event) => (
-                                    <UsageRow
-                                        key={event.id}
-                                        event={event}
-                                        room={event.roomId ? roomsById.get(event.roomId) : null}
-                                    />
-                                ))}
-                            </ul>
+                            <UsageTimeline
+                                events={events}
+                                roomsById={roomsById}
+                                showRoom
+                                padded
+                                linkToRoom
+                            />
                         )}
                     </Section>
                 </div>
             </div>
         </AppShell>
-    )
-}
-
-function UsageRow({
-    event,
-    room,
-}: {
-    event: UsageEvent
-    room: Awaited<ReturnType<typeof listRoomsServer>>[number] | null | undefined
-}) {
-    return (
-        <UsageEventRow
-            event={event}
-            room={room}
-            showRoom
-            padded
-            linkToRoom
-            tokenUnknownLabel="Unknown"
-            costUnknownLabel="Unknown"
-        />
     )
 }

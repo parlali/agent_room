@@ -331,7 +331,6 @@ function capabilitiesRow(config: RoomConfigSnapshot | null): CheckRow {
             tone: 'attention',
             label: 'Capabilities',
             detail: blockers[0]!,
-            fixTo: '/rooms/$roomId/settings',
         }
     }
     return {
@@ -345,12 +344,10 @@ function capabilitiesRow(config: RoomConfigSnapshot | null): CheckRow {
                       .slice(0, 4)
                       .map((option) => option.label)
                       .join(', ')}${enabled.length > 4 ? ', and more' : ''}.`,
-        fixTo: '/rooms/$roomId/settings',
-        fixLabel: 'Configure',
     }
 }
 
-function CheckCard({ roomId, row }: { roomId: string; row: CheckRow }) {
+function CheckCard({ row }: { row: CheckRow }) {
     const Icon = row.icon
     return (
         <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
@@ -364,13 +361,6 @@ function CheckCard({ roomId, row }: { roomId: string; row: CheckRow }) {
                 </div>
                 <p className="mt-0.5 text-xs text-muted-foreground">{row.detail}</p>
             </div>
-            {row.fixTo ? (
-                <Button asChild variant="outline" size="sm">
-                    <Link to={row.fixTo} params={{ roomId }}>
-                        {row.fixLabel ?? 'Fix'}
-                    </Link>
-                </Button>
-            ) : null}
         </div>
     )
 }
@@ -664,7 +654,7 @@ function RoomStatusPage() {
                 <Section title="Checks" description="What is working in this room right now.">
                     <div className="grid gap-2 sm:grid-cols-2">
                         {checks.map((row) => (
-                            <CheckCard key={row.label} roomId={roomId} row={row} />
+                            <CheckCard key={row.label} row={row} />
                         ))}
                     </div>
                 </Section>

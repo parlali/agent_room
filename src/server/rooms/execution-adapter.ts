@@ -10,6 +10,7 @@ import type {
     RoomThreadForkResult,
     RoomThreadSendResult,
 } from './execution-types'
+import type { JobSchedule } from '#/lib/job-schedule'
 
 export interface RoomExecutionAdapter {
     listRoomsWithRuntime: () => Promise<RoomRuntimeOverview[]>
@@ -60,14 +61,14 @@ export interface RoomExecutionAdapter {
         roomId: string
         name: string
         message: string
-        everyMinutes: number
+        schedule: JobSchedule
     }) => Promise<RoomCronJob>
     updateRoomCronJob: (input: {
         roomId: string
         jobId: string
         name: string
         message: string
-        everyMinutes: number
+        schedule: JobSchedule
     }) => Promise<RoomCronJob>
     updateRoomCronJobEnabled: (input: {
         roomId: string

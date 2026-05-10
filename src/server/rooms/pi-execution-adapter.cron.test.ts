@@ -58,6 +58,11 @@ function cronJob(overrides: Partial<RoomCronJobRecord> = {}): RoomCronJobRecord 
         message: 'Summarize today',
         enabled: true,
         everyMinutes: 15,
+        schedule: {
+            type: 'interval',
+            every: 15,
+            unit: 'minutes',
+        },
         timezone: 'UTC',
         sessionTarget: 'isolated',
         targetThreadKey: null,
@@ -166,6 +171,7 @@ describe('Pi cron adapter', () => {
                 name: input.name,
                 message: input.message,
                 everyMinutes: input.everyMinutes,
+                schedule: input.schedule,
                 nextRunAt: input.nextRunAt,
                 provider: input.provider,
                 model: input.model,
@@ -178,7 +184,11 @@ describe('Pi cron adapter', () => {
             roomId: '22222222-2222-4222-8222-222222222222',
             name: ' Digest ',
             message: ' Summarize today ',
-            everyMinutes: 15.8,
+            schedule: {
+                type: 'interval',
+                every: 15,
+                unit: 'minutes',
+            },
         })
 
         expect(job.name).toBe('Digest')
@@ -188,6 +198,11 @@ describe('Pi cron adapter', () => {
                 name: 'Digest',
                 message: 'Summarize today',
                 everyMinutes: 15,
+                schedule: {
+                    type: 'interval',
+                    every: 15,
+                    unit: 'minutes',
+                },
                 timezone: 'UTC',
                 provider: 'openrouter',
                 model: 'openrouter/google/gemini-2.5-pro',
@@ -301,6 +316,7 @@ describe('Pi cron adapter', () => {
                 message: input.message,
                 enabled: false,
                 everyMinutes: input.everyMinutes,
+                schedule: input.schedule,
                 nextRunAt: input.nextRunAt,
                 provider: input.provider,
                 model: input.model,
@@ -315,7 +331,11 @@ describe('Pi cron adapter', () => {
                 jobId: existing.id,
                 name: ' Updated digest ',
                 message: ' Updated prompt ',
-                everyMinutes: 45,
+                schedule: {
+                    type: 'interval',
+                    every: 45,
+                    unit: 'minutes',
+                },
             }),
         ).resolves.toMatchObject({
             id: existing.id,
@@ -331,6 +351,11 @@ describe('Pi cron adapter', () => {
                 name: 'Updated digest',
                 message: 'Updated prompt',
                 everyMinutes: 45,
+                schedule: {
+                    type: 'interval',
+                    every: 45,
+                    unit: 'minutes',
+                },
                 nextRunAt: null,
                 provider: 'openrouter',
                 model: 'openrouter/google/gemini-2.5-pro',
@@ -453,6 +478,11 @@ describe('Pi cron adapter', () => {
     it('reschedules missed due jobs from the actual completion time', async () => {
         const missed = cronJob({
             everyMinutes: 30,
+            schedule: {
+                type: 'interval',
+                every: 30,
+                unit: 'minutes',
+            },
             nextRunAt: new Date('2026-04-29T22:00:00.000Z'),
         })
         mocks.roomCronRepository.claimDueJobs.mockResolvedValue([missed])

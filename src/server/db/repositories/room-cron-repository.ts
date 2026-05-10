@@ -1,4 +1,4 @@
-import type { RoomCronJobRecord, RoomCronRunRecord } from '../../domain/types'
+import type { JsonValue, RoomCronJobRecord, RoomCronRunRecord } from '../../domain/types'
 import { sql } from '../client'
 import { mapRoomCronJob, mapRoomCronRun } from './row-mappers'
 
@@ -35,6 +35,7 @@ export const roomCronRepository = {
         name: string
         message: string
         everyMinutes: number
+        schedule: JsonValue
         timezone: string
         nextRunAt: Date
         provider: string | null
@@ -47,6 +48,7 @@ export const roomCronRepository = {
                 name,
                 message,
                 every_minutes,
+                schedule,
                 timezone,
                 next_run_at,
                 provider,
@@ -58,6 +60,7 @@ export const roomCronRepository = {
                 ${input.name},
                 ${input.message},
                 ${input.everyMinutes},
+                ${JSON.stringify(input.schedule)}::jsonb,
                 ${input.timezone},
                 ${input.nextRunAt},
                 ${input.provider},
@@ -93,6 +96,7 @@ export const roomCronRepository = {
         name: string
         message: string
         everyMinutes: number
+        schedule: JsonValue
         nextRunAt: Date | null
         provider: string | null
         model: string | null
@@ -104,6 +108,7 @@ export const roomCronRepository = {
                 name = ${input.name},
                 message = ${input.message},
                 every_minutes = ${input.everyMinutes},
+                schedule = ${JSON.stringify(input.schedule)}::jsonb,
                 next_run_at = ${input.nextRunAt},
                 provider = ${input.provider},
                 model = ${input.model},

@@ -90,6 +90,61 @@ export const usageRepository = {
         return rows.map((row) => mapUsageEvent(row as Record<string, unknown>))
     },
 
+    async summarizeByRoom(input: { roomId: string }): Promise<{
+        eventCount: number
+        durationMs: number | null
+        totalTokens: number | null
+        estimatedCostUsd: number | null
+        unknownTokenEvents: number
+    }> {
+        const rows = await sql`
+            SELECT
+                COUNT(*)::int AS event_count,
+                SUM(duration_ms)::bigint AS duration_ms,
+                SUM(total_tokens)::bigint AS total_tokens,
+                SUM(estimated_cost_usd)::numeric AS estimated_cost_usd,
+                COUNT(*) FILTER (WHERE total_tokens IS NULL)::int AS unknown_token_events
+            FROM usage_events
+            WHERE room_id = ${input.roomId}
+        `
+        const row = rows[0] as Record<string, unknown>
+        return {
+            eventCount: Number(row.event_count ?? 0),
+            durationMs: row.duration_ms === null ? null : Number(row.duration_ms),
+            totalTokens: row.total_tokens === null ? null : Number(row.total_tokens),
+            estimatedCostUsd:
+                row.estimated_cost_usd === null ? null : Number(row.estimated_cost_usd),
+            unknownTokenEvents: Number(row.unknown_token_events ?? 0),
+        }
+    },
+
+    async summarizeAll(): Promise<{
+        eventCount: number
+        durationMs: number | null
+        totalTokens: number | null
+        estimatedCostUsd: number | null
+        unknownTokenEvents: number
+    }> {
+        const rows = await sql`
+            SELECT
+                COUNT(*)::int AS event_count,
+                SUM(duration_ms)::bigint AS duration_ms,
+                SUM(total_tokens)::bigint AS total_tokens,
+                SUM(estimated_cost_usd)::numeric AS estimated_cost_usd,
+                COUNT(*) FILTER (WHERE total_tokens IS NULL)::int AS unknown_token_events
+            FROM usage_events
+        `
+        const row = rows[0] as Record<string, unknown>
+        return {
+            eventCount: Number(row.event_count ?? 0),
+            durationMs: row.duration_ms === null ? null : Number(row.duration_ms),
+            totalTokens: row.total_tokens === null ? null : Number(row.total_tokens),
+            estimatedCostUsd:
+                row.estimated_cost_usd === null ? null : Number(row.estimated_cost_usd),
+            unknownTokenEvents: Number(row.unknown_token_events ?? 0),
+        }
+    },
+
     async attachJobToRun(input: { roomId: string; runId: string; jobId: string }): Promise<number> {
         const rows = await sql`
             UPDATE usage_events

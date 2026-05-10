@@ -28,26 +28,86 @@ describe('room file store', () => {
 
     it('does not list symlinks and reads previews without loading the whole file', async () => {
         const { getRoomPaths } = await import('./room-paths')
-        const { listRoomFiles, readRoomFileContent } = await import('./file-store')
+        const { listRoomDirectory, listRoomFiles, listRoomFileTree, readRoomFileContent } =
+            await import('./file-store')
         const paths = getRoomPaths('room-files')
         await mkdir(paths.workspaceDir, {
             recursive: true,
         })
+        await mkdir(join(paths.workspaceDir, 'notes'), {
+            recursive: true,
+        })
+        await mkdir(join(paths.storeDir, 'blobs'), {
+            recursive: true,
+        })
         await writeFile(join(paths.workspaceDir, 'large.txt'), Buffer.alloc(600000, 'a'))
+        await writeFile(join(paths.workspaceDir, 'notes', 'daily.md'), '# Daily', 'utf8')
+        await writeFile(join(paths.workspaceDir, 'fake.xlsx'), Buffer.from('PK fake office file'))
+        await writeFile(
+            join(paths.workspaceDir, 'pixel.png'),
+            Buffer.from(
+                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+                'base64',
+            ),
+        )
+        await writeFile(join(paths.storeDir, 'upload.txt'), 'uploaded', 'utf8')
+        await writeFile(join(paths.storeDir, 'blobs', 'hidden.txt'), 'hidden', 'utf8')
         await writeFile(join(root, 'outside.txt'), 'outside', 'utf8')
         await symlink(join(root, 'outside.txt'), join(paths.workspaceDir, 'outside-link.txt'))
 
         const files = await listRoomFiles('room-files')
-        expect(files.map((file) => file.relativePath)).toContain('large.txt')
-        expect(files.map((file) => file.relativePath)).not.toContain('outside-link.txt')
+        const listedPaths = files.map((file) => `${file.surface}:${file.relativePath}`)
+        expect(listedPaths).toContain('workspace:large.txt')
+        expect(listedPaths).toContain('workspace:notes/daily.md')
+        expect(listedPaths).toContain('workspace:fake.xlsx')
+        expect(listedPaths).toContain('workspace:pixel.png')
+        expect(listedPaths).toContain('store:upload.txt')
+        expect(listedPaths).not.toContain('workspace:outside-link.txt')
+        expect(listedPaths).not.toContain('store:blobs/hidden.txt')
+
+        const directory = await listRoomDirectory({
+            roomId: 'room-files',
+            surface: 'workspace',
+        })
+        expect(directory.entries.map((entry) => entry.relativePath)).toEqual([
+            'notes',
+            'fake.xlsx',
+            'large.txt',
+            'pixel.png',
+        ])
+
+        const tree = await listRoomFileTree('room-files')
+        expect(tree.roots.find((node) => node.surface === 'workspace')?.children[0]?.name).toBe(
+            'notes',
+        )
 
         const preview = await readRoomFileContent({
             roomId: 'room-files',
             surface: 'workspace',
             relativePath: 'large.txt',
         })
+        expect(preview.kind).toBe('text')
+        if (preview.kind !== 'text') {
+            throw new Error('Expected text preview')
+        }
         expect(preview.byteLength).toBe(600000)
         expect(preview.truncated).toBe(true)
         expect(Buffer.byteLength(preview.content)).toBeLessThanOrEqual(512000)
+
+        const officePreview = await readRoomFileContent({
+            roomId: 'room-files',
+            surface: 'workspace',
+            relativePath: 'fake.xlsx',
+        })
+        expect(officePreview.kind).not.toBe('text')
+
+        const { readRoomFilePreviewAsset } = await import('./file-store')
+        const imagePreview = await readRoomFilePreviewAsset({
+            roomId: 'room-files',
+            surface: 'workspace',
+            relativePath: 'pixel.png',
+        })
+        expect(imagePreview.mediaType).toBe('image/png')
+        expect(imagePreview.content.byteLength).toBeGreaterThan(0)
     })
 })

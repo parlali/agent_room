@@ -1,6 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import {
     CalendarClockIcon,
@@ -10,11 +10,13 @@ import {
     PlayIcon,
     PlusIcon,
     Trash2Icon,
+    XIcon,
 } from 'lucide-react'
 
 import { RoomDashboardLayout } from '#/components/room-dashboard'
 import { EmptyState, LoadingRows, Section, StateBadge } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
+import { ButtonGroup } from '#/components/ui/button-group'
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
 import { Label } from '#/components/ui/label'
@@ -35,7 +37,14 @@ import {
 } from '#/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '#/components/ui/tooltip'
 import { formatCostUsd, formatDurationMs, formatRelativeTime, formatTokens } from '#/lib/format'
-import { describeJobLastRun, describeSchedule, schedulePresets } from '#/lib/state'
+import { describeJobLastRun } from '#/lib/state'
+import {
+    defaultJobSchedule,
+    describeJobSchedule,
+    normalizeJobSchedule,
+    weekDays,
+    type JobSchedule,
+} from '#/lib/job-schedule'
 import {
     createCronJobServer,
     listCronJobsServer,
@@ -59,25 +68,75 @@ export const Route = createFileRoute('/rooms/$roomId/jobs')({
 interface JobFormState {
     name: string
     message: string
-    everyMinutes: number
+    schedule: JobSchedule
 }
 
-const DEFAULT_PRESET = schedulePresets[2] ?? schedulePresets[0]!
-
 function emptyForm(): JobFormState {
-    return { name: '', message: '', everyMinutes: DEFAULT_PRESET.everyMinutes }
+    return { name: '', message: '', schedule: defaultJobSchedule }
 }
 
 function jobToForm(job: RoomCronJob): JobFormState {
     return {
         name: job.name,
         message: job.payloadSummary ?? '',
-        everyMinutes: job.everyMinutes,
+        schedule: normalizeJobSchedule(job.schedule, job.everyMinutes),
     }
 }
 
 function describeError(e: unknown): string {
     return e instanceof Error ? e.message : 'Unexpected error'
+}
+
+const scheduleTypes = [
+    { value: 'interval', label: 'Interval' },
+    { value: 'daily', label: 'Daily' },
+    { value: 'weekly', label: 'Weekly' },
+    { value: 'monthly', label: 'Monthly' },
+] as const
+
+const intervalUnits = [
+    { value: 'minutes', label: 'Minutes' },
+    { value: 'hours', label: 'Hours' },
+    { value: 'days', label: 'Days' },
+    { value: 'weeks', label: 'Weeks' },
+] as const
+
+type IntervalUnit = Extract<JobSchedule, { type: 'interval' }>['unit']
+
+const groupedOptionClass =
+    'relative h-8 rounded-md text-sm after:absolute after:inset-x-2 after:bottom-1 after:h-0.5 after:rounded-full after:bg-primary after:opacity-0 after:transition-opacity data-[active=true]:bg-background data-[active=true]:text-foreground data-[active=true]:shadow-sm data-[active=true]:after:opacity-100 dark:data-[active=true]:bg-input/50'
+
+function scheduleForType(type: JobSchedule['type']): JobSchedule {
+    if (type === 'interval') {
+        return {
+            type: 'interval',
+            every: 1,
+            unit: 'hours',
+        }
+    }
+    if (type === 'weekly') {
+        return {
+            type: 'weekly',
+            weekdays: [1],
+            time: '09:00',
+        }
+    }
+    if (type === 'monthly') {
+        return {
+            type: 'monthly',
+            day: 1,
+            time: '09:00',
+        }
+    }
+    return defaultJobSchedule
+}
+
+function jobScheduleValid(schedule: JobSchedule): boolean {
+    const normalized = normalizeJobSchedule(schedule)
+    if (normalized.type === 'interval') return normalized.every > 0
+    if (normalized.type === 'daily') return normalized.times.length > 0
+    if (normalized.type === 'weekly') return normalized.weekdays.length > 0
+    return normalized.day > 0
 }
 
 function RoomJobsPage() {
@@ -289,7 +348,7 @@ function JobRow({
     onEdit: () => void
     onDelete: () => void
 }) {
-    const schedule = job.scheduleSummary || describeSchedule(job.everyMinutes)
+    const schedule = job.scheduleSummary || describeJobSchedule(job.schedule)
     const running = job.runningAt !== null
     return (
         <JobListRow
@@ -402,7 +461,7 @@ function JobDetailSheet({
                 <SheetHeader>
                     <SheetTitle>{job?.name ?? 'Job details'}</SheetTitle>
                     <SheetDescription>
-                        {job ? describeSchedule(job.everyMinutes) : 'Scheduled work'}
+                        {job ? `${job.scheduleSummary} · ${job.timezone}` : 'Scheduled work'}
                     </SheetDescription>
                 </SheetHeader>
                 {job ? (
@@ -438,7 +497,7 @@ function JobDetailSheet({
                         </div>
 
                         <DetailBlock
-                            title="Prompt"
+                            title="Instruction"
                             body={job.payloadSummary ?? 'No prompt stored'}
                         />
                         {job.lastError ? (
@@ -570,7 +629,7 @@ function JobFormSheet({
 }) {
     return (
         <Sheet open={open} onOpenChange={onOpenChange}>
-            <SheetContent className="flex w-full flex-col gap-0 sm:max-w-md">
+            <SheetContent className="flex w-full flex-col gap-0 sm:max-w-xl">
                 <SheetHeader>
                     <SheetTitle>{mode === 'create' ? 'New job' : 'Edit job'}</SheetTitle>
                     <SheetDescription>
@@ -607,22 +666,22 @@ function JobForm({
 }) {
     const [name, setName] = useState(initial.name)
     const [message, setMessage] = useState(initial.message)
-    const [everyMinutes, setEveryMinutes] = useState(initial.everyMinutes)
+    const [schedule, setSchedule] = useState<JobSchedule>(initial.schedule)
 
-    const presetOptions = useMemo(() => {
-        const known = schedulePresets.some((p) => p.everyMinutes === everyMinutes)
-        if (known) return schedulePresets
-        return [...schedulePresets, { label: describeSchedule(everyMinutes), everyMinutes }]
-    }, [everyMinutes])
-
-    const valid = name.trim().length > 0 && message.trim().length > 0 && everyMinutes > 0
+    const normalizedSchedule = normalizeJobSchedule(schedule)
+    const valid =
+        name.trim().length > 0 && message.trim().length > 0 && jobScheduleValid(normalizedSchedule)
 
     return (
         <form
             onSubmit={(e) => {
                 e.preventDefault()
                 if (!valid || pending) return
-                onSubmit({ name: name.trim(), message: message.trim(), everyMinutes })
+                onSubmit({
+                    name: name.trim(),
+                    message: message.trim(),
+                    schedule: normalizedSchedule,
+                })
             }}
             className="flex min-h-0 flex-1 flex-col"
         >
@@ -639,7 +698,7 @@ function JobForm({
                     />
                 </div>
                 <div className="space-y-1.5">
-                    <Label htmlFor="job-message">What should this room do?</Label>
+                    <Label htmlFor="job-message">Instruction</Label>
                     <Textarea
                         id="job-message"
                         value={message}
@@ -649,29 +708,52 @@ function JobForm({
                         required
                     />
                     <p className="text-xs text-muted-foreground">
-                        Sent to the room each time the job fires.
+                        Sent to the room as the first message when this job runs.
                     </p>
                 </div>
-                <div className="space-y-1.5">
-                    <Label htmlFor="job-schedule">When should it happen?</Label>
-                    <Select
-                        value={String(everyMinutes)}
-                        onValueChange={(v) => setEveryMinutes(Number(v))}
-                    >
-                        <SelectTrigger id="job-schedule" className="w-full">
-                            <SelectValue placeholder="Pick a schedule" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {presetOptions.map((preset) => (
-                                <SelectItem
-                                    key={preset.everyMinutes}
-                                    value={String(preset.everyMinutes)}
+                <div className="space-y-3">
+                    <div className="space-y-1.5">
+                        <Label>Schedule</Label>
+                        <ButtonGroup className="w-full" aria-label="Schedule type">
+                            {scheduleTypes.map((option) => (
+                                <Button
+                                    key={option.value}
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    data-active={schedule.type === option.value}
+                                    aria-pressed={schedule.type === option.value}
+                                    className={groupedOptionClass}
+                                    onClick={() =>
+                                        setSchedule(
+                                            scheduleForType(option.value as JobSchedule['type']),
+                                        )
+                                    }
                                 >
-                                    {preset.label}
-                                </SelectItem>
+                                    {option.label}
+                                </Button>
                             ))}
-                        </SelectContent>
-                    </Select>
+                        </ButtonGroup>
+                    </div>
+
+                    <ScheduleEditor schedule={schedule} onChange={setSchedule} />
+
+                    <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
+                        <p className="font-medium text-foreground">
+                            {describeJobSchedule(normalizedSchedule)}
+                        </p>
+                        <p className="mt-1">
+                            Each run starts a new session in this room and sends the instruction
+                            above to the agent.
+                        </p>
+                    </div>
+                </div>
+                <div className="rounded-md border border-border/60 p-3">
+                    <div className="text-sm font-medium text-foreground">Run target</div>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                        New session for each run. The session will keep the job name and runtime
+                        usage tied back to this job.
+                    </p>
                 </div>
             </div>
             <SheetFooter className="border-t border-border/60">
@@ -686,5 +768,184 @@ function JobForm({
                 </div>
             </SheetFooter>
         </form>
+    )
+}
+
+function ScheduleEditor({
+    schedule,
+    onChange,
+}: {
+    schedule: JobSchedule
+    onChange: (schedule: JobSchedule) => void
+}) {
+    if (schedule.type === 'interval') {
+        return (
+            <div className="grid grid-cols-[minmax(0,1fr)_9rem] gap-2">
+                <div className="space-y-1.5">
+                    <Label htmlFor="job-interval-every">Every</Label>
+                    <Input
+                        id="job-interval-every"
+                        type="number"
+                        min={1}
+                        value={schedule.every}
+                        onChange={(e) =>
+                            onChange({
+                                ...schedule,
+                                every: Math.max(1, Number(e.target.value) || 1),
+                            })
+                        }
+                    />
+                </div>
+                <div className="space-y-1.5">
+                    <Label htmlFor="job-interval-unit">Unit</Label>
+                    <Select
+                        value={schedule.unit}
+                        onValueChange={(unit) =>
+                            onChange({
+                                ...schedule,
+                                unit: unit as IntervalUnit,
+                            })
+                        }
+                    >
+                        <SelectTrigger id="job-interval-unit" className="w-full">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {intervalUnits.map((unit) => (
+                                <SelectItem key={unit.value} value={unit.value}>
+                                    {unit.label}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+            </div>
+        )
+    }
+
+    if (schedule.type === 'daily') {
+        return (
+            <div className="space-y-2">
+                <Label>Times</Label>
+                <div className="space-y-2">
+                    {schedule.times.map((time, index) => (
+                        <div key={`${time}-${index}`} className="flex items-center gap-2">
+                            <Input
+                                type="time"
+                                value={time}
+                                onChange={(e) => {
+                                    const times = [...schedule.times]
+                                    times[index] = e.target.value
+                                    onChange({ ...schedule, times })
+                                }}
+                            />
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                disabled={schedule.times.length === 1}
+                                onClick={() =>
+                                    onChange({
+                                        ...schedule,
+                                        times: schedule.times.filter(
+                                            (_, itemIndex) => itemIndex !== index,
+                                        ),
+                                    })
+                                }
+                                aria-label="Remove time"
+                            >
+                                <XIcon />
+                            </Button>
+                        </div>
+                    ))}
+                </div>
+                <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={schedule.times.length >= 8}
+                    onClick={() => onChange({ ...schedule, times: [...schedule.times, '09:00'] })}
+                >
+                    <PlusIcon />
+                    Add time
+                </Button>
+            </div>
+        )
+    }
+
+    if (schedule.type === 'weekly') {
+        return (
+            <div className="space-y-3">
+                <div className="space-y-1.5">
+                    <Label>Days</Label>
+                    <ButtonGroup className="w-full" aria-label="Weekdays">
+                        {weekDays.map((day) => (
+                            <Button
+                                key={day.value}
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                data-active={schedule.weekdays.includes(day.value)}
+                                aria-pressed={schedule.weekdays.includes(day.value)}
+                                className={groupedOptionClass}
+                                onClick={() => {
+                                    const selected = schedule.weekdays.includes(day.value)
+                                    if (selected && schedule.weekdays.length === 1) return
+                                    onChange({
+                                        ...schedule,
+                                        weekdays: selected
+                                            ? schedule.weekdays.filter(
+                                                  (value) => value !== day.value,
+                                              )
+                                            : [...schedule.weekdays, day.value],
+                                    })
+                                }}
+                            >
+                                {day.short}
+                            </Button>
+                        ))}
+                    </ButtonGroup>
+                </div>
+                <div className="space-y-1.5">
+                    <Label htmlFor="job-weekly-time">Time</Label>
+                    <Input
+                        id="job-weekly-time"
+                        type="time"
+                        value={schedule.time}
+                        onChange={(e) => onChange({ ...schedule, time: e.target.value })}
+                    />
+                </div>
+            </div>
+        )
+    }
+
+    return (
+        <div className="grid grid-cols-[minmax(0,1fr)_9rem] gap-2">
+            <div className="space-y-1.5">
+                <Label htmlFor="job-monthly-day">Day of month</Label>
+                <Input
+                    id="job-monthly-day"
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={schedule.day}
+                    onChange={(e) =>
+                        onChange({
+                            ...schedule,
+                            day: Math.min(31, Math.max(1, Number(e.target.value) || 1)),
+                        })
+                    }
+                />
+            </div>
+            <div className="space-y-1.5">
+                <Label htmlFor="job-monthly-time">Time</Label>
+                <Input
+                    id="job-monthly-time"
+                    type="time"
+                    value={schedule.time}
+                    onChange={(e) => onChange({ ...schedule, time: e.target.value })}
+                />
+            </div>
+        </div>
     )
 }

@@ -5,7 +5,6 @@ import { Button } from '#/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '#/components/ui/sheet'
 import { BrandWordmark } from '#/components/agent-room'
 import { Sidebar } from './sidebar'
-import { MobileBottomNav } from './mobile-nav'
 
 export function AppShell({ children }: { children: ReactNode }) {
     const [mobileOpen, setMobileOpen] = useState(false)
@@ -18,7 +17,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </div>
             </aside>
 
-            <div className="flex min-h-screen min-w-0 flex-1 flex-col pb-14 md:pb-0">
+            <div className="flex min-h-screen min-w-0 flex-1 flex-col">
                 <header className="sticky top-0 z-20 flex items-center justify-between gap-2 border-b border-border bg-background/95 px-3 py-2 backdrop-blur md:hidden">
                     <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
                         <SheetTrigger asChild>
@@ -39,8 +38,6 @@ export function AppShell({ children }: { children: ReactNode }) {
 
                 <main className="min-w-0 flex-1">{children}</main>
             </div>
-
-            <MobileBottomNav />
         </div>
     )
 }

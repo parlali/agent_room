@@ -66,6 +66,20 @@ function toJsonValue(value: unknown): JsonValue {
     return null
 }
 
+function usageNumber(payload: Record<string, unknown>, key: string): number | null {
+    const usage = payloadRecord(payload.usage)
+    return toNullableNumber(usage[key])
+}
+
+function tokenUsageKnown(payload: Record<string, unknown>): boolean {
+    return usageNumber(payload, 'totalTokens') !== null
+}
+
+function costUsageKnown(payload: Record<string, unknown>): boolean {
+    const usage = payloadRecord(payload.usage)
+    return usage.costKnown === true && usageNumber(payload, 'estimatedCostUsd') !== null
+}
+
 function usageSyncStatePath(roomId: string): string {
     return join(getRoomPaths(roomId).engineStateDir, 'usage-sync.json')
 }
@@ -169,6 +183,7 @@ async function syncRuntimeUsageEventsUnlocked(roomId: string): Promise<void> {
                   : null
         if (event === 'run.finished') {
             const runKind = typeof payload.runKind === 'string' ? payload.runKind : null
+            const totalTokens = usageNumber(payload, 'totalTokens')
             await usageRepository.appendEvent({
                 roomId,
                 sessionKey,
@@ -178,22 +193,54 @@ async function syncRuntimeUsageEventsUnlocked(roomId: string): Promise<void> {
                 provider: typeof payload.provider === 'string' ? payload.provider : null,
                 model: typeof payload.model === 'string' ? payload.model : null,
                 toolName: null,
-                inputTokens: null,
-                outputTokens: null,
-                cachedTokens: null,
-                reasoningTokens: null,
-                totalTokens: null,
+                inputTokens: usageNumber(payload, 'inputTokens'),
+                outputTokens: usageNumber(payload, 'outputTokens'),
+                cachedTokens: usageNumber(payload, 'cachedTokens'),
+                reasoningTokens: usageNumber(payload, 'reasoningTokens'),
+                totalTokens,
                 durationMs: toNullableNumber(payload.durationMs),
                 activeDurationMs: toNullableNumber(payload.activeDurationMs),
                 idleDurationMs: toNullableNumber(payload.idleDurationMs),
-                estimatedCostUsd: null,
+                estimatedCostUsd: usageNumber(payload, 'estimatedCostUsd'),
                 metadata: toJsonValue({
                     runtimeEventTs: ts,
                     event,
                     status: typeof payload.status === 'string' ? payload.status : null,
                     error: typeof payload.error === 'string' ? payload.error : null,
                     runKind,
-                    tokenUsageKnown: false,
+                    tokenUsageKnown: tokenUsageKnown(payload),
+                    costUsageKnown: costUsageKnown(payload),
+                }),
+            })
+            lastLine = lineNumber
+            continue
+        }
+        if (event === 'provider.finished') {
+            const totalTokens = usageNumber(payload, 'totalTokens')
+            await usageRepository.appendEvent({
+                roomId,
+                sessionKey,
+                runId,
+                jobId: null,
+                kind: 'provider',
+                provider: typeof payload.provider === 'string' ? payload.provider : null,
+                model: typeof payload.model === 'string' ? payload.model : null,
+                toolName: null,
+                inputTokens: usageNumber(payload, 'inputTokens'),
+                outputTokens: usageNumber(payload, 'outputTokens'),
+                cachedTokens: usageNumber(payload, 'cachedTokens'),
+                reasoningTokens: usageNumber(payload, 'reasoningTokens'),
+                totalTokens,
+                durationMs: toNullableNumber(payload.durationMs),
+                activeDurationMs: null,
+                idleDurationMs: null,
+                estimatedCostUsd: usageNumber(payload, 'estimatedCostUsd'),
+                metadata: toJsonValue({
+                    runtimeEventTs: ts,
+                    event,
+                    purpose: typeof payload.purpose === 'string' ? payload.purpose : null,
+                    tokenUsageKnown: tokenUsageKnown(payload),
+                    costUsageKnown: costUsageKnown(payload),
                 }),
             })
             lastLine = lineNumber

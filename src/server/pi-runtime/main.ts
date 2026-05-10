@@ -1,13 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import {
+    AuthStorage,
+    createAgentSession,
+    ModelRegistry,
     SessionManager,
+    SettingsManager,
     type AgentSession,
     type AgentSessionEvent,
     type SessionEntry,
 } from '@mariozechner/pi-coding-agent'
+import { extractTextFromRuntimeContent } from '#/lib/runtime-message'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import type { RoomExecutionMessage, RoomExecutionThread } from '../rooms/execution-types'
 import type {
@@ -42,9 +47,16 @@ import {
     shortText,
 } from './session-entry-mapper'
 import { createPiRuntimeSession } from './pi-runtime-session'
+import { createPiResourceLoader } from './resource-loader'
 import { createRuntimeEventBus } from './runtime-event-bus'
 import { buildRuntimeSnapshot } from './runtime-snapshot'
 import { createPiRuntimeRouter } from './pi-runtime-router'
+import {
+    sessionModelCostKnown,
+    sessionUsageDelta,
+    sessionUsageSnapshot,
+    type RunUsageDelta,
+} from './session-usage'
 
 interface ActiveThread {
     session: AgentSession
@@ -67,9 +79,16 @@ const threadIndex = await readJsonFile<ThreadIndexFile>(config.paths.threadIndex
     threads: [],
 })
 let runtimeEventSeq = 0
+const titleGenerationThreads = new Set<string>()
 
 const maxSubagentTaskChars = 24000
 const maxActiveSubagents = 5
+
+type GeneratedThreadTitle = {
+    title: string | null
+    usage: RunUsageDelta
+    durationMs: number
+}
 
 threadIndex.threads = normalizeThreadIndexFile(threadIndex).threads
 await ensureRuntimeLayout(config)
@@ -211,7 +230,9 @@ async function persistThreadIndex(): Promise<void> {
 function updateThreadFromMessages(record: ThreadRecord): void {
     const messages = readThreadMessages(record, 500)
     const latestError = latestAssistantErrorMessage(record)
-    record.title = firstUserTitle(messages, record.title)
+    if (record.titleSource === 'initial') {
+        record.title = firstUserTitle(messages, record.title)
+    }
     record.lastMessagePreview = latestMessagePreview(messages)
     record.updatedAt = Date.now()
     record.modelProvider = config.provider.piProvider
@@ -219,6 +240,196 @@ function updateThreadFromMessages(record: ThreadRecord): void {
     if (latestError) {
         record.lastError = latestError
     }
+}
+
+async function renameThread(input: { record: ThreadRecord; title: string }): Promise<void> {
+    const title = cleanManualTitle(input.title)
+    if (!title) {
+        throw new Error('Session title cannot be empty')
+    }
+    input.record.title = title
+    input.record.titleSource = 'manual'
+    input.record.updatedAt = Date.now()
+    await persistThreadIndex()
+    await appendRuntimeEvent('thread.renamed', {
+        sessionKey: input.record.key,
+        title,
+        source: 'manual',
+    })
+    broadcast(input.record.key, 'thread.renamed', {
+        sessionKey: input.record.key,
+        title,
+        source: 'manual',
+    })
+}
+
+async function deleteThread(record: ThreadRecord): Promise<void> {
+    const index = threadIndex.threads.findIndex((thread) => thread.key === record.key)
+    if (index < 0) {
+        throw new Error(`Thread ${record.key} does not exist`)
+    }
+    const active = activeThreads.get(record.key)
+    if (active) {
+        active.abortController?.abort(new RunWatchdog('explicit_abort', timeoutMessage('explicit_abort')))
+        active.unsubscribe?.()
+        active.session.dispose()
+        activeThreads.delete(record.key)
+    }
+    threadIndex.threads.splice(index, 1)
+    await rm(record.sessionFile, { force: true })
+    await persistThreadIndex()
+    await appendRuntimeEvent('thread.deleted', {
+        sessionKey: record.key,
+    })
+    broadcast(record.key, 'thread.deleted', {
+        sessionKey: record.key,
+    })
+}
+
+async function maybeGenerateThreadTitle(record: ThreadRecord): Promise<void> {
+    if (record.kind !== 'main') return
+    if (record.titleSource !== 'initial') return
+    if (record.status === 'running' || record.status === 'compacting') return
+    if (titleGenerationThreads.has(record.key)) return
+
+    titleGenerationThreads.add(record.key)
+    try {
+        const result = await generateThreadTitle(record)
+        if (!result) return
+        await appendRuntimeEvent('provider.finished', {
+            sessionKey: record.key,
+            purpose: 'thread_title',
+            provider: config.provider.sourceProvider,
+            model: config.provider.sourceModel,
+            durationMs: result.durationMs,
+            usage: result.usage,
+        })
+        if (!result.title || record.titleSource !== 'initial') return
+        record.title = result.title
+        record.titleSource = 'generated'
+        record.updatedAt = Date.now()
+        await persistThreadIndex()
+        await appendRuntimeEvent('thread.title_generated', {
+            sessionKey: record.key,
+            title: result.title,
+            source: 'main_model',
+            provider: config.provider.sourceProvider,
+            model: config.provider.sourceModel,
+        })
+        broadcast(record.key, 'thread.renamed', {
+            sessionKey: record.key,
+            title: result.title,
+            source: 'generated',
+        })
+    } catch (error) {
+        await appendRuntimeEvent('thread.title_generation_failed', {
+            sessionKey: record.key,
+            error: errorMessage(error),
+        })
+    } finally {
+        titleGenerationThreads.delete(record.key)
+    }
+}
+
+async function generateThreadTitle(record: ThreadRecord): Promise<GeneratedThreadTitle | null> {
+    const messages = readThreadMessages(record, 20)
+    const firstUser = messages.find((message) => message.role === 'user' && message.text.trim())
+    const firstAssistant = messages.find(
+        (message) => message.role === 'assistant' && message.text.trim(),
+    )
+    if (!firstUser || !firstAssistant) return null
+
+    const authStorage = AuthStorage.create(config.paths.authPath)
+    const modelRegistry = ModelRegistry.create(authStorage, config.paths.modelsPath)
+    const model = modelRegistry.find(config.provider.piProvider, config.provider.piModel)
+    if (!model) {
+        throw new Error(
+            `Pi model ${config.provider.piProvider}/${config.provider.piModel} is not available`,
+        )
+    }
+    const settingsManager = SettingsManager.inMemory({
+        retry: {
+            enabled: false,
+            provider: {
+                timeoutMs: config.budgets.providerIdleTimeoutMs,
+                maxRetries: 0,
+                maxRetryDelayMs: 0,
+            },
+        },
+    })
+    const sessionManager = SessionManager.inMemory(config.paths.workspaceDir)
+    sessionManager.newSession({ id: randomUUID() })
+    const { session } = await createAgentSession({
+        cwd: config.paths.workspaceDir,
+        agentDir: config.paths.stateDir,
+        authStorage,
+        modelRegistry,
+        model,
+        thinkingLevel: 'low',
+        resourceLoader: createPiResourceLoader(
+            'You write concise conversation titles. Return only the title text.',
+        ),
+        sessionManager,
+        settingsManager,
+        noTools: 'all',
+    })
+
+    try {
+        const startedAt = Date.now()
+        const usageBefore = sessionUsageSnapshot(session)
+        await session.prompt(titlePrompt(firstUser.text, firstAssistant.text), {
+            source: 'rpc',
+        })
+        const durationMs = Math.max(0, Date.now() - startedAt)
+        const usage = sessionUsageDelta(
+            usageBefore,
+            sessionUsageSnapshot(session),
+            sessionModelCostKnown(session),
+        )
+        return {
+            title: cleanGeneratedTitle(latestAssistantText(session.messages)),
+            usage,
+            durationMs,
+        }
+    } finally {
+        session.dispose()
+    }
+}
+
+function titlePrompt(firstUser: string, firstAssistant: string): string {
+    return [
+        'Create a short title for this conversation.',
+        'Rules: 3 to 8 words, no quotes, no trailing punctuation, no generic words like Conversation.',
+        '',
+        `User: ${shortText(firstUser, 800)}`,
+        '',
+        `Assistant: ${shortText(firstAssistant, 800)}`,
+    ].join('\n')
+}
+
+function latestAssistantText(messages: unknown[]): string {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index]
+        if (!isRecord(message) || message.role !== 'assistant') continue
+        const text = extractTextFromRuntimeContent(message.content)
+        if (text.trim()) return text
+    }
+    return ''
+}
+
+function cleanManualTitle(value: string): string {
+    return value.replace(/\s+/g, ' ').trim().slice(0, 200)
+}
+
+function cleanGeneratedTitle(value: string): string | null {
+    const cleaned = value
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/^["'`]+|["'`.!?]+$/g, '')
+        .trim()
+    if (cleaned.length < 3) return null
+    if (/^conversation$/i.test(cleaned)) return null
+    return shortText(cleaned, 80)
 }
 
 async function createPiSession(record: ThreadRecord): Promise<AgentSession> {
@@ -326,6 +537,7 @@ async function createThread(
         sessionFile,
         sessionId,
         title: input.title?.trim() || 'Conversation',
+        titleSource: input.title?.trim() ? 'manual' : 'initial',
         status: 'idle',
         createdAt: now,
         updatedAt: now,
@@ -444,6 +656,7 @@ async function runPrompt(input: {
         }, 1000)
         watchdog.unref?.()
         const runStartedAt = heartbeat.startedAt
+        const usageBefore = sessionUsageSnapshot(active.session)
         try {
             await withToolRunContext(
                 {
@@ -511,6 +724,11 @@ async function runPrompt(input: {
             input.record.idleTimeoutExpiresAt = null
             updateThreadFromMessages(input.record)
             await persistThreadIndex()
+            const usage = sessionUsageDelta(
+                usageBefore,
+                sessionUsageSnapshot(active.session),
+                sessionModelCostKnown(active.session),
+            )
             await appendRuntimeEvent('run.finished', {
                 sessionKey: input.record.key,
                 runId: input.runId,
@@ -522,6 +740,7 @@ async function runPrompt(input: {
                 durationMs,
                 activeDurationMs,
                 idleDurationMs,
+                usage,
                 startedAt: new Date(runStartedAt).toISOString(),
                 finishedAt: new Date(finishedAt).toISOString(),
             })
@@ -531,6 +750,7 @@ async function runPrompt(input: {
                 status: input.record.status,
                 error: input.record.lastError,
             })
+            void maybeGenerateThreadTitle(input.record)
         }
     }
 
@@ -603,6 +823,7 @@ async function forkThread(input: {
         sessionFile,
         sessionId: forkManager.getSessionId(),
         title: input.title?.trim() || `Fork: ${input.record.title}`,
+        titleSource: input.title?.trim() ? 'manual' : 'generated',
         status: 'idle',
         createdAt: now,
         updatedAt: now,
@@ -662,6 +883,8 @@ const route = createPiRuntimeRouter({
     findThread,
     createThread,
     runPrompt,
+    renameThread,
+    deleteThread,
     compactThread,
     forkThread,
     snapshot,

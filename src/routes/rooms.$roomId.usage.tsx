@@ -6,7 +6,7 @@ import { RoomDashboardLayout } from '#/components/room-dashboard'
 import { EmptyState, LoadingRows, Section } from '#/components/agent-room'
 import { listRoomUsageServer } from '#/routes/-room-runtime-server'
 import { requireRouteUser } from '#/routes/-route-auth'
-import { UsageEventRow, UsageTotalsGrid } from './-usage/usage-components'
+import { UsageTimeline, UsageTotalsGrid, usageTimelineCount } from './-usage/usage-components'
 
 type UsageEvent = {
     id: string
@@ -60,25 +60,18 @@ function UsageContent({ roomId }: { roomId: string }) {
                         }
                     />
                 ) : (
-                    <UsageTotalsGrid eventCount={events.length} totals={totals} />
+                    <UsageTotalsGrid activityCount={usageTimelineCount(events)} totals={totals} />
                 )}
             </Section>
-            <Section
-                title="Events"
-                description="Unknown usage remains explicit until the provider exposes it."
-            >
+            <Section title="Activity" description="Recent room work, summarized for operators.">
                 {events.length === 0 ? (
                     <EmptyState
                         icon={BarChart3Icon}
-                        title="No usage yet"
+                        title="No activity yet"
                         description="Run a message, job, tool, document worker, or image request to populate usage."
                     />
                 ) : (
-                    <ul className="divide-y divide-border/60">
-                        {events.map((event) => (
-                            <UsageEventRow key={event.id} event={event} />
-                        ))}
-                    </ul>
+                    <UsageTimeline events={events} />
                 )}
             </Section>
         </div>

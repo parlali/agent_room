@@ -7,7 +7,6 @@ import {
     roomProviderModes,
     roomToolProfiles,
 } from '#/server/domain/types'
-import type { UsageEventRecord } from '#/server/domain/types'
 
 const roomIdSchema = z.string().uuid()
 
@@ -37,11 +36,36 @@ const listCronJobsInputSchema = z.object({
     roomId: roomIdSchema,
 })
 
+const jobScheduleSchema = z.discriminatedUnion('type', [
+    z.object({
+        type: z.literal('interval'),
+        every: z.number().int().positive(),
+        unit: z.enum(['minutes', 'hours', 'days', 'weeks']),
+    }),
+    z.object({
+        type: z.literal('daily'),
+        times: z
+            .array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/))
+            .min(1)
+            .max(8),
+    }),
+    z.object({
+        type: z.literal('weekly'),
+        weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
+        time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+    }),
+    z.object({
+        type: z.literal('monthly'),
+        day: z.number().int().min(1).max(31),
+        time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+    }),
+])
+
 const createCronJobInputSchema = z.object({
     roomId: roomIdSchema,
     name: z.string().min(1),
     message: z.string().min(1),
-    everyMinutes: z.number().int().positive(),
+    schedule: jobScheduleSchema,
 })
 
 const updateCronJobInputSchema = createCronJobInputSchema.extend({
@@ -92,9 +116,17 @@ const roomFilesInputSchema = z.object({
     roomId: roomIdSchema,
 })
 
+const roomFileSurfaceSchema = z.enum(['workspace', 'store'])
+
+const listRoomDirectoryInputSchema = z.object({
+    roomId: roomIdSchema,
+    surface: roomFileSurfaceSchema,
+    relativePath: z.string().optional(),
+})
+
 const readRoomFileInputSchema = z.object({
     roomId: roomIdSchema,
-    surface: z.enum(['workspace', 'store']),
+    surface: roomFileSurfaceSchema,
     relativePath: z.string().min(1),
 })
 
@@ -143,7 +175,7 @@ const createRoomInputSchema = z.object({
         .object({
             name: z.string().min(1),
             message: z.string().min(1),
-            everyMinutes: z.number().int().positive(),
+            schedule: jobScheduleSchema,
         })
         .nullable()
         .optional(),
@@ -175,26 +207,6 @@ async function requireMutationActor() {
     const { assertSameOriginMutation } = await import('#/server/auth/session-auth')
     assertSameOriginMutation()
     return requireAuthenticatedActor()
-}
-
-function summarizeUsageEvents(events: UsageEventRecord[]) {
-    const knownTokenEvents = events.filter((event) => event.totalTokens !== null)
-    const knownCostEvents = events.filter((event) => event.estimatedCostUsd !== null)
-    return {
-        durationMs: events.reduce((sum, event) => sum + (event.durationMs ?? 0), 0),
-        totalTokens:
-            knownTokenEvents.length === 0
-                ? null
-                : knownTokenEvents.reduce((sum, event) => sum + (event.totalTokens ?? 0), 0),
-        estimatedCostUsd:
-            knownCostEvents.length === 0
-                ? null
-                : knownCostEvents.reduce(
-                      (sum, event) => sum + Number(event.estimatedCostUsd ?? 0),
-                      0,
-                  ),
-        unknownTokenEvents: events.length - knownTokenEvents.length,
-    }
 }
 
 export const listRoomsServer = createServerFn({ method: 'GET' }).handler(async () => {
@@ -346,7 +358,7 @@ export const createCronJobServer = createServerFn({ method: 'POST' })
             roomId: data.roomId,
             name: data.name,
             message: data.message,
-            everyMinutes: data.everyMinutes,
+            schedule: data.schedule,
         })
     })
 
@@ -361,7 +373,7 @@ export const updateCronJobServer = createServerFn({ method: 'POST' })
             jobId: data.jobId,
             name: data.name,
             message: data.message,
-            everyMinutes: data.everyMinutes,
+            schedule: data.schedule,
         })
     })
 
@@ -458,10 +470,13 @@ export const listRoomUsageServer = createServerFn({ method: 'GET' })
             roomId: data.roomId,
             limit: data.limit ?? 100,
         })
+        const totals = await usageRepository.summarizeByRoom({
+            roomId: data.roomId,
+        })
         return {
             roomId: data.roomId,
             events,
-            totals: summarizeUsageEvents(events),
+            totals,
         }
     })
 
@@ -478,9 +493,10 @@ export const listUsageServer = createServerFn({ method: 'GET' })
         const events = await usageRepository.listRecent({
             limit: data.limit ?? 300,
         })
+        const totals = await usageRepository.summarizeAll()
         return {
             events,
-            totals: summarizeUsageEvents(events),
+            totals,
         }
     })
 
@@ -493,6 +509,32 @@ export const listRoomFilesServer = createServerFn({ method: 'GET' })
         })
         const { listRoomFiles } = await import('#/server/rooms/file-store')
         return listRoomFiles(data.roomId)
+    })
+
+export const listRoomFileTreeServer = createServerFn({ method: 'GET' })
+    .inputValidator((input: unknown) => roomFilesInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        await requireAuthenticatedActor()
+        setResponseHeaders({
+            'cache-control': 'no-store',
+        })
+        const { listRoomFileTree } = await import('#/server/rooms/file-store')
+        return listRoomFileTree(data.roomId)
+    })
+
+export const listRoomDirectoryServer = createServerFn({ method: 'GET' })
+    .inputValidator((input: unknown) => listRoomDirectoryInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        await requireAuthenticatedActor()
+        setResponseHeaders({
+            'cache-control': 'no-store',
+        })
+        const { listRoomDirectory } = await import('#/server/rooms/file-store')
+        return listRoomDirectory({
+            roomId: data.roomId,
+            surface: data.surface,
+            relativePath: data.relativePath,
+        })
     })
 
 export const readRoomFileServer = createServerFn({ method: 'GET' })

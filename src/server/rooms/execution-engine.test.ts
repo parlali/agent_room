@@ -95,7 +95,11 @@ describe('runtime-neutral execution engine facade', () => {
                 jobId: 'job-1',
                 name: 'Digest',
                 message: 'Summarize',
-                everyMinutes: 30,
+                schedule: {
+                    type: 'interval',
+                    every: 30,
+                    unit: 'minutes',
+                },
             }),
         ).resolves.toEqual({ id: 'job-1' })
 
@@ -126,7 +130,11 @@ describe('runtime-neutral execution engine facade', () => {
             jobId: 'job-1',
             name: 'Digest',
             message: 'Summarize',
-            everyMinutes: 30,
+            schedule: {
+                type: 'interval',
+                every: 30,
+                unit: 'minutes',
+            },
         })
     })
 })

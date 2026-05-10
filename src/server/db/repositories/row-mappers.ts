@@ -251,6 +251,7 @@ export function mapRoomCronJob(row: DbRow): RoomCronJobRecord {
         message: String(row.message),
         enabled: Boolean(row.enabled),
         everyMinutes: Number(row.every_minutes),
+        schedule: asJsonValue(row.schedule),
         timezone: String(row.timezone),
         sessionTarget: row.session_target === 'selected' ? 'selected' : 'isolated',
         targetThreadKey: nullableValue<string>(row.target_thread_key),

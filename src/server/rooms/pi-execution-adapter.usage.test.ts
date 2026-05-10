@@ -84,6 +84,14 @@ describe('Pi runtime usage sync', () => {
                         durationMs: 1200,
                         activeDurationMs: 900,
                         idleDurationMs: 300,
+                        usage: {
+                            inputTokens: 100,
+                            outputTokens: 50,
+                            cachedTokens: 25,
+                            reasoningTokens: null,
+                            totalTokens: 175,
+                            estimatedCostUsd: 0.01,
+                        },
                     },
                 }),
                 JSON.stringify({
@@ -122,9 +130,15 @@ describe('Pi runtime usage sync', () => {
                 kind: 'run',
                 provider: 'openrouter',
                 model: 'model-a',
+                inputTokens: 100,
+                outputTokens: 50,
+                cachedTokens: 25,
+                reasoningTokens: null,
+                totalTokens: 175,
                 durationMs: 1200,
                 activeDurationMs: 900,
                 idleDurationMs: 300,
+                estimatedCostUsd: 0.01,
             }),
         )
         expect(mocks.usageRepository.appendEvent).toHaveBeenNthCalledWith(
@@ -166,5 +180,60 @@ describe('Pi runtime usage sync', () => {
             runId: 'scheduled-run-1',
             jobId: '11111111-1111-1111-1111-111111111111',
         })
+    })
+
+    it('records provider usage events for background model calls', async () => {
+        const roomId = 'usage-room'
+        const { getRoomPaths } = await import('./room-paths')
+        const paths = getRoomPaths(roomId)
+        await mkdir(paths.engineStateDir, {
+            recursive: true,
+        })
+        await writeFile(
+            join(paths.engineStateDir, 'runtime-events.jsonl'),
+            [
+                JSON.stringify({
+                    ts: 1000,
+                    event: 'provider.finished',
+                    sessionKey: 'thread-1',
+                    payload: {
+                        purpose: 'thread_title',
+                        provider: 'openai-codex',
+                        model: 'gpt-5.5',
+                        durationMs: 900,
+                        usage: {
+                            inputTokens: 120,
+                            outputTokens: 12,
+                            cachedTokens: 30,
+                            reasoningTokens: null,
+                            totalTokens: 162,
+                            estimatedCostUsd: 0.001,
+                            costKnown: true,
+                        },
+                    },
+                }),
+                '',
+            ].join('\n'),
+            'utf8',
+        )
+
+        const adapter = await import('./pi-execution-adapter')
+        await adapter.syncRuntimeUsageEvents(roomId)
+
+        expect(mocks.usageRepository.appendEvent).toHaveBeenCalledWith(
+            expect.objectContaining({
+                roomId,
+                sessionKey: 'thread-1',
+                kind: 'provider',
+                provider: 'openai-codex',
+                model: 'gpt-5.5',
+                inputTokens: 120,
+                outputTokens: 12,
+                cachedTokens: 30,
+                totalTokens: 162,
+                durationMs: 900,
+                estimatedCostUsd: 0.001,
+            }),
+        )
     })
 })

@@ -8,6 +8,7 @@ function thread(overrides: Partial<ThreadRecord> = {}): ThreadRecord {
         sessionFile: '/tmp/session.jsonl',
         sessionId: 'parent-session',
         title: 'Parent',
+        titleSource: 'manual',
         status: 'idle',
         createdAt: 1,
         updatedAt: 1,

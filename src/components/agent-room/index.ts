@@ -12,3 +12,4 @@ export { SessionContextMenu, SessionContextMenuTrigger } from './session-context
 export { BrandMark, BrandWordmark } from './brand'
 export { KeyValueList, type KeyValueItem } from './key-value-list'
 export { ErrorFallback, NotFound } from './error-fallback'
+export { CreateRoomButton } from './create-room-button'

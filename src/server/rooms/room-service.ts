@@ -18,6 +18,7 @@ import type {
     RoomRecord,
     RoomToolProfile,
 } from '../domain/types'
+import { describeJobSchedule, type JobSchedule } from '#/lib/job-schedule'
 import { getRoomPaths } from './room-paths'
 import { assertRoomSetupReady } from './runtime-readiness'
 import { roomRuntimeManager } from './runtime-manager'
@@ -65,7 +66,7 @@ export async function createRoom(input: {
     initialCron?: {
         name: string
         message: string
-        everyMinutes: number
+        schedule: JobSchedule
     } | null
 }): Promise<RoomRecord> {
     const displayName = input.displayName.trim()
@@ -143,7 +144,7 @@ export async function createRoom(input: {
                     roomId: room.id,
                     name: input.initialCron.name,
                     message: input.initialCron.message,
-                    everyMinutes: input.initialCron.everyMinutes,
+                    schedule: input.initialCron.schedule,
                 })
                 await auditRepository.appendEvent({
                     actorUserId: input.createdByUserId,
@@ -151,7 +152,7 @@ export async function createRoom(input: {
                     action: 'room.initial_cron_created',
                     payload: {
                         name: input.initialCron.name,
-                        everyMinutes: input.initialCron.everyMinutes,
+                        schedule: describeJobSchedule(input.initialCron.schedule),
                     },
                 })
             }

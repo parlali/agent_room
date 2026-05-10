@@ -1,6 +1,6 @@
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import { MessageSquareIcon } from 'lucide-react'
 import { toast } from 'sonner'
@@ -11,18 +11,22 @@ import { describeSessionState } from '#/lib/state'
 import {
     abortMessageServer,
     getRoomExecutionServer,
+    renameSessionServer,
     sendMessageServer,
 } from '#/routes/-room-runtime-server'
-import type { RoomExecutionSnapshot } from '#/server/rooms/execution-types'
+import type { RoomExecutionSnapshot, RoomRealtimeEvent } from '#/server/rooms/execution-types'
 
 import { ChatHeader } from './chat-header'
 import { ChatSkeleton } from './chat-skeleton'
 import { Composer } from './composer'
+import { isLastMessageInProgress } from './conversation-utils'
 import {
-    dedupeMessages,
-    extractLatestStreamRunId,
-    isLastMessageInProgress,
-} from './conversation-utils'
+    emptyStreamTurnState,
+    reduceRoomStreamEvent,
+    shouldRefetchForRoomEvent,
+    streamTurnHasContent,
+    type StreamTurnState,
+} from './stream-state'
 import { MessageList } from './message-list'
 import { useStreamingRefetch } from './streaming'
 
@@ -31,6 +35,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const queryClient = useQueryClient()
     const [draft, setDraft] = useState('')
     const [streamError, setStreamError] = useState<string | null>(null)
+    const [streamTurn, setStreamTurn] = useState<StreamTurnState>(emptyStreamTurnState)
     const queryKey = useMemo(
         () => ['room-execution', roomId, sessionKey] as const,
         [roomId, sessionKey],
@@ -43,23 +48,67 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
 
     const snapshot = executionQuery.data
     const room = snapshot?.room ?? null
-    const messages = useMemo(
-        () => dedupeMessages(snapshot?.selectedThreadMessages ?? []),
-        [snapshot?.selectedThreadMessages],
-    )
+    const messages = snapshot?.selectedThreadMessages ?? []
     const selectedThread = useMemo(
         () => snapshot?.threads.find((thread) => thread.key === sessionKey) ?? null,
         [snapshot?.threads, sessionKey],
     )
     const sessionTone = describeSessionState(selectedThread?.status ?? null)
+    const streamActive =
+        !streamTurn.finished &&
+        (streamTurn.status === 'queued' ||
+            streamTurn.status === 'thinking' ||
+            streamTurn.status === 'working' ||
+            streamTurn.status === 'responding')
     const isWorking =
-        sessionTone.tone === 'working' || isLastMessageInProgress(snapshot?.selectedThreadMessages)
-    const lastAssistantRunId = useMemo(
-        () => extractLatestStreamRunId(snapshot?.selectedThreadMessages ?? []),
-        [snapshot?.selectedThreadMessages],
+        streamActive ||
+        sessionTone.tone === 'working' ||
+        isLastMessageInProgress(snapshot?.selectedThreadMessages)
+    const activeRunId = streamTurn.runId
+    const streamPersisted = streamTurnPersisted(streamTurn, messages)
+    const visibleStreamTurn = streamPersisted ? emptyStreamTurnState : streamTurn
+
+    useEffect(() => {
+        setStreamTurn(emptyStreamTurnState)
+    }, [sessionKey])
+
+    useEffect(() => {
+        if (streamPersisted) {
+            setStreamTurn(emptyStreamTurnState)
+            return
+        }
+        if (!streamTurn.finished || executionQuery.isFetching || !streamTurnHasContent(streamTurn)) {
+            return
+        }
+        const timer = setTimeout(() => {
+            setStreamTurn(emptyStreamTurnState)
+        }, 1500)
+        return () => clearTimeout(timer)
+    }, [streamTurn, streamPersisted, executionQuery.isFetching])
+
+    const onRealtimeEvent = useCallback(
+        (event: RoomRealtimeEvent) => {
+            setStreamTurn((current) => reduceRoomStreamEvent(current, event))
+            if (event.event === 'thread.renamed') {
+                void queryClient.invalidateQueries({ queryKey })
+                void queryClient.invalidateQueries({ queryKey: ['room-execution', roomId] })
+                void queryClient.invalidateQueries({
+                    queryKey: ['room-execution', roomId, 'sidebar'],
+                })
+            }
+        },
+        [queryClient, queryKey, roomId],
     )
 
-    useStreamingRefetch({ roomId, sessionKey, queryClient, queryKey, onError: setStreamError })
+    useStreamingRefetch({
+        roomId,
+        sessionKey,
+        queryClient,
+        queryKey,
+        onError: setStreamError,
+        onEvent: onRealtimeEvent,
+        shouldRefetch: shouldRefetchForRoomEvent,
+    })
 
     const sendMutation = useMutation({
         mutationFn: (message: string) =>
@@ -76,7 +125,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const abortMutation = useMutation({
         mutationFn: () =>
             abortMessageServer({
-                data: { roomId, sessionKey, runId: lastAssistantRunId ?? null },
+                data: { roomId, sessionKey, runId: activeRunId ?? null },
             }),
         onSuccess: (result) => {
             if (result.abortedRunId) {
@@ -91,10 +140,26 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         },
     })
 
+    const renameMutation = useMutation({
+        mutationFn: (title: string) => renameSessionServer({ data: { roomId, sessionKey, title } }),
+        onSuccess: async () => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey }),
+                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId] }),
+                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId, 'sidebar'] }),
+            ])
+            toast.success('Session renamed')
+        },
+        onError: (error) => {
+            toast.error(error instanceof Error ? error.message : 'Session could not be renamed')
+        },
+    })
+
     const submitDraft = () => {
         if (sendMutation.isPending) return
         const value = draft.trim()
         if (!value) return
+        setStreamTurn(emptyStreamTurnState)
         sendMutation.mutate(value)
     }
 
@@ -146,6 +211,8 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 onBack={() => {
                     void navigate({ to: '/rooms/$roomId', params: { roomId } })
                 }}
+                onRename={(title) => renameMutation.mutateAsync(title)}
+                renaming={renameMutation.isPending}
             />
             {snapshot?.executionState === 'error' ? (
                 <div className="border-b border-border/60 px-4 py-3 sm:px-6">
@@ -187,7 +254,12 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     />
                 </div>
             ) : null}
-            <MessageList room={room} messages={messages} isWorking={isWorking} />
+            <MessageList
+                room={room}
+                messages={messages}
+                stream={visibleStreamTurn}
+                isWorking={isWorking}
+            />
             <Composer
                 roomDisplayName={room.displayName}
                 draft={draft}
@@ -200,5 +272,25 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 onStop={() => abortMutation.mutate()}
             />
         </div>
+    )
+}
+
+function streamTurnPersisted(
+    streamTurn: StreamTurnState,
+    messages: RoomExecutionSnapshot['selectedThreadMessages'],
+): boolean {
+    const assistantTexts = streamTurn.items
+        .filter((item) => item.type === 'assistant')
+        .map((item) => item.markdown.trim())
+        .filter((text) => text.length > 0)
+    if (assistantTexts.length === 0) return false
+
+    const persistedTexts = messages
+        .filter((message) => message.role === 'assistant')
+        .map((message) => message.text.trim())
+        .filter((text) => text.length > 0)
+
+    return assistantTexts.every((text) =>
+        persistedTexts.some((persisted) => persisted === text || persisted.endsWith(text)),
     )
 }

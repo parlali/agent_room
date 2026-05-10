@@ -9,6 +9,7 @@ import type {
     RoomThreadForkResult,
     RoomThreadSendResult,
 } from './execution-types'
+import type { JobSchedule } from '#/lib/job-schedule'
 import type { RoomExecutionAdapter } from './execution-adapter'
 
 export type {
@@ -161,7 +162,7 @@ export async function createRoomCronJob(input: {
     roomId: string
     name: string
     message: string
-    everyMinutes: number
+    schedule: JobSchedule
 }): Promise<RoomCronJob> {
     const module = await loadExecutionEngineModule()
     return module.createRoomCronJob(input)
@@ -172,7 +173,7 @@ export async function updateRoomCronJob(input: {
     jobId: string
     name: string
     message: string
-    everyMinutes: number
+    schedule: JobSchedule
 }): Promise<RoomCronJob> {
     const module = await loadExecutionEngineModule()
     return module.updateRoomCronJob(input)

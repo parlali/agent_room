@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { toast } from 'sonner'
-import { AppShell, useThemeMode } from '#/components/app-shell'
+import { AppShell } from '#/components/app-shell'
 import { PageHeader } from '#/components/agent-room'
 import { imageModelOptionsForProvider } from '#/lib/model-options'
 import { requireRouteUser } from './-route-auth'
-import { currentUserServer, logoutServer } from './-auth-server'
 import {
     deleteMcpConnectionServer,
     deleteProviderConnectionServer,
@@ -34,7 +33,6 @@ import {
     resolveProviderFormProtocol,
 } from './settings/-forms'
 import {
-    AccountSection,
     AppDefaultsSection,
     CapabilitiesSection,
     DeleteConnectionDialog,
@@ -42,7 +40,6 @@ import {
     ProductInfoCard,
     ProviderConnectionsSection,
     SetupBanner,
-    ThemeSettingsSection,
     type AppCapabilityDefaults,
     type AppImageProvider,
 } from './settings/-sections'
@@ -54,23 +51,15 @@ export const Route = createFileRoute('/settings')({
 
 function SettingsPage() {
     const queryClient = useQueryClient()
-    const navigate = useNavigate()
-    const [themeMode, setThemeMode] = useThemeMode()
 
     const configQuery = useQuery<OperatorConfigSnapshot>({
         queryKey: ['operator-config'],
         queryFn: () => getOperatorConfigServer(),
     })
-    const userQuery = useQuery({
-        queryKey: ['auth-current-user'],
-        queryFn: () => currentUserServer(),
-        staleTime: 60_000,
-    })
-
     const config = configQuery.data
     const providers = config?.providers ?? []
     const mcpConnections = config?.mcpConnections ?? []
-    const onboardingCompleted = Boolean(config?.onboarding.completed)
+    const onboardingCompleted = config?.onboarding.completed ?? null
 
     const [providerSheetOpen, setProviderSheetOpen] = useState(false)
     const [providerForm, setProviderForm] = useState<ProviderFormState>(EMPTY_PROVIDER_FORM)
@@ -301,15 +290,6 @@ function SettingsPage() {
             toast.error(error instanceof Error ? error.message : 'Capability save failed'),
     })
 
-    const logoutMutation = useMutation({
-        mutationFn: async () => logoutServer(),
-        onSuccess: async () => {
-            await queryClient.invalidateQueries({ queryKey: ['auth-current-user'] })
-            await navigate({ to: '/login' })
-        },
-        onError: (error) => toast.error(error instanceof Error ? error.message : 'Sign out failed'),
-    })
-
     const onSubmitProvider = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
         if (!providerForm.label.trim()) return toast.error('Connection name is required')
@@ -475,15 +455,6 @@ function SettingsPage() {
                         setAppImageReplaceApiKey={setAppImageReplaceApiKey}
                         onSaveCapabilities={onSaveCapabilities}
                     />
-
-                    <AccountSection
-                        email={userQuery.data?.email}
-                        role={userQuery.data?.role}
-                        pending={logoutMutation.isPending}
-                        onLogout={() => logoutMutation.mutate()}
-                    />
-
-                    <ThemeSettingsSection themeMode={themeMode} setThemeMode={setThemeMode} />
 
                     <ProductInfoCard />
                 </div>

@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
+import type { RoomRealtimeEvent } from '#/server/rooms/execution-types'
 
 const STREAM_ERROR_THRESHOLD = 6
 
@@ -9,12 +10,16 @@ export function useStreamingRefetch({
     queryClient,
     queryKey,
     onError,
+    onEvent,
+    shouldRefetch,
 }: {
     roomId: string
     sessionKey: string
     queryClient: QueryClient
     queryKey: readonly unknown[]
     onError: (message: string | null) => void
+    onEvent?: (event: RoomRealtimeEvent) => void
+    shouldRefetch?: (event: RoomRealtimeEvent) => boolean
 }) {
     useEffect(() => {
         if (typeof EventSource === 'undefined') return
@@ -31,9 +36,17 @@ export function useStreamingRefetch({
             }, 200)
         }
 
-        const onRoomEvent = (_raw: MessageEvent<string>) => {
+        const onRoomEvent = (raw: MessageEvent<string>) => {
             consecutiveErrors = 0
-            scheduleRefetch()
+            try {
+                const event = JSON.parse(raw.data) as RoomRealtimeEvent
+                onEvent?.(event)
+                if (shouldRefetch?.(event) ?? true) {
+                    scheduleRefetch()
+                }
+            } catch {
+                onError('Live update payload was unreadable')
+            }
         }
 
         const onStreamError = (raw: MessageEvent<string>) => {
@@ -71,5 +84,5 @@ export function useStreamingRefetch({
             source.removeEventListener('open', onOpen)
             source.close()
         }
-    }, [roomId, sessionKey, queryClient, queryKey, onError])
+    }, [roomId, sessionKey, queryClient, queryKey, onError, onEvent, shouldRefetch])
 }

@@ -1,4 +1,5 @@
 import type { HealthStatus, JsonValue, RoomDesiredState, RoomStatus } from '../domain/types'
+import type { JobSchedule } from '#/lib/job-schedule'
 
 export interface RoomRuntimeOverview {
     roomId: string
@@ -149,6 +150,8 @@ export interface RoomCronJob {
     sessionTarget: string | null
     wakeMode: string | null
     everyMinutes: number
+    schedule: JobSchedule
+    timezone: string
     scheduleSummary: string
     payloadSummary: string | null
     nextRunAt: number | null

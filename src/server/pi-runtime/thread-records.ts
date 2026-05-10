@@ -1,10 +1,12 @@
 export type ThreadKind = 'main' | 'subagent'
+export type ThreadTitleSource = 'initial' | 'generated' | 'manual'
 
 export interface ThreadRecord {
     key: string
     sessionFile: string
     sessionId: string
     title: string
+    titleSource: ThreadTitleSource
     status: string
     createdAt: number
     updatedAt: number
@@ -43,6 +45,7 @@ export function normalizeThreadRecord(
         status: string
         createdAt: number
         updatedAt: number
+        titleSource?: ThreadTitleSource
         lastMessagePreview?: string | null
         modelProvider?: string | null
         model?: string | null
@@ -62,6 +65,10 @@ export function normalizeThreadRecord(
         sessionFile: record.sessionFile,
         sessionId: record.sessionId,
         title: record.title,
+        titleSource:
+            record.titleSource === 'generated' || record.titleSource === 'manual'
+                ? record.titleSource
+                : 'initial',
         status: record.status,
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,

@@ -4,12 +4,14 @@ import {
     appProviderConnectionRepository,
     appSettingsRepository,
     auditRepository,
+    roomRuntimeMetadataRepository,
     roomConfigRepository,
     roomRepository,
 } from '../db/repositories'
 import type { AppProviderConnectionRecord, ProviderApi } from '../domain/types'
 import { ensureRoomFilesystemLayout } from '../rooms/room-paths'
 import { getCodexAuthProfilePath, inspectCodexAuthStatus } from './codex-auth'
+import { assertRoomConfigurationStartable } from './operator-configuration'
 
 export const codexOAuthSessionStatuses = [
     'idle',
@@ -215,6 +217,23 @@ async function finalizeSession(input: {
     })
 }
 
+async function clearStaleConfigurationBlocker(roomId: string): Promise<void> {
+    const [room, metadata] = await Promise.all([
+        roomRepository.findRoomById(roomId),
+        roomRuntimeMetadataRepository.findByRoomId(roomId),
+    ])
+    if (!room || room.status !== 'failed') {
+        return
+    }
+    if (!metadata?.lastError?.startsWith('Room configuration is blocked:')) {
+        return
+    }
+
+    await assertRoomConfigurationStartable(roomId)
+    await roomRuntimeMetadataRepository.clearLastError(roomId)
+    await roomRepository.updateRoomStatus(roomId, 'stopped')
+}
+
 async function runPiCodexLogin(session: CodexOAuthSessionState, target: CodexOAuthTarget) {
     try {
         await ensureRoomFilesystemLayout(target.roomId)
@@ -254,6 +273,7 @@ async function runPiCodexLogin(session: CodexOAuthSessionState, target: CodexOAu
 
         const authStatus = await inspectCodexAuthStatus(session.roomId)
         if (authStatus.ready) {
+            await clearStaleConfigurationBlocker(session.roomId)
             await finalizeSession({
                 session,
                 status: 'complete',

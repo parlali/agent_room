@@ -67,4 +67,12 @@ export const roomRuntimeMetadataRepository = {
     async deleteByRoomId(roomId: string): Promise<void> {
         await sql`DELETE FROM room_runtime_metadata WHERE room_id = ${roomId}`
     },
+
+    async clearLastError(roomId: string): Promise<void> {
+        await sql`
+            UPDATE room_runtime_metadata
+            SET last_error = NULL, health_status = 'unknown', updated_at = now()
+            WHERE room_id = ${roomId}
+        `
+    },
 }

@@ -27,6 +27,7 @@ import { cn } from '#/lib/utils'
 import type { ProviderApi } from '#/server/domain/types'
 
 import { currentUserServer } from './-auth-server'
+import { friendlyNotice } from './-notice-copy'
 import {
     getOperatorConfigServer,
     saveProviderConnectionServer,
@@ -115,6 +116,7 @@ function OnboardingPage() {
         catalog.find((entry) => makeCatalogKey(entry) === providerKey) ?? fallbackEntry
     const effectiveLabel = providerLabel || selectedEntry?.label || ''
     const effectiveModel = defaultModel || selectedEntry?.model || ''
+    const providerUsesOAuth = selectedEntry?.api === 'openai-codex-responses'
 
     const saveProvider = useMutation({
         mutationFn: async () => {
@@ -186,7 +188,12 @@ function OnboardingPage() {
             } catch (error) {
                 setCreatedSessionKey(null)
                 setFirstRoomBlockedReason(
-                    messageFromError(error, 'The first room was created but no session is ready.'),
+                    friendlyNotice(
+                        messageFromError(
+                            error,
+                            'The room is ready for setup, but no session is ready yet.',
+                        ),
+                    ) ?? 'The room is ready for setup, but no session is ready yet.',
                 )
             }
             setActiveStep('done')
@@ -316,6 +323,7 @@ function OnboardingPage() {
                                 onBaseUrl={setBaseUrl}
                                 apiKey={apiKey}
                                 onApiKey={setApiKey}
+                                usesOAuth={providerUsesOAuth}
                                 placeholderLabel={selectedEntry?.label ?? 'OpenAI'}
                                 placeholderModel={selectedEntry?.model ?? ''}
                                 error={providerError}
@@ -368,7 +376,7 @@ function OnboardingPage() {
                                 {firstRoomBlockedReason ? (
                                     <AttentionBanner
                                         tone="attention"
-                                        title="Room created with a blocked first session"
+                                        title="Room created"
                                         description={firstRoomBlockedReason}
                                     />
                                 ) : (
@@ -469,6 +477,7 @@ function ProviderForm(props: {
     onBaseUrl: (value: string) => void
     apiKey: string
     onApiKey: (value: string) => void
+    usesOAuth: boolean
     placeholderLabel: string
     placeholderModel: string
     error: string | null
@@ -532,20 +541,22 @@ function ProviderForm(props: {
                 />
             </div>
 
-            <div className="space-y-1.5">
-                <Label htmlFor="provider-api-key">API key</Label>
-                <Input
-                    id="provider-api-key"
-                    type="password"
-                    value={props.apiKey}
-                    onChange={(event) => props.onApiKey(event.target.value)}
-                    autoComplete="new-password"
-                    placeholder="sk-..."
-                />
-                <p className="text-xs text-muted-foreground">
-                    Stored encrypted on this server. Never sent to the browser.
-                </p>
-            </div>
+            {props.usesOAuth ? null : (
+                <div className="space-y-1.5">
+                    <Label htmlFor="provider-api-key">API key</Label>
+                    <Input
+                        id="provider-api-key"
+                        type="password"
+                        value={props.apiKey}
+                        onChange={(event) => props.onApiKey(event.target.value)}
+                        autoComplete="new-password"
+                        placeholder="sk-..."
+                    />
+                    <p className="text-xs text-muted-foreground">
+                        Stored encrypted on this server. Never sent to the browser.
+                    </p>
+                </div>
+            )}
 
             <Button type="submit" disabled={props.pending}>
                 <KeyRoundIcon />
