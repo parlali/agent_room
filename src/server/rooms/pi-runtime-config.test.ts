@@ -54,6 +54,17 @@ function roomConfiguration(): MaterializedRoomConfiguration {
             env: {},
             secretRefs: [],
             mcpServers: [],
+            github: {
+                enabled: false,
+                installationId: null,
+                accountLogin: null,
+                repositories: [],
+                tokenEnvKey: null,
+                tokenExpiresAt: null,
+                ghHostsPath: null,
+                gitCredentialsPath: null,
+                gitConfigPath: null,
+            },
         },
     }
 }
@@ -133,6 +144,40 @@ describe('Pi runtime config materialization', () => {
             },
         })
         expect(config.models.providers['openai-codex'].models).toBeUndefined()
+    })
+
+    it('keeps GitHub credential paths under the room-local home directory', () => {
+        const root = '/tmp/agent-room-test/room-1'
+        const roomConfig = roomConfiguration()
+        roomConfig.entitlements.github = {
+            enabled: true,
+            installationId: '123',
+            accountLogin: 'agent-room',
+            repositories: ['agent-room/example'],
+            tokenEnvKey: 'AGENT_ROOM_GITHUB_INSTALLATION_TOKEN',
+            tokenExpiresAt: '2026-05-11T12:00:00.000Z',
+            ghHostsPath: null,
+            gitCredentialsPath: null,
+            gitConfigPath: null,
+        }
+
+        const config = buildPiRuntimeConfig({
+            roomId: 'room-1',
+            displayName: 'Room One',
+            port: 31234,
+            token: 'token-token-token-token-token',
+            paths: roomPaths(root),
+            roomConfiguration: roomConfig,
+        })
+
+        expect(config.github).toMatchObject({
+            enabled: true,
+            installationId: '123',
+            repositories: ['agent-room/example'],
+            ghHostsPath: join(root, 'pi-state', 'home', '.config', 'gh', 'hosts.yml'),
+            gitCredentialsPath: join(root, 'pi-state', 'home', '.git-credentials'),
+            gitConfigPath: join(root, 'pi-state', 'home', '.gitconfig'),
+        })
     })
 
     it('materializes runtime env tokens and process directories under the room root', async () => {

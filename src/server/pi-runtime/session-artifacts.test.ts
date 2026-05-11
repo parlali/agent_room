@@ -165,4 +165,45 @@ describe('session artifact extraction', () => {
             kind: 'attached',
         })
     })
+
+    it('extracts saved bounded tool outputs as referenced artifacts', () => {
+        const artifacts = extractSessionArtifacts(config, [
+            messageEntry('assistant-1', '2026-05-11T09:00:01.000Z', {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'toolCall',
+                        id: 'call-fetch',
+                        name: 'agent_room_fetch_url',
+                        arguments: {
+                            url: 'https://example.com/data.json',
+                        },
+                    },
+                ],
+            }),
+            messageEntry('tool-1', '2026-05-11T09:00:02.000Z', {
+                role: 'toolResult',
+                toolCallId: 'call-fetch',
+                content: [{ type: 'text', text: 'preview' }],
+                details: {
+                    outputArtifact: {
+                        root: 'store',
+                        path: 'tool-output/thread/run/fetch.txt',
+                        byteLength: 90000,
+                        modelVisibleByteLength: 32000,
+                    },
+                },
+            }),
+        ])
+
+        expect(artifacts).toEqual([
+            expect.objectContaining({
+                id: 'store:tool-output/thread/run/fetch.txt',
+                kind: 'referenced',
+                relativePath: 'tool-output/thread/run/fetch.txt',
+                source: 'fetch url tool_output',
+                byteLength: 90000,
+            }),
+        ])
+    })
 })

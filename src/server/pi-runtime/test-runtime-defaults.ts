@@ -59,6 +59,7 @@ export interface TestPiRuntimeConfigOptions {
     capabilities?: Partial<CapabilityConfig>
     search?: Partial<SearchRuntimeConfig>
     image?: Partial<ImageRuntimeConfig>
+    github?: Partial<PiRuntimeConfig['github']>
     budgets?: Partial<RunBudgetConfig>
     instructions?: string
     mcpServers?: MaterializedMcpServer[]
@@ -128,6 +129,18 @@ export function createTestPiRuntimeConfig(
         image: {
             ...testImage,
             ...options.image,
+        },
+        github: {
+            enabled: false,
+            installationId: null,
+            accountLogin: null,
+            repositories: [],
+            tokenEnvKey: null,
+            tokenExpiresAt: null,
+            ghHostsPath: null,
+            gitCredentialsPath: null,
+            gitConfigPath: null,
+            ...options.github,
         },
         budgets: {
             ...testBudgets,

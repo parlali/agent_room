@@ -133,6 +133,7 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
         config.capabilities.images ? 'image generation' : null,
         config.capabilities.mcp ? 'connected MCP tools' : null,
         config.capabilities.shellCoding ? 'shell and coding tools' : null,
+        config.github.enabled ? 'GitHub repository access' : null,
     ].filter((capability): capability is string => capability !== null)
     const mcpTools = config.mcpServers.map((server) => {
         const tools =
@@ -183,6 +184,9 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
         [
             'Operate like a coding agent: inspect the repository, make the smallest correct change, run the relevant checks, and report the result plainly.',
             'Use shell, git, package managers, test runners, and editor tools directly when they are available in the workspace.',
+            config.github.enabled
+                ? `GitHub is connected for ${config.github.repositories.join(', ')}. Use HTTPS remotes, git, and gh from the room HOME; do not print or persist tokens.`
+                : 'GitHub is not connected for this room. Ask for setup before authenticated clone, pull, push, or pull request work.',
             'Use web search or URL fetch for current documentation, API behavior, package versions, and other time-sensitive coding facts.',
             'Keep provider credentials, room secrets, OAuth tokens, and git credentials out of responses, files, command arguments, and logs.',
             'Ask for help only when authentication, missing credentials, destructive external actions, or unavailable user data block progress.',

@@ -64,11 +64,14 @@ function commandEnv(config: PiRuntimeConfig): NodeJS.ProcessEnv {
 function boundOutput(
     previous: string,
     chunk: Buffer,
+    redactOutput?: (value: string) => string,
 ): {
     output: string
     truncated: boolean
 } {
-    const next = previous + chunk.toString('utf8')
+    const next = redactOutput
+        ? redactOutput(previous + chunk.toString('utf8'))
+        : previous + chunk.toString('utf8')
     const bytes = Buffer.from(next)
     if (bytes.byteLength <= backgroundCommandMaxOutputBytes) {
         return {
@@ -158,6 +161,7 @@ export async function startBackgroundCommand(input: {
     sessionKey?: string | null
     runId?: string | null
     signal?: AbortSignal
+    redactOutput?: (value: string) => string
     onOutput?: (record: BackgroundCommandRecord) => void
 }): Promise<BackgroundCommandRecord> {
     const command = input.command.trim()
@@ -198,7 +202,7 @@ export async function startBackgroundCommand(input: {
     })
 
     const append = (chunk: Buffer) => {
-        const bounded = boundOutput(record.output, chunk)
+        const bounded = boundOutput(record.output, chunk, input.redactOutput)
         record.output = bounded.output
         record.outputTruncated = record.outputTruncated || bounded.truncated
         record.outputByteLength = Buffer.byteLength(record.output)

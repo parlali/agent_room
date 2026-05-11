@@ -1,5 +1,8 @@
 import type {
     AppMcpConnectionRecord,
+    AppGitHubAppRecord,
+    AppGitHubInstallationRecord,
+    AppGitHubManifestSessionRecord,
     AppProviderConnectionRecord,
     AppSettingsRecord,
     ArtifactIndexRecord,
@@ -11,6 +14,7 @@ import type {
     RoomConfigRecord,
     RoomCronJobRecord,
     RoomCronRunRecord,
+    RoomGitHubBindingRecord,
     RoomMcpBindingRecord,
     RoomRecord,
     RoomRuntimeMetadataRecord,
@@ -166,6 +170,56 @@ export function mapAppSettings(row: DbRow): AppSettingsRecord {
     }
 }
 
+export function mapAppGitHubManifestSession(row: DbRow): AppGitHubManifestSessionRecord {
+    return {
+        stateHash: String(row.state_hash),
+        actorUserId: nullableValue<string>(row.actor_user_id),
+        publicOrigin: String(row.public_origin),
+        targetOwner: nullableValue<string>(row.target_owner),
+        status: row.status as AppGitHubManifestSessionRecord['status'],
+        expiresAt: row.expires_at as Date,
+        createdAt: row.created_at as Date,
+        updatedAt: row.updated_at as Date,
+    }
+}
+
+export function mapAppGitHubApp(row: DbRow): AppGitHubAppRecord {
+    return {
+        id: Boolean(row.id),
+        appId: String(row.app_id),
+        slug: String(row.slug),
+        name: String(row.name),
+        clientId: String(row.client_id),
+        clientSecretSecretId: String(row.client_secret_secret_id),
+        privateKeySecretId: String(row.private_key_secret_id),
+        webhookSecretSecretId: nullableValue<string>(row.webhook_secret_secret_id),
+        htmlUrl: nullableValue<string>(row.html_url),
+        status: row.status as AppGitHubAppRecord['status'],
+        validationMessage: nullableValue<string>(row.validation_message),
+        lastValidatedAt: nullableValue<Date>(row.last_validated_at),
+        createdByUserId: nullableValue<string>(row.created_by_user_id),
+        createdAt: row.created_at as Date,
+        updatedAt: row.updated_at as Date,
+    }
+}
+
+export function mapAppGitHubInstallation(row: DbRow): AppGitHubInstallationRecord {
+    return {
+        installationId: String(row.installation_id),
+        accountLogin: String(row.account_login),
+        accountType: String(row.account_type),
+        targetType: nullableValue<string>(row.target_type),
+        htmlUrl: nullableValue<string>(row.html_url),
+        repositorySelection: String(row.repository_selection),
+        permissions: asJsonValue(row.permissions ?? {}),
+        suspendedAt: nullableValue<Date>(row.suspended_at),
+        status: row.status as AppGitHubInstallationRecord['status'],
+        lastSyncedAt: row.last_synced_at as Date,
+        createdAt: row.created_at as Date,
+        updatedAt: row.updated_at as Date,
+    }
+}
+
 export function mapRoomConfig(row: DbRow): RoomConfigRecord {
     return {
         roomId: String(row.room_id),
@@ -183,6 +237,18 @@ export function mapRoomConfig(row: DbRow): RoomConfigRecord {
         imageModel: nullableValue<string>(row.image_model),
         imageSecretId: nullableValue<string>(row.image_secret_id),
         cronTimezone: String(row.cron_timezone),
+        createdAt: row.created_at as Date,
+        updatedAt: row.updated_at as Date,
+    }
+}
+
+export function mapRoomGitHubBinding(row: DbRow): RoomGitHubBindingRecord {
+    return {
+        roomId: String(row.room_id),
+        installationId: String(row.installation_id),
+        repositories: asJsonValue(row.repositories ?? []),
+        enabled: Boolean(row.enabled),
+        createdByUserId: nullableValue<string>(row.created_by_user_id),
         createdAt: row.created_at as Date,
         updatedAt: row.updated_at as Date,
     }

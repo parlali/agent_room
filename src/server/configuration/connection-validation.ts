@@ -286,6 +286,17 @@ function buildValidationRoomConfiguration(
             env: {},
             secretRefs: [],
             mcpServers: [],
+            github: {
+                enabled: false,
+                installationId: null,
+                accountLogin: null,
+                repositories: [],
+                tokenEnvKey: null,
+                tokenExpiresAt: null,
+                ghHostsPath: null,
+                gitCredentialsPath: null,
+                gitConfigPath: null,
+            },
         },
     }
 }

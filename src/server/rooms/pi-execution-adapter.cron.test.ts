@@ -625,7 +625,7 @@ describe('Pi cron adapter', () => {
         })
     })
 
-    it('routes manual compaction and fork through explicit Pi thread endpoints', async () => {
+    it('routes manual compaction, fork, and edit through explicit Pi thread endpoints', async () => {
         mocks.requestPiRuntime.mockImplementation(async (_roomId, path, _schema, options) => {
             if (path === '/threads/thread-1/compact') {
                 return {
@@ -640,6 +640,16 @@ describe('Pi cron adapter', () => {
                     key: 'thread-fork',
                     parentThreadKey: 'thread-1',
                     parentSessionFile: '/sessions/parent.jsonl',
+                    options,
+                }
+            }
+            if (path === '/threads/thread-1/messages/message-1/edit') {
+                return {
+                    runId: 'run-edit',
+                    status: 'accepted',
+                    messageSeq: null,
+                    interruptedActiveRun: false,
+                    error: null,
                     options,
                 }
             }
@@ -667,6 +677,17 @@ describe('Pi cron adapter', () => {
             key: 'thread-fork',
             parentThreadKey: 'thread-1',
         })
+        await expect(
+            adapter.editRoomThreadMessage({
+                roomId: '22222222-2222-4222-8222-222222222222',
+                sessionKey: 'thread-1',
+                messageId: 'message-1',
+                message: 'Retry with bounded endpoint output',
+            }),
+        ).resolves.toMatchObject({
+            runId: 'run-edit',
+            status: 'accepted',
+        })
 
         expect(mocks.requestPiRuntime).toHaveBeenCalledWith(
             '22222222-2222-4222-8222-222222222222',
@@ -688,6 +709,18 @@ describe('Pi cron adapter', () => {
                 body: {
                     title: 'Forked thread',
                     entryId: null,
+                },
+            }),
+        )
+        expect(mocks.requestPiRuntime).toHaveBeenCalledWith(
+            '22222222-2222-4222-8222-222222222222',
+            '/threads/thread-1/messages/message-1/edit',
+            expect.anything(),
+            expect.objectContaining({
+                method: 'POST',
+                body: {
+                    message: 'Retry with bounded endpoint output',
+                    awaitCompletion: false,
                 },
             }),
         )

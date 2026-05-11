@@ -42,12 +42,16 @@ function boundRuntimeString(value: string): string {
 }
 
 export function createRuntimeRedactor(config: PiRuntimeConfig) {
-    const redactString = (value: string): string => {
+    const redactUnboundedString = (value: string): string => {
         let output = value
         for (const secret of redactionSecrets(config)) {
             output = output.replaceAll(secret, '[redacted]')
         }
-        return boundRuntimeString(output)
+        return output
+    }
+
+    const redactString = (value: string): string => {
+        return boundRuntimeString(redactUnboundedString(value))
     }
 
     const redactPayload = (value: unknown, depth = 0): unknown => {
@@ -86,6 +90,7 @@ export function createRuntimeRedactor(config: PiRuntimeConfig) {
 
     return {
         redactString,
+        redactUnboundedString,
         redactPayload,
         errorMessage,
     }

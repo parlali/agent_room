@@ -5,6 +5,7 @@ const forwardedProcessEnvKeys = ['PATH', 'LANG', 'LC_ALL', 'TZ', 'BUN_INSTALL'] 
 export const reservedRoomRuntimeEnvKeys = new Set([
     'AGENT_ROOM_DATA_DIR',
     'AGENT_ROOM_ENCRYPTION_KEY_B64',
+    'AGENT_ROOM_GITHUB_INSTALLATION_TOKEN',
     'AGENT_ROOM_PI_RUNTIME_CONFIG_PATH',
     'AGENT_ROOM_PI_RUNTIME_TOKEN',
     'AGENT_ROOM_PI_STATE_DIR',
@@ -16,6 +17,8 @@ export const reservedRoomRuntimeEnvKeys = new Set([
     'AGENT_ROOM_WORKSPACE_DIR',
     'BUN_INSTALL',
     'DATABASE_URL',
+    'GH_TOKEN',
+    'GITHUB_TOKEN',
     'HOME',
     'LANG',
     'LC_ALL',

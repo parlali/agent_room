@@ -166,6 +166,50 @@ export interface AppSettingsRecord {
     updatedAt: Date
 }
 
+export interface AppGitHubManifestSessionRecord {
+    stateHash: string
+    actorUserId: string | null
+    publicOrigin: string
+    targetOwner: string | null
+    status: 'pending' | 'completed' | 'expired' | 'failed'
+    expiresAt: Date
+    createdAt: Date
+    updatedAt: Date
+}
+
+export interface AppGitHubAppRecord {
+    id: boolean
+    appId: string
+    slug: string
+    name: string
+    clientId: string
+    clientSecretSecretId: string
+    privateKeySecretId: string
+    webhookSecretSecretId: string | null
+    htmlUrl: string | null
+    status: ConnectionStatus
+    validationMessage: string | null
+    lastValidatedAt: Date | null
+    createdByUserId: string | null
+    createdAt: Date
+    updatedAt: Date
+}
+
+export interface AppGitHubInstallationRecord {
+    installationId: string
+    accountLogin: string
+    accountType: string
+    targetType: string | null
+    htmlUrl: string | null
+    repositorySelection: string
+    permissions: JsonValue
+    suspendedAt: Date | null
+    status: ConnectionStatus
+    lastSyncedAt: Date
+    createdAt: Date
+    updatedAt: Date
+}
+
 export interface RoomConfigRecord {
     roomId: string
     instructions: string
@@ -182,6 +226,16 @@ export interface RoomConfigRecord {
     imageModel: string | null
     imageSecretId: string | null
     cronTimezone: string
+    createdAt: Date
+    updatedAt: Date
+}
+
+export interface RoomGitHubBindingRecord {
+    roomId: string
+    installationId: string
+    repositories: JsonValue
+    enabled: boolean
+    createdByUserId: string | null
     createdAt: Date
     updatedAt: Date
 }
@@ -409,10 +463,23 @@ export interface MaterializedMcpServer {
     headers: Record<string, string>
 }
 
+export interface MaterializedGitHubBinding {
+    enabled: boolean
+    installationId: string | null
+    accountLogin: string | null
+    repositories: string[]
+    tokenEnvKey: string | null
+    tokenExpiresAt: string | null
+    ghHostsPath: string | null
+    gitCredentialsPath: string | null
+    gitConfigPath: string | null
+}
+
 export interface MaterializedEntitlements {
     env: Record<string, string>
     secretRefs: MaterializedSecretRef[]
     mcpServers: MaterializedMcpServer[]
+    github: MaterializedGitHubBinding
 }
 
 export interface MaterializedProviderConfig {

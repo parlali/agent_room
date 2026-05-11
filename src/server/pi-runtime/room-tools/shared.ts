@@ -10,6 +10,14 @@ export interface RoomToolDetails {
     sha256?: string
     byteLength?: number
     truncated?: boolean
+    modelVisibleTruncated?: boolean
+    outputArtifact?: {
+        root: ToolRoot
+        path: string
+        byteLength: number
+        modelVisibleByteLength: number
+        saveError?: string
+    }
     exitCode?: number | null
     timedOut?: boolean
     aborted?: boolean
@@ -31,6 +39,8 @@ export interface RoomToolDetails {
 export interface RoomToolContext {
     config: PiRuntimeConfig
     audit: (event: string, payload: unknown) => Promise<void>
+    redactString?: (value: string) => string
+    redactCommandOutput?: (value: string) => string
 }
 
 export function textResult(

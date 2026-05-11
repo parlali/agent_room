@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
     updateRoomThreadModel: vi.fn(),
     compactRoomThread: vi.fn(),
     forkRoomThread: vi.fn(),
+    editRoomThreadMessage: vi.fn(),
     createRoomThread: vi.fn(),
     listRoomCronJobs: vi.fn(),
     updateRoomCronJob: vi.fn(),
@@ -21,7 +22,7 @@ vi.mock('./pi-execution-adapter', () => ({
     abortRoomThreadMessage: vi.fn(),
     compactRoomThread: mocks.compactRoomThread,
     forkRoomThread: mocks.forkRoomThread,
-    editRoomThreadMessage: vi.fn(),
+    editRoomThreadMessage: mocks.editRoomThreadMessage,
     createRoomSessionEventStream: vi.fn(),
     createRoomEventStream: vi.fn(),
     publishRoomFileChanged: mocks.publishRoomFileChanged,
@@ -48,6 +49,7 @@ describe('runtime-neutral execution engine facade', () => {
         mocks.updateRoomThreadModel.mockReset()
         mocks.compactRoomThread.mockReset()
         mocks.forkRoomThread.mockReset()
+        mocks.editRoomThreadMessage.mockReset()
         mocks.createRoomThread.mockReset()
         mocks.listRoomCronJobs.mockReset()
         mocks.updateRoomCronJob.mockReset()
@@ -69,6 +71,7 @@ describe('runtime-neutral execution engine facade', () => {
         })
         mocks.compactRoomThread.mockResolvedValue({ status: 'idle' })
         mocks.forkRoomThread.mockResolvedValue({ key: 'thread-fork' })
+        mocks.editRoomThreadMessage.mockResolvedValue({ status: 'accepted' })
         mocks.createRoomThread.mockResolvedValue({ key: 'thread-2' })
         mocks.listRoomCronJobs.mockResolvedValue([])
         mocks.updateRoomCronJob.mockResolvedValue({ id: 'job-1' })
@@ -118,6 +121,14 @@ describe('runtime-neutral execution engine facade', () => {
                 title: 'Forked',
             }),
         ).resolves.toEqual({ key: 'thread-fork' })
+        await expect(
+            engine.editRoomThreadMessage({
+                roomId: 'room-1',
+                sessionKey: 'thread-1',
+                messageId: 'message-1',
+                message: 'retry',
+            }),
+        ).resolves.toEqual({ status: 'accepted' })
         await expect(engine.createRoomThread({ roomId: 'room-1' })).resolves.toEqual({
             key: 'thread-2',
         })
@@ -162,6 +173,12 @@ describe('runtime-neutral execution engine facade', () => {
             roomId: 'room-1',
             sessionKey: 'thread-1',
             title: 'Forked',
+        })
+        expect(mocks.editRoomThreadMessage).toHaveBeenCalledWith({
+            roomId: 'room-1',
+            sessionKey: 'thread-1',
+            messageId: 'message-1',
+            message: 'retry',
         })
         expect(mocks.createRoomThread).toHaveBeenCalledWith({ roomId: 'room-1' })
         expect(mocks.listRoomCronJobs).toHaveBeenCalledWith({ roomId: 'room-1' })

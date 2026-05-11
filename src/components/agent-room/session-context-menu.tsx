@@ -218,17 +218,24 @@ export function SessionContextMenu({
     )
 }
 
-export function SessionContextMenuTrigger({ className }: { className?: string }) {
+export function SessionContextMenuTrigger({
+    className,
+    label = 'Session options',
+}: {
+    className?: string
+    label?: string
+}) {
     return (
         <button
             type="button"
+            aria-label={label}
             className={cn(
                 'inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50',
                 className,
             )}
         >
             <MoreHorizontalIcon className="size-3.5" />
-            <span className="sr-only">Session options</span>
+            <span className="sr-only">{label}</span>
         </button>
     )
 }

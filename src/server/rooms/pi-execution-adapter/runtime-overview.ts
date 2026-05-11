@@ -32,9 +32,8 @@ export function buildRoomExecutionCapabilities(connected: boolean) {
         canStreamTokens: connected,
         canStreamToolEvents: connected,
         canAbortGeneration: connected,
-        canEditMessages: false,
-        editMessageUnsupportedReason:
-            'Pi sessions are append-only in Agent Room. Create a new thread or rerun from a fork once branching is exposed.',
+        canEditMessages: connected,
+        editMessageUnsupportedReason: null,
     }
 }
 

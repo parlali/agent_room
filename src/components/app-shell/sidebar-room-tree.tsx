@@ -1,15 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-    ChevronRight,
-    CopyIcon,
-    Loader2Icon,
-    MoreHorizontalIcon,
-    PencilIcon,
-    Plus,
-    Trash2Icon,
-} from 'lucide-react'
+import { ChevronRight, Loader2Icon, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { cn } from '#/lib/utils'
@@ -17,31 +9,8 @@ import { describeRoomState } from '#/lib/state'
 import { formatRelativeTime } from '#/lib/format'
 import { Button } from '#/components/ui/button'
 import { Skeleton } from '#/components/ui/skeleton'
-import { StatusDot } from '#/components/agent-room'
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from '#/components/ui/dialog'
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from '#/components/ui/dropdown-menu'
-import { Input } from '#/components/ui/input'
-import { Label } from '#/components/ui/label'
-import { copyText } from '#/lib/clipboard'
-import {
-    createThreadServer,
-    deleteSessionServer,
-    getRoomExecutionServer,
-    renameSessionServer,
-} from '#/routes/-room-runtime-server'
+import { SessionContextMenu, SessionContextMenuTrigger, StatusDot } from '#/components/agent-room'
+import { createThreadServer, getRoomExecutionServer } from '#/routes/-room-runtime-server'
 import type { RoomExecutionThread, RoomRuntimeOverview } from '#/server/rooms/execution-types'
 
 const SESSION_PREVIEW_LIMIT = 5
@@ -335,11 +304,6 @@ function SessionStatusBadge({ thread }: { thread: RoomExecutionThread }) {
     return null
 }
 
-type SidebarSessionDialog =
-    | { type: 'closed' }
-    | { type: 'rename'; title: string }
-    | { type: 'delete' }
-
 function SidebarSessionActions({
     roomId,
     thread,
@@ -349,196 +313,24 @@ function SidebarSessionActions({
     thread: RoomExecutionThread
     onDeleted: () => void
 }) {
-    const queryClient = useQueryClient()
-    const [dialog, setDialog] = useState<SidebarSessionDialog>({ type: 'closed' })
     const title = thread.title || 'Untitled session'
 
-    const renameMutation = useMutation({
-        mutationFn: (nextTitle: string) =>
-            renameSessionServer({ data: { roomId, sessionKey: thread.key, title: nextTitle } }),
-        onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId] }),
-                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId, 'sidebar'] }),
-                queryClient.invalidateQueries({
-                    queryKey: ['room-execution', roomId, thread.key],
-                }),
-            ])
-            toast.success('Session renamed')
-            setDialog({ type: 'closed' })
-        },
-        onError: (error: unknown) => {
-            toast.error('Failed to rename session', {
-                description: error instanceof Error ? error.message : 'Unexpected error',
-            })
-        },
-    })
-
-    const deleteMutation = useMutation({
-        mutationFn: () => deleteSessionServer({ data: { roomId, sessionKey: thread.key } }),
-        onSuccess: async () => {
-            await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId] }),
-                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId, 'sidebar'] }),
-                queryClient.invalidateQueries({
-                    queryKey: ['room-execution', roomId, thread.key],
-                }),
-            ])
-            toast.success('Session deleted')
-            setDialog({ type: 'closed' })
-            onDeleted()
-        },
-        onError: (error: unknown) => {
-            toast.error('Failed to delete session', {
-                description: error instanceof Error ? error.message : 'Unexpected error',
-            })
-        },
-    })
-
-    const isPending = renameMutation.isPending || deleteMutation.isPending
-
-    const copySessionLink = async () => {
-        try {
-            const path = `/rooms/${encodeURIComponent(roomId)}/sessions/${encodeURIComponent(thread.key)}`
-            await copyText(`${window.location.origin}${path}`)
-            toast.success('Session link copied')
-        } catch {
-            toast.error('Could not copy session link')
-        }
-    }
-
     return (
-        <>
-            <span className="flex h-5 w-16 shrink-0 items-center justify-end">
-                <span className="text-[0.6875rem] whitespace-nowrap text-muted-foreground/80 group-hover/item:hidden group-focus-within/item:hidden">
-                    {formatRelativeTime(thread.updatedAt)}
-                </span>
-                <DropdownMenu>
-                    <DropdownMenuTrigger
-                        className="hidden size-5 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 group-hover/item:inline-flex group-focus-within/item:inline-flex data-[state=open]:inline-flex"
-                        aria-label={`Session options for ${title}`}
-                    >
-                        <MoreHorizontalIcon className="size-3.5" />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
-                        <DropdownMenuItem onSelect={() => void copySessionLink()}>
-                            <CopyIcon className="size-4" />
-                            Copy link
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => setDialog({ type: 'rename', title })}>
-                            <PencilIcon className="size-4" />
-                            Rename
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                            variant="destructive"
-                            onSelect={() => setDialog({ type: 'delete' })}
-                        >
-                            <Trash2Icon className="size-4" />
-                            Delete
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+        <span className="flex h-5 w-16 shrink-0 items-center justify-end">
+            <span className="text-[0.6875rem] whitespace-nowrap text-muted-foreground/80 group-hover/item:hidden group-focus-within/item:hidden">
+                {formatRelativeTime(thread.updatedAt)}
             </span>
-
-            <Dialog
-                open={dialog.type === 'rename'}
-                onOpenChange={(nextOpen) => {
-                    if (!nextOpen && !isPending) setDialog({ type: 'closed' })
-                }}
+            <SessionContextMenu
+                roomId={roomId}
+                sessionKey={thread.key}
+                sessionTitle={title}
+                onDeleted={onDeleted}
             >
-                <DialogContent>
-                    <form
-                        onSubmit={(event) => {
-                            event.preventDefault()
-                            if (dialog.type === 'rename' && dialog.title.trim()) {
-                                renameMutation.mutate(dialog.title.trim())
-                            }
-                        }}
-                    >
-                        <DialogHeader>
-                            <DialogTitle>Rename session</DialogTitle>
-                            <DialogDescription>
-                                Give this session a memorable name.
-                            </DialogDescription>
-                        </DialogHeader>
-                        <div className="py-4">
-                            <Label htmlFor={`session-title-${thread.key}`} className="sr-only">
-                                Session title
-                            </Label>
-                            <Input
-                                id={`session-title-${thread.key}`}
-                                value={dialog.type === 'rename' ? dialog.title : ''}
-                                onChange={(event) =>
-                                    setDialog({ type: 'rename', title: event.target.value })
-                                }
-                                placeholder="Session title"
-                                autoFocus
-                                disabled={isPending}
-                            />
-                        </div>
-                        <DialogFooter>
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => setDialog({ type: 'closed' })}
-                                disabled={isPending}
-                            >
-                                Cancel
-                            </Button>
-                            <Button
-                                type="submit"
-                                disabled={
-                                    isPending || (dialog.type === 'rename' && !dialog.title.trim())
-                                }
-                            >
-                                {renameMutation.isPending ? (
-                                    <Loader2Icon className="animate-spin" />
-                                ) : null}
-                                Save
-                            </Button>
-                        </DialogFooter>
-                    </form>
-                </DialogContent>
-            </Dialog>
-
-            <Dialog
-                open={dialog.type === 'delete'}
-                onOpenChange={(nextOpen) => {
-                    if (!nextOpen && !isPending) setDialog({ type: 'closed' })
-                }}
-            >
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Delete this session?</DialogTitle>
-                        <DialogDescription>
-                            "{title}" and all its messages will be permanently deleted. This cannot
-                            be undone.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <DialogFooter>
-                        <Button
-                            variant="outline"
-                            onClick={() => setDialog({ type: 'closed' })}
-                            disabled={isPending}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            variant="destructive"
-                            onClick={() => deleteMutation.mutate()}
-                            disabled={isPending}
-                        >
-                            {deleteMutation.isPending ? (
-                                <Loader2Icon className="animate-spin" />
-                            ) : (
-                                <Trash2Icon />
-                            )}
-                            Delete
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-        </>
+                <SessionContextMenuTrigger
+                    className="hidden group-hover/item:inline-flex group-focus-within/item:inline-flex data-[state=open]:inline-flex"
+                    label={`Session options for ${title}`}
+                />
+            </SessionContextMenu>
+        </span>
     )
 }

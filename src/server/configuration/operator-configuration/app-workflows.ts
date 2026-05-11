@@ -26,6 +26,7 @@ import {
     normalizeImageProvider,
     normalizeSearchConfig,
 } from '../capabilities'
+import { getGitHubIntegrationSummary } from '../github-app'
 import type {
     AppSettingsSummary,
     McpConnectionSummary,
@@ -50,10 +51,11 @@ import {
 import { decryptSecretRecord, resolveSecret, upsertEncryptedSecret } from './secrets'
 
 export async function getOperatorConfigSnapshot(): Promise<OperatorConfigSnapshot> {
-    const [settings, providers, mcpConnections] = await Promise.all([
+    const [settings, providers, mcpConnections, github] = await Promise.all([
         appSettingsRepository.getOrCreate(),
         appProviderConnectionRepository.list(),
         appMcpConnectionRepository.list(),
+        getGitHubIntegrationSummary(),
     ])
 
     return {
@@ -61,6 +63,7 @@ export async function getOperatorConfigSnapshot(): Promise<OperatorConfigSnapsho
         providerCatalog,
         providers: providers.map(summarizeProvider),
         mcpConnections: mcpConnections.map(summarizeMcp),
+        github,
         onboarding: {
             completed: settings.onboardingCompletedAt !== null,
             hasProvider: providers.some((provider) => {

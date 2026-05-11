@@ -50,6 +50,9 @@ export interface ConfigDraft {
     imageApiKey: string
     cronTimezone: string
     mcpConnectionIds: string[]
+    githubEnabled: boolean
+    githubInstallationId: string
+    githubRepositories: string[]
 }
 
 export interface SecretDraft {
@@ -87,6 +90,9 @@ export function configFromSnapshot(snapshot: RoomConfigSnapshot): ConfigDraft {
         imageApiKey: '',
         cronTimezone: snapshot.config.cronTimezone || 'UTC',
         mcpConnectionIds: [...snapshot.config.mcpConnectionIds],
+        githubEnabled: snapshot.config.github.enabled,
+        githubInstallationId: snapshot.config.github.installationId ?? '',
+        githubRepositories: [...snapshot.config.github.repositories],
     }
 }
 
@@ -118,6 +124,9 @@ export function configsEqual(a: ConfigDraft, b: ConfigDraft): boolean {
         a.imageModel === b.imageModel &&
         a.imageApiKey === b.imageApiKey &&
         a.cronTimezone === b.cronTimezone &&
-        arraysEqual(a.mcpConnectionIds, b.mcpConnectionIds)
+        arraysEqual(a.mcpConnectionIds, b.mcpConnectionIds) &&
+        a.githubEnabled === b.githubEnabled &&
+        a.githubInstallationId === b.githubInstallationId &&
+        arraysEqual(a.githubRepositories, b.githubRepositories)
     )
 }

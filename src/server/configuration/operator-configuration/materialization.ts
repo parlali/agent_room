@@ -20,6 +20,7 @@ import {
     appProviderConnectionRepository,
     appSettingsRepository,
     roomConfigRepository,
+    roomGitHubBindingRepository,
     roomMcpBindingRepository,
     roomSecretRepository,
     secretRepository,
@@ -37,6 +38,7 @@ import {
     normalizeImageProvider,
     normalizeSearchConfig,
 } from '../capabilities'
+import { materializeRoomGitHubBinding } from '../github-app'
 import {
     assertSupportedProvider,
     assertSupportedProviderApi,
@@ -360,11 +362,12 @@ export async function materializeRoomConfiguration(input: {
     runtimeSecretsDir: string
 }): Promise<MaterializedRoomConfiguration> {
     const env = getAppEnv()
-    const [config, settings, bindings, roomSecrets] = await Promise.all([
+    const [config, settings, bindings, roomSecrets, githubBinding] = await Promise.all([
         roomConfigRepository.getOrCreate(input.roomId),
         appSettingsRepository.getOrCreate(),
         roomMcpBindingRepository.listByRoomId(input.roomId),
         roomSecretRepository.listByRoomId(input.roomId),
+        roomGitHubBindingRepository.findByRoomId(input.roomId),
     ])
     const providerSelection = await resolveProviderForMaterialization({
         roomId: input.roomId,
@@ -436,6 +439,10 @@ export async function materializeRoomConfiguration(input: {
         runtimeSecretsDir: input.runtimeSecretsDir,
         encryptionKey: env.encryptionKey,
     })
+    const githubMaterialization = await materializeRoomGitHubBinding({
+        roomMode: config.roomMode,
+        binding: githubBinding,
+    })
     const enabledBindings = bindings.filter((binding) => binding.enabled)
     const capabilities = mergeCapabilities({
         defaults: settings.capabilityDefaults,
@@ -463,6 +470,7 @@ export async function materializeRoomConfiguration(input: {
                 ...providerMaterialization.entitlements.env,
                 ...imageMaterialization.env,
                 ...roomSecretMaterialization.env,
+                ...githubMaterialization.env,
             },
             secretRefs: [
                 ...providerMaterialization.entitlements.secretRefs,
@@ -470,6 +478,7 @@ export async function materializeRoomConfiguration(input: {
                 ...roomSecretMaterialization.secretRefs,
             ],
             mcpServers: capabilities.mcp ? mcpServers : [],
+            github: githubMaterialization.github,
         },
     }
 }

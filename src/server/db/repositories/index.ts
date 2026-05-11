@@ -1,5 +1,11 @@
 export { artifactIndexRepository } from './artifact-index-repository'
 export { auditRepository } from './audit-repository'
+export {
+    appGitHubAppRepository,
+    appGitHubInstallationRepository,
+    appGitHubManifestSessionRepository,
+    roomGitHubBindingRepository,
+} from './github-repository'
 export { providerValidationRepository } from './provider-validation-repository'
 export {
     appMcpConnectionRepository,

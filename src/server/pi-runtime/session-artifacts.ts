@@ -302,6 +302,25 @@ function collectToolResult(input: {
     const byteLength = numberValue(details?.byteLength)
     const artifactIdValue = stringValue(details?.artifactId)
     const fileChange = isRecord(details?.fileChange) ? details.fileChange : null
+    const outputArtifact = isRecord(details?.outputArtifact) ? details.outputArtifact : null
+
+    if (outputArtifact) {
+        addArtifact(
+            input.artifacts,
+            artifactFromPath({
+                config: input.config,
+                surface: normalizeSurface(outputArtifact.root),
+                path: stringValue(outputArtifact.path),
+                kind: 'referenced',
+                toolName,
+                operation: 'tool_output',
+                artifactId: null,
+                byteLength: numberValue(outputArtifact.byteLength),
+                timestamp,
+                messageId,
+            }),
+        )
+    }
 
     if (fileChange) {
         addArtifact(

@@ -104,6 +104,28 @@ describe('Agent Room Pi system prompt', () => {
         })
     })
 
+    it('includes explicit GitHub status in programmer mode', async () => {
+        await withConfig(async (config) => {
+            config.roomMode = 'programmer'
+            config.github = {
+                enabled: true,
+                installationId: '123',
+                accountLogin: 'agent-room',
+                repositories: ['agent-room/example'],
+                tokenEnvKey: 'AGENT_ROOM_GITHUB_INSTALLATION_TOKEN',
+                tokenExpiresAt: '2026-05-11T12:00:00.000Z',
+                ghHostsPath: '/tmp/home/.config/gh/hosts.yml',
+                gitCredentialsPath: '/tmp/home/.git-credentials',
+                gitConfigPath: '/tmp/home/.gitconfig',
+            }
+
+            const prompt = await buildAgentRoomSystemPrompt(config)
+
+            expect(prompt).toContain('GitHub repository access')
+            expect(prompt).toContain('GitHub is connected for agent-room/example')
+        })
+    })
+
     it('loads only explicit workspace instruction files and skips legacy duplicated room instructions', async () => {
         await withConfig(async (config) => {
             await writeFile(

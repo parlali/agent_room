@@ -58,6 +58,10 @@ import {
     shortText,
 } from './session-entry-mapper'
 import { extractSessionArtifacts } from './session-artifacts'
+import {
+    estimateSessionBranchContextBytes,
+    proactiveCompactionContextBytes,
+} from './session-context-budget'
 import { createPiRuntimeSession } from './pi-runtime-session'
 import { createPiResourceLoader } from './resource-loader'
 import { createRuntimeEventBus } from './runtime-event-bus'
@@ -84,7 +88,8 @@ if (!configPath) {
 }
 
 const config = JSON.parse(await readFile(configPath, 'utf8')) as PiRuntimeConfig
-const { redactPayload, redactString, errorMessage } = createRuntimeRedactor(config)
+const { redactPayload, redactString, redactUnboundedString, errorMessage } =
+    createRuntimeRedactor(config)
 const activeThreads = new Map<string, ActiveThread>()
 const threadIndex = await readJsonFile<ThreadIndexFile>(config.paths.threadIndexPath, {
     version: 1,
@@ -383,7 +388,7 @@ async function refreshSystemPrompt(active?: ActiveThread): Promise<void> {
 function readThreadEntries(record: ThreadRecord): SessionEntry[] {
     const active = activeThreads.get(record.key)
     if (active) {
-        return active.session.sessionManager.getEntries()
+        return active.session.sessionManager.getBranch()
     }
     if (!existsSync(record.sessionFile)) {
         return []
@@ -392,7 +397,48 @@ function readThreadEntries(record: ThreadRecord): SessionEntry[] {
         record.sessionFile,
         config.paths.sessionsDir,
         config.paths.workspaceDir,
-    ).getEntries()
+    ).getBranch()
+}
+
+async function compactOversizedThreadContext(input: {
+    record: ThreadRecord
+    active: ActiveThread
+}): Promise<void> {
+    if (!config.compaction.enabled) return
+    if (input.active.session.isCompacting || input.active.session.isStreaming) return
+
+    const contextBytes = estimateSessionBranchContextBytes(
+        input.active.session.sessionManager.getBranch(),
+    )
+    if (contextBytes < proactiveCompactionContextBytes) return
+
+    input.record.status = 'compacting'
+    input.record.lastError = null
+    await persistThreadIndex()
+    try {
+        await input.active.session.compact(
+            [
+                'Summarize the durable user goals, decisions, file paths, and final results.',
+                'Do not preserve raw command output, raw fetched response bodies, duplicated tool text, or transient errors unless they changed the plan.',
+            ].join(' '),
+        )
+        input.record.status = input.active.session.isStreaming ? 'running' : 'idle'
+        input.record.lastError = null
+    } catch (error) {
+        input.record.status = 'error'
+        input.record.lastError = errorMessage(error)
+        throw error
+    } finally {
+        updateThreadFromMessages(input.record)
+        await persistThreadIndex()
+        broadcast(input.record.key, 'thread.compacted', {
+            sessionKey: input.record.key,
+            status: input.record.status,
+            error: input.record.lastError,
+            contextBytes,
+            thresholdBytes: proactiveCompactionContextBytes,
+        })
+    }
 }
 
 function readThreadMessages(record: ThreadRecord, limit: number): RoomExecutionMessage[] {
@@ -691,6 +737,7 @@ async function createPiSession(record: ThreadRecord): Promise<AgentSession> {
         audit: appendRuntimeEvent,
         shortText,
         redactString,
+        redactCommandOutput: redactUnboundedString,
         maxSubagentTaskChars,
         maxActiveSubagents,
         activeSubagentCount: () =>
@@ -833,6 +880,7 @@ async function runPrompt(input: {
     runId: string
     awaitCompletion: boolean
     runKind?: RunKind
+    editMessageId?: string | null
 }): Promise<string> {
     const execute = async () => {
         const runKind = input.runKind ?? (input.record.kind === 'subagent' ? 'subagent' : 'manual')
@@ -846,6 +894,41 @@ async function runPrompt(input: {
         let watchdog: ReturnType<typeof setInterval> | null = null
         await refreshSystemPrompt(activeThreads.get(input.record.key))
         const active = await getActiveThread(input.record)
+        try {
+            if (input.editMessageId) {
+                if (active.session.isStreaming || input.record.activeRunId) {
+                    throw new Error('Cannot edit a message while a run is active')
+                }
+                const target = active.session.sessionManager.getEntry(input.editMessageId)
+                if (!target || target.type !== 'message' || target.message.role !== 'user') {
+                    throw new Error('Only user messages on this thread can be edited')
+                }
+                const result = await active.session.navigateTree(input.editMessageId, {
+                    summarize: false,
+                })
+                if (result.cancelled) {
+                    throw new Error('Message edit was cancelled')
+                }
+                updateThreadFromMessages(input.record)
+                await persistThreadIndex()
+            }
+            await compactOversizedThreadContext({
+                record: input.record,
+                active,
+            })
+        } catch (error) {
+            input.record.status = 'error'
+            input.record.lastError = errorMessage(error)
+            updateThreadFromMessages(input.record)
+            await persistThreadIndex()
+            broadcast(input.record.key, 'run.error', {
+                sessionKey: input.record.key,
+                runId: input.runId,
+                message: input.record.lastError,
+                reason: null,
+            })
+            return
+        }
         const abortController = new AbortController()
         active.abortController = abortController
         const touch = async (reason: string) => {
@@ -1011,6 +1094,23 @@ async function runPrompt(input: {
         await active.queue
     }
     return input.record.status
+}
+
+async function editThreadMessage(input: {
+    record: ThreadRecord
+    messageId: string
+    message: string
+    runId: string
+    awaitCompletion: boolean
+}): Promise<string> {
+    return runPrompt({
+        record: input.record,
+        message: input.message,
+        runId: input.runId,
+        awaitCompletion: input.awaitCompletion,
+        runKind: 'manual',
+        editMessageId: input.messageId,
+    })
 }
 
 async function updateThreadModel(input: {
@@ -1191,6 +1291,7 @@ const route = createPiRuntimeRouter({
     deleteThread,
     compactThread,
     forkThread,
+    editThreadMessage,
     snapshot,
     createEventStream,
     createRoomEventStream,

@@ -21,6 +21,7 @@ import {
     type RoomToolContext,
     type RoomToolDetails,
 } from './shared'
+import { boundToolOutput } from '../tool-output-bounds'
 
 function commandDurationMs(record: BackgroundCommandRecord): number {
     const end = record.finishedAt ? Date.parse(record.finishedAt) : Date.now()
@@ -39,22 +40,13 @@ function commandHeader(record: BackgroundCommandRecord): string {
     ].join('\n')
 }
 
-function commandResult(
-    record: BackgroundCommandRecord,
-    includeOutput = true,
-): AgentToolResult<RoomToolDetails> {
+function commandStatusResult(record: BackgroundCommandRecord): AgentToolResult<RoomToolDetails> {
     const header = commandHeader(record)
-    const outputBudget = Math.max(
-        0,
-        backgroundCommandMaxOutputBytes - Buffer.byteLength(header) - 2,
-    )
-    const outputBytes = Buffer.from(record.output)
-    const outputText =
-        outputBytes.byteLength > outputBudget
-            ? outputBytes.subarray(outputBytes.byteLength - outputBudget).toString('utf8')
-            : record.output
-    const output = includeOutput && outputText.trim() ? `\n\n${outputText}` : ''
-    return textResult(`${header}${output}`, {
+    return textResult(header, commandDetails(record))
+}
+
+function commandDetails(record: BackgroundCommandRecord): RoomToolDetails {
+    return {
         path: record.cwd,
         sandboxMode: currentShellSandboxIdentity().mode,
         byteLength: record.outputByteLength,
@@ -68,6 +60,41 @@ function commandResult(
         durationMs: commandDurationMs(record),
         commandId: record.commandId,
         status: record.status,
+    }
+}
+
+async function commandResult(
+    ctx: RoomToolContext,
+    record: BackgroundCommandRecord,
+): Promise<AgentToolResult<RoomToolDetails>> {
+    const header = commandHeader(record)
+    const outputBudget = Math.max(
+        0,
+        backgroundCommandMaxOutputBytes - Buffer.byteLength(header) - 2,
+    )
+    const outputBytes = Buffer.from(record.output)
+    const outputText =
+        outputBytes.byteLength > outputBudget
+            ? outputBytes.subarray(outputBytes.byteLength - outputBudget).toString('utf8')
+            : record.output
+    const text = outputText.trim() ? `${header}\n\n${outputText}` : header
+    const redact = ctx.redactCommandOutput ?? ctx.redactString
+    const safeText = redact ? redact(text) : text
+    const bounded = await boundToolOutput({
+        config: ctx.config,
+        text: safeText,
+        label: `command-${record.commandId}`,
+        extension: 'log',
+        previewMode: 'tail',
+    })
+    return textResult(bounded.text, {
+        ...commandDetails(record),
+        modelVisibleTruncated: bounded.modelVisibleTruncated,
+        ...(bounded.outputArtifact
+            ? {
+                  outputArtifact: bounded.outputArtifact,
+              }
+            : {}),
     })
 }
 
@@ -105,9 +132,10 @@ export function createShellTool(ctx: RoomToolContext): ToolDefinition {
                 sessionKey: runContext?.sessionKey,
                 runId: runContext?.runId,
                 signal,
+                redactOutput: ctx.redactCommandOutput,
                 onOutput: (record) => {
                     latest = record
-                    onUpdate?.(commandResult(record, false))
+                    onUpdate?.(commandStatusResult(record))
                 },
             })
             const deadline = Date.now() + waitMs
@@ -130,7 +158,7 @@ export function createShellTool(ctx: RoomToolContext): ToolDefinition {
                 durationMs: commandDurationMs(latest),
                 truncated: latest.outputTruncated,
             })
-            return commandResult(latest)
+            return commandResult(ctx, latest)
         },
     })
 }
@@ -160,6 +188,7 @@ export function createCommandStartTool(ctx: RoomToolContext): ToolDefinition {
                 sessionKey: runContext?.sessionKey,
                 runId: runContext?.runId,
                 signal,
+                redactOutput: ctx.redactCommandOutput,
             })
             await audit(ctx, 'command_start', {
                 path: record.cwd,
@@ -167,7 +196,7 @@ export function createCommandStartTool(ctx: RoomToolContext): ToolDefinition {
                 status: record.status,
                 sandboxMode: currentShellSandboxIdentity().mode,
             })
-            return commandResult(record, false)
+            return commandStatusResult(record)
         },
     })
 }
@@ -197,7 +226,7 @@ export function createCommandPollTool(ctx: RoomToolContext): ToolDefinition {
                 byteLength: record.outputByteLength,
                 truncated: record.outputTruncated,
             })
-            return commandResult(record)
+            return commandResult(ctx, record)
         },
     })
 }
@@ -226,7 +255,7 @@ export function createCommandStatusTool(ctx: RoomToolContext): ToolDefinition {
                     commandId: record.commandId,
                     status: record.status,
                 })
-                return commandResult(record, false)
+                return commandStatusResult(record)
             }
 
             const records = await listBackgroundCommands(ctx.config)
@@ -280,7 +309,7 @@ export function createCommandTerminateTool(ctx: RoomToolContext): ToolDefinition
                 status: record.status,
                 signal: record.signal,
             })
-            return commandResult(record, false)
+            return commandStatusResult(record)
         },
     })
 }

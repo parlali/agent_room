@@ -89,6 +89,7 @@ export function createPiRuntimeRouter({
     deleteThread,
     compactThread,
     forkThread,
+    editThreadMessage,
     snapshot,
     createEventStream,
     createRoomEventStream,
@@ -123,6 +124,13 @@ export function createPiRuntimeRouter({
         title?: string | null
         entryId?: string | null
     }) => Promise<PiRuntimeForkPayload>
+    editThreadMessage: (input: {
+        record: ThreadRecord
+        messageId: string
+        message: string
+        runId: string
+        awaitCompletion: boolean
+    }) => Promise<string>
     snapshot: (input: {
         selectedThreadKey?: string | null
         messageLimit?: number
@@ -326,6 +334,42 @@ export function createPiRuntimeRouter({
                     instructions,
                 }),
             )
+            return
+        }
+
+        const threadEditMessageMatch = url.pathname.match(
+            /^\/threads\/([^/]+)\/messages\/([^/]+)\/edit$/,
+        )
+        if (request.method === 'POST' && threadEditMessageMatch) {
+            const sessionKey = decodeURIComponent(threadEditMessageMatch[1]!)
+            const messageId = decodeURIComponent(threadEditMessageMatch[2]!)
+            const record = findThread(sessionKey)
+            if (!record) {
+                throw new HttpError(404, `Thread ${sessionKey} does not exist`)
+            }
+            const body = await getRequestBody(request)
+            const message =
+                isRecord(body) && typeof body.message === 'string' ? body.message.trim() : ''
+            if (!message) {
+                throw new HttpError(400, 'Message cannot be empty')
+            }
+            const runId = randomUUID()
+            const awaitCompletion = isRecord(body) && body.awaitCompletion === true
+            const finalStatus = await editThreadMessage({
+                record,
+                messageId,
+                message,
+                runId,
+                awaitCompletion,
+            })
+            const payload: PiRuntimeSendPayload = {
+                runId,
+                status: awaitCompletion ? finalStatus : 'accepted',
+                messageSeq: null,
+                interruptedActiveRun: false,
+                error: record.lastError,
+            }
+            sendJson(response, 200, payload)
             return
         }
 

@@ -10,8 +10,10 @@ import {
     deleteMcpConnectionServer,
     deleteProviderConnectionServer,
     getOperatorConfigServer,
+    refreshGitHubInstallationsServer,
     saveMcpConnectionServer,
     saveProviderConnectionServer,
+    startGitHubAppManifestServer,
     updateAppCapabilitySettingsServer,
     updateAppDefaultsServer,
 } from './-operator-config-server'
@@ -36,6 +38,7 @@ import {
     AppDefaultsSection,
     CapabilitiesSection,
     DeleteConnectionDialog,
+    GitHubAppSection,
     McpConnectionsSection,
     ProductInfoCard,
     ProviderConnectionsSection,
@@ -73,6 +76,8 @@ function SettingsPage() {
     const [appImageApiKey, setAppImageApiKey] = useState('')
     const [appImageReplaceApiKey, setAppImageReplaceApiKey] = useState(true)
     const [appImageHasCredential, setAppImageHasCredential] = useState(false)
+    const [githubPublicOrigin, setGithubPublicOrigin] = useState('')
+    const [githubTargetOwner, setGithubTargetOwner] = useState('')
 
     useEffect(() => {
         if (!config) return
@@ -88,7 +93,10 @@ function SettingsPage() {
         setAppImageApiKey('')
         setAppImageReplaceApiKey(!config.settings.image.hasCredential)
         setAppImageHasCredential(config.settings.image.hasCredential)
-    }, [config])
+        if (!githubPublicOrigin && typeof window !== 'undefined') {
+            setGithubPublicOrigin(window.location.origin)
+        }
+    }, [config, githubPublicOrigin])
 
     const updateProviderForm = (patch: Partial<ProviderFormState>) =>
         setProviderForm((c) => ({ ...c, ...patch }))
@@ -290,6 +298,44 @@ function SettingsPage() {
             toast.error(error instanceof Error ? error.message : 'Capability save failed'),
     })
 
+    const startGitHubManifestMutation = useMutation({
+        mutationFn: async () =>
+            startGitHubAppManifestServer({
+                data: {
+                    publicOrigin:
+                        githubPublicOrigin.trim() ||
+                        (typeof window === 'undefined' ? '' : window.location.origin),
+                    targetOwner: githubTargetOwner.trim() || null,
+                },
+            }),
+        onSuccess: (flow) => {
+            const form = document.createElement('form')
+            form.method = 'post'
+            form.action = flow.postUrl
+            const input = document.createElement('input')
+            input.type = 'hidden'
+            input.name = 'manifest'
+            input.value = flow.manifest
+            form.appendChild(input)
+            document.body.appendChild(form)
+            form.submit()
+        },
+        onError: (error) =>
+            toast.error(error instanceof Error ? error.message : 'GitHub App setup failed'),
+    })
+
+    const refreshGitHubMutation = useMutation({
+        mutationFn: async () => refreshGitHubInstallationsServer(),
+        onSuccess: async () => {
+            toast.success('GitHub installations refreshed')
+            await invalidateConfig()
+        },
+        onError: (error) =>
+            toast.error(
+                error instanceof Error ? error.message : 'GitHub installation refresh failed',
+            ),
+    })
+
     const onSubmitProvider = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
         if (!providerForm.label.trim()) return toast.error('Connection name is required')
@@ -425,6 +471,18 @@ function SettingsPage() {
                         onAdd={openNewMcp}
                         onEdit={openEditMcp}
                         onDelete={onDeleteMcp}
+                    />
+
+                    <GitHubAppSection
+                        config={config}
+                        publicOrigin={githubPublicOrigin}
+                        targetOwner={githubTargetOwner}
+                        setupPending={startGitHubManifestMutation.isPending}
+                        refreshPending={refreshGitHubMutation.isPending}
+                        onChangePublicOrigin={setGithubPublicOrigin}
+                        onChangeTargetOwner={setGithubTargetOwner}
+                        onStartSetup={() => startGitHubManifestMutation.mutate()}
+                        onRefresh={() => refreshGitHubMutation.mutate()}
                     />
 
                     <AppDefaultsSection

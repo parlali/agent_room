@@ -111,7 +111,7 @@ export async function editRoomThreadMessage(input: {
     sessionKey: string
     messageId: string
     message: string
-}): Promise<never> {
+}): Promise<RoomThreadSendResult> {
     const module = await loadExecutionEngineModule()
     return module.editRoomThreadMessage(input)
 }

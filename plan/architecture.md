@@ -342,6 +342,22 @@ Deferred:
 
 These are important, but not first-pass blockers unless a core capability depends on them.
 
+## GitHub
+
+GitHub is a first-party developer-room integration, not an MCP connection and not a generic room secret.
+
+Supported shape:
+
+- fresh self-hosted deployments create their own GitHub App from an app manifest
+- app private key, client secret, and webhook secret are encrypted in Agent Room secrets
+- installations are synced into canonical app state
+- programmer rooms bind explicit installation repositories
+- runtime materialization mints a short-lived installation token scoped to the bound repositories
+- git and gh credentials are written only into the room-local runtime home
+- coworker mode does not materialize GitHub credentials
+
+GitHub access must fail closed when the app, installation, repository binding, or room mode is not valid.
+
 ## Provider And Credential Truth
 
 Provider configuration is canonical in Agent Room.

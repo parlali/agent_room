@@ -1,5 +1,10 @@
 export type {
     AppSettingsSummary,
+    GitHubAppSummary,
+    GitHubInstallationSummary,
+    GitHubIntegrationSummary,
+    GitHubRepositorySummary,
+    GitHubRoomBindingSummary,
     McpConnectionSummary,
     McpSaveInput,
     OperatorConfigSnapshot,
@@ -10,6 +15,12 @@ export type {
     RoomSecretSaveInput,
     RoomSecretSummary,
 } from './operator-configuration/contracts'
+export {
+    completeGitHubAppManifest,
+    listGitHubInstallationRepositories,
+    refreshGitHubInstallations,
+    startGitHubAppManifest,
+} from './github-app'
 export {
     deleteMcpConnection,
     deleteProviderConnection,

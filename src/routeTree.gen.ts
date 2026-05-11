@@ -25,6 +25,8 @@ import { Route as RoomsRoomIdSettingsRouteImport } from './routes/rooms.$roomId.
 import { Route as RoomsRoomIdMemoryRouteImport } from './routes/rooms.$roomId.memory'
 import { Route as RoomsRoomIdJobsRouteImport } from './routes/rooms.$roomId.jobs'
 import { Route as RoomsRoomIdFilesRouteImport } from './routes/rooms.$roomId.files'
+import { Route as GithubAppCallbackRouteImport } from './routes/github.app.callback'
+import { Route as ApiGithubEventsRouteImport } from './routes/api.github.events'
 import { Route as RoomsRoomIdSessionsSessionKeyRouteImport } from './routes/rooms.$roomId.sessions.$sessionKey'
 import { Route as ApiRoomsRoomIdEventsRouteImport } from './routes/api.rooms.$roomId.events'
 import { Route as ApiRoomsRoomIdFilesUploadRouteImport } from './routes/api.rooms.$roomId.files.upload'
@@ -111,6 +113,16 @@ const RoomsRoomIdFilesRoute = RoomsRoomIdFilesRouteImport.update({
   path: '/files',
   getParentRoute: () => RoomsRoomIdRoute,
 } as any)
+const GithubAppCallbackRoute = GithubAppCallbackRouteImport.update({
+  id: '/github/app/callback',
+  path: '/github/app/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGithubEventsRoute = ApiGithubEventsRouteImport.update({
+  id: '/api/github/events',
+  path: '/api/github/events',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RoomsRoomIdSessionsSessionKeyRoute =
   RoomsRoomIdSessionsSessionKeyRouteImport.update({
     id: '/sessions/$sessionKey',
@@ -152,6 +164,8 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/usage': typeof UsageRoute
   '/rooms/$roomId': typeof RoomsRoomIdRouteWithChildren
+  '/api/github/events': typeof ApiGithubEventsRoute
+  '/github/app/callback': typeof GithubAppCallbackRoute
   '/rooms/$roomId/files': typeof RoomsRoomIdFilesRoute
   '/rooms/$roomId/jobs': typeof RoomsRoomIdJobsRoute
   '/rooms/$roomId/memory': typeof RoomsRoomIdMemoryRoute
@@ -175,6 +189,8 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/usage': typeof UsageRoute
   '/rooms/$roomId': typeof RoomsRoomIdRouteWithChildren
+  '/api/github/events': typeof ApiGithubEventsRoute
+  '/github/app/callback': typeof GithubAppCallbackRoute
   '/rooms/$roomId/files': typeof RoomsRoomIdFilesRoute
   '/rooms/$roomId/jobs': typeof RoomsRoomIdJobsRoute
   '/rooms/$roomId/memory': typeof RoomsRoomIdMemoryRoute
@@ -199,6 +215,8 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/usage': typeof UsageRoute
   '/rooms/$roomId': typeof RoomsRoomIdRouteWithChildren
+  '/api/github/events': typeof ApiGithubEventsRoute
+  '/github/app/callback': typeof GithubAppCallbackRoute
   '/rooms/$roomId/files': typeof RoomsRoomIdFilesRoute
   '/rooms/$roomId/jobs': typeof RoomsRoomIdJobsRoute
   '/rooms/$roomId/memory': typeof RoomsRoomIdMemoryRoute
@@ -224,6 +242,8 @@ export interface FileRouteTypes {
     | '/settings'
     | '/usage'
     | '/rooms/$roomId'
+    | '/api/github/events'
+    | '/github/app/callback'
     | '/rooms/$roomId/files'
     | '/rooms/$roomId/jobs'
     | '/rooms/$roomId/memory'
@@ -247,6 +267,8 @@ export interface FileRouteTypes {
     | '/settings'
     | '/usage'
     | '/rooms/$roomId'
+    | '/api/github/events'
+    | '/github/app/callback'
     | '/rooms/$roomId/files'
     | '/rooms/$roomId/jobs'
     | '/rooms/$roomId/memory'
@@ -270,6 +292,8 @@ export interface FileRouteTypes {
     | '/settings'
     | '/usage'
     | '/rooms/$roomId'
+    | '/api/github/events'
+    | '/github/app/callback'
     | '/rooms/$roomId/files'
     | '/rooms/$roomId/jobs'
     | '/rooms/$roomId/memory'
@@ -294,6 +318,8 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   UsageRoute: typeof UsageRoute
   RoomsRoomIdRoute: typeof RoomsRoomIdRouteWithChildren
+  ApiGithubEventsRoute: typeof ApiGithubEventsRoute
+  GithubAppCallbackRoute: typeof GithubAppCallbackRoute
   ApiRoomsRoomIdEventsRoute: typeof ApiRoomsRoomIdEventsRoute
   ApiRoomsRoomIdFilesPreviewRoute: typeof ApiRoomsRoomIdFilesPreviewRoute
   ApiRoomsRoomIdFilesUploadRoute: typeof ApiRoomsRoomIdFilesUploadRoute
@@ -414,6 +440,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RoomsRoomIdFilesRouteImport
       parentRoute: typeof RoomsRoomIdRoute
     }
+    '/github/app/callback': {
+      id: '/github/app/callback'
+      path: '/github/app/callback'
+      fullPath: '/github/app/callback'
+      preLoaderRoute: typeof GithubAppCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/github/events': {
+      id: '/api/github/events'
+      path: '/api/github/events'
+      fullPath: '/api/github/events'
+      preLoaderRoute: typeof ApiGithubEventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/rooms/$roomId/sessions/$sessionKey': {
       id: '/rooms/$roomId/sessions/$sessionKey'
       path: '/sessions/$sessionKey'
@@ -487,6 +527,8 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   UsageRoute: UsageRoute,
   RoomsRoomIdRoute: RoomsRoomIdRouteWithChildren,
+  ApiGithubEventsRoute: ApiGithubEventsRoute,
+  GithubAppCallbackRoute: GithubAppCallbackRoute,
   ApiRoomsRoomIdEventsRoute: ApiRoomsRoomIdEventsRoute,
   ApiRoomsRoomIdFilesPreviewRoute: ApiRoomsRoomIdFilesPreviewRoute,
   ApiRoomsRoomIdFilesUploadRoute: ApiRoomsRoomIdFilesUploadRoute,

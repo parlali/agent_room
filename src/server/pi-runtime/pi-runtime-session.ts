@@ -29,6 +29,7 @@ interface PiRuntimeSessionInput {
     audit: (event: string, payload: unknown) => Promise<void>
     shortText: (value: string, length?: number) => string
     redactString: (value: string) => string
+    redactCommandOutput: (value: string) => string
     maxSubagentTaskChars: number
     maxActiveSubagents: number
     activeSubagentCount: () => number
@@ -107,6 +108,8 @@ export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Prom
         ...createRoomTools({
             config,
             audit: input.audit,
+            redactString: input.redactString,
+            redactCommandOutput: input.redactCommandOutput,
         }),
         ...createWebTools({
             config,

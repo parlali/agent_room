@@ -21,6 +21,10 @@ const sendMessageInputSchema = z.object({
     message: z.string().min(1),
 })
 
+const editMessageInputSchema = sendMessageInputSchema.extend({
+    messageId: z.string().min(1),
+})
+
 const updateThreadModelInputSchema = z.object({
     roomId: roomIdSchema,
     sessionKey: z.string().min(1),
@@ -317,6 +321,20 @@ export const sendMessageServer = createServerFn({ method: 'POST' })
         return sendRoomThreadMessage({
             roomId: data.roomId,
             sessionKey: data.sessionKey,
+            message: data.message,
+        })
+    })
+
+export const editMessageServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => editMessageInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        await requireMutationActor()
+        await ensureRuntimeSupervisorBoot()
+        const { editRoomThreadMessage } = await import('#/server/rooms/execution-engine')
+        return editRoomThreadMessage({
+            roomId: data.roomId,
+            sessionKey: data.sessionKey,
+            messageId: data.messageId,
             message: data.message,
         })
     })

@@ -31,12 +31,21 @@ export function MessageList({
     messages,
     stream,
     isWorking,
+    canEditMessages,
+    onEditMessage,
 }: {
     sessionKey: string
     room: RoomRuntimeOverview
     messages: RoomExecutionMessage[]
     stream: StreamTurnState
     isWorking: boolean
+    canEditMessages: boolean
+    onEditMessage: (input: {
+        id: string
+        text: string
+        timestamp: number | null
+        attachments: ReturnType<typeof parseRoomMessageAttachments>['attachments']
+    }) => void
 }) {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const stickToBottomRef = useRef(true)
@@ -81,6 +90,8 @@ export function MessageList({
                         key={item.type === 'tools' ? item.id : item.message.id}
                         room={room}
                         item={item}
+                        canEditMessages={canEditMessages}
+                        onEditMessage={onEditMessage}
                     />
                 ))}
                 {stream.items.map((item) => (
@@ -97,11 +108,33 @@ export function MessageList({
     )
 }
 
-function DisplayRow({ room, item }: { room: RoomRuntimeOverview; item: DisplayItem }) {
+function DisplayRow({
+    room,
+    item,
+    canEditMessages,
+    onEditMessage,
+}: {
+    room: RoomRuntimeOverview
+    item: DisplayItem
+    canEditMessages: boolean
+    onEditMessage: (input: {
+        id: string
+        text: string
+        timestamp: number | null
+        attachments: ReturnType<typeof parseRoomMessageAttachments>['attachments']
+    }) => void
+}) {
     if (item.type === 'tools') {
         return <ToolRow id={item.id} tasks={item.tasks} />
     }
-    return <MessageRow room={room} message={item.message} />
+    return (
+        <MessageRow
+            room={room}
+            message={item.message}
+            canEditMessages={canEditMessages}
+            onEditMessage={onEditMessage}
+        />
+    )
 }
 
 function StreamRow({
@@ -139,9 +172,18 @@ function ToolRow({ id, tasks }: { id: string; tasks: ToolActivityTask[] }) {
 function MessageRow({
     room,
     message,
+    canEditMessages,
+    onEditMessage,
 }: {
     room: RoomRuntimeOverview
     message: RoomExecutionMessage
+    canEditMessages: boolean
+    onEditMessage: (input: {
+        id: string
+        text: string
+        timestamp: number | null
+        attachments: ReturnType<typeof parseRoomMessageAttachments>['attachments']
+    }) => void
 }) {
     if (message.role === 'system' || message.role === 'other') {
         return (
@@ -186,7 +228,15 @@ function MessageRow({
                     text={message.text}
                     timestamp={message.timestamp}
                     align="end"
-                    canEdit
+                    canEdit={canEditMessages}
+                    onEdit={() =>
+                        onEditMessage({
+                            id: message.id,
+                            text: parsed.text,
+                            timestamp: message.timestamp,
+                            attachments: parsed.attachments,
+                        })
+                    }
                 />
             </div>
         </div>
@@ -228,11 +278,13 @@ function MessageActions({
     timestamp,
     align = 'start',
     canEdit = false,
+    onEdit,
 }: {
     text: string
     timestamp: number | null
     align?: 'start' | 'end'
     canEdit?: boolean
+    onEdit?: () => void
 }) {
     const copyMessage = async () => {
         if (!text.trim()) return
@@ -268,8 +320,8 @@ function MessageActions({
                     type="button"
                     variant="ghost"
                     size="icon-xs"
-                    className="size-5 text-muted-foreground"
-                    disabled
+                    className="size-5 text-muted-foreground hover:text-foreground"
+                    onClick={onEdit}
                     aria-label="Edit message"
                 >
                     <PencilIcon className="size-3.5" />

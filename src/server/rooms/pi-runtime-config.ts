@@ -7,6 +7,7 @@ import type {
     ProviderApi,
     CapabilityConfig,
     ImageRuntimeConfig,
+    MaterializedGitHubBinding,
     RunBudgetConfig,
     RoomMode,
     RoomPaths,
@@ -98,6 +99,7 @@ export interface PiRuntimeConfig {
     capabilities: CapabilityConfig
     search: SearchRuntimeConfig
     image: ImageRuntimeConfig
+    github: MaterializedGitHubBinding
     budgets: RunBudgetConfig
     instructions: string
     mcpServers: MaterializedMcpServer[]
@@ -226,6 +228,15 @@ export function buildPiRuntimeConfig(input: {
             provider.provider === 'anthropic'
           ? 'builtin'
           : 'custom'
+    const homeDir = join(input.paths.engineStateDir, 'home')
+    const github = input.roomConfiguration.entitlements.github.enabled
+        ? {
+              ...input.roomConfiguration.entitlements.github,
+              ghHostsPath: join(homeDir, '.config', 'gh', 'hosts.yml'),
+              gitCredentialsPath: join(homeDir, '.git-credentials'),
+              gitConfigPath: join(homeDir, '.gitconfig'),
+          }
+        : input.roomConfiguration.entitlements.github
 
     return {
         runtime: {
@@ -247,7 +258,7 @@ export function buildPiRuntimeConfig(input: {
             modelsPath: join(input.paths.engineStateDir, 'models.json'),
             threadIndexPath: join(input.paths.engineStateDir, 'threads.json'),
             runtimeEventsPath: join(input.paths.engineStateDir, 'runtime-events.jsonl'),
-            homeDir: join(input.paths.engineStateDir, 'home'),
+            homeDir,
             tmpDir: join(input.paths.engineStateDir, 'tmp'),
         },
         provider: {
@@ -274,6 +285,7 @@ export function buildPiRuntimeConfig(input: {
         capabilities: input.roomConfiguration.capabilities,
         search: input.roomConfiguration.search,
         image: input.roomConfiguration.image,
+        github,
         budgets: input.roomConfiguration.budgets,
         instructions: input.roomConfiguration.instructions,
         mcpServers: input.roomConfiguration.entitlements.mcpServers,

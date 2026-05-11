@@ -279,7 +279,7 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                                             key={thread.key}
                                             className="group/session py-2 first:pt-0 last:pb-0"
                                         >
-                                            <div className="flex items-center justify-between gap-3 rounded-md px-1 py-1 transition-colors hover:bg-muted/50">
+                                            <div className="flex min-h-12 items-center justify-between gap-3 rounded-md px-1 py-1 transition-colors hover:bg-muted/50">
                                                 <Link
                                                     to="/rooms/$roomId/sessions/$sessionKey"
                                                     params={{ roomId, sessionKey: thread.key }}
@@ -306,21 +306,23 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                                                         </p>
                                                     ) : null}
                                                 </Link>
-                                                <div className="hidden shrink-0 flex-col items-end gap-1 text-xs text-muted-foreground group-hover/session:hidden sm:flex">
-                                                    <SessionRunStatus thread={thread} compact />
-                                                    <span>
-                                                        {formatRelativeTime(thread.updatedAt)}
+                                                <span className="flex h-10 w-5 shrink-0 items-center justify-end sm:w-40">
+                                                    <span className="hidden flex-col items-end gap-1 text-xs text-muted-foreground group-hover/session:hidden group-focus-within/session:hidden sm:flex">
+                                                        <SessionRunStatus thread={thread} compact />
+                                                        <span>
+                                                            {formatRelativeTime(thread.updatedAt)}
+                                                        </span>
                                                     </span>
-                                                </div>
-                                                <SessionContextMenu
-                                                    roomId={roomId}
-                                                    sessionKey={thread.key}
-                                                    sessionTitle={
-                                                        thread.title || 'Untitled session'
-                                                    }
-                                                >
-                                                    <SessionContextMenuTrigger className="hidden shrink-0 group-hover/session:flex" />
-                                                </SessionContextMenu>
+                                                    <SessionContextMenu
+                                                        roomId={roomId}
+                                                        sessionKey={thread.key}
+                                                        sessionTitle={
+                                                            thread.title || 'Untitled session'
+                                                        }
+                                                    >
+                                                        <SessionContextMenuTrigger className="hidden group-hover/session:inline-flex group-focus-within/session:inline-flex data-[state=open]:inline-flex" />
+                                                    </SessionContextMenu>
+                                                </span>
                                             </div>
                                         </li>
                                     )

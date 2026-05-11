@@ -87,6 +87,24 @@ describe('background commands', () => {
         expect(finished.roomId).toBe('room-test')
     })
 
+    it('redacts command output before persistence', async () => {
+        const config = await testConfig()
+        const started = await startBackgroundCommand({
+            config,
+            command: 'printf room-secret-value',
+            timeoutMs: 5000,
+            redactOutput: (value) => value.replaceAll('room-secret-value', '[redacted]'),
+        })
+        const finished = await waitForCommand(config, started.commandId)
+        const persisted = await getBackgroundCommand({
+            config,
+            commandId: started.commandId,
+        })
+
+        expect(finished.output).toBe('[redacted]')
+        expect(persisted?.output).toBe('[redacted]')
+    })
+
     it('terminates running commands by id and cleans up on shutdown', async () => {
         const config = await testConfig()
         const started = await startBackgroundCommand({

@@ -176,15 +176,62 @@ export async function forkRoomThread(input: {
     )
 }
 
-export async function editRoomThreadMessage(_input: {
+export async function editRoomThreadMessage(input: {
     roomId: string
     sessionKey: string
     messageId: string
     message: string
-}): Promise<never> {
-    throw new Error(
-        'Pi sessions are append-only in Agent Room. Message editing is not exposed yet.',
-    )
+}): Promise<RoomThreadSendResult> {
+    const message = input.message.trim()
+    if (!message) {
+        throw new Error('Message cannot be empty')
+    }
+
+    const startedAt = Date.now()
+    try {
+        const result = await requestPiRuntime(
+            input.roomId,
+            `/threads/${encodeURIComponent(input.sessionKey)}/messages/${encodeURIComponent(input.messageId)}/edit`,
+            sendSchema,
+            {
+                method: 'POST',
+                body: {
+                    message,
+                    awaitCompletion: false,
+                },
+            },
+        )
+        await syncRuntimeUsageEvents(input.roomId)
+        return result
+    } catch (error) {
+        await usageRepository.appendEvent({
+            roomId: input.roomId,
+            sessionKey: input.sessionKey,
+            runId: null,
+            jobId: null,
+            kind: 'run',
+            provider: null,
+            model: null,
+            toolName: null,
+            inputTokens: null,
+            outputTokens: null,
+            cachedTokens: null,
+            reasoningTokens: null,
+            totalTokens: null,
+            durationMs: Date.now() - startedAt,
+            activeDurationMs: null,
+            idleDurationMs: null,
+            estimatedCostUsd: null,
+            metadata: {
+                status: 'failed',
+                runKind: 'manual',
+                error: error instanceof Error ? error.message : 'Unknown error',
+                tokenUsageKnown: false,
+                editedMessageId: input.messageId,
+            },
+        })
+        throw error
+    }
 }
 
 export async function deleteRoomSession(input: {

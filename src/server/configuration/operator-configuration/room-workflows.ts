@@ -5,6 +5,7 @@ import type {
     ImageProviderId,
     JsonValue,
     RoomConfigRecord,
+    RoomGitHubBindingRecord,
     RoomMcpBindingRecord,
     SecretRecord,
 } from '../../domain/types'
@@ -15,6 +16,7 @@ import {
     auditRepository,
     providerValidationRepository,
     roomConfigRepository,
+    roomGitHubBindingRepository,
     roomMcpBindingRepository,
     roomRepository,
     roomSecretRepository,
@@ -30,6 +32,12 @@ import {
     normalizeImageProvider,
     normalizeSearchConfig,
 } from '../capabilities'
+import {
+    getGitHubIntegrationSummary,
+    resolveRoomGitHubStatus,
+    saveRoomGitHubBinding,
+    summarizeRoomGitHubBinding,
+} from '../github-app'
 import {
     assertSupportedProvider,
     assertSupportedProviderApi,
@@ -279,6 +287,14 @@ export async function saveRoomConfig(
             enabled: true,
         })),
     )
+    await saveRoomGitHubBinding({
+        roomId: input.roomId,
+        roomMode: input.roomMode,
+        enabled: input.githubEnabled,
+        installationId: input.githubInstallationId,
+        repositories: input.githubRepositories,
+        actorUserId,
+    })
 
     await auditRepository.appendEvent({
         actorUserId,
@@ -289,6 +305,7 @@ export async function saveRoomConfig(
             providerConnectionId: config.providerConnectionId,
             roomMode: config.roomMode,
             mcpConnectionCount: input.mcpConnectionIds.length,
+            githubEnabled: input.roomMode === 'programmer' && input.githubEnabled,
             hasInstructions: config.instructions.length > 0,
             enabledCapabilities: Object.entries(
                 config.capabilityOverrides &&
@@ -390,6 +407,7 @@ export async function saveRoomSecret(
 function summarizeRoomConfig(input: {
     config: RoomConfigRecord
     bindings: RoomMcpBindingRecord[]
+    githubBinding: RoomGitHubBindingRecord | null
     settings: AppSettingsRecord
 }): RoomConfigSnapshot['config'] {
     const capabilities = mergeCapabilities({
@@ -423,6 +441,7 @@ function summarizeRoomConfig(input: {
         mcpConnectionIds: input.bindings
             .filter((binding) => binding.enabled)
             .map((binding) => binding.mcpConnectionId),
+        github: summarizeRoomGitHubBinding(input.githubBinding),
     }
 }
 
@@ -432,6 +451,7 @@ async function resolveEffectiveRoomSummary(input: {
     settings: AppSettingsRecord
     providers: AppProviderConnectionRecord[]
     bindings: RoomMcpBindingRecord[]
+    githubBinding: RoomGitHubBindingRecord | null
     mcpConnections: AppMcpConnectionRecord[]
 }): Promise<RoomConfigSnapshot['effective']> {
     const blockedReasons: string[] = []
@@ -462,6 +482,10 @@ async function resolveEffectiveRoomSummary(input: {
         roomProvider: input.config.imageProvider,
         roomModel: input.config.imageModel,
         envKey: imageEnvKey,
+    })
+    const github = await resolveRoomGitHubStatus({
+        roomMode: input.config.roomMode,
+        binding: input.githubBinding,
     })
 
     if (input.config.providerMode === 'room_secret') {
@@ -547,6 +571,9 @@ async function resolveEffectiveRoomSummary(input: {
             )
         }
     }
+    if (!github.ready && github.message) {
+        blockedReasons.push(github.message)
+    }
 
     return {
         ready: blockedReasons.length === 0,
@@ -567,16 +594,28 @@ async function resolveEffectiveRoomSummary(input: {
         searchReady: capabilities.webSearch && search.enabled,
         imageReady: capabilities.images && image.enabled,
         codexAuth,
+        github,
     }
 }
 
 export async function getRoomConfigSnapshot(roomId: string): Promise<RoomConfigSnapshot> {
-    const [config, settings, providers, mcpConnections, bindings, roomSecrets] = await Promise.all([
+    const [
+        config,
+        settings,
+        providers,
+        mcpConnections,
+        bindings,
+        githubBinding,
+        github,
+        roomSecrets,
+    ] = await Promise.all([
         roomConfigRepository.getOrCreate(roomId),
         appSettingsRepository.getOrCreate(),
         appProviderConnectionRepository.list(),
         appMcpConnectionRepository.list(),
         roomMcpBindingRepository.listByRoomId(roomId),
+        roomGitHubBindingRepository.findByRoomId(roomId),
+        getGitHubIntegrationSummary(),
         roomSecretRepository.listByRoomId(roomId),
     ])
 
@@ -585,6 +624,7 @@ export async function getRoomConfigSnapshot(roomId: string): Promise<RoomConfigS
         config: summarizeRoomConfig({
             config,
             bindings,
+            githubBinding,
             settings,
         }),
         effective: await resolveEffectiveRoomSummary({
@@ -593,10 +633,12 @@ export async function getRoomConfigSnapshot(roomId: string): Promise<RoomConfigS
             settings,
             providers,
             bindings,
+            githubBinding,
             mcpConnections,
         }),
         providers: providers.map(summarizeProvider),
         mcpConnections: mcpConnections.map(summarizeMcp),
+        github,
         roomSecrets: roomSecrets.map((secret) => ({
             id: secret.id,
             label: secret.label,

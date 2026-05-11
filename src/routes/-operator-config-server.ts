@@ -66,6 +66,20 @@ const appCapabilityInputSchema = z.object({
     }),
 })
 
+const githubAppManifestStartInputSchema = z.object({
+    publicOrigin: z.string().url(),
+    targetOwner: z.string().nullable().optional(),
+})
+
+const githubAppManifestCompleteInputSchema = z.object({
+    code: z.string().min(1),
+    state: z.string().min(1),
+})
+
+const githubInstallationQuerySchema = z.object({
+    installationId: z.string().min(1),
+})
+
 const roomConfigInputSchema = z.object({
     roomId: z.string().uuid(),
     instructions: z.string(),
@@ -83,6 +97,9 @@ const roomConfigInputSchema = z.object({
     imageApiKey: z.string().optional(),
     cronTimezone: z.string().min(1),
     mcpConnectionIds: z.array(z.string().uuid()).default([]),
+    githubEnabled: z.boolean().default(false),
+    githubInstallationId: z.string().nullable().optional(),
+    githubRepositories: z.array(z.string().min(1)).default([]),
 })
 
 const roomSecretInputSchema = z.object({
@@ -189,6 +206,55 @@ export const updateAppCapabilitySettingsServer = createServerFn({ method: 'POST'
         return updateAppCapabilitySettings({
             ...data,
             actorUserId: actor.userId,
+        })
+    })
+
+export const startGitHubAppManifestServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => githubAppManifestStartInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { startGitHubAppManifest } =
+            await import('#/server/configuration/operator-configuration')
+        return startGitHubAppManifest({
+            publicOrigin: data.publicOrigin,
+            targetOwner: data.targetOwner,
+            actorUserId: actor.userId,
+        })
+    })
+
+export const completeGitHubAppManifestServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => githubAppManifestCompleteInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { completeGitHubAppManifest } =
+            await import('#/server/configuration/operator-configuration')
+        return completeGitHubAppManifest({
+            code: data.code,
+            state: data.state,
+            actorUserId: actor.userId,
+        })
+    })
+
+export const refreshGitHubInstallationsServer = createServerFn({ method: 'POST' }).handler(
+    async () => {
+        const actor = await requireMutationActor()
+        const { refreshGitHubInstallations } =
+            await import('#/server/configuration/operator-configuration')
+        return refreshGitHubInstallations(actor.userId)
+    },
+)
+
+export const listGitHubInstallationRepositoriesServer = createServerFn({ method: 'GET' })
+    .inputValidator((input: unknown) => githubInstallationQuerySchema.parse(input))
+    .handler(async ({ data }) => {
+        await requireAuthenticatedActor()
+        setResponseHeaders({
+            'cache-control': 'no-store',
+        })
+        const { listGitHubInstallationRepositories } =
+            await import('#/server/configuration/operator-configuration')
+        return listGitHubInstallationRepositories({
+            installationId: data.installationId,
         })
     })
 

@@ -57,7 +57,7 @@ export interface RoomExecutionAdapter {
         sessionKey: string
         messageId: string
         message: string
-    }) => Promise<never>
+    }) => Promise<RoomThreadSendResult>
     createRoomSessionEventStream: (input: {
         roomId: string
         sessionKey: string

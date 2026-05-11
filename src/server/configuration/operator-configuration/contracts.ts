@@ -67,6 +67,9 @@ export const roomConfigSaveSchema = z.object({
     imageApiKey: z.string().optional(),
     cronTimezone: z.string().trim().min(1).default('UTC'),
     mcpConnectionIds: z.array(z.string().uuid()).default([]),
+    githubEnabled: z.boolean().default(false),
+    githubInstallationId: z.string().nullable().optional(),
+    githubRepositories: z.array(z.string().trim().min(1)).default([]),
 })
 
 export const roomSecretSaveSchema = z.object({
@@ -135,11 +138,58 @@ export interface AppSettingsSummary {
     onboardingCompletedAt: string | null
 }
 
+export interface GitHubAppSummary {
+    configured: boolean
+    appId: string | null
+    slug: string | null
+    name: string | null
+    clientId: string | null
+    htmlUrl: string | null
+    status: ConnectionStatus | null
+    validationMessage: string | null
+    lastValidatedAt: string | null
+    updatedAt: string | null
+    installUrl: string | null
+}
+
+export interface GitHubInstallationSummary {
+    installationId: string
+    accountLogin: string
+    accountType: string
+    targetType: string | null
+    htmlUrl: string | null
+    repositorySelection: string
+    permissions: Record<string, string>
+    suspendedAt: string | null
+    status: ConnectionStatus
+    lastSyncedAt: string
+    updatedAt: string
+}
+
+export interface GitHubIntegrationSummary {
+    app: GitHubAppSummary
+    installations: GitHubInstallationSummary[]
+}
+
+export interface GitHubRoomBindingSummary {
+    enabled: boolean
+    installationId: string | null
+    repositories: string[]
+}
+
+export interface GitHubRepositorySummary {
+    id: string
+    fullName: string
+    private: boolean
+    defaultBranch: string | null
+}
+
 export interface OperatorConfigSnapshot {
     settings: AppSettingsSummary
     providerCatalog: typeof providerCatalog
     providers: ProviderConnectionSummary[]
     mcpConnections: McpConnectionSummary[]
+    github: GitHubIntegrationSummary
     onboarding: {
         completed: boolean
         hasProvider: boolean
@@ -175,6 +225,7 @@ export interface RoomConfigSnapshot {
         hasImageProviderSecret: boolean
         cronTimezone: string
         mcpConnectionIds: string[]
+        github: GitHubRoomBindingSummary
     }
     effective: {
         ready: boolean
@@ -188,8 +239,17 @@ export interface RoomConfigSnapshot {
         searchReady: boolean
         imageReady: boolean
         codexAuth: CodexAuthStatus | null
+        github: {
+            ready: boolean
+            enabled: boolean
+            installationId: string | null
+            accountLogin: string | null
+            repositories: string[]
+            message: string | null
+        }
     }
     providers: ProviderConnectionSummary[]
     mcpConnections: McpConnectionSummary[]
+    github: GitHubIntegrationSummary
     roomSecrets: RoomSecretSummary[]
 }

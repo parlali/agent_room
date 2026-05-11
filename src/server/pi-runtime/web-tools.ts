@@ -4,6 +4,7 @@ import { defineTool, type ToolDefinition } from '@mariozechner/pi-coding-agent'
 import { Type } from '@mariozechner/pi-ai'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { clampPositiveInteger, textToolResult } from './tool-helpers'
+import { boundToolOutput, type ToolOutputArtifact } from './tool-output-bounds'
 
 interface WebToolContext {
     config: PiRuntimeConfig
@@ -37,6 +38,8 @@ interface WebToolDetails {
     contentType?: string
     byteLength?: number
     truncated?: boolean
+    modelVisibleTruncated?: boolean
+    outputArtifact?: ToolOutputArtifact
     resultCount?: number
 }
 
@@ -632,13 +635,26 @@ function createFetchUrlTool(ctx: WebToolContext): ToolDefinition {
                 ]
                     .filter((line): line is string => line !== null)
                     .join('\n')
-                return textToolResult<WebToolDetails>(`${header}\n\n${result.text}`, {
+                const bounded = await boundToolOutput({
+                    config: ctx.config,
+                    text: `${header}\n\n${result.text}`,
+                    label: `fetch-${loggedFinalUrl}`,
+                    extension: 'txt',
+                    previewMode: 'head',
+                })
+                return textToolResult<WebToolDetails>(bounded.text, {
                     url: loggedUrl,
                     finalUrl: loggedFinalUrl,
                     status: result.status,
                     contentType: result.contentType,
                     byteLength: result.byteLength,
                     truncated: result.truncated,
+                    modelVisibleTruncated: bounded.modelVisibleTruncated,
+                    ...(bounded.outputArtifact
+                        ? {
+                              outputArtifact: bounded.outputArtifact,
+                          }
+                        : {}),
                 })
             } catch (error) {
                 await ctx.audit('tool.fetch_url', {

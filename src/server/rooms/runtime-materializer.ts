@@ -4,7 +4,9 @@ import { join } from 'node:path'
 import type { RoomRecord, RoomRuntimeMetadataRecord, RuntimeFileMetadata } from '../domain/types'
 import { materializeRoomConfiguration } from '../configuration/operator-configuration'
 import { ensureRoomFilesystemLayout, writeRuntimeToken } from './room-paths'
+import { writeGitHubRuntimeCredentials } from './github-runtime-credentials'
 import { getRuntimeEngineProfile } from './runtime-engine-profile'
+import type { PiRuntimeConfig } from './pi-runtime-config'
 
 function renderEnvFile(input: Record<string, string>): string {
     const lines: string[] = []
@@ -92,6 +94,10 @@ export async function materializeRuntime(input: {
         token,
         paths,
         roomConfiguration,
+    })
+    await writeGitHubRuntimeCredentials({
+        config: runtimeProfile.config as PiRuntimeConfig,
+        env: runtimeProfile.env,
     })
 
     const runtimeMetadata: RuntimeFileMetadata = {
