@@ -4,6 +4,10 @@ const maxRedactedStringChars = 4000
 const maxRedactedArrayItems = 100
 const maxRedactedObjectKeys = 100
 
+interface RedactPayloadOptions {
+    boundStrings?: boolean
+}
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -54,9 +58,15 @@ export function createRuntimeRedactor(config: PiRuntimeConfig) {
         return boundRuntimeString(redactUnboundedString(value))
     }
 
-    const redactPayload = (value: unknown, depth = 0): unknown => {
+    const redactPayload = (
+        value: unknown,
+        options: RedactPayloadOptions = {},
+        depth = 0,
+    ): unknown => {
         if (typeof value === 'string') {
-            return redactString(value)
+            return options.boundStrings === false
+                ? redactUnboundedString(value)
+                : redactString(value)
         }
         if (
             value === null ||
@@ -72,16 +82,22 @@ export function createRuntimeRedactor(config: PiRuntimeConfig) {
         if (Array.isArray(value)) {
             return value
                 .slice(0, maxRedactedArrayItems)
-                .map((entry) => redactPayload(entry, depth + 1))
+                .map((entry) => redactPayload(entry, options, depth + 1))
         }
         if (isRecord(value)) {
             const output: Record<string, unknown> = {}
             for (const [key, entry] of Object.entries(value).slice(0, maxRedactedObjectKeys)) {
-                output[key] = redactPayload(entry, depth + 1)
+                output[key] = redactPayload(entry, options, depth + 1)
             }
             return output
         }
-        return redactString(String(value))
+        return options.boundStrings === false
+            ? redactUnboundedString(String(value))
+            : redactString(String(value))
+    }
+
+    const redactUnboundedPayload = (value: unknown): unknown => {
+        return redactPayload(value, { boundStrings: false })
     }
 
     const errorMessage = (error: unknown): string => {
@@ -92,6 +108,7 @@ export function createRuntimeRedactor(config: PiRuntimeConfig) {
         redactString,
         redactUnboundedString,
         redactPayload,
+        redactUnboundedPayload,
         errorMessage,
     }
 }

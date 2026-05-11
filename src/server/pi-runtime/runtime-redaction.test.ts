@@ -82,6 +82,25 @@ describe('runtime redaction', () => {
         expect(errorMessage(new Error('bad runtime-secret'))).toBe('bad [redacted]')
     })
 
+    it('keeps live payload strings complete while still redacting secrets', () => {
+        const { redactPayload, redactUnboundedPayload } = createRuntimeRedactor(testConfig())
+        const longText = `${'a'.repeat(4100)} runtime-secret`
+
+        const bounded = redactPayload({
+            content: longText,
+        })
+        const unbounded = redactUnboundedPayload({
+            content: longText,
+        })
+
+        expect(bounded).toEqual({
+            content: `${'a'.repeat(4000)}...[truncated]`,
+        })
+        expect(unbounded).toEqual({
+            content: `${'a'.repeat(4100)} [redacted]`,
+        })
+    })
+
     it('identifies plain records without accepting arrays', () => {
         expect(isRecord({ ok: true })).toBe(true)
         expect(isRecord([])).toBe(false)

@@ -88,7 +88,7 @@ if (!configPath) {
 }
 
 const config = JSON.parse(await readFile(configPath, 'utf8')) as PiRuntimeConfig
-const { redactPayload, redactString, redactUnboundedString, errorMessage } =
+const { redactPayload, redactUnboundedPayload, redactString, redactUnboundedString, errorMessage } =
     createRuntimeRedactor(config)
 const activeThreads = new Map<string, ActiveThread>()
 const threadIndex = await readJsonFile<ThreadIndexFile>(config.paths.threadIndexPath, {
@@ -121,7 +121,7 @@ const mcpTools = await createMcpTools({
 let systemPrompt = await buildAgentRoomSystemPrompt(config)
 const { broadcast, createEventStream, createRoomEventStream } = createRuntimeEventBus({
     roomId: config.runtime.roomId,
-    redactPayload,
+    redactPayload: redactUnboundedPayload,
     stateVersionForThread: (sessionKey) =>
         threadIndex.threads.find((thread) => thread.key === sessionKey)?.updatedAt,
 })
@@ -1056,6 +1056,8 @@ async function runPrompt(input: {
             input.record.runStartedAt = null
             input.record.runBudgetExpiresAt = null
             input.record.idleTimeoutExpiresAt = null
+            input.record.activeDurationMs = durationMs
+            input.record.idleDurationMs = idleDurationMs
             updateThreadFromMessages(input.record)
             await persistThreadIndex()
             const usage = sessionUsageDelta(

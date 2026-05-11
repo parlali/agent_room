@@ -10,6 +10,7 @@ import { Button } from '#/components/ui/button'
 import { describeSessionState } from '#/lib/state'
 import { uploadRoomFiles } from '#/lib/room-file-upload'
 import { formatMessageWithAttachments } from '#/lib/room-attachments'
+import type { RoomAttachment } from '#/lib/room-attachments'
 import {
     abortMessageServer,
     editMessageServer,
@@ -35,7 +36,6 @@ import {
 import { MessageList } from './message-list'
 import { useStreamingRefetch } from './streaming'
 import { SessionArtifactsPanel } from './session-artifacts-panel'
-import { SessionRunStatus } from './session-run-status'
 
 export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessionKey: string }) {
     const navigate = useNavigate()
@@ -46,7 +46,9 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
     const [editingMessage, setEditingMessage] = useState<{
         id: string
+        text: string
         timestamp: number | null
+        attachments: RoomAttachment[]
     } | null>(null)
     const [artifactsOpen, setArtifactsOpen] = useState(false)
     const [autoOpenedArtifactsSession, setAutoOpenedArtifactsSession] = useState<string | null>(
@@ -174,8 +176,6 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 },
             }),
         onSuccess: () => {
-            setDraft('')
-            setAttachments([])
             setEditingMessage(null)
             void queryClient.invalidateQueries({ queryKey })
         },
@@ -276,21 +276,25 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         if (!value && attachments.length === 0) return
         setStreamTurn(emptyStreamTurnState)
         const message = formatMessageWithAttachments(value, attachments)
-        if (editingMessage) {
-            editMutation.mutate({
-                messageId: editingMessage.id,
-                message,
-            })
-            return
-        }
         sendMutation.mutate(message)
+    }
+
+    const submitEditedMessage = () => {
+        if (sending || !editingMessage) return
+        const value = editingMessage.text.trim()
+        if (!value && editingMessage.attachments.length === 0) return
+        setStreamTurn(emptyStreamTurnState)
+        editMutation.mutate({
+            messageId: editingMessage.id,
+            message: formatMessageWithAttachments(value, editingMessage.attachments),
+        })
     }
 
     const startEditingMessage = (input: {
         id: string
         text: string
         timestamp: number | null
-        attachments: ComposerAttachment[]
+        attachments: RoomAttachment[]
     }) => {
         if (!(snapshot?.capabilities.canEditMessages ?? false)) {
             toast.error(
@@ -300,16 +304,14 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         }
         setEditingMessage({
             id: input.id,
+            text: input.text,
             timestamp: input.timestamp,
+            attachments: input.attachments,
         })
-        setDraft(input.text)
-        setAttachments(input.attachments)
     }
 
     const cancelEditingMessage = () => {
         setEditingMessage(null)
-        setDraft('')
-        setAttachments([])
     }
 
     const onSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -357,7 +359,6 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 }
                 model={selectedThread?.model ?? null}
                 compaction={selectedThread?.compaction ?? null}
-                runStatus={<SessionRunStatus thread={selectedThread} compact />}
                 showArtifacts={showArtifacts}
                 artifactsCount={artifacts.length}
                 artifactsOpen={artifactsOpen}
@@ -413,12 +414,20 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     sessionKey={sessionKey}
                     room={room}
                     messages={messages}
+                    thread={selectedThread}
                     stream={visibleStreamTurn}
                     isWorking={isWorking}
                     canEditMessages={
                         (snapshot?.capabilities.canEditMessages ?? false) && !isWorking && !sending
                     }
+                    editingMessage={editingMessage}
+                    editPending={editMutation.isPending}
                     onEditMessage={startEditingMessage}
+                    onChangeEditingMessageText={(text) =>
+                        setEditingMessage((current) => (current ? { ...current, text } : current))
+                    }
+                    onSubmitEditingMessage={submitEditedMessage}
+                    onCancelEditingMessage={cancelEditingMessage}
                 />
                 {showArtifacts && artifactsOpen ? (
                     <>
@@ -449,8 +458,6 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 stopping={abortMutation.isPending}
                 canStop={isWorking && (snapshot?.capabilities.canAbortGeneration ?? true)}
                 onStop={() => abortMutation.mutate()}
-                editingMessage={editingMessage}
-                onCancelEdit={cancelEditingMessage}
                 attachments={attachments}
                 attaching={attachmentMutation.isPending}
                 onAttachFiles={(files) => attachmentMutation.mutate(Array.from(files))}

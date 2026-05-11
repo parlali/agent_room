@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ClockIcon } from 'lucide-react'
+import { ChevronRightIcon, ClockIcon } from 'lucide-react'
 
 import { describeSessionState } from '#/lib/state'
 import { formatDurationMs } from '#/lib/format'
@@ -9,10 +9,12 @@ import type { RoomExecutionThread } from '#/server/rooms/execution-types'
 export function SessionRunStatus({
     thread,
     compact = false,
+    variant = 'badge',
     className,
 }: {
     thread: RoomExecutionThread | null
     compact?: boolean
+    variant?: 'badge' | 'body'
     className?: string
 }) {
     const [now, setNow] = useState(Date.now())
@@ -32,6 +34,19 @@ export function SessionRunStatus({
             ? Math.max(0, now - thread.runStartedAt)
             : (thread.runtimeMs ?? null)
     if (durationMs === null) return null
+    const label = `${working ? 'Working' : 'Worked'} for ${formatDurationMs(durationMs)}`
+
+    if (variant === 'body') {
+        return (
+            <div className={cn('flex w-full flex-col gap-3 px-2', className)}>
+                <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                    <span>{label}</span>
+                    <ChevronRightIcon className="size-4" />
+                </div>
+                <div className="h-px w-full bg-border/70" aria-hidden />
+            </div>
+        )
+    }
 
     return (
         <span
@@ -42,7 +57,7 @@ export function SessionRunStatus({
             )}
         >
             <ClockIcon className={compact ? 'size-3' : 'size-3.5'} />
-            {working ? 'Working' : 'Worked'} for {formatDurationMs(durationMs)}
+            {label}
         </span>
     )
 }

@@ -1,6 +1,5 @@
 import { Link } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
-import type { ReactNode } from 'react'
 import { ArrowLeftIcon, FilesIcon, Loader2Icon, PencilIcon } from 'lucide-react'
 
 import { RoomGlyph, StateBadge } from '#/components/agent-room'
@@ -26,7 +25,6 @@ export function ChatHeader({
     provider,
     model,
     compaction,
-    runStatus,
     showArtifacts,
     artifactsCount,
     artifactsOpen,
@@ -42,7 +40,6 @@ export function ChatHeader({
     provider: string | null
     model: string | null
     compaction: RoomExecutionSnapshot['threads'][number]['compaction'] | null
-    runStatus?: ReactNode
     showArtifacts: boolean
     artifactsCount: number
     artifactsOpen: boolean
@@ -115,7 +112,6 @@ export function ChatHeader({
                     ) : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                    {runStatus}
                     {showArtifacts ? (
                         <Button
                             type="button"
