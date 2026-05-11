@@ -11,6 +11,7 @@ export {
 } from './configuration-repository'
 export { roomCronRepository } from './room-cron-repository'
 export { roomRepository } from './room-repository'
+export { roomThreadReadRepository } from './room-thread-read-repository'
 export { roomRuntimeMetadataRepository } from './room-runtime-metadata-repository'
 export { secretRepository } from './secret-repository'
 export { sessionRepository } from './session-repository'

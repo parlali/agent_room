@@ -2,7 +2,9 @@ import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import type {
     RoomExecutionActivity,
     RoomExecutionAgent,
+    RoomExecutionModelState,
     RoomExecutionMessage,
+    RoomSessionArtifact,
     RoomExecutionThread,
 } from '../rooms/execution-types'
 import type { PiRuntimeSnapshotPayload } from './protocol'
@@ -16,7 +18,9 @@ interface RuntimeSnapshotInput {
     messageLimit?: number
     findThread: (key: string) => ThreadRecord | null
     readThreadMessages: (record: ThreadRecord, limit: number) => RoomExecutionMessage[]
+    readThreadArtifacts: (record: ThreadRecord) => RoomSessionArtifact[]
     compactionStats: (record: ThreadRecord) => RoomExecutionThread['compaction']
+    selectedThreadModelState: (record: ThreadRecord) => RoomExecutionModelState | null
 }
 
 function mapThread(
@@ -34,11 +38,16 @@ function mapThread(
         lastMessagePreview: record.lastMessagePreview,
         status: record.status,
         updatedAt: record.updatedAt,
+        runStartedAt: record.runStartedAt,
         runtimeMs: record.activeDurationMs > 0 ? record.activeDurationMs : null,
         model: record.model,
         modelProvider: record.modelProvider,
         totalTokens: null,
         estimatedCostUsd: null,
+        readState: {
+            readAt: null,
+            unread: false,
+        },
         compaction: compactionStats(record),
     }
 }
@@ -87,13 +96,19 @@ export function buildRuntimeSnapshot(input: RuntimeSnapshotInput): PiRuntimeSnap
     const selectedThreadMessages = selectedRecord
         ? input.readThreadMessages(selectedRecord, limit)
         : []
+    const selectedThreadModel = selectedRecord
+        ? input.selectedThreadModelState(selectedRecord)
+        : null
+    const selectedThreadArtifacts = selectedRecord ? input.readThreadArtifacts(selectedRecord) : []
 
     return {
         roomAgent: roomAgent(input.config, threads),
         extraAgentIds,
         threads,
         selectedThreadKey,
+        selectedThreadModel,
         selectedThreadMessages,
+        selectedThreadArtifacts,
         recentActivity: threads.slice(0, 30).map(
             (thread): RoomExecutionActivity => ({
                 key: thread.key,

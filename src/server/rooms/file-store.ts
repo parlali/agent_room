@@ -96,6 +96,16 @@ export interface RoomFilePreviewAsset {
     generated: boolean
 }
 
+export interface RoomFileResolvedAsset {
+    name: string
+    relativePath: string
+    surface: RoomFileSurface
+    mediaType: string
+    byteLength: number
+    path: string
+    generated: boolean
+}
+
 const maxPreviewBytes = 512000
 const maxBinaryPreviewBytes = 8 * 1024 * 1024
 const maxDirectoryEntries = 1000
@@ -722,38 +732,6 @@ async function ensureOfficePdfPreview(input: {
     }
 }
 
-async function ensurePdfImagePreview(input: {
-    roomId: string
-    surface: RoomFileSurface
-    relativePath: string
-    path: string
-}): Promise<string> {
-    const cachedPath = await previewCachePath({
-        ...input,
-        extension: 'png',
-        version: 'pdf-page-image-preview-v1',
-    })
-    try {
-        await access(cachedPath)
-        return cachedPath
-    } catch {}
-
-    const paths = getRoomPaths(input.roomId)
-    const tempDir = await mkdtemp(join(paths.storeDir, 'previews', `${randomUUID()}-`))
-    try {
-        const outputBase = join(tempDir, 'preview')
-        await runPreviewProcess({
-            command: 'pdftoppm',
-            args: ['-png', '-f', '1', '-singlefile', input.path, outputBase],
-            cwd: rootPath(input.roomId, input.surface),
-        })
-        await rename(`${outputBase}.png`, cachedPath)
-        return cachedPath
-    } finally {
-        await rm(tempDir, { recursive: true, force: true }).catch(() => {})
-    }
-}
-
 export async function readRoomFileContent(input: {
     roomId: string
     surface: RoomFileSurface
@@ -847,6 +825,24 @@ export async function readRoomFilePreviewAsset(input: {
     surface: RoomFileSurface
     relativePath: string
 }): Promise<RoomFilePreviewAsset> {
+    const asset = await resolveRoomFilePreviewAsset(input)
+    const read = await readWholePreviewFile(asset.path)
+    return {
+        name: asset.name,
+        relativePath: asset.relativePath,
+        surface: asset.surface,
+        mediaType: asset.mediaType,
+        byteLength: read.byteLength,
+        content: read.buffer,
+        generated: asset.generated,
+    }
+}
+
+export async function resolveRoomFilePreviewAsset(input: {
+    roomId: string
+    surface: RoomFileSurface
+    relativePath: string
+}): Promise<RoomFileResolvedAsset> {
     const resolved = await resolveExistingPath(input)
     const fileStat = await lstat(resolved.path)
     if (!fileStat.isFile()) {
@@ -863,68 +859,74 @@ export async function readRoomFilePreviewAsset(input: {
             relativePath: resolved.relativePath,
             path: resolved.path,
         })
-        const previewPath = await ensurePdfImagePreview({
-            roomId: input.roomId,
-            surface: input.surface,
-            relativePath: resolved.relativePath,
-            path: pdfPath,
-        })
-        const read = await readWholePreviewFile(previewPath)
+        const pdfStat = await stat(pdfPath)
         return {
             name,
             relativePath: resolved.relativePath,
             surface: input.surface,
-            mediaType: 'image/png',
-            byteLength: read.byteLength,
-            content: read.buffer,
+            mediaType: 'application/pdf',
+            byteLength: pdfStat.size,
+            path: pdfPath,
             generated: true,
         }
     }
 
     if (mediaType === 'application/pdf') {
-        const previewPath = await ensurePdfImagePreview({
-            roomId: input.roomId,
-            surface: input.surface,
-            relativePath: resolved.relativePath,
-            path: resolved.path,
-        })
-        const read = await readWholePreviewFile(previewPath)
-        return {
-            name,
-            relativePath: resolved.relativePath,
-            surface: input.surface,
-            mediaType: 'image/png',
-            byteLength: read.byteLength,
-            content: read.buffer,
-            generated: true,
-        }
-    }
-
-    if (isImageMediaType(mediaType)) {
-        const read = await readWholePreviewFile(resolved.path)
         return {
             name,
             relativePath: resolved.relativePath,
             surface: input.surface,
             mediaType,
-            byteLength: read.buffer.byteLength,
-            content: read.buffer,
+            byteLength: fileStat.size,
+            path: resolved.path,
+            generated: false,
+        }
+    }
+
+    if (isImageMediaType(mediaType)) {
+        return {
+            name,
+            relativePath: resolved.relativePath,
+            surface: input.surface,
+            mediaType,
+            byteLength: fileStat.size,
+            path: resolved.path,
             generated: false,
         }
     }
 
     if (isTextMediaType(mediaType)) {
-        const read = await readBoundedPreviewFile(resolved.path, maxPreviewBytes)
         return {
             name,
             relativePath: resolved.relativePath,
             surface: input.surface,
             mediaType,
-            byteLength: read.byteLength,
-            content: read.buffer,
+            byteLength: fileStat.size,
+            path: resolved.path,
             generated: false,
         }
     }
 
     throw new Error('Preview is not available for this file type')
+}
+
+export async function resolveRoomFileDownloadAsset(input: {
+    roomId: string
+    surface: RoomFileSurface
+    relativePath: string
+}): Promise<RoomFileResolvedAsset> {
+    const resolved = await resolveExistingPath(input)
+    const fileStat = await lstat(resolved.path)
+    if (!fileStat.isFile()) {
+        throw new Error('File download only supports regular files')
+    }
+    return {
+        name: resolved.relativePath.split('/').at(-1) ?? resolved.relativePath,
+        relativePath: resolved.relativePath,
+        surface: input.surface,
+        mediaType: mediaTypeFor(resolved.path),
+        byteLength: fileStat.size,
+        path: resolved.path,
+        generated: false,
+    }
 }

@@ -13,6 +13,7 @@ export interface ThreadRecord {
     lastMessagePreview: string | null
     modelProvider: string | null
     model: string | null
+    thinkingLevel: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | null
     activeRunId: string | null
     activeRunKind: 'manual' | 'scheduled' | 'subagent' | 'maintenance' | null
     heartbeatAt: number | null
@@ -49,6 +50,7 @@ export function normalizeThreadRecord(
         lastMessagePreview?: string | null
         modelProvider?: string | null
         model?: string | null
+        thinkingLevel?: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | null
         activeRunId?: string | null
         activeRunKind?: 'manual' | 'scheduled' | 'subagent' | 'maintenance' | null
         heartbeatAt?: number | null
@@ -75,6 +77,7 @@ export function normalizeThreadRecord(
         lastMessagePreview: record.lastMessagePreview ?? null,
         modelProvider: record.modelProvider ?? null,
         model: record.model ?? null,
+        thinkingLevel: record.thinkingLevel ?? null,
         activeRunId: record.activeRunId ?? null,
         activeRunKind: record.activeRunKind ?? null,
         heartbeatAt: record.heartbeatAt ?? null,

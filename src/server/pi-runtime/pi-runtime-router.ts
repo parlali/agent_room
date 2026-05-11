@@ -9,8 +9,15 @@ import type {
     PiRuntimeForkPayload,
     PiRuntimeSendPayload,
     PiRuntimeSnapshotPayload,
+    PiRuntimeThreadModelPayload,
     PiRuntimeThreadCreatePayload,
 } from './protocol'
+import type {
+    RoomExecutionThinkingLevel,
+    RoomFileChangedPayload,
+    RoomFileChangeOperation,
+} from '../rooms/execution-types'
+import type { RoomFileSurface } from '../rooms/file-store'
 import { resolveAbortDecision } from './run-control'
 import { RunWatchdog, timeoutMessage, type RunKind } from './run-budget'
 import { assertAuthorized, getRequestBody, HttpError, sendJson } from './runtime-http'
@@ -22,18 +29,70 @@ interface RouterActiveThread {
     abortController: AbortController | null
 }
 
+function fileSurface(value: unknown): RoomFileSurface | null {
+    return value === 'workspace' || value === 'store' ? value : null
+}
+
+function fileChangeOperation(value: unknown): RoomFileChangeOperation {
+    if (
+        value === 'write' ||
+        value === 'edit' ||
+        value === 'artifact_import' ||
+        value === 'artifact_export' ||
+        value === 'upload' ||
+        value === 'runtime_activity'
+    ) {
+        return value
+    }
+    return 'runtime_activity'
+}
+
+function nullableString(value: unknown): string | null {
+    return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function parseFileChangedPayload(config: PiRuntimeConfig, body: unknown): RoomFileChangedPayload {
+    if (!isRecord(body)) {
+        throw new HttpError(400, 'File change payload is invalid')
+    }
+    const surface = fileSurface(body.surface)
+    const relativePath = nullableString(body.relativePath)
+    if (!surface || !relativePath) {
+        throw new HttpError(400, 'File change payload is missing a visible file path')
+    }
+    return {
+        roomId: config.runtime.roomId,
+        sessionKey: nullableString(body.sessionKey),
+        runId: nullableString(body.runId),
+        surface,
+        relativePath,
+        operation: fileChangeOperation(body.operation),
+        byteLength:
+            typeof body.byteLength === 'number' && Number.isFinite(body.byteLength)
+                ? body.byteLength
+                : null,
+        changedAt:
+            typeof body.changedAt === 'number' && Number.isFinite(body.changedAt)
+                ? body.changedAt
+                : Date.now(),
+    }
+}
+
 export function createPiRuntimeRouter({
     config,
     activeThreads,
     findThread,
     createThread,
     runPrompt,
+    updateThreadModel,
     renameThread,
     deleteThread,
     compactThread,
     forkThread,
     snapshot,
     createEventStream,
+    createRoomEventStream,
+    publishRoomFileChanged,
     persistThreadIndex,
 }: {
     config: PiRuntimeConfig
@@ -47,6 +106,12 @@ export function createPiRuntimeRouter({
         awaitCompletion: boolean
         runKind?: RunKind
     }) => Promise<string>
+    updateThreadModel: (input: {
+        record: ThreadRecord
+        provider: string
+        model: string
+        thinkingLevel?: RoomExecutionThinkingLevel | null
+    }) => Promise<PiRuntimeThreadModelPayload>
     renameThread: (input: { record: ThreadRecord; title: string }) => Promise<void>
     deleteThread: (record: ThreadRecord) => Promise<void>
     compactThread: (input: {
@@ -63,6 +128,8 @@ export function createPiRuntimeRouter({
         messageLimit?: number
     }) => PiRuntimeSnapshotPayload
     createEventStream: (sessionKey: string) => ReadableStream<Uint8Array>
+    createRoomEventStream: () => ReadableStream<Uint8Array>
+    publishRoomFileChanged: (payload: RoomFileChangedPayload) => void
     persistThreadIndex: () => Promise<void>
 }) {
     return async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -138,6 +205,34 @@ export function createPiRuntimeRouter({
                 error: record.lastError,
             }
             sendJson(response, 200, payload)
+            return
+        }
+
+        const threadModelMatch = url.pathname.match(/^\/threads\/([^/]+)\/model$/)
+        if (request.method === 'POST' && threadModelMatch) {
+            const sessionKey = decodeURIComponent(threadModelMatch[1]!)
+            const record = findThread(sessionKey)
+            if (!record) {
+                throw new HttpError(404, `Thread ${sessionKey} does not exist`)
+            }
+            const body = await getRequestBody(request)
+            const provider =
+                isRecord(body) && typeof body.provider === 'string' ? body.provider : ''
+            const model = isRecord(body) && typeof body.model === 'string' ? body.model : ''
+            const thinkingLevel =
+                isRecord(body) && typeof body.thinkingLevel === 'string'
+                    ? (body.thinkingLevel as RoomExecutionThinkingLevel)
+                    : null
+            sendJson(
+                response,
+                200,
+                await updateThreadModel({
+                    record,
+                    provider,
+                    model,
+                    thinkingLevel,
+                }),
+            )
             return
         }
 
@@ -276,6 +371,33 @@ export function createPiRuntimeRouter({
                 }
                 response.write(next.value)
             }
+        }
+
+        if (request.method === 'GET' && url.pathname === '/events') {
+            response.writeHead(200, {
+                'content-type': 'text/event-stream; charset=utf-8',
+                'cache-control': 'no-store',
+                connection: 'keep-alive',
+            })
+            const reader = createRoomEventStream().getReader()
+            request.on('close', () => {
+                void reader.cancel()
+            })
+            while (true) {
+                const next = await reader.read()
+                if (next.done) {
+                    response.end()
+                    return
+                }
+                response.write(next.value)
+            }
+        }
+
+        if (request.method === 'POST' && url.pathname === '/events/file-changed') {
+            const payload = parseFileChangedPayload(config, await getRequestBody(request))
+            publishRoomFileChanged(payload)
+            sendJson(response, 200, { ok: true })
+            return
         }
 
         throw new HttpError(404, `Pi runtime route ${url.pathname} was not found`)

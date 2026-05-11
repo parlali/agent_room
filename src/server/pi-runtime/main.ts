@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
+import { isAbsolute, relative, sep } from 'node:path'
 import {
     AuthStorage,
     createAgentSession,
@@ -12,9 +13,19 @@ import {
     type AgentSessionEvent,
     type SessionEntry,
 } from '@mariozechner/pi-coding-agent'
+import { supportsXhigh, type Api, type Model } from '@mariozechner/pi-ai'
 import { extractTextFromRuntimeContent } from '#/lib/runtime-message'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
-import type { RoomExecutionMessage, RoomExecutionThread } from '../rooms/execution-types'
+import type {
+    RoomExecutionMessage,
+    RoomExecutionModelOption,
+    RoomExecutionModelState,
+    RoomExecutionThinkingLevel,
+    RoomFileChangedPayload,
+    RoomFileChangeOperation,
+    RoomExecutionThread,
+} from '../rooms/execution-types'
+import type { RoomFileSurface } from '../rooms/file-store'
 import type {
     PiRuntimeCompactPayload,
     PiRuntimeForkPayload,
@@ -46,6 +57,7 @@ import {
     mapSessionEntry,
     shortText,
 } from './session-entry-mapper'
+import { extractSessionArtifacts } from './session-artifacts'
 import { createPiRuntimeSession } from './pi-runtime-session'
 import { createPiResourceLoader } from './resource-loader'
 import { createRuntimeEventBus } from './runtime-event-bus'
@@ -83,12 +95,16 @@ const titleGenerationThreads = new Set<string>()
 
 const maxSubagentTaskChars = 24000
 const maxActiveSubagents = 5
+const internalStoreRoots = new Set(['blobs', 'manifests', 'previews'])
 
 type GeneratedThreadTitle = {
     title: string | null
     usage: RunUsageDelta
     durationMs: number
 }
+
+const THINKING_LEVELS: RoomExecutionThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high']
+const THINKING_LEVELS_WITH_XHIGH: RoomExecutionThinkingLevel[] = [...THINKING_LEVELS, 'xhigh']
 
 threadIndex.threads = normalizeThreadIndexFile(threadIndex).threads
 await ensureRuntimeLayout(config)
@@ -98,12 +114,92 @@ const mcpTools = await createMcpTools({
     cwd: config.paths.workspaceDir,
 })
 let systemPrompt = await buildAgentRoomSystemPrompt(config)
-const { broadcast, createEventStream } = createRuntimeEventBus({
+const { broadcast, createEventStream, createRoomEventStream } = createRuntimeEventBus({
     roomId: config.runtime.roomId,
     redactPayload,
     stateVersionForThread: (sessionKey) =>
         threadIndex.threads.find((thread) => thread.key === sessionKey)?.updatedAt,
 })
+
+function normalizeFileChangeOperation(value: unknown): RoomFileChangeOperation {
+    if (
+        value === 'write' ||
+        value === 'edit' ||
+        value === 'artifact_import' ||
+        value === 'artifact_export' ||
+        value === 'upload'
+    ) {
+        return value
+    }
+    return 'runtime_activity'
+}
+
+function normalizeFileSurface(value: unknown): RoomFileSurface {
+    return value === 'store' ? 'store' : 'workspace'
+}
+
+function rootPathForSurface(surface: RoomFileSurface): string {
+    return surface === 'store' ? config.paths.storeDir : config.paths.workspaceDir
+}
+
+function normalizeVisibleRelativePath(surface: RoomFileSurface, path: unknown): string | null {
+    if (typeof path !== 'string' || !path.trim()) {
+        return null
+    }
+    const trimmed = path.trim()
+    let relativePath = trimmed
+    if (isAbsolute(trimmed)) {
+        const display = relative(rootPathForSurface(surface), trimmed)
+        if (display.startsWith('..') || isAbsolute(display)) {
+            return null
+        }
+        relativePath = display
+    }
+    relativePath = relativePath
+        .split(sep)
+        .join('/')
+        .replace(/^\.\/+/, '')
+    if (!relativePath || relativePath === '.') {
+        return null
+    }
+    if (surface === 'store') {
+        const root = relativePath.split('/')[0] ?? relativePath
+        if (internalStoreRoots.has(root)) {
+            return null
+        }
+    }
+    return relativePath
+}
+
+function roomFileChangedPayload(input: {
+    payload: unknown
+    sessionKey: string | null
+    runId: string | null
+}): RoomFileChangedPayload | null {
+    const payload = isRecord(input.payload) ? input.payload : null
+    const fileChange = isRecord(payload?.fileChange) ? payload.fileChange : null
+    if (!fileChange) {
+        return null
+    }
+    const surface = normalizeFileSurface(fileChange.root ?? payload?.root)
+    const relativePath = normalizeVisibleRelativePath(surface, fileChange.path ?? payload?.path)
+    if (!relativePath) {
+        return null
+    }
+    return {
+        roomId: config.runtime.roomId,
+        sessionKey: input.sessionKey,
+        runId: input.runId,
+        surface,
+        relativePath,
+        operation: normalizeFileChangeOperation(fileChange.kind),
+        byteLength:
+            typeof fileChange.byteLength === 'number' && Number.isFinite(fileChange.byteLength)
+                ? fileChange.byteLength
+                : null,
+        changedAt: Date.now(),
+    }
+}
 
 async function appendRuntimeEvent(event: string, payload: unknown): Promise<void> {
     const runContext = currentToolRunContext()
@@ -130,6 +226,151 @@ async function appendRuntimeEvent(event: string, payload: unknown): Promise<void
             mode: 0o600,
         },
     )
+    const fileChanged = roomFileChangedPayload({
+        payload,
+        sessionKey,
+        runId,
+    })
+    if (fileChanged) {
+        broadcast(sessionKey ?? '__room__', 'room.files.changed', fileChanged)
+    }
+}
+
+function createModelRegistry(): ModelRegistry {
+    return ModelRegistry.create(AuthStorage.create(config.paths.authPath), config.paths.modelsPath)
+}
+
+function normalizeThinkingLevel(value: unknown): RoomExecutionThinkingLevel {
+    return typeof value === 'string' && (THINKING_LEVELS_WITH_XHIGH as string[]).includes(value)
+        ? (value as RoomExecutionThinkingLevel)
+        : 'medium'
+}
+
+function availableThinkingLevels(model: Model<Api> | undefined): RoomExecutionThinkingLevel[] {
+    if (!model?.reasoning) return ['off']
+    return supportsXhigh(model) ? THINKING_LEVELS_WITH_XHIGH : THINKING_LEVELS
+}
+
+function clampThinkingLevel(
+    value: RoomExecutionThinkingLevel,
+    levels: RoomExecutionThinkingLevel[],
+): RoomExecutionThinkingLevel {
+    if (levels.includes(value)) return value
+    const requestedIndex = THINKING_LEVELS_WITH_XHIGH.indexOf(value)
+    for (let index = requestedIndex; index < THINKING_LEVELS_WITH_XHIGH.length; index += 1) {
+        const candidate = THINKING_LEVELS_WITH_XHIGH[index]!
+        if (levels.includes(candidate)) return candidate
+    }
+    for (let index = requestedIndex - 1; index >= 0; index -= 1) {
+        const candidate = THINKING_LEVELS_WITH_XHIGH[index]!
+        if (levels.includes(candidate)) return candidate
+    }
+    return levels[0] ?? 'off'
+}
+
+function modelValue(provider: string, model: string): string {
+    return `${provider}/${model}`
+}
+
+function modelLabel(model: Model<Api> | undefined, fallback: string): string {
+    return model?.name?.trim() || fallback
+}
+
+function modelOption(model: Model<Api>): RoomExecutionModelOption {
+    return {
+        value: modelValue(model.provider, model.id),
+        provider: model.provider,
+        model: model.id,
+        label: modelLabel(model, model.id),
+        supportsReasoning: Boolean(model.reasoning),
+        availableThinkingLevels: availableThinkingLevels(model),
+    }
+}
+
+function modelOptions(registry: ModelRegistry, current?: Model<Api>): RoomExecutionModelOption[] {
+    const provider = current?.provider ?? config.provider.piProvider
+    const options = registry
+        .getAll()
+        .filter((model) => model.provider === provider)
+        .map(modelOption)
+        .sort((left, right) => left.label.localeCompare(right.label, undefined, { numeric: true }))
+    if (
+        !current ||
+        options.some((option) => option.value === modelValue(current.provider, current.id))
+    ) {
+        return options
+    }
+    return [modelOption(current), ...options]
+}
+
+function persistedThreadModel(record: ThreadRecord): {
+    provider: string
+    model: string
+    thinkingLevel: RoomExecutionThinkingLevel
+} {
+    try {
+        if (existsSync(record.sessionFile)) {
+            const sessionManager = SessionManager.open(
+                record.sessionFile,
+                config.paths.sessionsDir,
+                config.paths.workspaceDir,
+            )
+            const context = sessionManager.buildSessionContext()
+            return {
+                provider:
+                    context.model?.provider ?? record.modelProvider ?? config.provider.piProvider,
+                model: context.model?.modelId ?? record.model ?? config.provider.piModel,
+                thinkingLevel: normalizeThinkingLevel(
+                    context.thinkingLevel ?? record.thinkingLevel,
+                ),
+            }
+        }
+    } catch (error) {
+        void error
+    }
+    return {
+        provider: record.modelProvider ?? config.provider.piProvider,
+        model: record.model ?? config.provider.piModel,
+        thinkingLevel: normalizeThinkingLevel(record.thinkingLevel),
+    }
+}
+
+function syncRecordModelState(record: ThreadRecord, session?: AgentSession): void {
+    if (session?.model) {
+        record.modelProvider = session.model.provider
+        record.model = session.model.id
+        record.thinkingLevel = normalizeThinkingLevel(session.thinkingLevel)
+        return
+    }
+    const persisted = persistedThreadModel(record)
+    record.modelProvider = persisted.provider
+    record.model = persisted.model
+    record.thinkingLevel = persisted.thinkingLevel
+}
+
+function selectedThreadModelState(record: ThreadRecord): RoomExecutionModelState | null {
+    const active = activeThreads.get(record.key)
+    const registry = createModelRegistry()
+    const persisted = persistedThreadModel(record)
+    const activeModel = active?.session.model
+    const provider = activeModel?.provider ?? persisted.provider
+    const modelId = activeModel?.id ?? persisted.model
+    const model = activeModel ?? registry.find(provider, modelId)
+    if (!model && !modelId) return null
+    const levels = active?.session.getAvailableThinkingLevels() ?? availableThinkingLevels(model)
+    const thinkingLevel = clampThinkingLevel(
+        active ? normalizeThinkingLevel(active.session.thinkingLevel) : persisted.thinkingLevel,
+        levels,
+    )
+    return {
+        value: modelValue(provider, modelId),
+        provider,
+        model: modelId,
+        label: modelLabel(model, modelId),
+        thinkingLevel,
+        availableThinkingLevels: levels,
+        options: modelOptions(registry, model),
+    }
 }
 
 async function refreshSystemPrompt(active?: ActiveThread): Promise<void> {
@@ -162,6 +403,14 @@ function readThreadMessages(record: ThreadRecord, limit: number): RoomExecutionM
             .map((entry, index) => mapSessionEntry(entry, index, completed))
             .filter((entry): entry is RoomExecutionMessage => entry !== null)
             .slice(-limit)
+    } catch {
+        return []
+    }
+}
+
+function readThreadArtifacts(record: ThreadRecord) {
+    try {
+        return extractSessionArtifacts(config, readThreadEntries(record))
     } catch {
         return []
     }
@@ -228,6 +477,7 @@ async function persistThreadIndex(): Promise<void> {
 }
 
 function updateThreadFromMessages(record: ThreadRecord): void {
+    syncRecordModelState(record, activeThreads.get(record.key)?.session)
     const messages = readThreadMessages(record, 500)
     const latestError = latestAssistantErrorMessage(record)
     if (record.titleSource === 'initial') {
@@ -235,8 +485,6 @@ function updateThreadFromMessages(record: ThreadRecord): void {
     }
     record.lastMessagePreview = latestMessagePreview(messages)
     record.updatedAt = Date.now()
-    record.modelProvider = config.provider.piProvider
-    record.model = config.provider.piModel
     if (latestError) {
         record.lastError = latestError
     }
@@ -546,6 +794,7 @@ async function createThread(
         lastMessagePreview: null,
         modelProvider: config.provider.piProvider,
         model: config.provider.piModel,
+        thinkingLevel: 'medium',
         activeRunId: null,
         activeRunKind: null,
         heartbeatAt: null,
@@ -764,6 +1013,55 @@ async function runPrompt(input: {
     return input.record.status
 }
 
+async function updateThreadModel(input: {
+    record: ThreadRecord
+    provider: string
+    model: string
+    thinkingLevel?: RoomExecutionThinkingLevel | null
+}): Promise<RoomExecutionModelState> {
+    if (input.record.activeRunId) {
+        throw new Error('Cannot change model while a run is active')
+    }
+    const provider = input.provider.trim()
+    const modelId = input.model.trim()
+    if (!provider || !modelId) {
+        throw new Error('Model provider and model are required')
+    }
+    const registry = createModelRegistry()
+    const model = registry.find(provider, modelId)
+    if (!model) {
+        throw new Error(`Model ${provider}/${modelId} is not available`)
+    }
+
+    const active = await getActiveThread(input.record)
+    await active.queue
+    await active.session.setModel(model)
+    if (input.thinkingLevel) {
+        active.session.setThinkingLevel(normalizeThinkingLevel(input.thinkingLevel))
+    }
+    syncRecordModelState(input.record, active.session)
+    input.record.updatedAt = Date.now()
+    await persistThreadIndex()
+    await appendRuntimeEvent('thread.model_changed', {
+        sessionKey: input.record.key,
+        provider: input.record.modelProvider,
+        model: input.record.model,
+        thinkingLevel: input.record.thinkingLevel,
+    })
+    broadcast(input.record.key, 'thread.model_changed', {
+        sessionKey: input.record.key,
+        provider: input.record.modelProvider,
+        model: input.record.model,
+        thinkingLevel: input.record.thinkingLevel,
+    })
+
+    const state = selectedThreadModelState(input.record)
+    if (!state) {
+        throw new Error('Model state could not be read after update')
+    }
+    return state
+}
+
 async function compactThread(input: {
     record: ThreadRecord
     instructions?: string | null
@@ -832,6 +1130,7 @@ async function forkThread(input: {
         lastMessagePreview: null,
         modelProvider: config.provider.piProvider,
         model: config.provider.piModel,
+        thinkingLevel: 'medium',
         activeRunId: null,
         activeRunKind: null,
         heartbeatAt: null,
@@ -875,7 +1174,9 @@ function snapshot(input: { selectedThreadKey?: string | null; messageLimit?: num
         messageLimit: input.messageLimit,
         findThread,
         readThreadMessages,
+        readThreadArtifacts,
         compactionStats,
+        selectedThreadModelState,
     })
 }
 
@@ -885,12 +1186,17 @@ const route = createPiRuntimeRouter({
     findThread,
     createThread,
     runPrompt,
+    updateThreadModel,
     renameThread,
     deleteThread,
     compactThread,
     forkThread,
     snapshot,
     createEventStream,
+    createRoomEventStream,
+    publishRoomFileChanged: (payload) => {
+        broadcast(payload.sessionKey ?? '__room__', 'room.files.changed', payload)
+    },
     persistThreadIndex,
 })
 

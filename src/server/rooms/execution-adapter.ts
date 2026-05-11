@@ -1,7 +1,10 @@
 import type {
     RoomCronJob,
+    RoomExecutionModelState,
     RoomExecutionSnapshot,
+    RoomExecutionThinkingLevel,
     RoomExecutionTruthSnapshot,
+    RoomFileChangedPayload,
     RoomRealtimeEvent,
     RoomRunHistorySnapshot,
     RoomRuntimeOverview,
@@ -18,6 +21,7 @@ export interface RoomExecutionAdapter {
         roomId: string
         selectedThreadKey?: string | null
         messageLimit?: number
+        actorUserId?: string | null
     }) => Promise<RoomExecutionSnapshot>
     sendRoomThreadMessage: (input: {
         roomId: string
@@ -25,6 +29,13 @@ export interface RoomExecutionAdapter {
         message: string
         awaitCompletion?: boolean
     }) => Promise<RoomThreadSendResult>
+    updateRoomThreadModel: (input: {
+        roomId: string
+        sessionKey: string
+        provider: string
+        model: string
+        thinkingLevel?: RoomExecutionThinkingLevel | null
+    }) => Promise<RoomExecutionModelState>
     abortRoomThreadMessage: (input: {
         roomId: string
         sessionKey: string
@@ -52,6 +63,11 @@ export interface RoomExecutionAdapter {
         sessionKey: string
         abortSignal?: AbortSignal
     }) => ReadableStream<Uint8Array>
+    createRoomEventStream: (input: {
+        roomId: string
+        abortSignal?: AbortSignal
+    }) => ReadableStream<Uint8Array>
+    publishRoomFileChanged: (input: RoomFileChangedPayload) => Promise<void>
     createRoomThread: (input: {
         roomId: string
         firstMessage?: string | null

@@ -21,15 +21,40 @@ export function useStreamingRefetch({
     onEvent?: (event: RoomRealtimeEvent) => void
     shouldRefetch?: (event: RoomRealtimeEvent) => boolean
 }) {
+    useEventSourceRefetch({
+        url: `/api/rooms/${encodeURIComponent(roomId)}/sessions/${encodeURIComponent(sessionKey)}/events`,
+        queryClient,
+        queryKey,
+        onError,
+        onEvent,
+        shouldRefetch,
+    })
+}
+
+export function useEventSourceRefetch({
+    url,
+    queryClient,
+    queryKey,
+    onError,
+    onEvent,
+    shouldRefetch,
+}: {
+    url: string
+    queryClient: QueryClient
+    queryKey?: readonly unknown[]
+    onError: (message: string | null) => void
+    onEvent?: (event: RoomRealtimeEvent) => void
+    shouldRefetch?: (event: RoomRealtimeEvent) => boolean
+}) {
     useEffect(() => {
         if (typeof EventSource === 'undefined') return
 
-        const url = `/api/rooms/${encodeURIComponent(roomId)}/sessions/${encodeURIComponent(sessionKey)}/events`
         const source = new EventSource(url)
         let timer: ReturnType<typeof setTimeout> | null = null
         let consecutiveErrors = 0
 
         const scheduleRefetch = () => {
+            if (!queryKey) return
             if (timer) clearTimeout(timer)
             timer = setTimeout(() => {
                 void queryClient.invalidateQueries({ queryKey })
@@ -51,8 +76,13 @@ export function useStreamingRefetch({
 
         const onStreamError = (raw: MessageEvent<string>) => {
             try {
-                const event = JSON.parse(raw.data) as { message?: string }
-                onError(event.message ?? 'Live updates disconnected')
+                const event = JSON.parse(raw.data) as {
+                    message?: string
+                    payload?: {
+                        message?: string
+                    }
+                }
+                onError(event.message ?? event.payload?.message ?? 'Live updates disconnected')
             } catch {
                 onError('Live updates disconnected')
             }
@@ -84,5 +114,5 @@ export function useStreamingRefetch({
             source.removeEventListener('open', onOpen)
             source.close()
         }
-    }, [roomId, sessionKey, queryClient, queryKey, onError, onEvent, shouldRefetch])
+    }, [url, queryClient, queryKey, onError, onEvent, shouldRefetch])
 }

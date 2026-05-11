@@ -6,6 +6,7 @@ import type {
     PiRuntimeForkPayload,
     PiRuntimeSendPayload,
     PiRuntimeSnapshotPayload,
+    PiRuntimeThreadModelPayload,
     PiRuntimeThreadCreatePayload,
 } from '../../pi-runtime/protocol'
 
@@ -25,6 +26,9 @@ export const compactSchema = z.custom<PiRuntimeCompactPayload>(
     (value) => typeof value === 'object' && value !== null,
 )
 export const forkSchema = z.custom<PiRuntimeForkPayload>(
+    (value) => typeof value === 'object' && value !== null,
+)
+export const threadModelSchema = z.custom<PiRuntimeThreadModelPayload>(
     (value) => typeof value === 'object' && value !== null,
 )
 

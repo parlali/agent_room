@@ -1,4 +1,8 @@
-import { roomRepository, roomRuntimeMetadataRepository } from '../../db/repositories'
+import {
+    roomRepository,
+    roomRuntimeMetadataRepository,
+    roomThreadReadRepository,
+} from '../../db/repositories'
 import type { RoomExecutionSnapshot, RoomRuntimeOverview } from '../execution-types'
 import { requestPiRuntime } from '../pi-runtime-client'
 
@@ -33,6 +37,7 @@ export async function getRoomExecutionSnapshot(input: {
     roomId: string
     selectedThreadKey?: string | null
     messageLimit?: number
+    actorUserId?: string | null
 }): Promise<RoomExecutionSnapshot> {
     const room = await roomRepository.findRoomById(input.roomId)
     if (!room) {
@@ -84,14 +89,21 @@ export async function getRoomExecutionSnapshot(input: {
             snapshotSchema,
         )
         await syncRuntimeUsageEvents(input.roomId)
+        const snapshot = await applyThreadReadState({
+            roomId: input.roomId,
+            actorUserId: input.actorUserId ?? null,
+            markReadSessionKey: input.selectedThreadKey ? payload.selectedThreadKey : null,
+            snapshot: {
+                room: roomOverview,
+                executionState: 'connected',
+                executionMessage: null,
+                capabilities: buildRoomExecutionCapabilities(true),
+                ...payload,
+                selectedThreadArtifacts: payload.selectedThreadArtifacts ?? [],
+            },
+        })
 
-        return {
-            room: roomOverview,
-            executionState: 'connected',
-            executionMessage: null,
-            capabilities: buildRoomExecutionCapabilities(true),
-            ...payload,
-        }
+        return snapshot
     } catch (error) {
         return emptySnapshot({
             room: roomOverview,
@@ -99,6 +111,66 @@ export async function getRoomExecutionSnapshot(input: {
             message: error instanceof Error ? error.message : 'Unknown Pi adapter error',
         })
     }
+}
+
+async function applyThreadReadState(input: {
+    roomId: string
+    actorUserId: string | null
+    markReadSessionKey: string | null
+    snapshot: RoomExecutionSnapshot
+}): Promise<RoomExecutionSnapshot> {
+    if (!input.actorUserId) return input.snapshot
+
+    const readAt = new Date()
+    const readRecords = await roomThreadReadRepository.listForRoom({
+        userId: input.actorUserId,
+        roomId: input.roomId,
+    })
+    const readBySession = new Map(
+        readRecords.map((record) => [record.sessionKey, record.readAt.getTime()]),
+    )
+
+    if (input.markReadSessionKey) {
+        await roomThreadReadRepository.markRead({
+            userId: input.actorUserId,
+            roomId: input.roomId,
+            sessionKey: input.markReadSessionKey,
+            readAt,
+        })
+        readBySession.set(input.markReadSessionKey, readAt.getTime())
+    }
+
+    return {
+        ...input.snapshot,
+        threads: input.snapshot.threads.map((thread) => {
+            const readAtMs = readBySession.get(thread.key) ?? null
+            const unread =
+                thread.status !== 'running' &&
+                thread.status !== 'compacting' &&
+                hasUnreadActivity({
+                    threadUpdatedAt: thread.updatedAt,
+                    readAt: readAtMs,
+                    hasPreview: Boolean(thread.lastMessagePreview?.trim()),
+                })
+            return {
+                ...thread,
+                readState: {
+                    readAt: readAtMs,
+                    unread,
+                },
+            }
+        }),
+    }
+}
+
+function hasUnreadActivity(input: {
+    threadUpdatedAt: number | null
+    readAt: number | null
+    hasPreview: boolean
+}): boolean {
+    if (!input.threadUpdatedAt || !input.hasPreview) return false
+    if (!input.readAt) return true
+    return input.threadUpdatedAt > input.readAt + 1000
 }
 
 export async function wakeRoomRuntime(input: {

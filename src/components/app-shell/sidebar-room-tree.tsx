@@ -217,7 +217,8 @@ function RoomSessions({
     const query = useQuery({
         queryKey: ['room-execution', roomId, 'sidebar'],
         queryFn: () => getRoomExecutionServer({ data: { roomId } }),
-        staleTime: 15_000,
+        staleTime: 5_000,
+        refetchInterval: 5_000,
     })
 
     if (query.isLoading) {
@@ -279,6 +280,7 @@ function RoomSessions({
                                 <span className="min-w-0 flex-1 truncate">
                                     {thread.title || 'Untitled session'}
                                 </span>
+                                <SessionStatusBadge thread={thread} />
                             </Link>
                             <SidebarSessionActions
                                 roomId={roomId}
@@ -308,6 +310,29 @@ function RoomSessions({
             ) : null}
         </ul>
     )
+}
+
+function SessionStatusBadge({ thread }: { thread: RoomExecutionThread }) {
+    if (thread.status === 'running' || thread.status === 'compacting') {
+        return (
+            <span className="ml-2 shrink-0 rounded-full bg-working-soft px-1.5 py-0.5 text-[0.625rem] font-medium text-working-fg">
+                Working
+            </span>
+        )
+    }
+
+    if (thread.readState.unread) {
+        return (
+            <span
+                className="ml-2 shrink-0 rounded-full bg-ready-soft px-1.5 py-0.5 text-[0.625rem] font-medium text-ready-fg"
+                aria-label="Done, unread"
+            >
+                Done
+            </span>
+        )
+    }
+
+    return null
 }
 
 type SidebarSessionDialog =

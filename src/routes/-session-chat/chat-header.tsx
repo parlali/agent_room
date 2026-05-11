@@ -1,6 +1,7 @@
 import { Link } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
-import { ArrowLeftIcon, Loader2Icon, PencilIcon } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { ArrowLeftIcon, FilesIcon, Loader2Icon, PencilIcon } from 'lucide-react'
 
 import { RoomGlyph, StateBadge } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
@@ -25,6 +26,10 @@ export function ChatHeader({
     provider,
     model,
     compaction,
+    runStatus,
+    artifactsCount,
+    artifactsOpen,
+    onToggleArtifacts,
     onBack,
     onRename,
     renaming,
@@ -36,6 +41,10 @@ export function ChatHeader({
     provider: string | null
     model: string | null
     compaction: RoomExecutionSnapshot['threads'][number]['compaction'] | null
+    runStatus?: ReactNode
+    artifactsCount: number
+    artifactsOpen: boolean
+    onToggleArtifacts: () => void
     onBack: () => void
     onRename: (title: string) => Promise<unknown>
     renaming: boolean
@@ -103,11 +112,30 @@ export function ChatHeader({
                         </span>
                     ) : null}
                 </div>
-                <StateBadge
-                    tone={sessionToneKey}
-                    label={sessionLabel}
-                    pulse={sessionToneKey === 'working'}
-                />
+                <div className="flex shrink-0 items-center gap-2">
+                    {runStatus}
+                    <Button
+                        type="button"
+                        variant={artifactsOpen ? 'secondary' : 'ghost'}
+                        size="sm"
+                        onClick={onToggleArtifacts}
+                        aria-pressed={artifactsOpen}
+                        aria-label="Toggle session artifacts"
+                    >
+                        <FilesIcon />
+                        <span className="hidden sm:inline">Artifacts</span>
+                        {artifactsCount > 0 ? (
+                            <span className="ml-0.5 rounded bg-background/80 px-1 text-[0.6875rem]">
+                                {artifactsCount}
+                            </span>
+                        ) : null}
+                    </Button>
+                    <StateBadge
+                        tone={sessionToneKey}
+                        label={sessionLabel}
+                        pulse={sessionToneKey === 'working'}
+                    />
+                </div>
             </header>
             <Dialog
                 open={renameOpen}

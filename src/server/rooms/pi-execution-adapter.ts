@@ -8,7 +8,11 @@ export {
     updateRoomCronJob,
     updateRoomCronJobEnabled,
 } from './pi-execution-adapter/cron-jobs'
-export { createRoomSessionEventStream } from './pi-execution-adapter/event-stream'
+export {
+    createRoomEventStream,
+    createRoomSessionEventStream,
+    publishRoomFileChanged,
+} from './pi-execution-adapter/event-stream'
 export { getRoomExecutionTruthSnapshot } from './pi-execution-adapter/runtime-truth'
 export {
     getRoomExecutionSnapshot,
@@ -24,6 +28,7 @@ export {
     forkRoomThread,
     renameRoomSession,
     sendRoomThreadMessage,
+    updateRoomThreadModel,
 } from './pi-execution-adapter/thread-operations'
 export {
     syncAllRuntimeUsageEvents,

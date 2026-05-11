@@ -35,6 +35,7 @@ import {
     listRoomFilesServer,
 } from './-room-runtime-server'
 import { getRoomConfigServer } from './-operator-config-server'
+import { SessionRunStatus } from './-session-chat/session-run-status'
 
 export const Route = createFileRoute('/rooms/$roomId')({
     beforeLoad: requireRouteUser,
@@ -113,22 +114,22 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
         readinessQuery.data?.issues.filter((i) => i.severity === 'blocking') ?? []
 
     const activeSessions = useMemo(() => {
-        return threads
-            .filter((t) => {
-                if (!t.status) return false
-                const lower = t.status.toLowerCase()
-                return (
-                    lower.includes('working') ||
-                    lower.includes('running') ||
-                    lower.includes('streaming') ||
-                    lower.includes('thinking') ||
-                    lower.includes('waiting') ||
-                    lower.includes('approval') ||
-                    lower.includes('pending')
-                )
-            })
-            .slice(0, 5)
+        return threads.filter((t) => {
+            if (!t.status) return false
+            const lower = t.status.toLowerCase()
+            return (
+                lower.includes('working') ||
+                lower.includes('running') ||
+                lower.includes('streaming') ||
+                lower.includes('thinking') ||
+                lower.includes('waiting') ||
+                lower.includes('approval') ||
+                lower.includes('pending')
+            )
+        })
     }, [threads])
+
+    const sessionRows = useMemo(() => threads.slice(0, 5), [threads])
 
     const upcomingJobs = useMemo(() => {
         return [...jobs]
@@ -232,8 +233,8 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
 
                 <div className="grid gap-4 lg:grid-cols-2">
                     <Section
-                        title="Active sessions"
-                        description={`${activeSessions.length} ${pluralize(activeSessions.length, 'in flight')}`}
+                        title="Sessions"
+                        description={`${activeSessions.length} ${pluralize(activeSessions.length, 'in flight')} · ${threads.length} ${pluralize(threads.length, 'total')}`}
                         actions={
                             threads.length > 0 ? (
                                 <Link
@@ -247,7 +248,7 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                             ) : null
                         }
                     >
-                        {activeSessions.length === 0 ? (
+                        {sessionRows.length === 0 ? (
                             threads.length === 0 ? (
                                 <EmptyState
                                     icon={MessagesSquareIcon}
@@ -271,7 +272,7 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                             )
                         ) : (
                             <ul className="divide-y divide-border/60">
-                                {activeSessions.map((thread) => {
+                                {sessionRows.map((thread) => {
                                     const state = describeSessionState(thread.status)
                                     return (
                                         <li
@@ -305,9 +306,12 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                                                         </p>
                                                     ) : null}
                                                 </Link>
-                                                <span className="shrink-0 text-xs text-muted-foreground group-hover/session:hidden">
-                                                    {formatRelativeTime(thread.updatedAt)}
-                                                </span>
+                                                <div className="hidden shrink-0 flex-col items-end gap-1 text-xs text-muted-foreground group-hover/session:hidden sm:flex">
+                                                    <SessionRunStatus thread={thread} compact />
+                                                    <span>
+                                                        {formatRelativeTime(thread.updatedAt)}
+                                                    </span>
+                                                </div>
                                                 <SessionContextMenu
                                                     roomId={roomId}
                                                     sessionKey={thread.key}

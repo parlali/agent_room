@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
     getRoomConfigSnapshot: vi.fn(),
     requestPiRuntime: vi.fn(),
     openPiRuntimeEventStream: vi.fn(),
+    openPiRuntimeRoomEventStream: vi.fn(),
+    publishPiRuntimeRoomFileChanged: vi.fn(),
 }))
 
 vi.mock('../db/repositories', () => ({
@@ -32,6 +34,8 @@ vi.mock('../configuration/operator-configuration', () => ({
 vi.mock('./pi-runtime-client', () => ({
     requestPiRuntime: mocks.requestPiRuntime,
     openPiRuntimeEventStream: mocks.openPiRuntimeEventStream,
+    openPiRuntimeRoomEventStream: mocks.openPiRuntimeRoomEventStream,
+    publishPiRuntimeRoomFileChanged: mocks.publishPiRuntimeRoomFileChanged,
 }))
 
 describe('Pi runtime usage sync', () => {

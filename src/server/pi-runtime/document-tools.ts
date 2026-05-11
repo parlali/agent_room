@@ -1,3 +1,4 @@
+import { rm } from 'node:fs/promises'
 import { relative } from 'node:path'
 import { defineTool, type ToolDefinition } from '@mariozechner/pi-coding-agent'
 import { Type } from '@mariozechner/pi-ai'
@@ -6,7 +7,11 @@ import { createDocx, editDocx, inspectDocx } from './document-tools/docx'
 import { createPdf, inspectPdf } from './document-tools/pdf'
 import { createPptx, editPptx, inspectPptx, normalizeSlides } from './document-tools/pptx'
 import { completeOfficeExportOrPreview, completeOperation } from './document-tools/operation'
-import { existingWorkspacePath, writableWorkspacePath } from './document-tools/paths'
+import {
+    existingWorkspacePath,
+    writableInternalPreviewPath,
+    writableWorkspacePath,
+} from './document-tools/paths'
 import type { DocumentToolContext, DocumentToolDetails } from './document-tools/types'
 import { renderPdfPreview } from './document-tools/worker'
 import {
@@ -261,19 +266,34 @@ function createPdfTool(ctx: DocumentToolContext): ToolDefinition {
                     operation: input.operation,
                 })
             }
-            const previewPath = await writableWorkspacePath(
-                ctx.config,
-                input.outputPath ?? `${input.path}.preview.png`,
-            )
-            await renderPdfPreview(ctx, path, previewPath, signal)
-            return completeOperation(ctx, {
-                path: previewPath,
-                format: 'pdf',
-                operation: input.operation,
-                startedAt,
-                message: `Rendered PDF preview ${relative(ctx.config.paths.workspaceDir, previewPath)}`,
-                mediaPath: previewPath,
-            })
+            const hiddenPreview = !input.outputPath
+            const previewPath = input.outputPath
+                ? await writableWorkspacePath(ctx.config, input.outputPath)
+                : await writableInternalPreviewPath(ctx.config, input.path, 'png')
+            try {
+                await renderPdfPreview(ctx, path, previewPath, signal)
+                const visiblePath = input.outputPath
+                    ? relative(ctx.config.paths.workspaceDir, previewPath)
+                    : null
+                return completeOperation(ctx, {
+                    path: previewPath,
+                    format: 'pdf',
+                    operation: input.operation,
+                    startedAt,
+                    message: visiblePath
+                        ? `Rendered PDF preview ${visiblePath}`
+                        : 'Verified PDF preview rendering internally',
+                    mediaPath: hiddenPreview ? undefined : previewPath,
+                    auditPath: hiddenPreview ? 'internal-preview' : undefined,
+                    displayPath: visiblePath ?? 'internal-preview',
+                })
+            } finally {
+                if (hiddenPreview) {
+                    await rm(previewPath, {
+                        force: true,
+                    })
+                }
+            }
         },
     })
 }

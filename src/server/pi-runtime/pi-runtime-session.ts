@@ -57,8 +57,9 @@ export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Prom
     const { config, record } = input
     const authStorage = AuthStorage.create(config.paths.authPath)
     const modelRegistry = ModelRegistry.create(authStorage, config.paths.modelsPath)
-    const model = modelRegistry.find(config.provider.piProvider, config.provider.piModel)
-    if (!model) {
+    const sessionExists = existsSync(record.sessionFile)
+    const configuredModel = modelRegistry.find(config.provider.piProvider, config.provider.piModel)
+    if (!configuredModel) {
         throw new Error(
             `Pi model ${config.provider.piProvider}/${config.provider.piModel} is not available`,
         )
@@ -78,7 +79,7 @@ export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Prom
             },
         },
     })
-    const sessionManager = existsSync(record.sessionFile)
+    const sessionManager = sessionExists
         ? SessionManager.open(
               record.sessionFile,
               config.paths.sessionsDir,
@@ -91,6 +92,9 @@ export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Prom
         })
         record.sessionFile = sessionManager.getSessionFile() ?? record.sessionFile
     }
+    const hasPersistedModelState = sessionManager
+        .getBranch()
+        .some((entry) => entry.type === 'model_change' || entry.type === 'thinking_level_change')
     const customTools = [
         ...createInternalStateTools({
             config,
@@ -136,8 +140,8 @@ export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Prom
         agentDir: config.paths.stateDir,
         authStorage,
         modelRegistry,
-        model,
-        thinkingLevel: 'medium',
+        model: hasPersistedModelState ? undefined : configuredModel,
+        thinkingLevel: hasPersistedModelState ? undefined : (record.thinkingLevel ?? 'medium'),
         resourceLoader: createPiResourceLoader(input.systemPrompt),
         sessionManager,
         settingsManager,

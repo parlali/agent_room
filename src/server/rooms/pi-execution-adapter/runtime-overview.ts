@@ -50,7 +50,9 @@ export function emptySnapshot(input: {
         extraAgentIds: [],
         threads: [],
         selectedThreadKey: null,
+        selectedThreadModel: null,
         selectedThreadMessages: [],
+        selectedThreadArtifacts: [],
         recentActivity: [],
     }
 }

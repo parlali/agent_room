@@ -194,7 +194,10 @@ export function shouldRefetchForRoomEvent(realtime: RoomRealtimeEvent): boolean 
         return message?.role === 'assistant'
     }
     return (
-        event.type === 'turn_end' || event.type === 'compaction_end' || event.type === 'agent_end'
+        event.type === 'tool_execution_end' ||
+        event.type === 'turn_end' ||
+        event.type === 'compaction_end' ||
+        event.type === 'agent_end'
     )
 }
 

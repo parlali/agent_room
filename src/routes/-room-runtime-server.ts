@@ -21,6 +21,17 @@ const sendMessageInputSchema = z.object({
     message: z.string().min(1),
 })
 
+const updateThreadModelInputSchema = z.object({
+    roomId: roomIdSchema,
+    sessionKey: z.string().min(1),
+    provider: z.string().min(1),
+    model: z.string().min(1),
+    thinkingLevel: z
+        .enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh'])
+        .nullable()
+        .optional(),
+})
+
 const abortMessageInputSchema = z.object({
     roomId: roomIdSchema,
     sessionKey: z.string().min(1),
@@ -284,7 +295,7 @@ export const updateRoomIdentityServer = createServerFn({ method: 'POST' })
 export const getRoomExecutionServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => roomExecutionInputSchema.parse(input))
     .handler(async ({ data }) => {
-        await requireAuthenticatedActor()
+        const actor = await requireAuthenticatedActor()
         setResponseHeaders({
             'cache-control': 'no-store',
         })
@@ -293,6 +304,7 @@ export const getRoomExecutionServer = createServerFn({ method: 'GET' })
         return getRoomExecutionSnapshot({
             roomId: data.roomId,
             selectedThreadKey: data.selectedThreadKey ?? null,
+            actorUserId: actor.userId,
         })
     })
 
@@ -306,6 +318,21 @@ export const sendMessageServer = createServerFn({ method: 'POST' })
             roomId: data.roomId,
             sessionKey: data.sessionKey,
             message: data.message,
+        })
+    })
+
+export const updateThreadModelServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => updateThreadModelInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        await requireMutationActor()
+        await ensureRuntimeSupervisorBoot()
+        const { updateRoomThreadModel } = await import('#/server/rooms/execution-engine')
+        return updateRoomThreadModel({
+            roomId: data.roomId,
+            sessionKey: data.sessionKey,
+            provider: data.provider,
+            model: data.model,
+            thinkingLevel: data.thinkingLevel ?? null,
         })
     })
 

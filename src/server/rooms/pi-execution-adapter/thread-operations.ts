@@ -1,6 +1,11 @@
 import type { PiRuntimeCompactPayload, PiRuntimeForkPayload } from '../../pi-runtime/protocol'
 import { usageRepository } from '../../db/repositories'
-import type { RoomThreadAbortResult, RoomThreadSendResult } from '../execution-types'
+import type {
+    RoomExecutionModelState,
+    RoomExecutionThinkingLevel,
+    RoomThreadAbortResult,
+    RoomThreadSendResult,
+} from '../execution-types'
 import { requestPiRuntime } from '../pi-runtime-client'
 
 import {
@@ -10,6 +15,7 @@ import {
     forkSchema,
     sendSchema,
     sessionMutationSchema,
+    threadModelSchema,
 } from './runtime-schemas'
 import { syncRuntimeUsageEvents } from './usage-sync'
 
@@ -90,6 +96,28 @@ export async function sendRoomThreadMessage(input: {
         })
         throw error
     }
+}
+
+export async function updateRoomThreadModel(input: {
+    roomId: string
+    sessionKey: string
+    provider: string
+    model: string
+    thinkingLevel?: RoomExecutionThinkingLevel | null
+}): Promise<RoomExecutionModelState> {
+    return requestPiRuntime(
+        input.roomId,
+        `/threads/${encodeURIComponent(input.sessionKey)}/model`,
+        threadModelSchema,
+        {
+            method: 'POST',
+            body: {
+                provider: input.provider,
+                model: input.model,
+                thinkingLevel: input.thinkingLevel ?? null,
+            },
+        },
+    )
 }
 
 export async function abortRoomThreadMessage(input: {

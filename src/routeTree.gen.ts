@@ -26,6 +26,7 @@ import { Route as RoomsRoomIdMemoryRouteImport } from './routes/rooms.$roomId.me
 import { Route as RoomsRoomIdJobsRouteImport } from './routes/rooms.$roomId.jobs'
 import { Route as RoomsRoomIdFilesRouteImport } from './routes/rooms.$roomId.files'
 import { Route as RoomsRoomIdSessionsSessionKeyRouteImport } from './routes/rooms.$roomId.sessions.$sessionKey'
+import { Route as ApiRoomsRoomIdEventsRouteImport } from './routes/api.rooms.$roomId.events'
 import { Route as ApiRoomsRoomIdFilesUploadRouteImport } from './routes/api.rooms.$roomId.files.upload'
 import { Route as ApiRoomsRoomIdFilesPreviewRouteImport } from './routes/api.rooms.$roomId.files.preview'
 import { Route as ApiRoomsRoomIdSessionsSessionKeyEventsRouteImport } from './routes/api.rooms.$roomId.sessions.$sessionKey.events'
@@ -116,6 +117,11 @@ const RoomsRoomIdSessionsSessionKeyRoute =
     path: '/sessions/$sessionKey',
     getParentRoute: () => RoomsRoomIdRoute,
   } as any)
+const ApiRoomsRoomIdEventsRoute = ApiRoomsRoomIdEventsRouteImport.update({
+  id: '/api/rooms/$roomId/events',
+  path: '/api/rooms/$roomId/events',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiRoomsRoomIdFilesUploadRoute =
   ApiRoomsRoomIdFilesUploadRouteImport.update({
     id: '/api/rooms/$roomId/files/upload',
@@ -152,6 +158,7 @@ export interface FileRoutesByFullPath {
   '/rooms/$roomId/settings': typeof RoomsRoomIdSettingsRoute
   '/rooms/$roomId/status': typeof RoomsRoomIdStatusRoute
   '/rooms/$roomId/usage': typeof RoomsRoomIdUsageRoute
+  '/api/rooms/$roomId/events': typeof ApiRoomsRoomIdEventsRoute
   '/rooms/$roomId/sessions/$sessionKey': typeof RoomsRoomIdSessionsSessionKeyRoute
   '/api/rooms/$roomId/files/preview': typeof ApiRoomsRoomIdFilesPreviewRoute
   '/api/rooms/$roomId/files/upload': typeof ApiRoomsRoomIdFilesUploadRoute
@@ -174,6 +181,7 @@ export interface FileRoutesByTo {
   '/rooms/$roomId/settings': typeof RoomsRoomIdSettingsRoute
   '/rooms/$roomId/status': typeof RoomsRoomIdStatusRoute
   '/rooms/$roomId/usage': typeof RoomsRoomIdUsageRoute
+  '/api/rooms/$roomId/events': typeof ApiRoomsRoomIdEventsRoute
   '/rooms/$roomId/sessions/$sessionKey': typeof RoomsRoomIdSessionsSessionKeyRoute
   '/api/rooms/$roomId/files/preview': typeof ApiRoomsRoomIdFilesPreviewRoute
   '/api/rooms/$roomId/files/upload': typeof ApiRoomsRoomIdFilesUploadRoute
@@ -197,6 +205,7 @@ export interface FileRoutesById {
   '/rooms/$roomId/settings': typeof RoomsRoomIdSettingsRoute
   '/rooms/$roomId/status': typeof RoomsRoomIdStatusRoute
   '/rooms/$roomId/usage': typeof RoomsRoomIdUsageRoute
+  '/api/rooms/$roomId/events': typeof ApiRoomsRoomIdEventsRoute
   '/rooms/$roomId/sessions/$sessionKey': typeof RoomsRoomIdSessionsSessionKeyRoute
   '/api/rooms/$roomId/files/preview': typeof ApiRoomsRoomIdFilesPreviewRoute
   '/api/rooms/$roomId/files/upload': typeof ApiRoomsRoomIdFilesUploadRoute
@@ -221,6 +230,7 @@ export interface FileRouteTypes {
     | '/rooms/$roomId/settings'
     | '/rooms/$roomId/status'
     | '/rooms/$roomId/usage'
+    | '/api/rooms/$roomId/events'
     | '/rooms/$roomId/sessions/$sessionKey'
     | '/api/rooms/$roomId/files/preview'
     | '/api/rooms/$roomId/files/upload'
@@ -243,6 +253,7 @@ export interface FileRouteTypes {
     | '/rooms/$roomId/settings'
     | '/rooms/$roomId/status'
     | '/rooms/$roomId/usage'
+    | '/api/rooms/$roomId/events'
     | '/rooms/$roomId/sessions/$sessionKey'
     | '/api/rooms/$roomId/files/preview'
     | '/api/rooms/$roomId/files/upload'
@@ -265,6 +276,7 @@ export interface FileRouteTypes {
     | '/rooms/$roomId/settings'
     | '/rooms/$roomId/status'
     | '/rooms/$roomId/usage'
+    | '/api/rooms/$roomId/events'
     | '/rooms/$roomId/sessions/$sessionKey'
     | '/api/rooms/$roomId/files/preview'
     | '/api/rooms/$roomId/files/upload'
@@ -282,6 +294,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   UsageRoute: typeof UsageRoute
   RoomsRoomIdRoute: typeof RoomsRoomIdRouteWithChildren
+  ApiRoomsRoomIdEventsRoute: typeof ApiRoomsRoomIdEventsRoute
   ApiRoomsRoomIdFilesPreviewRoute: typeof ApiRoomsRoomIdFilesPreviewRoute
   ApiRoomsRoomIdFilesUploadRoute: typeof ApiRoomsRoomIdFilesUploadRoute
   ApiRoomsRoomIdSessionsSessionKeyEventsRoute: typeof ApiRoomsRoomIdSessionsSessionKeyEventsRoute
@@ -408,6 +421,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RoomsRoomIdSessionsSessionKeyRouteImport
       parentRoute: typeof RoomsRoomIdRoute
     }
+    '/api/rooms/$roomId/events': {
+      id: '/api/rooms/$roomId/events'
+      path: '/api/rooms/$roomId/events'
+      fullPath: '/api/rooms/$roomId/events'
+      preLoaderRoute: typeof ApiRoomsRoomIdEventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/rooms/$roomId/files/upload': {
       id: '/api/rooms/$roomId/files/upload'
       path: '/api/rooms/$roomId/files/upload'
@@ -467,6 +487,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   UsageRoute: UsageRoute,
   RoomsRoomIdRoute: RoomsRoomIdRouteWithChildren,
+  ApiRoomsRoomIdEventsRoute: ApiRoomsRoomIdEventsRoute,
   ApiRoomsRoomIdFilesPreviewRoute: ApiRoomsRoomIdFilesPreviewRoute,
   ApiRoomsRoomIdFilesUploadRoute: ApiRoomsRoomIdFilesUploadRoute,
   ApiRoomsRoomIdSessionsSessionKeyEventsRoute:

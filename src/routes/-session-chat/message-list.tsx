@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 
 import { EmptyState, RoomGlyph, StatusDot } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
@@ -26,11 +26,13 @@ type DisplayItem =
     | { type: 'tools'; id: string; tasks: ToolActivityTask[]; timestamp: number | null }
 
 export function MessageList({
+    sessionKey,
     room,
     messages,
     stream,
     isWorking,
 }: {
+    sessionKey: string
     room: RoomRuntimeOverview
     messages: RoomExecutionMessage[]
     stream: StreamTurnState
@@ -46,19 +48,26 @@ export function MessageList({
         stickToBottomRef.current = distanceFromBottom < 120
     }, [])
 
-    useEffect(() => {
+    const scrollToBottom = useCallback(() => {
         const node = containerRef.current
         if (!node) return
-        if (stickToBottomRef.current) {
-            node.scrollTop = node.scrollHeight
-        }
-    }, [messages, stream, isWorking])
+        node.scrollTop = node.scrollHeight
+    }, [])
+
+    useLayoutEffect(() => {
+        stickToBottomRef.current = true
+        scrollToBottom()
+    }, [sessionKey, scrollToBottom])
+
+    useEffect(() => {
+        if (stickToBottomRef.current) scrollToBottom()
+    }, [messages, stream, isWorking, scrollToBottom])
 
     const items = useMemo(() => buildDisplayItems(messages, isWorking), [messages, isWorking])
     const hasStreamContent = streamTurnHasContent(stream)
 
     return (
-        <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
+        <div ref={containerRef} onScroll={handleScroll} className="min-h-0 flex-1 overflow-y-auto">
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6 sm:px-6">
                 {messages.length === 0 && !hasStreamContent ? (
                     <EmptyState

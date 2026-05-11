@@ -397,6 +397,7 @@ The prompt should address the model as the agent for this workspace. It should i
 - planning rules
 - verification rules
 - artifact expectations
+- workspace hygiene for non-developer review
 - memory update policy
 - scheduled-run policy
 - communication style
@@ -439,6 +440,13 @@ Room disk owns:
 - runtime-local command state
 
 Generated runtime files are materialized state, not user-edited truth.
+
+User-facing workspace files should stay reviewable. Agents may create temporary drafts,
+conversion sources, previews, and logs while working, but they should remove throwaway
+intermediate files before completing a run unless the operator explicitly asked to keep
+them. Internal verification previews belong in temporary hidden runtime paths and
+should be removed after verification unless the preview file itself is the requested
+deliverable.
 
 ## Artifact Store
 

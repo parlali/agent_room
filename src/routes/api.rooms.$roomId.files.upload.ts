@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { assertApiSameOriginMutation, requireApiSession } from '#/server/auth/api-session'
 import { roomRepository } from '#/server/db/repositories'
 import { writeRoomUploadedFile, type RoomFileSurface } from '#/server/rooms/file-store'
+import { publishRoomFileChanged } from '#/server/rooms/execution-engine'
 
 const maxFilesPerUpload = 10
 const maxTotalUploadBytes = 100 * 1024 * 1024
@@ -100,6 +101,26 @@ export const Route = createFileRoute('/api/rooms/$roomId/files/upload')({
                             }),
                         )
                     }
+                    await Promise.all(
+                        uploaded.map((file) =>
+                            publishRoomFileChanged({
+                                roomId,
+                                sessionKey: sessionKey || null,
+                                runId: null,
+                                surface: file.surface,
+                                relativePath: file.relativePath,
+                                operation: 'upload',
+                                byteLength: file.byteLength,
+                                changedAt: Date.now(),
+                            }).catch((error: unknown) => {
+                                console.warn(
+                                    error instanceof Error
+                                        ? `Room file live update publish failed: ${error.message}`
+                                        : 'Room file live update publish failed',
+                                )
+                            }),
+                        ),
+                    )
 
                     return Response.json(
                         {

@@ -7,6 +7,7 @@ interface RuntimeEventBusInput {
 export interface RuntimeEventBus {
     broadcast: (sessionKey: string, event: string, payload: unknown) => void
     createEventStream: (sessionKey: string) => ReadableStream<Uint8Array>
+    createRoomEventStream: () => ReadableStream<Uint8Array>
 }
 
 function encodeSse(event: string, payload: unknown): Uint8Array {
@@ -15,11 +16,12 @@ function encodeSse(event: string, payload: unknown): Uint8Array {
 
 export function createRuntimeEventBus(input: RuntimeEventBusInput): RuntimeEventBus {
     const subscribers = new Map<string, Set<ReadableStreamDefaultController<Uint8Array>>>()
+    const roomSubscribers = new Set<ReadableStreamDefaultController<Uint8Array>>()
     let eventSeq = 0
 
     const broadcast = (sessionKey: string, event: string, payload: unknown): void => {
-        const targets = subscribers.get(sessionKey)
-        if (!targets || targets.size === 0) {
+        const sessionTargets = subscribers.get(sessionKey)
+        if ((!sessionTargets || sessionTargets.size === 0) && roomSubscribers.size === 0) {
             return
         }
         const redactedPayload = input.redactPayload(payload)
@@ -30,16 +32,26 @@ export function createRuntimeEventBus(input: RuntimeEventBusInput): RuntimeEvent
             stateVersion: input.stateVersionForThread(sessionKey),
             receivedAt: Date.now(),
         })
-        for (const controller of targets) {
-            try {
-                controller.enqueue(frame)
-            } catch {
-                targets.delete(controller)
+        const enqueue = (targets: Set<ReadableStreamDefaultController<Uint8Array>>): void => {
+            for (const controller of targets) {
+                try {
+                    controller.enqueue(frame)
+                } catch {
+                    targets.delete(controller)
+                }
             }
         }
+        if (sessionTargets) {
+            enqueue(sessionTargets)
+        }
+        enqueue(roomSubscribers)
     }
 
-    const createEventStream = (sessionKey: string): ReadableStream<Uint8Array> => {
+    const createStream = (inputStream: {
+        readyPayload: unknown
+        add: (controller: ReadableStreamDefaultController<Uint8Array>) => void
+        remove: (controller: ReadableStreamDefaultController<Uint8Array>) => void
+    }): ReadableStream<Uint8Array> => {
         let controllerRef: ReadableStreamDefaultController<Uint8Array> | null = null
         let timer: ReturnType<typeof setInterval> | null = null
 
@@ -48,29 +60,16 @@ export function createRuntimeEventBus(input: RuntimeEventBusInput): RuntimeEvent
                 clearInterval(timer)
                 timer = null
             }
-            const set = subscribers.get(sessionKey)
-            if (!set || !controllerRef) {
-                return
-            }
-            set.delete(controllerRef)
-            if (set.size === 0) {
-                subscribers.delete(sessionKey)
+            if (controllerRef) {
+                inputStream.remove(controllerRef)
             }
         }
 
         return new ReadableStream<Uint8Array>({
             start(controller) {
                 controllerRef = controller
-                const set = subscribers.get(sessionKey) ?? new Set()
-                set.add(controller)
-                subscribers.set(sessionKey, set)
-                controller.enqueue(
-                    encodeSse('ready', {
-                        roomId: input.roomId,
-                        sessionKey,
-                        subscribed: true,
-                    }),
-                )
+                inputStream.add(controller)
+                controller.enqueue(encodeSse('ready', inputStream.readyPayload))
                 timer = setInterval(() => {
                     try {
                         controller.enqueue(
@@ -90,8 +89,47 @@ export function createRuntimeEventBus(input: RuntimeEventBusInput): RuntimeEvent
         })
     }
 
+    const createRoomEventStream = (): ReadableStream<Uint8Array> =>
+        createStream({
+            readyPayload: {
+                roomId: input.roomId,
+                subscribed: true,
+            },
+            add: (controller) => {
+                roomSubscribers.add(controller)
+            },
+            remove: (controller) => {
+                roomSubscribers.delete(controller)
+            },
+        })
+
+    const createEventStream = (sessionKey: string): ReadableStream<Uint8Array> =>
+        createStream({
+            readyPayload: {
+                roomId: input.roomId,
+                sessionKey,
+                subscribed: true,
+            },
+            add: (controller) => {
+                const set = subscribers.get(sessionKey) ?? new Set()
+                set.add(controller)
+                subscribers.set(sessionKey, set)
+            },
+            remove: (controller) => {
+                const set = subscribers.get(sessionKey)
+                if (!set) {
+                    return
+                }
+                set.delete(controller)
+                if (set.size === 0) {
+                    subscribers.delete(sessionKey)
+                }
+            },
+        })
+
     return {
         broadcast,
         createEventStream,
+        createRoomEventStream,
     }
 }

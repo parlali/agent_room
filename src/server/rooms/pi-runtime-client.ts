@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
-import type { z } from 'zod'
+import { z } from 'zod'
+import type { RoomFileChangedPayload } from './execution-types'
 import { roomRuntimeMetadataRepository } from '../db/repositories'
 import { getRoomPaths } from './room-paths'
 
@@ -87,4 +88,38 @@ export async function openPiRuntimeEventStream(input: {
     }
 
     return response.body
+}
+
+export async function openPiRuntimeRoomEventStream(input: {
+    roomId: string
+    signal?: AbortSignal
+}): Promise<ReadableStream<Uint8Array>> {
+    const endpoint = await getRuntimeEndpoint(input.roomId)
+    const response = await fetch(`http://127.0.0.1:${endpoint.port}/events`, {
+        method: 'GET',
+        signal: input.signal,
+        headers: {
+            authorization: `Bearer ${endpoint.token}`,
+            accept: 'text/event-stream',
+        },
+    })
+
+    if (!response.ok || !response.body) {
+        throw new Error(`Pi runtime room event stream failed with status ${response.status}`)
+    }
+
+    return response.body
+}
+
+const publishFileChangedSchema = z.object({
+    ok: z.literal(true),
+})
+
+export async function publishPiRuntimeRoomFileChanged(
+    input: RoomFileChangedPayload,
+): Promise<void> {
+    await requestPiRuntime(input.roomId, '/events/file-changed', publishFileChangedSchema, {
+        method: 'POST',
+        body: input,
+    })
 }

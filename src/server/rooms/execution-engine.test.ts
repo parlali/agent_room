@@ -4,22 +4,27 @@ import type * as ExecutionEngine from './execution-engine'
 const mocks = vi.hoisted(() => ({
     getRoomExecutionSnapshot: vi.fn(),
     sendRoomThreadMessage: vi.fn(),
+    updateRoomThreadModel: vi.fn(),
     compactRoomThread: vi.fn(),
     forkRoomThread: vi.fn(),
     createRoomThread: vi.fn(),
     listRoomCronJobs: vi.fn(),
     updateRoomCronJob: vi.fn(),
+    publishRoomFileChanged: vi.fn(),
 }))
 
 vi.mock('./pi-execution-adapter', () => ({
     listRoomsWithRuntime: vi.fn(),
     getRoomExecutionSnapshot: mocks.getRoomExecutionSnapshot,
     sendRoomThreadMessage: mocks.sendRoomThreadMessage,
+    updateRoomThreadModel: mocks.updateRoomThreadModel,
     abortRoomThreadMessage: vi.fn(),
     compactRoomThread: mocks.compactRoomThread,
     forkRoomThread: mocks.forkRoomThread,
     editRoomThreadMessage: vi.fn(),
     createRoomSessionEventStream: vi.fn(),
+    createRoomEventStream: vi.fn(),
+    publishRoomFileChanged: mocks.publishRoomFileChanged,
     createRoomThread: mocks.createRoomThread,
     listRoomCronJobs: mocks.listRoomCronJobs,
     createRoomCronJob: vi.fn(),
@@ -40,17 +45,28 @@ describe('runtime-neutral execution engine facade', () => {
         vi.resetModules()
         mocks.getRoomExecutionSnapshot.mockReset()
         mocks.sendRoomThreadMessage.mockReset()
+        mocks.updateRoomThreadModel.mockReset()
         mocks.compactRoomThread.mockReset()
         mocks.forkRoomThread.mockReset()
         mocks.createRoomThread.mockReset()
         mocks.listRoomCronJobs.mockReset()
         mocks.updateRoomCronJob.mockReset()
+        mocks.publishRoomFileChanged.mockReset()
         engine = await import('./execution-engine')
     })
 
     it('routes snapshot, message, thread, and job calls through the adapter contract', async () => {
         mocks.getRoomExecutionSnapshot.mockResolvedValue({ selectedThreadKey: 'thread-1' })
         mocks.sendRoomThreadMessage.mockResolvedValue({ status: 'accepted' })
+        mocks.updateRoomThreadModel.mockResolvedValue({
+            provider: 'openai-codex',
+            model: 'gpt-5.5',
+            value: 'openai-codex/gpt-5.5',
+            label: 'GPT-5.5',
+            thinkingLevel: 'xhigh',
+            availableThinkingLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+            options: [],
+        })
         mocks.compactRoomThread.mockResolvedValue({ status: 'idle' })
         mocks.forkRoomThread.mockResolvedValue({ key: 'thread-fork' })
         mocks.createRoomThread.mockResolvedValue({ key: 'thread-2' })
@@ -71,6 +87,23 @@ describe('runtime-neutral execution engine facade', () => {
                 awaitCompletion: true,
             }),
         ).resolves.toEqual({ status: 'accepted' })
+        await expect(
+            engine.updateRoomThreadModel({
+                roomId: 'room-1',
+                sessionKey: 'thread-1',
+                provider: 'openai-codex',
+                model: 'gpt-5.5',
+                thinkingLevel: 'xhigh',
+            }),
+        ).resolves.toEqual({
+            provider: 'openai-codex',
+            model: 'gpt-5.5',
+            value: 'openai-codex/gpt-5.5',
+            label: 'GPT-5.5',
+            thinkingLevel: 'xhigh',
+            availableThinkingLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+            options: [],
+        })
         await expect(
             engine.compactRoomThread({
                 roomId: 'room-1',
@@ -112,6 +145,13 @@ describe('runtime-neutral execution engine facade', () => {
             sessionKey: 'thread-1',
             message: 'hello',
             awaitCompletion: true,
+        })
+        expect(mocks.updateRoomThreadModel).toHaveBeenCalledWith({
+            roomId: 'room-1',
+            sessionKey: 'thread-1',
+            provider: 'openai-codex',
+            model: 'gpt-5.5',
+            thinkingLevel: 'xhigh',
         })
         expect(mocks.compactRoomThread).toHaveBeenCalledWith({
             roomId: 'room-1',

@@ -10,15 +10,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     const [mobileOpen, setMobileOpen] = useState(false)
 
     return (
-        <div className="flex min-h-screen w-full">
-            <aside className="hidden w-[var(--sidebar-width,17rem)] shrink-0 border-r border-border md:block">
-                <div className="sticky top-0 h-screen">
-                    <Sidebar />
-                </div>
+        <div className="flex h-dvh w-full overflow-hidden">
+            <aside className="hidden h-full w-[var(--sidebar-width,17rem)] shrink-0 overflow-hidden border-r border-border md:block">
+                <Sidebar />
             </aside>
 
-            <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-                <header className="sticky top-0 z-20 flex items-center justify-between gap-2 border-b border-border bg-background/95 px-3 py-2 backdrop-blur md:hidden">
+            <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                <header className="z-20 flex shrink-0 items-center justify-between gap-2 border-b border-border bg-background/95 px-3 py-2 backdrop-blur md:hidden">
                     <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
                         <SheetTrigger asChild>
                             <Button variant="ghost" size="icon-sm" aria-label="Open menu">
@@ -36,7 +34,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                     <span className="size-8" aria-hidden />
                 </header>
 
-                <main className="min-w-0 flex-1">{children}</main>
+                <main className="min-h-0 min-w-0 flex-1 overflow-auto">{children}</main>
             </div>
         </div>
     )

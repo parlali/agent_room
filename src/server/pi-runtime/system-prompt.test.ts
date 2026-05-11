@@ -70,6 +70,8 @@ describe('Agent Room Pi system prompt', () => {
             expect(prompt).toContain('agent_room_memory_read')
             expect(prompt).toContain('Enabled MCP servers: docs: search')
             expect(prompt).toContain('Scheduled work is autonomous')
+            expect(prompt).toContain('Keep the workspace reviewable for non-developers')
+            expect(prompt).toContain('omitted previews are temporary internal verification only')
             expect(prompt).toContain('Room memory harness')
             expect(prompt).not.toContain('memory.md')
             expect(prompt).not.toContain('Room id')

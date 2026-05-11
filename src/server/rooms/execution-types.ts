@@ -1,4 +1,5 @@
 import type { HealthStatus, JsonValue, RoomDesiredState, RoomStatus } from '../domain/types'
+import type { RoomFileSurface } from './file-store'
 import type { JobSchedule } from '#/lib/job-schedule'
 
 export interface RoomRuntimeOverview {
@@ -41,11 +42,16 @@ export interface RoomExecutionThread {
     lastMessagePreview: string | null
     status: string | null
     updatedAt: number | null
+    runStartedAt: number | null
     runtimeMs: number | null
     model: string | null
     modelProvider: string | null
     totalTokens: number | null
     estimatedCostUsd: number | null
+    readState: {
+        readAt: number | null
+        unread: boolean
+    }
     compaction: {
         enabled: boolean
         compacting: boolean
@@ -54,6 +60,27 @@ export interface RoomExecutionThread {
         lastTokensBefore: number | null
         lastError: string | null
     }
+}
+
+export type RoomExecutionThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+
+export interface RoomExecutionModelOption {
+    value: string
+    provider: string
+    model: string
+    label: string
+    supportsReasoning: boolean
+    availableThinkingLevels: RoomExecutionThinkingLevel[]
+}
+
+export interface RoomExecutionModelState {
+    value: string
+    provider: string
+    model: string
+    label: string
+    thinkingLevel: RoomExecutionThinkingLevel
+    availableThinkingLevels: RoomExecutionThinkingLevel[]
+    options: RoomExecutionModelOption[]
 }
 
 export interface RoomExecutionMessage {
@@ -73,6 +100,23 @@ export interface RoomExecutionMessagePart {
     input: JsonValue
     result: JsonValue
     rawType: string | null
+}
+
+export type RoomSessionArtifactKind = 'attached' | 'created' | 'edited' | 'referenced'
+
+export interface RoomSessionArtifact {
+    id: string
+    name: string
+    surface: RoomFileSurface
+    relativePath: string
+    kind: RoomSessionArtifactKind
+    source: string
+    toolName: string | null
+    operation: string | null
+    artifactId: string | null
+    byteLength: number | null
+    timestamp: number | null
+    messageId: string | null
 }
 
 export interface RoomExecutionCapabilities {
@@ -103,7 +147,9 @@ export interface RoomExecutionSnapshot {
     extraAgentIds: string[]
     threads: RoomExecutionThread[]
     selectedThreadKey: string | null
+    selectedThreadModel: RoomExecutionModelState | null
     selectedThreadMessages: RoomExecutionMessage[]
+    selectedThreadArtifacts: RoomSessionArtifact[]
     recentActivity: RoomExecutionActivity[]
 }
 
@@ -138,6 +184,25 @@ export interface RoomRealtimeEvent {
     seq: number | null
     stateVersion: unknown
     receivedAt: number
+}
+
+export type RoomFileChangeOperation =
+    | 'write'
+    | 'edit'
+    | 'artifact_import'
+    | 'artifact_export'
+    | 'upload'
+    | 'runtime_activity'
+
+export interface RoomFileChangedPayload {
+    roomId: string
+    sessionKey: string | null
+    runId: string | null
+    surface: RoomFileSurface
+    relativePath: string | null
+    operation: RoomFileChangeOperation
+    byteLength: number | null
+    changedAt: number
 }
 
 export interface RoomCronJob {

@@ -40,6 +40,9 @@ describe('room file store', () => {
         await mkdir(join(paths.storeDir, 'blobs'), {
             recursive: true,
         })
+        await mkdir(join(paths.storeDir, 'previews'), {
+            recursive: true,
+        })
         await writeFile(join(paths.workspaceDir, 'large.txt'), Buffer.alloc(600000, 'a'))
         await writeFile(join(paths.workspaceDir, 'notes', 'daily.md'), '# Daily', 'utf8')
         await writeFile(join(paths.workspaceDir, 'fake.xlsx'), Buffer.from('PK fake office file'))
@@ -52,6 +55,7 @@ describe('room file store', () => {
         )
         await writeFile(join(paths.storeDir, 'upload.txt'), 'uploaded', 'utf8')
         await writeFile(join(paths.storeDir, 'blobs', 'hidden.txt'), 'hidden', 'utf8')
+        await writeFile(join(paths.storeDir, 'previews', 'hidden.png'), 'hidden', 'utf8')
         await writeFile(join(root, 'outside.txt'), 'outside', 'utf8')
         await symlink(join(root, 'outside.txt'), join(paths.workspaceDir, 'outside-link.txt'))
 
@@ -64,6 +68,7 @@ describe('room file store', () => {
         expect(listedPaths).toContain('store:upload.txt')
         expect(listedPaths).not.toContain('workspace:outside-link.txt')
         expect(listedPaths).not.toContain('store:blobs/hidden.txt')
+        expect(listedPaths).not.toContain('store:previews/hidden.png')
 
         const directory = await listRoomDirectory({
             roomId: 'room-files',

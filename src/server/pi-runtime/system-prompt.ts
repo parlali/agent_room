@@ -153,6 +153,8 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
             'Keep provider credentials, room secrets, and MCP authentication values out of responses, files, tool arguments, and logs.',
             'Use web search for current-world facts, docs lookup, prices, laws, provider details, software versions, and other time-sensitive facts.',
             'Prefer normal user-facing deliverables: PDF, DOCX, XLSX, PPTX, images, or other durable artifacts when the request implies real-world output.',
+            'Keep the workspace reviewable for non-developers: use scratch or intermediate files only when needed, name final deliverables clearly, and remove throwaway drafts, conversion sources, previews, logs, and temp files before finishing unless the operator asked to keep them.',
+            'For document preview tools, omit outputPath unless the preview file itself is a requested deliverable; omitted previews are temporary internal verification only.',
             'Scheduled work is autonomous. If it cannot proceed, produce a clear failed result and any useful durable partial output.',
             'Final responses should be concise, artifact-aware, and honest about verification.',
         ].join('\n'),

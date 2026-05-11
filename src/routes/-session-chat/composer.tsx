@@ -6,7 +6,9 @@ import { Button } from '#/components/ui/button'
 import { Textarea } from '#/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
 import type { RoomAttachment } from '#/lib/room-attachments'
+import type { RoomExecutionModelState } from '#/server/rooms/execution-types'
 import { AttachmentCards } from './attachment-cards'
+import { ModelModeMenu, type ModelModeChange } from './model-mode-menu'
 
 export type ComposerAttachment = RoomAttachment
 
@@ -25,6 +27,9 @@ export function Composer({
     attaching,
     onAttachFiles,
     onRemoveAttachment,
+    modelState,
+    modelUpdating,
+    onChangeModel,
 }: {
     roomId: string
     roomDisplayName: string
@@ -40,6 +45,9 @@ export function Composer({
     attaching: boolean
     onAttachFiles: (files: FileList) => void
     onRemoveAttachment: (id: string) => void
+    modelState: RoomExecutionModelState | null
+    modelUpdating: boolean
+    onChangeModel: (change: ModelModeChange) => void
 }) {
     const fileInputRef = useRef<HTMLInputElement | null>(null)
     const trimmed = draft.trim()
@@ -100,6 +108,12 @@ export function Composer({
                     placeholder={`Message ${roomDisplayName}`}
                     className="max-h-48 min-h-10 flex-1 resize-none"
                     rows={1}
+                />
+                <ModelModeMenu
+                    state={modelState}
+                    disabled={sending || stopping || canStop}
+                    updating={modelUpdating}
+                    onChange={onChangeModel}
                 />
                 {canStop ? (
                     <Tooltip>

@@ -1,7 +1,9 @@
 import type {
     RoomExecutionActivity,
     RoomExecutionAgent,
+    RoomExecutionModelState,
     RoomExecutionMessage,
+    RoomSessionArtifact,
     RoomExecutionThread,
 } from '../rooms/execution-types'
 
@@ -10,7 +12,9 @@ export interface PiRuntimeSnapshotPayload {
     extraAgentIds: string[]
     threads: RoomExecutionThread[]
     selectedThreadKey: string | null
+    selectedThreadModel: RoomExecutionModelState | null
     selectedThreadMessages: RoomExecutionMessage[]
+    selectedThreadArtifacts: RoomSessionArtifact[]
     recentActivity: RoomExecutionActivity[]
 }
 
@@ -42,6 +46,8 @@ export interface PiRuntimeForkPayload {
     parentThreadKey: string
     parentSessionFile: string
 }
+
+export type PiRuntimeThreadModelPayload = RoomExecutionModelState
 
 export interface PiRuntimeErrorPayload {
     message: string

@@ -15,12 +15,14 @@ import {
     getRoomExecutionServer,
     renameSessionServer,
     sendMessageServer,
+    updateThreadModelServer,
 } from '#/routes/-room-runtime-server'
 import type { RoomExecutionSnapshot, RoomRealtimeEvent } from '#/server/rooms/execution-types'
 
 import { ChatHeader } from './chat-header'
 import { ChatSkeleton } from './chat-skeleton'
 import { Composer, type ComposerAttachment } from './composer'
+import type { ModelModeChange } from './model-mode-menu'
 import { isLastMessageInProgress } from './conversation-utils'
 import {
     emptyStreamTurnState,
@@ -31,6 +33,8 @@ import {
 } from './stream-state'
 import { MessageList } from './message-list'
 import { useStreamingRefetch } from './streaming'
+import { SessionArtifactsPanel } from './session-artifacts-panel'
+import { SessionRunStatus } from './session-run-status'
 
 export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessionKey: string }) {
     const navigate = useNavigate()
@@ -39,6 +43,10 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const [streamError, setStreamError] = useState<string | null>(null)
     const [streamTurn, setStreamTurn] = useState<StreamTurnState>(emptyStreamTurnState)
     const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
+    const [artifactsOpen, setArtifactsOpen] = useState(false)
+    const [autoOpenedArtifactsSession, setAutoOpenedArtifactsSession] = useState<string | null>(
+        null,
+    )
     const queryKey = useMemo(
         () => ['room-execution', roomId, sessionKey] as const,
         [roomId, sessionKey],
@@ -52,6 +60,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const snapshot = executionQuery.data
     const room = snapshot?.room ?? null
     const messages = snapshot?.selectedThreadMessages ?? []
+    const artifacts = snapshot?.selectedThreadArtifacts ?? []
     const selectedThread = useMemo(
         () => snapshot?.threads.find((thread) => thread.key === sessionKey) ?? null,
         [snapshot?.threads, sessionKey],
@@ -74,7 +83,16 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     useEffect(() => {
         setStreamTurn(emptyStreamTurnState)
         setAttachments([])
+        setArtifactsOpen(false)
+        setAutoOpenedArtifactsSession(null)
     }, [sessionKey])
+
+    useEffect(() => {
+        if (artifacts.length === 0) return
+        if (autoOpenedArtifactsSession === sessionKey) return
+        setArtifactsOpen(true)
+        setAutoOpenedArtifactsSession(sessionKey)
+    }, [artifacts.length, autoOpenedArtifactsSession, sessionKey])
 
     useEffect(() => {
         if (streamPersisted) {
@@ -97,7 +115,13 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const onRealtimeEvent = useCallback(
         (event: RoomRealtimeEvent) => {
             setStreamTurn((current) => reduceRoomStreamEvent(current, event))
-            if (event.event === 'thread.renamed') {
+            if (
+                event.event === 'thread.renamed' ||
+                event.event === 'thread.title_generated' ||
+                event.event === 'run.accepted' ||
+                event.event === 'run.finished' ||
+                event.event === 'agent_end'
+            ) {
                 void queryClient.invalidateQueries({ queryKey })
                 void queryClient.invalidateQueries({ queryKey: ['room-execution', roomId] })
                 void queryClient.invalidateQueries({
@@ -128,6 +152,25 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         },
         onError: (error) => {
             toast.error(error instanceof Error ? error.message : 'Message could not be sent')
+        },
+    })
+
+    const modelMutation = useMutation({
+        mutationFn: (input: ModelModeChange) =>
+            updateThreadModelServer({
+                data: {
+                    roomId,
+                    sessionKey,
+                    provider: input.provider,
+                    model: input.model,
+                    thinkingLevel: input.thinkingLevel,
+                },
+            }),
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({ queryKey })
+        },
+        onError: (error) => {
+            toast.error(error instanceof Error ? error.message : 'Model could not be changed')
         },
     })
 
@@ -238,7 +281,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     }
 
     return (
-        <div className="flex min-h-svh flex-col">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden">
             <ChatHeader
                 room={room}
                 sessionTitle={selectedThread?.title ?? 'Conversation'}
@@ -249,6 +292,10 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 }
                 model={selectedThread?.model ?? null}
                 compaction={selectedThread?.compaction ?? null}
+                runStatus={<SessionRunStatus thread={selectedThread} compact />}
+                artifactsCount={artifacts.length}
+                artifactsOpen={artifactsOpen}
+                onToggleArtifacts={() => setArtifactsOpen((open) => !open)}
                 onBack={() => {
                     void navigate({ to: '/rooms/$roomId', params: { roomId } })
                 }}
@@ -295,12 +342,32 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     />
                 </div>
             ) : null}
-            <MessageList
-                room={room}
-                messages={messages}
-                stream={visibleStreamTurn}
-                isWorking={isWorking}
-            />
+            <div className="relative flex min-h-0 flex-1 overflow-hidden">
+                <MessageList
+                    sessionKey={sessionKey}
+                    room={room}
+                    messages={messages}
+                    stream={visibleStreamTurn}
+                    isWorking={isWorking}
+                />
+                {artifactsOpen ? (
+                    <>
+                        <SessionArtifactsPanel
+                            roomId={roomId}
+                            artifacts={artifacts}
+                            onClose={() => setArtifactsOpen(false)}
+                            className="hidden w-[24rem] shrink-0 border-l border-border/60 xl:flex"
+                        />
+                        <div className="absolute inset-y-0 right-0 z-20 w-full max-w-md border-l border-border/60 shadow-xl xl:hidden">
+                            <SessionArtifactsPanel
+                                roomId={roomId}
+                                artifacts={artifacts}
+                                onClose={() => setArtifactsOpen(false)}
+                            />
+                        </div>
+                    </>
+                ) : null}
+            </div>
             <Composer
                 roomId={roomId}
                 roomDisplayName={room.displayName}
@@ -320,6 +387,9 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                         current.filter((attachment) => attachment.id !== id),
                     )
                 }
+                modelState={snapshot?.selectedThreadModel ?? null}
+                modelUpdating={modelMutation.isPending}
+                onChangeModel={(change) => modelMutation.mutate(change)}
             />
         </div>
     )

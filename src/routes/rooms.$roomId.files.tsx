@@ -1,10 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { toast } from 'sonner'
 import {
     ChevronRightIcon,
+    DownloadIcon,
     FileIcon,
     FileImageIcon,
     FileTextIcon,
@@ -28,8 +29,14 @@ import {
 import { Badge } from '#/components/ui/badge'
 import { RoomDashboardLayout } from '#/components/room-dashboard'
 import { EmptyState, LoadingRows, Section } from '#/components/agent-room'
+import {
+    RoomFileMetadata,
+    RoomFilePreviewContent,
+    describeRoomFileSurface,
+    getRoomFileExtension,
+} from '#/components/room-files/file-preview'
 import { formatBytes, formatRelativeTime } from '#/lib/format'
-import { roomFileEntryPreviewUrl } from '#/lib/room-file-links'
+import { roomFileEntryDownloadUrl, roomFileEntryPreviewUrl } from '#/lib/room-file-links'
 import { uploadRoomFiles } from '#/lib/room-file-upload'
 import {
     listRoomDirectoryServer,
@@ -37,6 +44,7 @@ import {
     listRoomFileTreeServer,
     readRoomFileServer,
 } from '#/routes/-room-runtime-server'
+import { useEventSourceRefetch } from '#/routes/-session-chat/streaming'
 import { requireRouteUser } from '#/routes/-route-auth'
 import type {
     RoomDirectoryListing,
@@ -45,6 +53,7 @@ import type {
     RoomFileSurface,
     RoomFileTreeNode,
 } from '#/server/rooms/file-store'
+import type { RoomRealtimeEvent } from '#/server/rooms/execution-types'
 
 export const Route = createFileRoute('/rooms/$roomId/files')({
     beforeLoad: requireRouteUser,
@@ -77,35 +86,12 @@ const TEXT_EXTENSIONS = new Set([
     'xml',
 ])
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'])
-const OFFICE_EXTENSIONS = new Set([
-    'doc',
-    'docx',
-    'xls',
-    'xlsx',
-    'ppt',
-    'pptx',
-    'odt',
-    'ods',
-    'odp',
-])
-const TEXT_PREVIEW_LIMIT_BYTES = 512000
-
-function getExtension(name: string): string {
-    const idx = name.lastIndexOf('.')
-    if (idx <= 0 || idx === name.length - 1) return ''
-    return name.slice(idx + 1).toLowerCase()
-}
-
 function pickIcon(entry: RoomFileEntry): LucideIcon {
     if (entry.kind === 'directory') return FolderIcon
-    const ext = getExtension(entry.name)
+    const ext = getRoomFileExtension(entry.name)
     if (IMAGE_EXTENSIONS.has(ext)) return FileImageIcon
     if (TEXT_EXTENSIONS.has(ext)) return FileTextIcon
     return FileIcon
-}
-
-function describeSurface(surface: RoomFileSurface): string {
-    return surface === 'workspace' ? 'Workspace' : 'Uploads'
 }
 
 function entryKey(entry: Pick<RoomFileEntry, 'surface' | 'relativePath'>): string {
@@ -114,9 +100,19 @@ function entryKey(entry: Pick<RoomFileEntry, 'surface' | 'relativePath'>): strin
 
 function fileTypeLabel(entry: RoomFileEntry): string {
     if (entry.kind === 'directory') return 'Folder'
-    const ext = getExtension(entry.name)
+    const ext = getRoomFileExtension(entry.name)
     if (!ext) return 'File'
     return ext.toUpperCase()
+}
+
+function shouldRefreshFilesForRoomEvent(event: RoomRealtimeEvent): boolean {
+    return (
+        event.event === 'room.files.changed' ||
+        event.event === 'tool_execution_end' ||
+        event.event === 'turn_end' ||
+        event.event === 'agent_end' ||
+        event.event === 'run.finished'
+    )
 }
 
 function RoomFilesPage() {
@@ -134,6 +130,7 @@ function FilesContent({ roomId }: { roomId: string }) {
     const [path, setPath] = useState('')
     const [search, setSearch] = useState('')
     const [selectedEntry, setSelectedEntry] = useState<RoomFileEntry | null>(null)
+    const [streamError, setStreamError] = useState<string | null>(null)
 
     const directoryQuery = useQuery({
         queryKey: ['room-directory', roomId, surface, path],
@@ -175,6 +172,46 @@ function FilesContent({ roomId }: { roomId: string }) {
 
     const listing = directoryQuery.data as RoomDirectoryListing | undefined
     const entries = search.trim() ? searchResults : (listing?.entries ?? [])
+
+    const invalidateFileQueries = useCallback(() => {
+        void Promise.all([
+            queryClient.invalidateQueries({ queryKey: ['room-directory', roomId] }),
+            queryClient.invalidateQueries({ queryKey: ['room-file-tree', roomId] }),
+            queryClient.invalidateQueries({ queryKey: ['room-files', roomId] }),
+            queryClient.invalidateQueries({ queryKey: ['room-file-preview', roomId] }),
+        ])
+    }, [queryClient, roomId])
+
+    const onRealtimeEvent = useCallback(
+        (event: RoomRealtimeEvent) => {
+            if (shouldRefreshFilesForRoomEvent(event)) {
+                invalidateFileQueries()
+            }
+        },
+        [invalidateFileQueries],
+    )
+
+    useEventSourceRefetch({
+        url: `/api/rooms/${encodeURIComponent(roomId)}/events`,
+        queryClient,
+        onError: setStreamError,
+        onEvent: onRealtimeEvent,
+    })
+
+    useEffect(() => {
+        if (!selectedEntry) return
+        const refreshed = (allFilesQuery.data ?? []).find(
+            (entry) => entryKey(entry) === entryKey(selectedEntry),
+        )
+        if (!refreshed) return
+        if (
+            refreshed.byteLength !== selectedEntry.byteLength ||
+            refreshed.updatedAt !== selectedEntry.updatedAt
+        ) {
+            setSelectedEntry(refreshed)
+        }
+    }, [allFilesQuery.data, selectedEntry])
+
     const uploadMutation = useMutation({
         mutationFn: (files: File[]) =>
             uploadRoomFiles({
@@ -213,6 +250,11 @@ function FilesContent({ roomId }: { roomId: string }) {
                 description="Browse the room workspace and uploaded artifacts."
                 bodyClassName="p-0"
             >
+                {streamError ? (
+                    <div className="border-b border-border/60 px-4 py-2 text-sm text-danger-fg">
+                        {streamError}
+                    </div>
+                ) : null}
                 <div className="grid grid-cols-1 md:grid-cols-[12rem_minmax(0,1fr)] xl:min-h-[42rem] xl:grid-cols-[13rem_minmax(16rem,0.85fr)_minmax(28rem,1.55fr)]">
                     <FileTreePane
                         loading={treeQuery.isLoading}
@@ -411,7 +453,7 @@ function DirectoryPane({
                     size="sm"
                     onClick={() => onNavigate(surface, '')}
                 >
-                    {describeSurface(surface)}
+                    {describeRoomFileSurface(surface)}
                 </Button>
                 {!searching && listing
                     ? listing.breadcrumbs.map((crumb) => (
@@ -529,7 +571,7 @@ function FileBrowserRow({
                         {entry.kind === 'file' ? (
                             <span>{formatBytes(entry.byteLength)}</span>
                         ) : null}
-                        <span>{describeSurface(entry.surface)}</span>
+                        <span>{describeRoomFileSurface(entry.surface)}</span>
                         <span>Updated {formatRelativeTime(entry.updatedAt)}</span>
                     </span>
                 </span>
@@ -558,6 +600,7 @@ function PreviewPane({ roomId, entry }: { roomId: string; entry: RoomFileEntry |
     })
     const preview = previewQuery.data as RoomFilePreview | undefined
     const previewUrl = entry ? roomFileEntryPreviewUrl(roomId, entry) : ''
+    const downloadUrl = entry ? roomFileEntryDownloadUrl(roomId, entry) : ''
 
     return (
         <aside className="min-w-0 p-3 md:col-span-2 xl:col-span-1 xl:border-l">
@@ -566,15 +609,23 @@ function PreviewPane({ roomId, entry }: { roomId: string; entry: RoomFileEntry |
                     Preview
                 </div>
                 {entry ? (
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setExpanded(true)}
-                    >
-                        <Maximize2Icon />
-                        Expand
-                    </Button>
+                    <div className="flex items-center gap-1">
+                        <Button asChild variant="ghost" size="sm">
+                            <a href={downloadUrl} download={entry.name}>
+                                <DownloadIcon />
+                                Download
+                            </a>
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setExpanded(true)}
+                        >
+                            <Maximize2Icon />
+                            Expand
+                        </Button>
+                    </div>
                 ) : null}
             </div>
             {!entry ? (
@@ -583,8 +634,8 @@ function PreviewPane({ roomId, entry }: { roomId: string; entry: RoomFileEntry |
                 </div>
             ) : (
                 <div className="space-y-3">
-                    <FileMetadata entry={entry} />
-                    <PreviewContent
+                    <RoomFileMetadata entry={entry} />
+                    <RoomFilePreviewContent
                         entry={entry}
                         preview={preview}
                         previewUrl={previewUrl}
@@ -593,14 +644,23 @@ function PreviewPane({ roomId, entry }: { roomId: string; entry: RoomFileEntry |
                     />
                     <Dialog open={expanded} onOpenChange={setExpanded}>
                         <DialogContent className="grid h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-none grid-rows-[auto_minmax(0,1fr)] gap-3 p-4">
-                            <DialogHeader className="min-w-0 pr-8">
-                                <DialogTitle className="truncate">{entry.name}</DialogTitle>
-                                <DialogDescription className="truncate">
-                                    {describeSurface(entry.surface)} / {entry.relativePath}
-                                </DialogDescription>
-                            </DialogHeader>
+                            <div className="flex min-w-0 items-start justify-between gap-3 pr-8">
+                                <DialogHeader className="min-w-0">
+                                    <DialogTitle className="truncate">{entry.name}</DialogTitle>
+                                    <DialogDescription className="truncate">
+                                        {describeRoomFileSurface(entry.surface)} /{' '}
+                                        {entry.relativePath}
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <Button asChild variant="outline" size="sm">
+                                    <a href={downloadUrl} download={entry.name}>
+                                        <DownloadIcon />
+                                        Download
+                                    </a>
+                                </Button>
+                            </div>
                             <div className="h-full min-h-0">
-                                <PreviewContent
+                                <RoomFilePreviewContent
                                     entry={entry}
                                     preview={preview}
                                     previewUrl={previewUrl}
@@ -614,130 +674,5 @@ function PreviewPane({ roomId, entry }: { roomId: string; entry: RoomFileEntry |
                 </div>
             )}
         </aside>
-    )
-}
-
-function FileMetadata({ entry }: { entry: RoomFileEntry }) {
-    return (
-        <div className="rounded-md border border-border/60 p-3">
-            <div className="truncate text-sm font-medium text-foreground">{entry.name}</div>
-            <div className="mt-2 grid grid-cols-[4.5rem_1fr] gap-x-3 gap-y-1 text-xs">
-                <span className="text-muted-foreground">Path</span>
-                <span className="truncate text-foreground">{entry.relativePath}</span>
-                <span className="text-muted-foreground">Root</span>
-                <span className="text-foreground">{describeSurface(entry.surface)}</span>
-                <span className="text-muted-foreground">Size</span>
-                <span className="text-foreground">{formatBytes(entry.byteLength)}</span>
-                <span className="text-muted-foreground">Updated</span>
-                <span className="text-foreground">{formatRelativeTime(entry.updatedAt)}</span>
-            </div>
-        </div>
-    )
-}
-
-function PreviewContent({
-    entry,
-    preview,
-    previewUrl,
-    loading,
-    error,
-    expanded = false,
-}: {
-    entry: RoomFileEntry
-    preview: RoomFilePreview | undefined
-    previewUrl: string
-    loading: boolean
-    error: unknown
-    expanded?: boolean
-}) {
-    const extension = getExtension(entry.name)
-    const officeLike = OFFICE_EXTENSIONS.has(extension)
-    if (loading) {
-        return (
-            <div className="rounded-md border border-border/60 px-3 py-8 text-center text-sm text-muted-foreground">
-                Preparing preview
-            </div>
-        )
-    }
-    if (error) {
-        return (
-            <div className="rounded-md border border-border/60 px-3 py-8 text-center text-sm text-danger-fg">
-                Preview failed
-            </div>
-        )
-    }
-    if (!preview) {
-        return (
-            <div className="rounded-md border border-border/60 px-3 py-8 text-center text-sm text-muted-foreground">
-                No preview loaded.
-            </div>
-        )
-    }
-    if (preview.kind === 'unsupported') {
-        return (
-            <div className="rounded-md border border-border/60 px-3 py-8 text-center text-sm text-muted-foreground">
-                {preview.reason}
-            </div>
-        )
-    }
-    if (preview.kind === 'image') {
-        return (
-            <div className="flex h-full min-h-0 overflow-hidden rounded-md border border-border/60 bg-muted/30">
-                <img
-                    src={previewUrl}
-                    alt={entry.name}
-                    className={
-                        expanded
-                            ? 'h-full max-h-[calc(100vh-9rem)] w-full object-contain'
-                            : 'max-h-[34rem] w-full object-contain'
-                    }
-                />
-            </div>
-        )
-    }
-    if (preview.kind === 'pdf') {
-        return (
-            <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-border/60 bg-muted/30">
-                {preview.generated || officeLike ? (
-                    <div className="border-b border-border/60 px-3 py-2 text-xs text-muted-foreground">
-                        Preview generated from {extension.toUpperCase()}
-                    </div>
-                ) : null}
-                <img
-                    src={previewUrl}
-                    alt={entry.name}
-                    className={
-                        expanded
-                            ? 'h-full min-h-0 flex-1 object-contain'
-                            : 'max-h-[34rem] w-full object-contain'
-                    }
-                />
-            </div>
-        )
-    }
-    if (preview.kind !== 'text') {
-        return (
-            <div className="rounded-md border border-border/60 px-3 py-8 text-center text-sm text-muted-foreground">
-                Preview is not available.
-            </div>
-        )
-    }
-    return (
-        <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-border/60 bg-muted/30">
-            <pre
-                className={
-                    expanded
-                        ? 'min-h-0 flex-1 overflow-auto whitespace-pre-wrap p-3 font-mono text-xs text-foreground'
-                        : 'max-h-[34rem] overflow-auto whitespace-pre-wrap p-3 font-mono text-xs text-foreground'
-                }
-            >
-                {preview.content}
-            </pre>
-            {preview.truncated ? (
-                <div className="border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
-                    Only the first {formatBytes(TEXT_PREVIEW_LIMIT_BYTES)} is shown.
-                </div>
-            ) : null}
-        </div>
     )
 }

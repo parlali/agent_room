@@ -1,5 +1,10 @@
 import { encodeRoomSseEvent, toRoomRealtimeEvent } from '../execution-adapter'
-import { openPiRuntimeEventStream } from '../pi-runtime-client'
+import type { RoomFileChangedPayload } from '../execution-types'
+import {
+    openPiRuntimeEventStream,
+    openPiRuntimeRoomEventStream,
+    publishPiRuntimeRoomFileChanged,
+} from '../pi-runtime-client'
 
 const ROOM_STREAM_BACKPRESSURE_LIMIT = -64
 
@@ -7,6 +12,39 @@ export function createRoomSessionEventStream(input: {
     roomId: string
     sessionKey: string
     abortSignal?: AbortSignal
+}): ReadableStream<Uint8Array> {
+    return createRuntimeEventProxyStream({
+        abortSignal: input.abortSignal,
+        open: () =>
+            openPiRuntimeEventStream({
+                roomId: input.roomId,
+                sessionKey: input.sessionKey,
+                signal: input.abortSignal,
+            }),
+    })
+}
+
+export function createRoomEventStream(input: {
+    roomId: string
+    abortSignal?: AbortSignal
+}): ReadableStream<Uint8Array> {
+    return createRuntimeEventProxyStream({
+        abortSignal: input.abortSignal,
+        open: () =>
+            openPiRuntimeRoomEventStream({
+                roomId: input.roomId,
+                signal: input.abortSignal,
+            }),
+    })
+}
+
+export async function publishRoomFileChanged(input: RoomFileChangedPayload): Promise<void> {
+    await publishPiRuntimeRoomFileChanged(input)
+}
+
+function createRuntimeEventProxyStream(input: {
+    abortSignal?: AbortSignal
+    open: () => Promise<ReadableStream<Uint8Array>>
 }): ReadableStream<Uint8Array> {
     let closed = false
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
@@ -53,11 +91,7 @@ export function createRoomSessionEventStream(input: {
 
             const run = async () => {
                 try {
-                    const stream = await openPiRuntimeEventStream({
-                        roomId: input.roomId,
-                        sessionKey: input.sessionKey,
-                        signal: input.abortSignal,
-                    })
+                    const stream = await input.open()
                     reader = stream.getReader()
                     while (!closed) {
                         const result = await reader.read()

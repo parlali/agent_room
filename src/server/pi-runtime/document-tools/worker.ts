@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdtemp, rename } from 'node:fs/promises'
+import { mkdtemp, rename, rm } from 'node:fs/promises'
 import { basename, dirname, extname, join } from 'node:path'
 import type { PiRuntimeConfig } from '../../rooms/pi-runtime-config'
 import { buildBoundedProcessEnv } from '../../security/process-env'
@@ -114,27 +114,34 @@ export async function exportOfficeToPdf(
 ): Promise<void> {
     await assertExists(inputPath)
     const tempDir = await mkdtemp(join(ctx.config.paths.tmpDir, 'office-export-'))
-    await runWorker({
-        config: ctx.config,
-        command: 'soffice',
-        args: [
-            '--headless',
-            '--nologo',
-            '--nofirststartwizard',
-            '--convert-to',
-            'pdf',
-            '--outdir',
-            tempDir,
-            inputPath,
-        ],
-        cwd: ctx.config.paths.workspaceDir,
-        timeoutMs: ctx.config.budgets.documentWorkerMs,
-        signal,
-    })
-    const generatedPath = join(tempDir, `${basename(inputPath, extname(inputPath))}.pdf`)
-    await ensureShellWritableDirectory(dirname(outputPath))
-    await rename(generatedPath, outputPath)
-    await ensureShellWritableFile(outputPath)
+    try {
+        await runWorker({
+            config: ctx.config,
+            command: 'soffice',
+            args: [
+                '--headless',
+                '--nologo',
+                '--nofirststartwizard',
+                '--convert-to',
+                'pdf',
+                '--outdir',
+                tempDir,
+                inputPath,
+            ],
+            cwd: ctx.config.paths.workspaceDir,
+            timeoutMs: ctx.config.budgets.documentWorkerMs,
+            signal,
+        })
+        const generatedPath = join(tempDir, `${basename(inputPath, extname(inputPath))}.pdf`)
+        await ensureShellWritableDirectory(dirname(outputPath))
+        await rename(generatedPath, outputPath)
+        await ensureShellWritableFile(outputPath)
+    } finally {
+        await rm(tempDir, {
+            recursive: true,
+            force: true,
+        })
+    }
 }
 
 export async function renderPdfPreview(

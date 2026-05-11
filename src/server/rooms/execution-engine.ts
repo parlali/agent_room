@@ -1,7 +1,10 @@
 import type {
     RoomCronJob,
+    RoomExecutionModelState,
     RoomExecutionSnapshot,
+    RoomExecutionThinkingLevel,
     RoomExecutionTruthSnapshot,
+    RoomFileChangedPayload,
     RoomRunHistorySnapshot,
     RoomRuntimeOverview,
     RoomThreadAbortResult,
@@ -18,9 +21,12 @@ export type {
     RoomExecutionActivity,
     RoomExecutionAgent,
     RoomExecutionCapabilities,
+    RoomExecutionModelOption,
+    RoomExecutionModelState,
     RoomExecutionMessage,
     RoomExecutionMessagePart,
     RoomExecutionSnapshot,
+    RoomExecutionThinkingLevel,
     RoomExecutionThread,
     RoomExecutionTruthSnapshot,
     RoomRealtimeEvent,
@@ -45,6 +51,7 @@ export async function getRoomExecutionSnapshot(input: {
     roomId: string
     selectedThreadKey?: string | null
     messageLimit?: number
+    actorUserId?: string | null
 }): Promise<RoomExecutionSnapshot> {
     const module = await loadExecutionEngineModule()
     return module.getRoomExecutionSnapshot(input)
@@ -58,6 +65,17 @@ export async function sendRoomThreadMessage(input: {
 }): Promise<RoomThreadSendResult> {
     const module = await loadExecutionEngineModule()
     return module.sendRoomThreadMessage(input)
+}
+
+export async function updateRoomThreadModel(input: {
+    roomId: string
+    sessionKey: string
+    provider: string
+    model: string
+    thinkingLevel?: RoomExecutionThinkingLevel | null
+}): Promise<RoomExecutionModelState> {
+    const module = await loadExecutionEngineModule()
+    return module.updateRoomThreadModel(input)
 }
 
 export async function abortRoomThreadMessage(input: {
@@ -140,6 +158,54 @@ export function createRoomSessionEventStream(input: {
             }
         },
     })
+}
+
+export function createRoomEventStream(input: {
+    roomId: string
+    abortSignal?: AbortSignal
+}): ReadableStream<Uint8Array> {
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
+    let closed = false
+
+    return new ReadableStream<Uint8Array>({
+        start(controller) {
+            loadExecutionEngineModule()
+                .then((module) => {
+                    const stream = module.createRoomEventStream(input)
+                    reader = stream.getReader()
+
+                    async function pump(): Promise<void> {
+                        try {
+                            while (!closed) {
+                                const result = await reader!.read()
+                                if (result.done) {
+                                    controller.close()
+                                    return
+                                }
+                                controller.enqueue(result.value)
+                            }
+                        } catch (error) {
+                            controller.error(error)
+                        }
+                    }
+
+                    void pump()
+                })
+                .catch((error) => controller.error(error))
+        },
+        cancel() {
+            closed = true
+            if (reader) {
+                void reader.cancel()
+                reader = null
+            }
+        },
+    })
+}
+
+export async function publishRoomFileChanged(input: RoomFileChangedPayload): Promise<void> {
+    const module = await loadExecutionEngineModule()
+    return module.publishRoomFileChanged(input)
 }
 
 export async function createRoomThread(input: {

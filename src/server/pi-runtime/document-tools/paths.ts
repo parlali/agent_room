@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import { constants as fsConstants } from 'node:fs'
 import { access, realpath, writeFile } from 'node:fs/promises'
-import { dirname, extname, isAbsolute, join } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join } from 'node:path'
 import type { PiRuntimeConfig } from '../../rooms/pi-runtime-config'
 import { assertPathInsideRoot } from '../../security/path-boundary'
 import { ensureShellWritableDirectory, ensureShellWritableFile } from '../shell-sandbox'
@@ -74,6 +75,28 @@ export async function writableWorkspacePath(
     const parent = await nearestExistingParent(requested, config.paths.workspaceDir)
     assertInside(await realpath(parent), root)
     return requested
+}
+
+function safeGeneratedName(path: string): string {
+    return (
+        basename(path, extname(path))
+            .replace(/[^a-zA-Z0-9_-]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 80) || 'preview'
+    )
+}
+
+export async function writableInternalPreviewPath(
+    config: PiRuntimeConfig,
+    sourcePath: string,
+    extension: string,
+): Promise<string> {
+    const tmpRoot = await realpath(config.paths.tmpDir)
+    const previewDir = assertInside(join(tmpRoot, 'previews'), tmpRoot)
+    await ensureShellWritableDirectory(previewDir)
+    const extensionName = extension.replace(/^\.+/, '') || 'bin'
+    const filename = `${safeGeneratedName(sourcePath)}-${randomUUID()}.${extensionName}`
+    return assertInside(join(previewDir, filename), tmpRoot)
 }
 
 export async function assertExists(path: string): Promise<void> {

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
@@ -368,6 +368,22 @@ describe('room Pi tools', () => {
 
             expect(resultDetails(cancelled.result).aborted).toBe(true)
             expect(Number(resultDetails(cancelled.result).durationMs)).toBeLessThan(1000)
+        })
+    })
+
+    it('places internal document preview work under the hidden temp path', async () => {
+        await withRoom(async (config) => {
+            const { writableInternalPreviewPath } = await import('./document-tools/paths')
+            const previewPath = await writableInternalPreviewPath(
+                config,
+                'Quarterly Brief.docx',
+                'png',
+            )
+            const tmpRoot = await realpath(config.paths.tmpDir)
+
+            expect(previewPath.startsWith(join(tmpRoot, 'previews'))).toBe(true)
+            expect(previewPath.startsWith(config.paths.workspaceDir)).toBe(false)
+            expect(previewPath.startsWith(config.paths.storeDir)).toBe(false)
         })
     })
 
