@@ -95,11 +95,15 @@ export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Prom
     const hasPersistedModelState = sessionManager
         .getBranch()
         .some((entry) => entry.type === 'model_change' || entry.type === 'thinking_level_change')
+    const internalStateTools =
+        config.roomMode === 'coworker'
+            ? createInternalStateTools({
+                  config,
+                  audit: input.audit,
+              })
+            : []
     const customTools = [
-        ...createInternalStateTools({
-            config,
-            audit: input.audit,
-        }),
+        ...internalStateTools,
         ...createRoomTools({
             config,
             audit: input.audit,

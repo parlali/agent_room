@@ -245,7 +245,7 @@ function buildValidationRoomConfiguration(
 ): MaterializedRoomConfiguration {
     return {
         instructions: '',
-        toolsProfile: 'read-only',
+        roomMode: 'programmer',
         capabilities: {
             ...defaultCapabilities,
             documents: false,

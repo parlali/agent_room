@@ -61,6 +61,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const room = snapshot?.room ?? null
     const messages = snapshot?.selectedThreadMessages ?? []
     const artifacts = snapshot?.selectedThreadArtifacts ?? []
+    const showArtifacts = room?.roomMode !== 'programmer'
     const selectedThread = useMemo(
         () => snapshot?.threads.find((thread) => thread.key === sessionKey) ?? null,
         [snapshot?.threads, sessionKey],
@@ -88,11 +89,12 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     }, [sessionKey])
 
     useEffect(() => {
+        if (!showArtifacts) return
         if (artifacts.length === 0) return
         if (autoOpenedArtifactsSession === sessionKey) return
         setArtifactsOpen(true)
         setAutoOpenedArtifactsSession(sessionKey)
-    }, [artifacts.length, autoOpenedArtifactsSession, sessionKey])
+    }, [artifacts.length, autoOpenedArtifactsSession, sessionKey, showArtifacts])
 
     useEffect(() => {
         if (streamPersisted) {
@@ -293,6 +295,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 model={selectedThread?.model ?? null}
                 compaction={selectedThread?.compaction ?? null}
                 runStatus={<SessionRunStatus thread={selectedThread} compact />}
+                showArtifacts={showArtifacts}
                 artifactsCount={artifacts.length}
                 artifactsOpen={artifactsOpen}
                 onToggleArtifacts={() => setArtifactsOpen((open) => !open)}
@@ -350,7 +353,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     stream={visibleStreamTurn}
                     isWorking={isWorking}
                 />
-                {artifactsOpen ? (
+                {showArtifacts && artifactsOpen ? (
                     <>
                         <SessionArtifactsPanel
                             roomId={roomId}

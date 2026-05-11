@@ -18,6 +18,7 @@ import { toast } from 'sonner'
 import type { ReactNode } from 'react'
 
 import { cn } from '#/lib/utils'
+import { roomModeLabel } from '#/lib/room-modes'
 import { Button } from '#/components/ui/button'
 import {
     DropdownMenu,
@@ -30,7 +31,7 @@ import {
 import { Skeleton } from '#/components/ui/skeleton'
 import { ScrollArea } from '#/components/ui/scroll-area'
 import { AppShell } from '#/components/app-shell'
-import { RoomGlyph } from '#/components/agent-room'
+import { RoomGlyph, StateBadge } from '#/components/agent-room'
 import { listRoomsServer, setRoomDesiredStateServer } from '#/routes/-room-runtime-server'
 import type { RoomRuntimeOverview } from '#/server/rooms/execution-types'
 
@@ -237,9 +238,17 @@ function RoomHeaderContent({
             <div className="flex min-w-0 items-center gap-3">
                 <RoomGlyph name={room.displayName} seed={room.roomId} size="lg" />
                 <div className="min-w-0">
-                    <h1 className="truncate text-lg font-semibold tracking-tight sm:text-xl">
-                        {room.displayName}
-                    </h1>
+                    <div className="flex min-w-0 items-center gap-2">
+                        <h1 className="truncate text-lg font-semibold tracking-tight sm:text-xl">
+                            {room.displayName}
+                        </h1>
+                        <StateBadge
+                            tone={room.roomMode === 'programmer' ? 'ready' : 'muted'}
+                            label={roomModeLabel(room.roomMode)}
+                            showDot={false}
+                            className="shrink-0"
+                        />
+                    </div>
                     {room.lastError ? (
                         <p className="mt-0.5 truncate text-xs text-danger-fg">{room.lastError}</p>
                     ) : null}

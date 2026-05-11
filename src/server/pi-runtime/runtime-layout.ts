@@ -4,7 +4,13 @@ import { ensureInternalState } from './internal-state'
 import { ensureShellWritableDirectory } from './shell-sandbox'
 
 export async function ensureRuntimeLayout(config: PiRuntimeConfig): Promise<void> {
-    const shellEnabled = config.tools.profile !== 'read-only'
+    const writableToolsEnabled =
+        config.capabilities.shellCoding ||
+        config.capabilities.documents ||
+        config.capabilities.spreadsheets ||
+        config.capabilities.presentations ||
+        config.capabilities.pdf ||
+        config.capabilities.images
     await Promise.all([
         mkdir(config.paths.stateDir, { recursive: true, mode: 0o700 }),
         mkdir(config.paths.sessionsDir, { recursive: true, mode: 0o700 }),
@@ -15,8 +21,8 @@ export async function ensureRuntimeLayout(config: PiRuntimeConfig): Promise<void
         mkdir(config.paths.tmpDir, { recursive: true, mode: 0o700 }),
     ])
     await Promise.all([
-        chmod(config.paths.roomRootDir, shellEnabled ? 0o711 : 0o700),
-        chmod(config.paths.stateDir, shellEnabled ? 0o711 : 0o700),
+        chmod(config.paths.roomRootDir, writableToolsEnabled ? 0o711 : 0o700),
+        chmod(config.paths.stateDir, writableToolsEnabled ? 0o711 : 0o700),
         chmod(config.paths.sessionsDir, 0o700),
         chmod(config.paths.internalStateDir, 0o700),
         chmod(config.paths.workspaceDir, 0o700),
@@ -24,7 +30,7 @@ export async function ensureRuntimeLayout(config: PiRuntimeConfig): Promise<void
         chmod(config.paths.homeDir, 0o700),
         chmod(config.paths.tmpDir, 0o700),
     ])
-    if (shellEnabled) {
+    if (writableToolsEnabled) {
         await Promise.all([
             ensureShellWritableDirectory(config.paths.workspaceDir),
             ensureShellWritableDirectory(config.paths.storeDir),
@@ -32,5 +38,7 @@ export async function ensureRuntimeLayout(config: PiRuntimeConfig): Promise<void
             ensureShellWritableDirectory(config.paths.tmpDir),
         ])
     }
-    await ensureInternalState(config)
+    if (config.roomMode === 'coworker') {
+        await ensureInternalState(config)
+    }
 }

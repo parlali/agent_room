@@ -440,7 +440,7 @@ export async function materializeRoomConfiguration(input: {
     const capabilities = mergeCapabilities({
         defaults: settings.capabilityDefaults,
         overrides: config.capabilityOverrides,
-        toolsProfile: config.toolsProfile,
+        roomMode: config.roomMode,
         mcpConnectionCount: enabledBindings.length,
     })
     const image = normalizeImageConfig({
@@ -452,7 +452,7 @@ export async function materializeRoomConfiguration(input: {
 
     return {
         instructions: config.instructions,
-        toolsProfile: config.toolsProfile,
+        roomMode: config.roomMode,
         capabilities,
         search: normalizeSearchConfig(settings.searchConfig),
         image,

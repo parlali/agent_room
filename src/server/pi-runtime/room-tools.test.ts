@@ -189,16 +189,25 @@ describe('room Pi tools', () => {
     })
 
     it('removes shell and mutation tool names when shell and coding capability is disabled', () => {
-        const names = roomToolNamesForCapabilities('coding', {
+        const names = roomToolNamesForCapabilities('coworker', {
             ...testCapabilities,
             shellCoding: false,
         })
 
         expect(names).toContain('agent_room_read')
-        expect(names).toContain('agent_room_memory_patch')
         expect(names).not.toContain('agent_room_shell')
         expect(names).not.toContain('agent_room_write')
         expect(names).not.toContain('agent_room_artifact_import')
+    })
+
+    it('keeps programmer mode focused on code tools without coworker artifacts', () => {
+        const names = roomToolNamesForCapabilities('programmer', testCapabilities)
+
+        expect(names).toContain('agent_room_read')
+        expect(names).toContain('agent_room_write')
+        expect(names).toContain('agent_room_shell')
+        expect(names).not.toContain('agent_room_artifact_import')
+        expect(names).not.toContain('agent_room_artifact_export')
     })
 
     it('keeps shell-writable tool files owner-only', async () => {

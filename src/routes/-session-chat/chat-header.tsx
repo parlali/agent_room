@@ -27,6 +27,7 @@ export function ChatHeader({
     model,
     compaction,
     runStatus,
+    showArtifacts,
     artifactsCount,
     artifactsOpen,
     onToggleArtifacts,
@@ -42,6 +43,7 @@ export function ChatHeader({
     model: string | null
     compaction: RoomExecutionSnapshot['threads'][number]['compaction'] | null
     runStatus?: ReactNode
+    showArtifacts: boolean
     artifactsCount: number
     artifactsOpen: boolean
     onToggleArtifacts: () => void
@@ -114,22 +116,24 @@ export function ChatHeader({
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                     {runStatus}
-                    <Button
-                        type="button"
-                        variant={artifactsOpen ? 'secondary' : 'ghost'}
-                        size="sm"
-                        onClick={onToggleArtifacts}
-                        aria-pressed={artifactsOpen}
-                        aria-label="Toggle session artifacts"
-                    >
-                        <FilesIcon />
-                        <span className="hidden sm:inline">Artifacts</span>
-                        {artifactsCount > 0 ? (
-                            <span className="ml-0.5 rounded bg-background/80 px-1 text-[0.6875rem]">
-                                {artifactsCount}
-                            </span>
-                        ) : null}
-                    </Button>
+                    {showArtifacts ? (
+                        <Button
+                            type="button"
+                            variant={artifactsOpen ? 'secondary' : 'ghost'}
+                            size="sm"
+                            onClick={onToggleArtifacts}
+                            aria-pressed={artifactsOpen}
+                            aria-label="Toggle session artifacts"
+                        >
+                            <FilesIcon />
+                            <span className="hidden sm:inline">Artifacts</span>
+                            {artifactsCount > 0 ? (
+                                <span className="ml-0.5 rounded bg-background/80 px-1 text-[0.6875rem]">
+                                    {artifactsCount}
+                                </span>
+                            ) : null}
+                        </Button>
+                    ) : null}
                     <StateBadge
                         tone={sessionToneKey}
                         label={sessionLabel}

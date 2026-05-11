@@ -347,7 +347,7 @@ export const roomConfigRepository = {
         providerBaseUrl: string | null
         providerModel: string | null
         providerSecretId: string | null
-        toolsProfile: string
+        roomMode: string
         capabilityOverrides: JsonValue
         imageProvider: string | null
         imageModel: string | null
@@ -365,7 +365,7 @@ export const roomConfigRepository = {
                 provider_base_url,
                 provider_model,
                 provider_secret_id,
-                tools_profile,
+                room_mode,
                 capability_overrides,
                 image_provider,
                 image_model,
@@ -384,7 +384,7 @@ export const roomConfigRepository = {
                 ${input.providerBaseUrl},
                 ${input.providerModel},
                 ${input.providerSecretId},
-                ${input.toolsProfile},
+                ${input.roomMode},
                 ${sql.json(input.capabilityOverrides)},
                 ${input.imageProvider},
                 ${input.imageModel},
@@ -403,7 +403,7 @@ export const roomConfigRepository = {
                 provider_base_url = excluded.provider_base_url,
                 provider_model = excluded.provider_model,
                 provider_secret_id = excluded.provider_secret_id,
-                tools_profile = excluded.tools_profile,
+                room_mode = excluded.room_mode,
                 capability_overrides = excluded.capability_overrides,
                 image_provider = excluded.image_provider,
                 image_model = excluded.image_model,

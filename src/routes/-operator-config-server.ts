@@ -6,9 +6,9 @@ import {
     mcpTransports,
     providerApis,
     providerAuthModes,
+    roomModes,
     roomProviderModes,
     roomSecretPurposes,
-    roomToolProfiles,
     capabilityIds,
 } from '#/server/domain/types'
 
@@ -76,7 +76,7 @@ const roomConfigInputSchema = z.object({
     providerBaseUrl: z.string().nullable().optional(),
     providerModel: z.string().nullable().optional(),
     providerApiKey: z.string().optional(),
-    toolsProfile: z.enum(roomToolProfiles),
+    roomMode: z.enum(roomModes),
     capabilityOverrides: z.record(z.string(), z.boolean()).default({}),
     imageProvider: z.enum(['openai', 'gemini']).nullable().optional(),
     imageModel: z.string().nullable().optional(),

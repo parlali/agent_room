@@ -8,6 +8,7 @@ import type {
     CapabilityConfig,
     ImageRuntimeConfig,
     RunBudgetConfig,
+    RoomMode,
     RoomPaths,
     SearchRuntimeConfig,
 } from '../domain/types'
@@ -93,9 +94,7 @@ export interface PiRuntimeConfig {
         kind: PiProviderKind
         fallbackModels: string[]
     }
-    tools: {
-        profile: string
-    }
+    roomMode: RoomMode
     capabilities: CapabilityConfig
     search: SearchRuntimeConfig
     image: ImageRuntimeConfig
@@ -271,9 +270,7 @@ export function buildPiRuntimeConfig(input: {
             kind,
             fallbackModels: provider.fallbackModels,
         },
-        tools: {
-            profile: input.roomConfiguration.toolsProfile,
-        },
+        roomMode: input.roomConfiguration.roomMode,
         capabilities: input.roomConfiguration.capabilities,
         search: input.roomConfiguration.search,
         image: input.roomConfiguration.image,

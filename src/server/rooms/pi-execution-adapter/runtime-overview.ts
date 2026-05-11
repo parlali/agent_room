@@ -1,4 +1,4 @@
-import type { RoomRuntimeMetadataRecord, RoomStatus } from '../../domain/types'
+import type { RoomMode, RoomRuntimeMetadataRecord, RoomStatus } from '../../domain/types'
 import type { RoomExecutionSnapshot, RoomRuntimeOverview } from '../execution-types'
 
 export function mapRuntimeOverview(input: {
@@ -7,6 +7,7 @@ export function mapRuntimeOverview(input: {
     slug: string
     status: RoomStatus
     desiredState: 'running' | 'stopped'
+    roomMode: RoomMode
     runtimeMetadata: RoomRuntimeMetadataRecord | null
 }): RoomRuntimeOverview {
     return {
@@ -15,6 +16,7 @@ export function mapRuntimeOverview(input: {
         slug: input.slug,
         status: input.status,
         desiredState: input.desiredState,
+        roomMode: input.roomMode,
         healthStatus: input.runtimeMetadata?.healthStatus ?? null,
         port: input.runtimeMetadata?.port ?? null,
         pid: input.runtimeMetadata?.pid ?? null,

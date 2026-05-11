@@ -14,9 +14,9 @@ import { saveRoomConfig } from '../configuration/operator-configuration'
 import type {
     ProviderApi,
     RoomDesiredState,
+    RoomMode,
     RoomProviderMode,
     RoomRecord,
-    RoomToolProfile,
 } from '../domain/types'
 import { describeJobSchedule, type JobSchedule } from '#/lib/job-schedule'
 import { getRoomPaths } from './room-paths'
@@ -60,7 +60,7 @@ export async function createRoom(input: {
     providerBaseUrl?: string | null
     providerModel?: string | null
     providerApiKey?: string
-    toolsProfile?: RoomToolProfile
+    roomMode?: RoomMode
     cronTimezone?: string
     mcpConnectionIds?: string[]
     initialCron?: {
@@ -115,7 +115,7 @@ export async function createRoom(input: {
                 providerBaseUrl: input.providerBaseUrl ?? null,
                 providerModel: input.providerModel ?? null,
                 providerApiKey: input.providerApiKey,
-                toolsProfile: input.toolsProfile ?? 'coding',
+                roomMode: input.roomMode ?? 'coworker',
                 cronTimezone: input.cronTimezone ?? 'UTC',
                 mcpConnectionIds: input.mcpConnectionIds ?? [],
             },

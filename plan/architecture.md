@@ -55,6 +55,17 @@ Each room cell has:
 
 Room isolation is an implementation and security property. It is not part of the normal system prompt shown to the model.
 
+## Room Modes
+
+Room mode is the canonical product-level harness selector.
+
+Modes:
+
+- `programmer`: a lean coding harness for source work, shell commands, tests, web lookup, compaction, and future first-party GitHub credential materialization.
+- `coworker`: the broad room harness for durable memory, artifacts, office files, images, jobs, MCP, and general autonomous work.
+
+Mode is not a cosmetic preset. It controls the runtime prompt, enabled built-in tool surface, capability derivation, and UI emphasis. Low-level tool lists are derived from the room mode and effective capabilities, not stored as a separate user-facing source of truth.
+
 ## Runtime Filesystem
 
 Target layout:

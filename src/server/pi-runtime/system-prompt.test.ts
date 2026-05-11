@@ -64,6 +64,7 @@ describe('Agent Room Pi system prompt', () => {
             const prompt = await buildAgentRoomSystemPrompt(config)
 
             expect(prompt).toContain('persistent room-local coworker')
+            expect(prompt).toContain('Mode: coworker')
             expect(prompt).toContain('Provider: ollama')
             expect(prompt).toContain('Model: ollama/llama3.2')
             expect(prompt).toContain('Enabled built-in tools: agent_room_memory_read')
@@ -80,6 +81,26 @@ describe('Agent Room Pi system prompt', () => {
             expect(prompt.length).toBeLessThanOrEqual(
                 contextBudgetForProvider(config).systemPromptMaxChars,
             )
+        })
+    })
+
+    it('builds a lean programmer prompt without room memory or coworker artifact policy', async () => {
+        await withConfig(async (config) => {
+            config.roomMode = 'programmer'
+            config.capabilities.documents = false
+            config.capabilities.spreadsheets = false
+            config.capabilities.presentations = false
+            config.capabilities.pdf = false
+            config.capabilities.images = false
+
+            const prompt = await buildAgentRoomSystemPrompt(config)
+
+            expect(prompt).toContain('programmer agent working in a room-local workspace')
+            expect(prompt).toContain('Mode: programmer')
+            expect(prompt).toContain('Use shell, git, package managers, test runners')
+            expect(prompt).not.toContain('Room memory harness')
+            expect(prompt).not.toContain('Scheduled work is autonomous')
+            expect(prompt).not.toContain('Keep the workspace reviewable for non-developers')
         })
     })
 

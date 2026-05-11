@@ -12,10 +12,9 @@ import {
 import { dirname, isAbsolute, join, relative } from 'node:path'
 import { defineTool, type ToolDefinition } from '@mariozechner/pi-coding-agent'
 import { Type } from '@mariozechner/pi-ai'
-import type { CapabilityConfig } from '../domain/types'
+import type { CapabilityConfig, RoomMode } from '../domain/types'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { assertPathInsideRoot } from '../security/path-boundary'
-import { internalStateToolNames } from './internal-state-tools'
 import { promoteRuntimeArtifact, sha256Buffer } from './runtime-artifacts'
 import {
     ensureShellWritableDirectory,
@@ -684,24 +683,15 @@ function createWorkspaceTreeTool(ctx: RoomToolContext): ToolDefinition {
     })
 }
 
-export function roomToolNamesForProfile(profile: string): string[] {
-    const internalTools = [...internalStateToolNames]
-    if (profile === 'read-only') {
+export function roomToolNamesForMode(roomMode: RoomMode): string[] {
+    if (roomMode === 'programmer') {
         return [
-            ...internalTools,
             'agent_room_read',
             'agent_room_list',
             'agent_room_search',
             'agent_room_workspace_tree',
-        ]
-    }
-    if (profile === 'minimal') {
-        return [
-            ...internalTools,
-            'agent_room_read',
-            'agent_room_list',
-            'agent_room_search',
-            'agent_room_workspace_tree',
+            'agent_room_write',
+            'agent_room_edit',
             'agent_room_shell',
             'agent_room_command_start',
             'agent_room_command_poll',
@@ -710,7 +700,6 @@ export function roomToolNamesForProfile(profile: string): string[] {
         ]
     }
     return [
-        ...internalTools,
         'agent_room_read',
         'agent_room_list',
         'agent_room_search',
@@ -728,10 +717,10 @@ export function roomToolNamesForProfile(profile: string): string[] {
 }
 
 export function roomToolNamesForCapabilities(
-    profile: string,
+    roomMode: RoomMode,
     capabilities: CapabilityConfig,
 ): string[] {
-    const enabled = new Set(roomToolNamesForProfile(profile))
+    const enabled = new Set(roomToolNamesForMode(roomMode))
     if (!capabilities.shellCoding) {
         enabled.delete('agent_room_write')
         enabled.delete('agent_room_edit')
@@ -743,7 +732,7 @@ export function roomToolNamesForCapabilities(
         enabled.delete('agent_room_artifact_import')
         enabled.delete('agent_room_artifact_export')
     }
-    return roomToolNamesForProfile(profile).filter((toolName) => enabled.has(toolName))
+    return roomToolNamesForMode(roomMode).filter((toolName) => enabled.has(toolName))
 }
 
 export function createRoomTools(ctx: RoomToolContext): ToolDefinition[] {
@@ -763,7 +752,7 @@ export function createRoomTools(ctx: RoomToolContext): ToolDefinition[] {
         createArtifactExportTool(ctx),
     ]
     const enabled = new Set(
-        roomToolNamesForCapabilities(ctx.config.tools.profile, ctx.config.capabilities),
+        roomToolNamesForCapabilities(ctx.config.roomMode, ctx.config.capabilities),
     )
     return tools.filter((tool) => enabled.has(tool.name))
 }

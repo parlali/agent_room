@@ -8,17 +8,17 @@ import type {
     McpTransport,
     ProviderAuthMode,
     ProviderApi,
+    RoomMode,
     RoomProviderMode,
-    RoomToolProfile,
 } from '../../domain/types'
 import {
     mcpAuthModes,
     mcpTransports,
     providerApis,
     providerAuthModes,
+    roomModes,
     roomProviderModes,
     roomSecretPurposes,
-    roomToolProfiles,
 } from '../../domain/types'
 import type { providerCatalog } from '../provider-config'
 import type { CodexAuthStatus } from '../codex-auth'
@@ -60,7 +60,7 @@ export const roomConfigSaveSchema = z.object({
     providerBaseUrl: z.string().trim().nullable().optional(),
     providerModel: z.string().trim().nullable().optional(),
     providerApiKey: z.string().optional(),
-    toolsProfile: z.enum(roomToolProfiles).default('coding'),
+    roomMode: z.enum(roomModes).default('coworker'),
     capabilityOverrides: z.record(z.string(), z.boolean()).default({}),
     imageProvider: z.enum(['openai', 'gemini']).nullable().optional(),
     imageModel: z.string().trim().nullable().optional(),
@@ -167,7 +167,7 @@ export interface RoomConfigSnapshot {
         providerBaseUrl: string | null
         providerModel: string | null
         hasRoomProviderSecret: boolean
-        toolsProfile: RoomToolProfile
+        roomMode: RoomMode
         capabilities: CapabilityConfig
         capabilityOverrides: Record<string, boolean>
         imageProvider: ImageProviderId | null

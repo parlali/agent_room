@@ -1,4 +1,10 @@
-import type { HealthStatus, JsonValue, RoomDesiredState, RoomStatus } from '../domain/types'
+import type {
+    HealthStatus,
+    JsonValue,
+    RoomDesiredState,
+    RoomMode,
+    RoomStatus,
+} from '../domain/types'
 import type { RoomFileSurface } from './file-store'
 import type { JobSchedule } from '#/lib/job-schedule'
 
@@ -8,6 +14,7 @@ export interface RoomRuntimeOverview {
     slug: string
     status: RoomStatus
     desiredState: RoomDesiredState
+    roomMode: RoomMode
     healthStatus: HealthStatus | null
     port: number | null
     pid: number | null

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GlobeIcon, ImageIcon, PlugIcon } from 'lucide-react'
+import { BriefcaseBusinessIcon, Code2Icon, GlobeIcon, ImageIcon, PlugIcon } from 'lucide-react'
 import { EmptyState, LoadingRows, Section, StateBadge } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
@@ -24,9 +24,9 @@ import type {
     ProviderConnectionSummary,
     RoomConfigSnapshot,
 } from '#/server/configuration/operator-configuration'
-import type { ProviderApi, RoomToolProfile } from '#/server/domain/types'
+import type { ProviderApi, RoomMode } from '#/server/domain/types'
 import type { ConfigDraft, ProviderMode } from './model'
-import { COMMON_TIMEZONES, TOOL_PROFILES, configFromSnapshot, configsEqual } from './model'
+import { COMMON_TIMEZONES, ROOM_MODES, configFromSnapshot, configsEqual } from './model'
 import { CodexOAuthSection } from './codex-oauth-section'
 import { ModeRadio, ModelSelect, SaveBar } from './shared'
 
@@ -85,7 +85,7 @@ export function ConfigSections({
                         input.providerMode === 'room_secret' && input.providerApiKey
                             ? input.providerApiKey
                             : undefined,
-                    toolsProfile: input.toolsProfile,
+                    roomMode: input.roomMode,
                     capabilityOverrides: input.capabilityOverrides,
                     imageProvider: input.imageProvider === 'inherit' ? null : input.imageProvider,
                     imageModel:
@@ -164,6 +164,14 @@ export function ConfigSections({
             />
 
             {showCodexSection ? <CodexOAuthSection roomId={roomId} /> : null}
+
+            <RoomModeSection
+                draft={draft}
+                onChange={(roomMode) => setDraft((prev) => (prev ? { ...prev, roomMode } : prev))}
+                onSave={handleSave}
+                dirty={dirty}
+                pending={mutation.isPending}
+            />
 
             <CapabilitiesSection
                 draft={draft}
@@ -283,35 +291,6 @@ export function ConfigSections({
                     </div>
                 </div>
             </Section>
-
-            <Section
-                title="Tools profile"
-                description="Which built-in tool set agents in this room may use."
-                actions={<SaveBar dirty={dirty} pending={mutation.isPending} onSave={handleSave} />}
-            >
-                <div className="space-y-1.5">
-                    <Label htmlFor="room-tools-profile">Profile</Label>
-                    <Select
-                        value={draft.toolsProfile}
-                        onValueChange={(value) =>
-                            setDraft((prev) =>
-                                prev ? { ...prev, toolsProfile: value as RoomToolProfile } : prev,
-                            )
-                        }
-                    >
-                        <SelectTrigger id="room-tools-profile" className="w-full sm:w-64">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {TOOL_PROFILES.map((profile) => (
-                                <SelectItem key={profile.value} value={profile.value}>
-                                    {profile.label}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-            </Section>
         </>
     )
 }
@@ -329,6 +308,71 @@ function resolveEffectiveProvider(input: {
             : input.operatorDefaultId
     if (!id) return null
     return input.providers.find((p) => p.id === id) ?? null
+}
+
+function RoomModeSection({
+    draft,
+    onChange,
+    onSave,
+    dirty,
+    pending,
+}: {
+    draft: ConfigDraft
+    onChange: (roomMode: RoomMode) => void
+    onSave: () => void
+    dirty: boolean
+    pending: boolean
+}) {
+    return (
+        <Section
+            title="Mode"
+            description="Choose the harness shape for this room."
+            actions={<SaveBar dirty={dirty} pending={pending} onSave={onSave} />}
+        >
+            <div className="grid gap-3 md:grid-cols-2">
+                {ROOM_MODES.map((mode) => {
+                    const selected = draft.roomMode === mode.value
+                    const Icon = mode.value === 'programmer' ? Code2Icon : BriefcaseBusinessIcon
+                    return (
+                        <button
+                            key={mode.value}
+                            type="button"
+                            onClick={() => onChange(mode.value)}
+                            className={[
+                                'flex min-h-28 items-start gap-3 rounded-md border p-4 text-left transition-colors',
+                                selected
+                                    ? 'border-primary bg-primary/10 text-foreground'
+                                    : 'border-border/70 bg-background hover:bg-muted/40',
+                            ].join(' ')}
+                            aria-pressed={selected}
+                        >
+                            <span
+                                className={[
+                                    'mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md border',
+                                    selected
+                                        ? 'border-primary/30 bg-primary/15 text-primary'
+                                        : 'border-border/70 bg-muted/40 text-muted-foreground',
+                                ].join(' ')}
+                            >
+                                <Icon className="size-4" />
+                            </span>
+                            <span className="min-w-0">
+                                <span className="block text-sm font-medium">{mode.label}</span>
+                                <span className="mt-1 block text-sm text-muted-foreground">
+                                    {mode.description}
+                                </span>
+                                <span className="mt-3 block text-xs text-muted-foreground">
+                                    {mode.value === 'programmer'
+                                        ? 'Optimized for source changes, shell commands, tests, and future GitHub auth.'
+                                        : 'Optimized for broad autonomous work with durable memory and rich artifacts.'}
+                                </span>
+                            </span>
+                        </button>
+                    )
+                })}
+            </div>
+        </Section>
+    )
 }
 
 function ModelSection({
@@ -542,6 +586,24 @@ function capabilityValue(input: {
         input.draft.capabilityOverrides[input.option.id] ??
         input.draft.capabilityOverrides[input.option.key]
     if (typeof override === 'boolean') return override
+    if (input.draft.roomMode === 'programmer') {
+        if (
+            input.option.id === 'documents' ||
+            input.option.id === 'spreadsheets' ||
+            input.option.id === 'presentations' ||
+            input.option.id === 'pdf' ||
+            input.option.id === 'images'
+        ) {
+            return false
+        }
+        if (
+            input.option.id === 'web_search' ||
+            input.option.id === 'url_fetch' ||
+            input.option.id === 'shell_coding'
+        ) {
+            return true
+        }
+    }
     if (input.appDefaults && typeof input.appDefaults[input.option.id] === 'boolean') {
         return input.appDefaults[input.option.id]
     }
@@ -582,6 +644,16 @@ function CapabilitiesSection({
     const inheritedImage =
         appImage?.provider && appImage.model ? `${appImage.provider} - ${appImage.model}` : 'None'
     const imageConfigured = draft.imageProvider !== 'inherit'
+    const programmerMode = draft.roomMode === 'programmer'
+    const visibleOptions = programmerMode
+        ? CAPABILITY_OPTIONS.filter(
+              (option) =>
+                  option.id === 'web_search' ||
+                  option.id === 'url_fetch' ||
+                  option.id === 'mcp' ||
+                  option.id === 'shell_coding',
+          )
+        : CAPABILITY_OPTIONS
     const roomImageModelOptions =
         draft.imageProvider === 'inherit'
             ? []
@@ -590,12 +662,16 @@ function CapabilitiesSection({
     return (
         <Section
             title="Capabilities"
-            description="Built-in room features and provider-backed image generation."
+            description={
+                programmerMode
+                    ? 'Programmer mode keeps the harness focused on source work.'
+                    : 'Built-in room features and provider-backed image generation.'
+            }
             actions={<SaveBar dirty={dirty} pending={pending} onSave={onSave} />}
         >
             <div className="space-y-4">
                 <div className="grid gap-2 sm:grid-cols-2">
-                    {CAPABILITY_OPTIONS.map((option) => {
+                    {visibleOptions.map((option) => {
                         const checked = capabilityValue({
                             draft,
                             option,
@@ -603,7 +679,9 @@ function CapabilitiesSection({
                             effectiveCapabilities,
                         })
                         const inherited =
-                            appDefaults && draft.capabilityOverrides[option.id] === undefined
+                            !programmerMode &&
+                            appDefaults &&
+                            draft.capabilityOverrides[option.id] === undefined
                         return (
                             <label
                                 key={option.id}
@@ -640,88 +718,92 @@ function CapabilitiesSection({
                     })}
                 </div>
 
-                <div className="rounded-lg border border-border/60 p-3">
-                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                            <div className="text-sm font-medium text-foreground">
-                                Image provider
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                                App default: {inheritedImage}. Room keys are write-only.
-                            </div>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                            <StateBadge
-                                tone={searchReady ? 'ready' : 'muted'}
-                                label={searchReady ? 'Search ready' : 'Search off'}
-                            />
-                            <StateBadge
-                                tone={imageReady ? 'ready' : 'muted'}
-                                label={imageReady ? 'Images ready' : 'Images not ready'}
-                            />
-                        </div>
-                    </div>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                        <div className="space-y-1.5">
-                            <Label htmlFor="room-image-provider">Provider</Label>
-                            <Select
-                                value={draft.imageProvider}
-                                onValueChange={(value) => {
-                                    const imageProvider = value as ConfigDraft['imageProvider']
-                                    const options =
-                                        imageProvider === 'inherit'
-                                            ? []
-                                            : imageModelOptionsForProvider(imageProvider)
-                                    onChange({
-                                        imageProvider,
-                                        imageModel:
-                                            imageProvider === 'inherit'
-                                                ? ''
-                                                : (options[0]?.value ?? ''),
-                                        imageApiKey:
-                                            imageProvider === 'inherit' ? '' : draft.imageApiKey,
-                                    })
-                                }}
-                            >
-                                <SelectTrigger id="room-image-provider" className="w-full">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="inherit">Use app default</SelectItem>
-                                    <SelectItem value="openai">OpenAI Images</SelectItem>
-                                    <SelectItem value="gemini">Gemini Images</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="space-y-1.5">
-                            <Label htmlFor="room-image-model">Image model</Label>
-                            {imageConfigured ? (
-                                <ModelSelect
-                                    id="room-image-model"
-                                    value={draft.imageModel}
-                                    onChange={(imageModel) => onChange({ imageModel })}
-                                    options={roomImageModelOptions}
-                                />
-                            ) : (
-                                <div className="flex min-h-10 items-center rounded-md border border-border bg-muted/30 px-3 text-sm text-muted-foreground">
-                                    {appImage?.model ?? 'Use app default'}
+                {!programmerMode ? (
+                    <div className="rounded-lg border border-border/60 p-3">
+                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <div className="text-sm font-medium text-foreground">
+                                    Image provider
                                 </div>
-                            )}
+                                <div className="text-xs text-muted-foreground">
+                                    App default: {inheritedImage}. Room keys are write-only.
+                                </div>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <StateBadge
+                                    tone={searchReady ? 'ready' : 'muted'}
+                                    label={searchReady ? 'Search ready' : 'Search off'}
+                                />
+                                <StateBadge
+                                    tone={imageReady ? 'ready' : 'muted'}
+                                    label={imageReady ? 'Images ready' : 'Images not ready'}
+                                />
+                            </div>
                         </div>
-                        <div className="space-y-1.5">
-                            <Label htmlFor="room-image-key">Image API key</Label>
-                            <Input
-                                id="room-image-key"
-                                type="password"
-                                value={draft.imageApiKey}
-                                onChange={(e) => onChange({ imageApiKey: e.target.value })}
-                                disabled={!imageConfigured}
-                                placeholder="Leave blank to keep saved key"
-                                autoComplete="off"
-                            />
+                        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                            <div className="space-y-1.5">
+                                <Label htmlFor="room-image-provider">Provider</Label>
+                                <Select
+                                    value={draft.imageProvider}
+                                    onValueChange={(value) => {
+                                        const imageProvider = value as ConfigDraft['imageProvider']
+                                        const options =
+                                            imageProvider === 'inherit'
+                                                ? []
+                                                : imageModelOptionsForProvider(imageProvider)
+                                        onChange({
+                                            imageProvider,
+                                            imageModel:
+                                                imageProvider === 'inherit'
+                                                    ? ''
+                                                    : (options[0]?.value ?? ''),
+                                            imageApiKey:
+                                                imageProvider === 'inherit'
+                                                    ? ''
+                                                    : draft.imageApiKey,
+                                        })
+                                    }}
+                                >
+                                    <SelectTrigger id="room-image-provider" className="w-full">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="inherit">Use app default</SelectItem>
+                                        <SelectItem value="openai">OpenAI Images</SelectItem>
+                                        <SelectItem value="gemini">Gemini Images</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label htmlFor="room-image-model">Image model</Label>
+                                {imageConfigured ? (
+                                    <ModelSelect
+                                        id="room-image-model"
+                                        value={draft.imageModel}
+                                        onChange={(imageModel) => onChange({ imageModel })}
+                                        options={roomImageModelOptions}
+                                    />
+                                ) : (
+                                    <div className="flex min-h-10 items-center rounded-md border border-border bg-muted/30 px-3 text-sm text-muted-foreground">
+                                        {appImage?.model ?? 'Use app default'}
+                                    </div>
+                                )}
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label htmlFor="room-image-key">Image API key</Label>
+                                <Input
+                                    id="room-image-key"
+                                    type="password"
+                                    value={draft.imageApiKey}
+                                    onChange={(e) => onChange({ imageApiKey: e.target.value })}
+                                    disabled={!imageConfigured}
+                                    placeholder="Leave blank to keep saved key"
+                                    autoComplete="off"
+                                />
+                            </div>
                         </div>
                     </div>
-                </div>
+                ) : null}
 
                 <div className="flex justify-end">
                     <Button
@@ -731,7 +813,7 @@ function CapabilitiesSection({
                         onClick={() => onChange({ capabilityOverrides: {} })}
                         disabled={Object.keys(draft.capabilityOverrides).length === 0 || pending}
                     >
-                        Use app capability defaults
+                        Use mode defaults
                     </Button>
                 </div>
             </div>

@@ -3,9 +3,9 @@ import { setResponseHeaders } from '@tanstack/react-start/server'
 import { z } from 'zod'
 import {
     providerApis,
+    roomModes,
     roomDesiredStates,
     roomProviderModes,
-    roomToolProfiles,
 } from '#/server/domain/types'
 
 const roomIdSchema = z.string().uuid()
@@ -179,7 +179,7 @@ const createRoomInputSchema = z.object({
     providerBaseUrl: z.string().nullable().optional(),
     providerModel: z.string().nullable().optional(),
     providerApiKey: z.string().optional(),
-    toolsProfile: z.enum(roomToolProfiles).optional(),
+    roomMode: z.enum(roomModes).optional(),
     cronTimezone: z.string().min(1).optional(),
     mcpConnectionIds: z.array(z.string().uuid()).optional(),
     initialCron: z
@@ -257,7 +257,7 @@ export const createRoomServer = createServerFn({ method: 'POST' })
             providerBaseUrl: data.providerBaseUrl,
             providerModel: data.providerModel,
             providerApiKey: data.providerApiKey,
-            toolsProfile: data.toolsProfile,
+            roomMode: data.roomMode,
             cronTimezone: data.cronTimezone,
             mcpConnectionIds: data.mcpConnectionIds,
             initialCron: data.initialCron,

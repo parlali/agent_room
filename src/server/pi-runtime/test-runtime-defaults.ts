@@ -55,7 +55,7 @@ export interface TestPiRuntimeConfigOptions {
     runtime?: Partial<PiRuntimeConfig['runtime']>
     paths?: Partial<PiRuntimeConfig['paths']>
     provider?: Partial<PiRuntimeConfig['provider']>
-    tools?: Partial<PiRuntimeConfig['tools']>
+    roomMode?: PiRuntimeConfig['roomMode']
     capabilities?: Partial<CapabilityConfig>
     search?: Partial<SearchRuntimeConfig>
     image?: Partial<ImageRuntimeConfig>
@@ -116,10 +116,7 @@ export function createTestPiRuntimeConfig(
             fallbackModels: [],
             ...options.provider,
         },
-        tools: {
-            profile: 'coding',
-            ...options.tools,
-        },
+        roomMode: options.roomMode ?? 'coworker',
         capabilities: {
             ...testCapabilities,
             ...options.capabilities,

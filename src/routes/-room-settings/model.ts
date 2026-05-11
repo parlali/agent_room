@@ -1,19 +1,16 @@
 import type { RoomConfigSnapshot } from '#/server/configuration/operator-configuration'
 import type {
     ProviderApi,
+    RoomMode,
     RoomProviderMode,
     RoomSecretPurpose,
-    RoomToolProfile,
 } from '#/server/domain/types'
+import { ROOM_MODE_OPTIONS } from '#/lib/room-modes'
 
 export type ProviderMode = RoomProviderMode
 export type SecretPurpose = RoomSecretPurpose
 
-export const TOOL_PROFILES = [
-    { value: 'coding', label: 'Coding' },
-    { value: 'minimal', label: 'Minimal' },
-    { value: 'read-only', label: 'Read only' },
-] satisfies Array<{ value: RoomToolProfile; label: string }>
+export const ROOM_MODES = ROOM_MODE_OPTIONS
 
 export const COMMON_TIMEZONES = [
     'UTC',
@@ -46,7 +43,7 @@ export interface ConfigDraft {
     providerBaseUrl: string
     providerModel: string
     providerApiKey: string
-    toolsProfile: RoomToolProfile
+    roomMode: RoomMode
     capabilityOverrides: Record<string, boolean>
     imageProvider: 'inherit' | 'openai' | 'gemini'
     imageModel: string
@@ -83,7 +80,7 @@ export function configFromSnapshot(snapshot: RoomConfigSnapshot): ConfigDraft {
         providerBaseUrl: snapshot.config.providerBaseUrl ?? '',
         providerModel: snapshot.config.providerModel ?? '',
         providerApiKey: '',
-        toolsProfile: snapshot.config.toolsProfile || 'coding',
+        roomMode: snapshot.config.roomMode || 'coworker',
         capabilityOverrides: { ...snapshot.config.capabilityOverrides },
         imageProvider: snapshot.config.imageProvider ?? 'inherit',
         imageModel: snapshot.config.imageModel ?? '',
@@ -115,7 +112,7 @@ export function configsEqual(a: ConfigDraft, b: ConfigDraft): boolean {
         a.providerBaseUrl === b.providerBaseUrl &&
         a.providerModel === b.providerModel &&
         a.providerApiKey === b.providerApiKey &&
-        a.toolsProfile === b.toolsProfile &&
+        a.roomMode === b.roomMode &&
         recordsEqual(a.capabilityOverrides, b.capabilityOverrides) &&
         a.imageProvider === b.imageProvider &&
         a.imageModel === b.imageModel &&

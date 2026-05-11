@@ -16,7 +16,7 @@ export const mcpTransports = ['stdio', 'http', 'streamable_http'] as const
 export const mcpAuthModes = ['none', 'bearer'] as const
 export const roomProviderModes = ['app_default', 'app_connection', 'room_secret'] as const
 export const roomSecretPurposes = ['provider_api_key', 'generic', 'webhook'] as const
-export const roomToolProfiles = ['coding', 'minimal', 'read-only'] as const
+export const roomModes = ['programmer', 'coworker'] as const
 export const cronRunStatuses = ['running', 'complete', 'failed', 'skipped'] as const
 export const capabilityIds = [
     'web_search',
@@ -51,7 +51,7 @@ export type McpTransport = (typeof mcpTransports)[number]
 export type McpAuthMode = (typeof mcpAuthModes)[number]
 export type RoomProviderMode = (typeof roomProviderModes)[number]
 export type RoomSecretPurpose = (typeof roomSecretPurposes)[number]
-export type RoomToolProfile = (typeof roomToolProfiles)[number]
+export type RoomMode = (typeof roomModes)[number]
 export type CronRunStatus = (typeof cronRunStatuses)[number]
 export type CapabilityId = (typeof capabilityIds)[number]
 export type ImageProviderId = (typeof imageProviderIds)[number]
@@ -176,7 +176,7 @@ export interface RoomConfigRecord {
     providerBaseUrl: string | null
     providerModel: string | null
     providerSecretId: string | null
-    toolsProfile: RoomToolProfile
+    roomMode: RoomMode
     capabilityOverrides: JsonValue
     imageProvider: ImageProviderId | null
     imageModel: string | null
@@ -427,7 +427,7 @@ export interface MaterializedProviderConfig {
 
 export interface MaterializedRoomConfiguration {
     instructions: string
-    toolsProfile: RoomToolProfile
+    roomMode: RoomMode
     capabilities: CapabilityConfig
     search: SearchRuntimeConfig
     image: ImageRuntimeConfig

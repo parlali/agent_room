@@ -4,6 +4,7 @@ import type {
     ImageProviderId,
     ImageRuntimeConfig,
     JsonValue,
+    RoomMode,
     RunBudgetConfig,
     SearchRuntimeConfig,
 } from '../domain/types'
@@ -64,10 +65,21 @@ export function normalizeCapabilityConfig(value: JsonValue | unknown): Capabilit
 export function mergeCapabilities(input: {
     defaults: JsonValue
     overrides: JsonValue
-    toolsProfile: string
+    roomMode: RoomMode
     mcpConnectionCount: number
 }): CapabilityConfig {
     const merged = normalizeCapabilityConfig(input.defaults)
+    if (input.roomMode === 'programmer') {
+        merged.webSearch = true
+        merged.urlFetch = true
+        merged.shellCoding = true
+        merged.documents = false
+        merged.spreadsheets = false
+        merged.presentations = false
+        merged.pdf = false
+        merged.images = false
+    }
+
     const overrides =
         input.overrides && typeof input.overrides === 'object' && !Array.isArray(input.overrides)
             ? (input.overrides as Record<string, unknown>)
@@ -81,14 +93,7 @@ export function mergeCapabilities(input: {
         }
     }
 
-    if (input.toolsProfile === 'read-only') {
-        merged.shellCoding = false
-        merged.documents = false
-        merged.spreadsheets = false
-        merged.presentations = false
-        merged.pdf = false
-        merged.images = false
-    } else if (input.toolsProfile === 'minimal') {
+    if (input.roomMode === 'programmer') {
         merged.documents = false
         merged.spreadsheets = false
         merged.presentations = false

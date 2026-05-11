@@ -4,6 +4,7 @@ import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { assertPathInsideRoot } from '../security/path-boundary'
 import { buildAgentHarnessPrompt } from './agent-harness'
 import { buildInternalStateSummary } from './internal-state'
+import { internalStateToolNames } from './internal-state-tools'
 import { roomToolNamesForCapabilities } from './room-tools'
 
 interface LoadedInstructionFile {
@@ -111,12 +112,17 @@ export async function loadInstructionFiles(
 export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promise<string> {
     const budget = contextBudgetForProvider(config)
     const instructionFiles = await loadInstructionFiles(config)
-    const internalState = await buildInternalStateSummary(config)
+    const internalState =
+        config.roomMode === 'coworker' ? await buildInternalStateSummary(config) : null
     const operatorInstructions = boundedText(
         config.instructions.trim(),
         MAX_OPERATOR_INSTRUCTIONS_CHARS,
     )
-    const enabledTools = roomToolNamesForCapabilities(config.tools.profile, config.capabilities)
+    const enabledRoomTools = roomToolNamesForCapabilities(config.roomMode, config.capabilities)
+    const enabledTools =
+        config.roomMode === 'coworker'
+            ? [...internalStateToolNames, ...enabledRoomTools]
+            : enabledRoomTools
     const enabledCapabilities = [
         config.capabilities.webSearch ? 'web search' : null,
         config.capabilities.urlFetch ? 'direct URL fetch' : null,
@@ -135,13 +141,14 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
     })
     const now = new Date()
 
-    const sections = [
+    const coworkerSections = [
         `You are ${config.runtime.displayName}, a persistent room-local coworker.`,
         [
             `Current datetime: ${now.toISOString()}`,
             `Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'}`,
             `Provider: ${config.provider.sourceProvider}`,
             `Model: ${config.provider.sourceModel}`,
+            `Mode: ${config.roomMode}`,
             `Context budget: ${budget.maxInputTokens} input tokens with ${budget.reservedOutputTokens} reserved for output`,
         ].join('\n'),
         [
@@ -158,11 +165,35 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
             'Scheduled work is autonomous. If it cannot proceed, produce a clear failed result and any useful durable partial output.',
             'Final responses should be concise, artifact-aware, and honest about verification.',
         ].join('\n'),
-        buildAgentHarnessPrompt(internalState),
+        internalState ? buildAgentHarnessPrompt(internalState) : '',
         `Enabled capabilities: ${enabledCapabilities.join(', ') || 'none'}`,
         `Enabled built-in tools: ${enabledTools.join(', ') || 'none'}`,
         `Enabled MCP servers: ${mcpTools.join('; ') || 'none'}`,
     ]
+    const programmerSections = [
+        `You are ${config.runtime.displayName}, a programmer agent working in a room-local workspace.`,
+        [
+            `Current datetime: ${now.toISOString()}`,
+            `Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'}`,
+            `Provider: ${config.provider.sourceProvider}`,
+            `Model: ${config.provider.sourceModel}`,
+            `Mode: ${config.roomMode}`,
+            `Context budget: ${budget.maxInputTokens} input tokens with ${budget.reservedOutputTokens} reserved for output`,
+        ].join('\n'),
+        [
+            'Operate like a coding agent: inspect the repository, make the smallest correct change, run the relevant checks, and report the result plainly.',
+            'Use shell, git, package managers, test runners, and editor tools directly when they are available in the workspace.',
+            'Use web search or URL fetch for current documentation, API behavior, package versions, and other time-sensitive coding facts.',
+            'Keep provider credentials, room secrets, OAuth tokens, and git credentials out of responses, files, command arguments, and logs.',
+            'Ask for help only when authentication, missing credentials, destructive external actions, or unavailable user data block progress.',
+            'Prefer source changes and verification over explanatory artifacts. Do not create office, image, or presentation deliverables in programmer mode.',
+            'Final responses should be concise, include verification, and call out any unrun checks or residual risk.',
+        ].join('\n'),
+        `Enabled capabilities: ${enabledCapabilities.join(', ') || 'none'}`,
+        `Enabled built-in tools: ${enabledTools.join(', ') || 'none'}`,
+        `Enabled MCP servers: ${mcpTools.join('; ') || 'none'}`,
+    ]
+    const sections = config.roomMode === 'programmer' ? programmerSections : coworkerSections
 
     if (operatorInstructions.text) {
         sections.push(

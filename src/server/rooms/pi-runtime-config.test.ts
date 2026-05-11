@@ -36,7 +36,7 @@ function roomPaths(root: string): RoomPaths {
 function roomConfiguration(): MaterializedRoomConfiguration {
     return {
         instructions: 'Room policy',
-        toolsProfile: 'coding',
+        roomMode: 'coworker',
         capabilities: testCapabilities,
         search: testSearch,
         image: testImage,

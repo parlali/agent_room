@@ -1,4 +1,5 @@
 import {
+    roomConfigRepository,
     roomRepository,
     roomRuntimeMetadataRepository,
     roomThreadReadRepository,
@@ -17,9 +18,10 @@ import { syncRuntimeUsageEvents } from './usage-sync'
 
 export async function listRoomsWithRuntime(): Promise<RoomRuntimeOverview[]> {
     const rooms = await roomRepository.listRooms()
-    const runtimeRows = await Promise.all(
-        rooms.map((room) => roomRuntimeMetadataRepository.findByRoomId(room.id)),
-    )
+    const [runtimeRows, configs] = await Promise.all([
+        Promise.all(rooms.map((room) => roomRuntimeMetadataRepository.findByRoomId(room.id))),
+        Promise.all(rooms.map((room) => roomConfigRepository.getOrCreate(room.id))),
+    ])
 
     return rooms.map((room, index) =>
         mapRuntimeOverview({
@@ -28,6 +30,7 @@ export async function listRoomsWithRuntime(): Promise<RoomRuntimeOverview[]> {
             slug: room.slug,
             status: room.status,
             desiredState: room.desiredState,
+            roomMode: configs[index]?.roomMode ?? 'coworker',
             runtimeMetadata: runtimeRows[index],
         }),
     )
@@ -45,12 +48,14 @@ export async function getRoomExecutionSnapshot(input: {
     }
 
     const runtimeMetadata = await roomRuntimeMetadataRepository.findByRoomId(input.roomId)
+    const config = await roomConfigRepository.getOrCreate(input.roomId)
     const roomOverview = mapRuntimeOverview({
         roomId: room.id,
         displayName: room.displayName,
         slug: room.slug,
         status: room.status,
         desiredState: room.desiredState,
+        roomMode: config.roomMode,
         runtimeMetadata,
     })
 

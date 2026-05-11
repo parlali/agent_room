@@ -263,7 +263,7 @@ export async function saveRoomConfig(
         providerBaseUrl: input.providerMode === 'room_secret' ? roomProviderBaseUrl : null,
         providerModel: input.providerMode === 'room_secret' ? normalizedProviderModel : null,
         providerSecretId: input.providerMode === 'room_secret' ? providerSecretId : null,
-        toolsProfile: input.toolsProfile,
+        roomMode: input.roomMode,
         capabilityOverrides: input.capabilityOverrides as JsonValue,
         imageProvider,
         imageModel: imageProvider ? imageModel : null,
@@ -287,6 +287,7 @@ export async function saveRoomConfig(
         payload: {
             providerMode: config.providerMode,
             providerConnectionId: config.providerConnectionId,
+            roomMode: config.roomMode,
             mcpConnectionCount: input.mcpConnectionIds.length,
             hasInstructions: config.instructions.length > 0,
             enabledCapabilities: Object.entries(
@@ -394,7 +395,7 @@ function summarizeRoomConfig(input: {
     const capabilities = mergeCapabilities({
         defaults: input.settings.capabilityDefaults,
         overrides: input.config.capabilityOverrides,
-        toolsProfile: input.config.toolsProfile,
+        roomMode: input.config.roomMode,
         mcpConnectionCount: input.bindings.filter((binding) => binding.enabled).length,
     })
     const capabilityOverrides =
@@ -412,7 +413,7 @@ function summarizeRoomConfig(input: {
         providerBaseUrl: input.config.providerBaseUrl,
         providerModel: input.config.providerModel,
         hasRoomProviderSecret: input.config.providerSecretId !== null,
-        toolsProfile: input.config.toolsProfile,
+        roomMode: input.config.roomMode,
         capabilities,
         capabilityOverrides,
         imageProvider: input.config.imageProvider,
@@ -442,7 +443,7 @@ async function resolveEffectiveRoomSummary(input: {
     const capabilities = mergeCapabilities({
         defaults: input.settings.capabilityDefaults,
         overrides: input.config.capabilityOverrides,
-        toolsProfile: input.config.toolsProfile,
+        roomMode: input.config.roomMode,
         mcpConnectionCount: input.bindings.filter((binding) => binding.enabled).length,
     })
     const search = normalizeSearchConfig(input.settings.searchConfig)

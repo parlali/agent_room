@@ -7,6 +7,13 @@ import { toast } from 'sonner'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '#/components/ui/select'
 import { Textarea } from '#/components/ui/textarea'
 import {
     Sheet,
@@ -18,6 +25,8 @@ import {
     SheetTrigger,
 } from '#/components/ui/sheet'
 import { createRoomServer } from '#/routes/-room-runtime-server'
+import type { RoomMode } from '#/server/domain/types'
+import { ROOM_MODE_OPTIONS } from '#/lib/room-modes'
 
 type CreateRoomButtonProps = {
     children?: ReactNode
@@ -41,11 +50,12 @@ export function CreateRoomButton({
     const queryClient = useQueryClient()
 
     const create = useMutation({
-        mutationFn: (input: { displayName: string; instructions: string }) =>
+        mutationFn: (input: { displayName: string; instructions: string; roomMode: RoomMode }) =>
             createRoomServer({
                 data: {
                     displayName: input.displayName,
                     instructions: input.instructions || undefined,
+                    roomMode: input.roomMode,
                     startImmediately: true,
                 },
             }),
@@ -106,17 +116,18 @@ function CreateRoomForm({
     onSubmit,
     pending,
 }: {
-    onSubmit: (values: { displayName: string; instructions: string }) => void
+    onSubmit: (values: { displayName: string; instructions: string; roomMode: RoomMode }) => void
     pending: boolean
 }) {
     const [displayName, setDisplayName] = useState('')
     const [instructions, setInstructions] = useState('')
+    const [roomMode, setRoomMode] = useState<RoomMode>('coworker')
 
     const handle = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
         const trimmed = displayName.trim()
         if (!trimmed) return
-        onSubmit({ displayName: trimmed, instructions: instructions.trim() })
+        onSubmit({ displayName: trimmed, instructions: instructions.trim(), roomMode })
     }
 
     return (
@@ -143,6 +154,25 @@ function CreateRoomForm({
                 />
                 <p className="text-xs text-muted-foreground">
                     This becomes the room's working instructions. You can refine it later.
+                </p>
+            </div>
+            <div className="space-y-1.5">
+                <Label htmlFor="room-mode">Mode</Label>
+                <Select value={roomMode} onValueChange={(value) => setRoomMode(value as RoomMode)}>
+                    <SelectTrigger id="room-mode" className="w-full">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {ROOM_MODE_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                    Programmer is lean for code and repos. Coworker is broader for memory, files,
+                    jobs, and artifacts.
                 </p>
             </div>
             <SheetFooter className="px-0">
