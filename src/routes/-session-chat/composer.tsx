@@ -1,19 +1,17 @@
-import { useState } from 'react'
-import type { FormEvent, KeyboardEvent } from 'react'
+import { useRef } from 'react'
+import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
 import { LoaderIcon, PaperclipIcon, SendIcon, SquareIcon } from 'lucide-react'
 
 import { Button } from '#/components/ui/button'
-import {
-    Sheet,
-    SheetContent,
-    SheetDescription,
-    SheetHeader,
-    SheetTitle,
-} from '#/components/ui/sheet'
 import { Textarea } from '#/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
+import type { RoomAttachment } from '#/lib/room-attachments'
+import { AttachmentCards } from './attachment-cards'
+
+export type ComposerAttachment = RoomAttachment
 
 export function Composer({
+    roomId,
     roomDisplayName,
     draft,
     onChangeDraft,
@@ -23,7 +21,12 @@ export function Composer({
     stopping,
     canStop,
     onStop,
+    attachments,
+    attaching,
+    onAttachFiles,
+    onRemoveAttachment,
 }: {
+    roomId: string
     roomDisplayName: string
     draft: string
     onChangeDraft: (value: string) => void
@@ -33,15 +36,36 @@ export function Composer({
     stopping: boolean
     canStop: boolean
     onStop: () => void
+    attachments: ComposerAttachment[]
+    attaching: boolean
+    onAttachFiles: (files: FileList) => void
+    onRemoveAttachment: (id: string) => void
 }) {
-    const [attachOpen, setAttachOpen] = useState(false)
+    const fileInputRef = useRef<HTMLInputElement | null>(null)
     const trimmed = draft.trim()
+    const canSend = trimmed.length > 0 || attachments.length > 0
+    const onFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+        const files = event.target.files
+        if (files && files.length > 0) {
+            onAttachFiles(files)
+        }
+        event.target.value = ''
+    }
 
     return (
         <form
             onSubmit={onSubmit}
             className="sticky bottom-0 border-t border-border bg-background/95 px-3 py-3 backdrop-blur sm:px-6"
         >
+            {attachments.length > 0 ? (
+                <div className="mx-auto mb-2 w-full max-w-3xl">
+                    <AttachmentCards
+                        roomId={roomId}
+                        attachments={attachments}
+                        onRemove={onRemoveAttachment}
+                    />
+                </div>
+            ) : null}
             <div className="mx-auto flex w-full max-w-3xl items-end gap-2">
                 <Tooltip>
                     <TooltipTrigger asChild>
@@ -50,13 +74,25 @@ export function Composer({
                             variant="ghost"
                             size="icon-sm"
                             aria-label="Attach a file"
-                            onClick={() => setAttachOpen(true)}
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={attaching || sending}
                         >
-                            <PaperclipIcon />
+                            {attaching ? (
+                                <LoaderIcon className="animate-spin" />
+                            ) : (
+                                <PaperclipIcon />
+                            )}
                         </Button>
                     </TooltipTrigger>
                     <TooltipContent side="top">Attach a file</TooltipContent>
                 </Tooltip>
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={onFileInputChange}
+                />
                 <Textarea
                     value={draft}
                     onChange={(event) => onChangeDraft(event.target.value)}
@@ -87,7 +123,7 @@ export function Composer({
                         <Button
                             type="submit"
                             size="icon"
-                            disabled={sending || !trimmed}
+                            disabled={sending || attaching || !canSend}
                             aria-label="Send message"
                         >
                             {sending ? <LoaderIcon className="animate-spin" /> : <SendIcon />}
@@ -96,17 +132,6 @@ export function Composer({
                     <TooltipContent side="top">Send · Cmd+Enter</TooltipContent>
                 </Tooltip>
             </div>
-            <Sheet open={attachOpen} onOpenChange={setAttachOpen}>
-                <SheetContent side="right" className="w-full sm:max-w-md">
-                    <SheetHeader>
-                        <SheetTitle>Attach files</SheetTitle>
-                        <SheetDescription>File uploads from chat are coming soon.</SheetDescription>
-                    </SheetHeader>
-                    <div className="px-4 pb-6 text-sm text-muted-foreground">
-                        For now, manage files from the room files page.
-                    </div>
-                </SheetContent>
-            </Sheet>
         </form>
     )
 }

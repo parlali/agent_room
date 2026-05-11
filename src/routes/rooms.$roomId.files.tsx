@@ -1,6 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMemo, useRef, useState } from 'react'
+import type { ChangeEvent } from 'react'
+import { toast } from 'sonner'
 import {
     ChevronRightIcon,
     FileIcon,
@@ -10,6 +12,7 @@ import {
     FolderOpenIcon,
     Maximize2Icon,
     SearchIcon,
+    UploadIcon,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -26,6 +29,8 @@ import { Badge } from '#/components/ui/badge'
 import { RoomDashboardLayout } from '#/components/room-dashboard'
 import { EmptyState, LoadingRows, Section } from '#/components/agent-room'
 import { formatBytes, formatRelativeTime } from '#/lib/format'
+import { roomFileEntryPreviewUrl } from '#/lib/room-file-links'
+import { uploadRoomFiles } from '#/lib/room-file-upload'
 import {
     listRoomDirectoryServer,
     listRoomFilesServer,
@@ -114,14 +119,6 @@ function fileTypeLabel(entry: RoomFileEntry): string {
     return ext.toUpperCase()
 }
 
-function previewAssetUrl(roomId: string, entry: RoomFileEntry): string {
-    const params = new URLSearchParams({
-        surface: entry.surface,
-        path: entry.relativePath,
-    })
-    return `/api/rooms/${encodeURIComponent(roomId)}/files/preview?${params.toString()}`
-}
-
 function RoomFilesPage() {
     const { roomId } = Route.useParams()
     return (
@@ -132,6 +129,7 @@ function RoomFilesPage() {
 }
 
 function FilesContent({ roomId }: { roomId: string }) {
+    const queryClient = useQueryClient()
     const [surface, setSurface] = useState<RoomFileSurface>('workspace')
     const [path, setPath] = useState('')
     const [search, setSearch] = useState('')
@@ -177,6 +175,31 @@ function FilesContent({ roomId }: { roomId: string }) {
 
     const listing = directoryQuery.data as RoomDirectoryListing | undefined
     const entries = search.trim() ? searchResults : (listing?.entries ?? [])
+    const uploadMutation = useMutation({
+        mutationFn: (files: File[]) =>
+            uploadRoomFiles({
+                roomId,
+                files,
+                surface,
+                path,
+            }),
+        onSuccess: async (result) => {
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ['room-directory', roomId] }),
+                queryClient.invalidateQueries({ queryKey: ['room-file-tree', roomId] }),
+                queryClient.invalidateQueries({ queryKey: ['room-files', roomId] }),
+            ])
+            setSelectedEntry(result.files[0] ?? null)
+            toast.success(
+                result.files.length === 1
+                    ? `Uploaded ${result.files[0]!.name}`
+                    : `Uploaded ${result.files.length} files`,
+            )
+        },
+        onError: (error) => {
+            toast.error(error instanceof Error ? error.message : 'Upload failed')
+        },
+    })
     const navigateTo = (nextSurface: RoomFileSurface, nextPath: string) => {
         setSurface(nextSurface)
         setPath(nextPath)
@@ -210,6 +233,9 @@ function FilesContent({ roomId }: { roomId: string }) {
                         onSearchChange={setSearch}
                         onSelectEntry={setSelectedEntry}
                         onNavigate={navigateTo}
+                        onUploadFiles={(files) => uploadMutation.mutate(Array.from(files))}
+                        uploading={uploadMutation.isPending}
+                        uploadError={uploadMutation.error}
                     />
                     <PreviewPane roomId={roomId} entry={selectedEntry} />
                 </div>
@@ -314,6 +340,9 @@ function DirectoryPane({
     onSearchChange,
     onSelectEntry,
     onNavigate,
+    onUploadFiles,
+    uploading,
+    uploadError,
 }: {
     surface: RoomFileSurface
     path: string
@@ -326,12 +355,24 @@ function DirectoryPane({
     onSearchChange: (value: string) => void
     onSelectEntry: (entry: RoomFileEntry | null) => void
     onNavigate: (surface: RoomFileSurface, path: string) => void
+    onUploadFiles: (files: FileList) => void
+    uploading: boolean
+    uploadError: unknown
 }) {
+    const uploadInputRef = useRef<HTMLInputElement | null>(null)
     const searching = search.trim().length > 0
+    const onUploadInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+        const files = event.target.files
+        if (files && files.length > 0) {
+            onUploadFiles(files)
+        }
+        event.target.value = ''
+    }
+
     return (
         <main className="min-w-0 border-b border-border/60 xl:border-b-0">
-            <div className="border-b border-border/60 p-3">
-                <div className="relative">
+            <div className="flex items-center gap-2 border-b border-border/60 p-3">
+                <div className="relative flex-1">
                     <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                         value={search}
@@ -340,7 +381,29 @@ function DirectoryPane({
                         className="pl-8"
                     />
                 </div>
+                <input
+                    ref={uploadInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={onUploadInputChange}
+                />
+                <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => uploadInputRef.current?.click()}
+                    disabled={uploading}
+                >
+                    <UploadIcon />
+                    {uploading ? 'Uploading' : 'Upload'}
+                </Button>
             </div>
+            {uploadError ? (
+                <div className="border-b border-border/60 px-3 py-2 text-sm text-destructive">
+                    {uploadError instanceof Error ? uploadError.message : 'Upload failed'}
+                </div>
+            ) : null}
             <div className="flex min-h-12 items-center gap-1 border-b border-border/60 px-3 py-2">
                 <Button
                     type="button"
@@ -494,7 +557,7 @@ function PreviewPane({ roomId, entry }: { roomId: string; entry: RoomFileEntry |
         staleTime: 60_000,
     })
     const preview = previewQuery.data as RoomFilePreview | undefined
-    const previewUrl = entry ? previewAssetUrl(roomId, entry) : ''
+    const previewUrl = entry ? roomFileEntryPreviewUrl(roomId, entry) : ''
 
     return (
         <aside className="min-w-0 p-3 md:col-span-2 xl:col-span-1 xl:border-l">

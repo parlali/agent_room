@@ -23,7 +23,7 @@ function isLoopbackHost(hostname: string): boolean {
     return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1'
 }
 
-function isSameOrigin(sourceUrl: string, targetUrl: string): boolean {
+export function isSameOrigin(sourceUrl: string, targetUrl: string): boolean {
     try {
         const source = new URL(sourceUrl)
         const target = new URL(targetUrl)
@@ -33,7 +33,10 @@ function isSameOrigin(sourceUrl: string, targetUrl: string): boolean {
     }
 }
 
-function resolveEffectiveRequestUrl(requestUrl: string, publicOrigin: string | null): string {
+export function resolveEffectiveRequestUrl(
+    requestUrl: string,
+    publicOrigin: string | null,
+): string {
     if (!publicOrigin) {
         return requestUrl
     }

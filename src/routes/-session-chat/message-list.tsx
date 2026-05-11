@@ -4,6 +4,7 @@ import { EmptyState, RoomGlyph, StatusDot } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
 import { copyText } from '#/lib/clipboard'
 import { formatDateTime, initialsFromName } from '#/lib/format'
+import { parseRoomMessageAttachments } from '#/lib/room-attachments'
 import { cn } from '#/lib/utils'
 import type { RoomExecutionMessage, RoomRuntimeOverview } from '#/server/rooms/execution-types'
 import { CopyIcon, MessageSquareIcon, PencilIcon } from 'lucide-react'
@@ -13,7 +14,12 @@ import { renderMarkdown } from './markdown'
 import type { StreamTurnItem, StreamTurnState } from './stream-state'
 import { streamTurnHasContent } from './stream-state'
 import { ToolActivity } from './tool-step'
-import { toolTasksFromParts, type ToolActivityTask } from './tool-activity-model'
+import {
+    toolTasksFromParts,
+    type ToolActivityTask,
+    type ToolTaskStatus,
+} from './tool-activity-model'
+import { AttachmentCards } from './attachment-cards'
 
 type DisplayItem =
     | { type: 'message'; message: RoomExecutionMessage }
@@ -137,7 +143,8 @@ function MessageRow({
     }
 
     const isUser = message.role === 'user'
-    const showMessageBubble = Boolean(message.text || isUser)
+    const parsed = parseRoomMessageAttachments(message.text)
+    const showMessageBubble = Boolean(parsed.text || (isUser && parsed.attachments.length === 0))
 
     if (!isUser) {
         return (
@@ -153,9 +160,17 @@ function MessageRow({
     return (
         <div className="group/message flex w-full justify-end gap-3">
             <div className="flex w-full min-w-0 flex-col items-end gap-1">
+                {parsed.attachments.length > 0 ? (
+                    <AttachmentCards
+                        roomId={room.roomId}
+                        attachments={parsed.attachments}
+                        compact
+                        align="end"
+                    />
+                ) : null}
                 {showMessageBubble ? (
                     <div className="max-w-[min(36rem,90%)] rounded-2xl bg-primary px-3.5 py-2 text-sm break-words whitespace-pre-wrap text-primary-foreground shadow-sm">
-                        <MessageText text={message.text} />
+                        <MessageText text={parsed.text} />
                     </div>
                 ) : null}
                 <MessageActions
@@ -308,7 +323,17 @@ function buildDisplayItems(messages: RoomExecutionMessage[], isWorking: boolean)
                 timestamp: message.timestamp,
             }
         }
-        pendingTools.tasks.push(...tasks)
+        for (const task of tasks) {
+            const existingIndex = pendingTools.tasks.findIndex((entry) => entry.id === task.id)
+            if (existingIndex < 0) {
+                pendingTools.tasks.push(task)
+            } else {
+                pendingTools.tasks[existingIndex] = mergeToolTaskForDisplay(
+                    pendingTools.tasks[existingIndex]!,
+                    task,
+                )
+            }
+        }
         pendingTools.timestamp = pendingTools.timestamp ?? message.timestamp
     }
 
@@ -345,6 +370,26 @@ function buildDisplayItems(messages: RoomExecutionMessage[], isWorking: boolean)
 
     flushTools(isWorking ? undefined : 'complete')
     return items
+}
+
+function mergeToolTaskForDisplay(
+    existing: ToolActivityTask,
+    incoming: ToolActivityTask,
+): ToolActivityTask {
+    const status = combinedToolStatus(existing.status, incoming.status)
+    return {
+        ...existing,
+        status,
+        detail: existing.detail ?? incoming.detail,
+        result: incoming.result ?? existing.result,
+    }
+}
+
+function combinedToolStatus(left: ToolTaskStatus, right: ToolTaskStatus): ToolTaskStatus {
+    if (left === 'error' || right === 'error') return 'error'
+    if (left === 'complete' || right === 'complete') return 'complete'
+    if (left === 'in_progress' || right === 'in_progress') return 'in_progress'
+    return 'pending'
 }
 
 function MessageText({ text, streaming = false }: { text: string; streaming?: boolean }) {

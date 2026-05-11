@@ -8,6 +8,8 @@ import { toast } from 'sonner'
 import { AttentionBanner, EmptyState } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
 import { describeSessionState } from '#/lib/state'
+import { uploadRoomFiles } from '#/lib/room-file-upload'
+import { formatMessageWithAttachments } from '#/lib/room-attachments'
 import {
     abortMessageServer,
     getRoomExecutionServer,
@@ -18,7 +20,7 @@ import type { RoomExecutionSnapshot, RoomRealtimeEvent } from '#/server/rooms/ex
 
 import { ChatHeader } from './chat-header'
 import { ChatSkeleton } from './chat-skeleton'
-import { Composer } from './composer'
+import { Composer, type ComposerAttachment } from './composer'
 import { isLastMessageInProgress } from './conversation-utils'
 import {
     emptyStreamTurnState,
@@ -36,6 +38,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const [draft, setDraft] = useState('')
     const [streamError, setStreamError] = useState<string | null>(null)
     const [streamTurn, setStreamTurn] = useState<StreamTurnState>(emptyStreamTurnState)
+    const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
     const queryKey = useMemo(
         () => ['room-execution', roomId, sessionKey] as const,
         [roomId, sessionKey],
@@ -70,6 +73,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
 
     useEffect(() => {
         setStreamTurn(emptyStreamTurnState)
+        setAttachments([])
     }, [sessionKey])
 
     useEffect(() => {
@@ -119,10 +123,43 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             sendMessageServer({ data: { roomId, sessionKey, message } }),
         onSuccess: () => {
             setDraft('')
+            setAttachments([])
             void queryClient.invalidateQueries({ queryKey })
         },
         onError: (error) => {
             toast.error(error instanceof Error ? error.message : 'Message could not be sent')
+        },
+    })
+
+    const attachmentMutation = useMutation({
+        mutationFn: (files: File[]) =>
+            uploadRoomFiles({
+                roomId,
+                files,
+                sessionKey,
+            }),
+        onSuccess: (result) => {
+            setAttachments((current) => [
+                ...current,
+                ...result.files.map((file) => ({
+                    id: `${file.surface}:${file.relativePath}`,
+                    name: file.name,
+                    surface: file.surface,
+                    relativePath: file.relativePath,
+                    byteLength: file.byteLength,
+                    sizeLabel: null,
+                })),
+            ])
+            void queryClient.invalidateQueries({ queryKey: ['room-files', roomId] })
+            void queryClient.invalidateQueries({ queryKey: ['room-file-tree', roomId] })
+            toast.success(
+                result.files.length === 1
+                    ? `Attached ${result.files[0]!.name}`
+                    : `Attached ${result.files.length} files`,
+            )
+        },
+        onError: (error) => {
+            toast.error(error instanceof Error ? error.message : 'File could not be attached')
         },
     })
 
@@ -162,9 +199,9 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const submitDraft = () => {
         if (sendMutation.isPending) return
         const value = draft.trim()
-        if (!value) return
+        if (!value && attachments.length === 0) return
         setStreamTurn(emptyStreamTurnState)
-        sendMutation.mutate(value)
+        sendMutation.mutate(formatMessageWithAttachments(value, attachments))
     }
 
     const onSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -265,6 +302,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 isWorking={isWorking}
             />
             <Composer
+                roomId={roomId}
                 roomDisplayName={room.displayName}
                 draft={draft}
                 onChangeDraft={setDraft}
@@ -274,6 +312,14 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 stopping={abortMutation.isPending}
                 canStop={isWorking && (snapshot?.capabilities.canAbortGeneration ?? true)}
                 onStop={() => abortMutation.mutate()}
+                attachments={attachments}
+                attaching={attachmentMutation.isPending}
+                onAttachFiles={(files) => attachmentMutation.mutate(Array.from(files))}
+                onRemoveAttachment={(id) =>
+                    setAttachments((current) =>
+                        current.filter((attachment) => attachment.id !== id),
+                    )
+                }
             />
         </div>
     )

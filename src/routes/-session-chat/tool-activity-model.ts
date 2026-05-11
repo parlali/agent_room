@@ -258,6 +258,9 @@ function toolStatusFromStep(step: ToolStepParts): ToolTaskStatus {
     const status = `${step.call?.status ?? ''} ${step.result?.status ?? ''}`.toLowerCase()
     if (status.includes('error') || status.includes('fail')) return 'error'
     if (step.result) return 'complete'
+    if (status.includes('complete') || status.includes('done') || status.includes('success')) {
+        return 'complete'
+    }
     if (status.includes('pending')) return 'pending'
     return 'in_progress'
 }

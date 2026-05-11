@@ -13,6 +13,7 @@ import {
     rename,
     rm,
     stat,
+    writeFile,
 } from 'node:fs/promises'
 import { basename, extname, join, relative, sep } from 'node:path'
 import { assertPathInsideRoot } from '../security/path-boundary'
@@ -101,6 +102,7 @@ const maxDirectoryEntries = 1000
 const maxTreeEntries = 500
 const maxTreeDepth = 6
 const previewTimeoutMs = 60000
+const maxUploadBytes = 50 * 1024 * 1024
 const internalStoreRoots = new Set(['blobs', 'manifests', 'previews'])
 const officeExtensions = new Set([
     '.doc',
@@ -136,6 +138,24 @@ function parentRelativePath(relativePath: string): string | null {
     const parts = pathParts(relativePath)
     if (parts.length === 0) return null
     return parts.slice(0, -1).join('/')
+}
+
+function sanitizeUploadName(name: string): string {
+    const cleaned = basename(name.replace(/\\/g, '/'))
+        .split('')
+        .filter((char) => {
+            const code = char.charCodeAt(0)
+            return code >= 32 && code !== 127
+        })
+        .join('')
+        .trim()
+    if (!cleaned || cleaned === '.' || cleaned === '..') {
+        throw new Error('Uploaded file name is invalid')
+    }
+    if (cleaned.includes('/') || cleaned.includes('\\')) {
+        throw new Error('Uploaded file name is invalid')
+    }
+    return cleaned
 }
 
 function breadcrumbsFor(relativePath: string): RoomDirectoryListing['breadcrumbs'] {
@@ -183,6 +203,49 @@ async function resolveExistingPath(input: {
     return {
         root,
         path,
+        relativePath,
+    }
+}
+
+async function resolveWritableDirectory(input: {
+    roomId: string
+    surface: RoomFileSurface
+    relativePath?: string | null
+}): Promise<{
+    root: string
+    path: string
+    relativePath: string
+}> {
+    const root = await resolveRoot(input.roomId, input.surface)
+    const requested = assertInside(join(root, normalizeInputPath(input.relativePath)), root)
+    const relativePath = toDisplayPath(relative(root, requested))
+    if (relativePath && input.surface === 'store') {
+        if (!shouldExposeRoomFile({ surface: input.surface, relativePath })) {
+            throw new Error('Uploads cannot target internal store paths')
+        }
+    }
+
+    let currentPath = root
+    for (const part of pathParts(relativePath)) {
+        currentPath = assertInside(join(currentPath, part), root)
+        const directoryStat = await lstat(currentPath).catch((error: unknown) => {
+            if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+                return null
+            }
+            throw error
+        })
+        if (!directoryStat) {
+            await mkdir(currentPath, { mode: 0o700 })
+            continue
+        }
+        if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) {
+            throw new Error('Upload target is not a directory')
+        }
+    }
+
+    return {
+        root,
+        path: currentPath,
         relativePath,
     }
 }
@@ -455,6 +518,51 @@ export async function listRoomFileTree(roomId: string): Promise<RoomFileTree> {
             },
         ],
     }
+}
+
+export async function writeRoomUploadedFile(input: {
+    roomId: string
+    surface: RoomFileSurface
+    relativeDirectory?: string | null
+    fileName: string
+    content: Buffer
+}): Promise<RoomFileEntry> {
+    if (input.content.byteLength > maxUploadBytes) {
+        throw new Error(`Uploads are limited to ${maxUploadBytes} bytes per file`)
+    }
+
+    const directory = await resolveWritableDirectory({
+        roomId: input.roomId,
+        surface: input.surface,
+        relativePath: input.relativeDirectory,
+    })
+    const name = sanitizeUploadName(input.fileName)
+    const path = assertInside(join(directory.path, name), directory.root)
+    try {
+        await lstat(path)
+        throw new Error(`File already exists: ${toDisplayPath(relative(directory.root, path))}`)
+    } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+            await writeFile(path, input.content, {
+                flag: 'wx',
+                mode: 0o600,
+            })
+        } else {
+            throw error
+        }
+    }
+
+    const entry = await entryFor({
+        root: directory.root,
+        surface: input.surface,
+        absolutePath: path,
+        name,
+        kind: 'file',
+    })
+    if (!entry) {
+        throw new Error('Uploaded file is not visible in the room file store')
+    }
+    return entry
 }
 
 async function readBoundedPreviewFile(

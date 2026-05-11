@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -109,5 +109,85 @@ describe('room file store', () => {
         })
         expect(imagePreview.mediaType).toBe('image/png')
         expect(imagePreview.content.byteLength).toBeGreaterThan(0)
+    })
+
+    it('writes uploaded files into visible room directories without overwriting', async () => {
+        const { getRoomPaths } = await import('./room-paths')
+        const { listRoomDirectory, writeRoomUploadedFile } = await import('./file-store')
+        const paths = getRoomPaths('room-files')
+
+        const uploaded = await writeRoomUploadedFile({
+            roomId: 'room-files',
+            surface: 'store',
+            relativeDirectory: 'incoming',
+            fileName: 'notes.txt',
+            content: Buffer.from('hello upload'),
+        })
+
+        expect(uploaded.surface).toBe('store')
+        expect(uploaded.relativePath).toBe('incoming/notes.txt')
+        expect(await readFile(join(paths.storeDir, 'incoming', 'notes.txt'), 'utf8')).toBe(
+            'hello upload',
+        )
+
+        const directory = await listRoomDirectory({
+            roomId: 'room-files',
+            surface: 'store',
+            relativePath: 'incoming',
+        })
+        expect(directory.entries.map((entry) => entry.relativePath)).toEqual(['incoming/notes.txt'])
+
+        await expect(
+            writeRoomUploadedFile({
+                roomId: 'room-files',
+                surface: 'store',
+                relativeDirectory: 'incoming',
+                fileName: 'notes.txt',
+                content: Buffer.from('overwrite'),
+            }),
+        ).rejects.toThrow(/File already exists/)
+
+        await expect(
+            writeRoomUploadedFile({
+                roomId: 'room-files',
+                surface: 'store',
+                relativeDirectory: 'blobs',
+                fileName: 'hidden.txt',
+                content: Buffer.from('hidden'),
+            }),
+        ).rejects.toThrow(/internal store paths/)
+
+        await expect(
+            writeRoomUploadedFile({
+                roomId: 'room-files',
+                surface: 'store',
+                relativeDirectory: 'incoming/../blobs',
+                fileName: 'hidden.txt',
+                content: Buffer.from('hidden'),
+            }),
+        ).rejects.toThrow(/internal store paths/)
+    })
+
+    it('does not create upload directories through symlinks', async () => {
+        const { getRoomPaths } = await import('./room-paths')
+        const { writeRoomUploadedFile } = await import('./file-store')
+        const paths = getRoomPaths('room-files')
+        const outside = join(root, 'outside')
+        await mkdir(paths.storeDir, {
+            recursive: true,
+        })
+        await mkdir(outside)
+        await symlink(outside, join(paths.storeDir, 'linked'))
+
+        await expect(
+            writeRoomUploadedFile({
+                roomId: 'room-files',
+                surface: 'store',
+                relativeDirectory: 'linked/nested',
+                fileName: 'escape.txt',
+                content: Buffer.from('escape'),
+            }),
+        ).rejects.toThrow(/Upload target is not a directory/)
+        await expect(access(join(outside, 'nested'))).rejects.toThrow()
     })
 })
