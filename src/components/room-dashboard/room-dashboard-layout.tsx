@@ -33,7 +33,7 @@ import { ScrollArea } from '#/components/ui/scroll-area'
 import { AppShell } from '#/components/app-shell'
 import { RoomGlyph, StateBadge } from '#/components/agent-room'
 import { listRoomsServer, setRoomDesiredStateServer } from '#/routes/-room-runtime-server'
-import type { RoomRuntimeOverview } from '#/server/rooms/execution-types'
+import type { RoomRuntimeOverview } from '#/lib/room-execution-types'
 
 export type RoomDashboardTab =
     | 'home'

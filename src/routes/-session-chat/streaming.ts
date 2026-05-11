@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
-import type { RoomRealtimeEvent } from '#/server/rooms/execution-types'
+import type { RoomRealtimeEvent } from '#/lib/room-execution-types'
 
 const STREAM_ERROR_THRESHOLD = 6
 

@@ -17,7 +17,7 @@ import { cn } from '#/lib/utils'
 import type {
     RoomExecutionModelState,
     RoomExecutionThinkingLevel,
-} from '#/server/rooms/execution-types'
+} from '#/lib/room-execution-types'
 
 export type ModelModeChange = {
     provider: string

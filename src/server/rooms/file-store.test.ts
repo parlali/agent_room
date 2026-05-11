@@ -28,8 +28,9 @@ describe('room file store', () => {
 
     it('does not list symlinks and reads previews without loading the whole file', async () => {
         const { getRoomPaths } = await import('./room-paths')
-        const { listRoomDirectory, listRoomFiles, listRoomFileTree, readRoomFileContent } =
-            await import('./file-store')
+        const { listRoomDirectory, listRoomFiles, listRoomFileTree } = await import('./file-store')
+        const { readRoomFileContent, readRoomFilePreviewAsset } =
+            await import('./file-store-preview')
         const paths = getRoomPaths('room-files')
         await mkdir(paths.workspaceDir, {
             recursive: true,
@@ -106,7 +107,6 @@ describe('room file store', () => {
         })
         expect(officePreview.kind).not.toBe('text')
 
-        const { readRoomFilePreviewAsset } = await import('./file-store')
         const imagePreview = await readRoomFilePreviewAsset({
             roomId: 'room-files',
             surface: 'workspace',

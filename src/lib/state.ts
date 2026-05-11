@@ -1,4 +1,4 @@
-import type { HealthStatus, RoomDesiredState, RoomStatus } from '#/server/domain/types'
+import type { HealthStatus, RoomDesiredState, RoomStatus } from '#/lib/domain-types'
 
 export type Tone = 'ready' | 'working' | 'attention' | 'danger' | 'muted' | 'info'
 

@@ -34,6 +34,7 @@
         "format:write": "prettier --write .",
         "check": "bun run format && bun run lint && bun run typecheck && bun run test",
         "fix": "bun run format:write",
+        "quality:score": "bun run scripts/code-quality-score.ts",
         "db:migrate": "bun run scripts/dbmate.ts up",
         "db:rollback": "bun run scripts/dbmate.ts down",
         "db:new": "bun run scripts/dbmate.ts new",

@@ -4,7 +4,7 @@ import { ChevronRightIcon, ClockIcon } from 'lucide-react'
 import { describeSessionState } from '#/lib/state'
 import { formatDurationMs } from '#/lib/format'
 import { cn } from '#/lib/utils'
-import type { RoomExecutionThread } from '#/server/rooms/execution-types'
+import type { RoomExecutionThread } from '#/lib/room-execution-types'
 
 export function SessionRunStatus({
     thread,

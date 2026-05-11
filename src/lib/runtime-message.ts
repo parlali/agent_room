@@ -1,5 +1,5 @@
-import type { JsonValue } from '#/server/domain/types'
-import type { RoomExecutionMessage, RoomExecutionMessagePart } from '#/server/rooms/execution-types'
+import type { JsonValue } from '#/lib/domain-types'
+import type { RoomExecutionMessage, RoomExecutionMessagePart } from '#/lib/room-execution-types'
 
 export type RuntimeSerializable = JsonValue
 

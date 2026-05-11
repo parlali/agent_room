@@ -1,10 +1,5 @@
 import type { RoomConfigSnapshot } from '#/server/configuration/operator-configuration'
-import type {
-    ProviderApi,
-    RoomMode,
-    RoomProviderMode,
-    RoomSecretPurpose,
-} from '#/server/domain/types'
+import type { ProviderApi, RoomMode, RoomProviderMode, RoomSecretPurpose } from '#/lib/domain-types'
 import { ROOM_MODE_OPTIONS } from '#/lib/room-modes'
 
 export type ProviderMode = RoomProviderMode

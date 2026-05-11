@@ -52,8 +52,8 @@ import type {
     RoomFilePreview,
     RoomFileSurface,
     RoomFileTreeNode,
-} from '#/server/rooms/file-store'
-import type { RoomRealtimeEvent } from '#/server/rooms/execution-types'
+} from '#/lib/room-file-types'
+import type { RoomRealtimeEvent } from '#/lib/room-execution-types'
 
 export const Route = createFileRoute('/rooms/$roomId/files')({
     beforeLoad: requireRouteUser,

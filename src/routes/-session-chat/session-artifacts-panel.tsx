@@ -31,8 +31,8 @@ import { roomFilePreviewUrl } from '#/lib/room-file-links'
 import { formatBytes, formatRelativeTime } from '#/lib/format'
 import { cn } from '#/lib/utils'
 import { readRoomFileServer } from '#/routes/-room-runtime-server'
-import type { RoomFileEntry, RoomFilePreview } from '#/server/rooms/file-store'
-import type { RoomSessionArtifact, RoomSessionArtifactKind } from '#/server/rooms/execution-types'
+import type { RoomFileEntry, RoomFilePreview } from '#/lib/room-file-types'
+import type { RoomSessionArtifact, RoomSessionArtifactKind } from '#/lib/room-execution-types'
 
 const artifactSections: Array<{
     kind: RoomSessionArtifactKind

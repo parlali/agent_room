@@ -1,4 +1,4 @@
-import type { RoomFileEntry, RoomFilePreview, RoomFileSurface } from '#/server/rooms/file-store'
+import type { RoomFileEntry, RoomFilePreview, RoomFileSurface } from '#/lib/room-file-types'
 import { formatBytes, formatRelativeTime } from '#/lib/format'
 
 const officeExtensions = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp'])

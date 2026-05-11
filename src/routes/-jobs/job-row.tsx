@@ -3,7 +3,7 @@ import { ClockIcon } from 'lucide-react'
 import { StateBadge, StatusDot } from '#/components/agent-room'
 import { Switch } from '#/components/ui/switch'
 import { describeJobLastRun } from '#/lib/state'
-import type { RoomCronJob } from '#/server/rooms/execution-types'
+import type { RoomCronJob } from '#/lib/room-execution-types'
 
 export function JobListRow({
     job,

@@ -24,7 +24,7 @@ import {
 } from '#/components/ui/select'
 import { Textarea } from '#/components/ui/textarea'
 import { cn } from '#/lib/utils'
-import type { ProviderApi } from '#/server/domain/types'
+import type { ProviderApi } from '#/lib/domain-types'
 
 import { currentUserServer } from './-auth-server'
 import { friendlyNotice } from './-notice-copy'

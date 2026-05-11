@@ -589,7 +589,7 @@ export const readRoomFileServer = createServerFn({ method: 'GET' })
         setResponseHeaders({
             'cache-control': 'no-store',
         })
-        const { readRoomFileContent } = await import('#/server/rooms/file-store')
+        const { readRoomFileContent } = await import('#/server/rooms/file-store-preview')
         return readRoomFileContent({
             roomId: data.roomId,
             surface: data.surface,

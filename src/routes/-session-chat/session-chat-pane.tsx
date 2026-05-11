@@ -10,7 +10,6 @@ import { Button } from '#/components/ui/button'
 import { describeSessionState } from '#/lib/state'
 import { uploadRoomFiles } from '#/lib/room-file-upload'
 import { formatMessageWithAttachments } from '#/lib/room-attachments'
-import type { RoomAttachment } from '#/lib/room-attachments'
 import {
     abortMessageServer,
     editMessageServer,
@@ -19,7 +18,7 @@ import {
     sendMessageServer,
     updateThreadModelServer,
 } from '#/routes/-room-runtime-server'
-import type { RoomExecutionSnapshot, RoomRealtimeEvent } from '#/server/rooms/execution-types'
+import type { RoomExecutionSnapshot, RoomRealtimeEvent } from '#/lib/room-execution-types'
 
 import { ChatHeader } from './chat-header'
 import { ChatSkeleton } from './chat-skeleton'
@@ -34,6 +33,7 @@ import {
     type StreamTurnState,
 } from './stream-state'
 import { MessageList } from './message-list'
+import type { EditingMessageDraft } from './message-list-model'
 import { useStreamingRefetch } from './streaming'
 import { SessionArtifactsPanel } from './session-artifacts-panel'
 
@@ -44,12 +44,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const [streamError, setStreamError] = useState<string | null>(null)
     const [streamTurn, setStreamTurn] = useState<StreamTurnState>(emptyStreamTurnState)
     const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
-    const [editingMessage, setEditingMessage] = useState<{
-        id: string
-        text: string
-        timestamp: number | null
-        attachments: RoomAttachment[]
-    } | null>(null)
+    const [editingMessage, setEditingMessage] = useState<EditingMessageDraft | null>(null)
     const [artifactsOpen, setArtifactsOpen] = useState(false)
     const [autoOpenedArtifactsSession, setAutoOpenedArtifactsSession] = useState<string | null>(
         null,
@@ -290,12 +285,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         })
     }
 
-    const startEditingMessage = (input: {
-        id: string
-        text: string
-        timestamp: number | null
-        attachments: RoomAttachment[]
-    }) => {
+    const startEditingMessage = (input: EditingMessageDraft) => {
         if (!(snapshot?.capabilities.canEditMessages ?? false)) {
             toast.error(
                 snapshot?.capabilities.editMessageUnsupportedReason ?? 'Editing is unavailable',

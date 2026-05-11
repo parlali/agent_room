@@ -15,7 +15,7 @@ import {
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import type { describeSessionState } from '#/lib/state'
-import type { RoomExecutionSnapshot, RoomRuntimeOverview } from '#/server/rooms/execution-types'
+import type { RoomExecutionSnapshot, RoomRuntimeOverview } from '#/lib/room-execution-types'
 
 export function ChatHeader({
     room,

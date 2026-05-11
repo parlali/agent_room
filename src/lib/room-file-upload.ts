@@ -1,4 +1,4 @@
-import type { RoomFileEntry, RoomFileSurface } from '#/server/rooms/file-store'
+import type { RoomFileEntry, RoomFileSurface } from '#/lib/room-file-types'
 
 export interface UploadRoomFilesInput {
     roomId: string

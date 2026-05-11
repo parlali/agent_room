@@ -25,7 +25,7 @@ import {
     SheetTrigger,
 } from '#/components/ui/sheet'
 import { createRoomServer } from '#/routes/-room-runtime-server'
-import type { RoomMode } from '#/server/domain/types'
+import type { RoomMode } from '#/lib/domain-types'
 import { ROOM_MODE_OPTIONS } from '#/lib/room-modes'
 
 type CreateRoomButtonProps = {

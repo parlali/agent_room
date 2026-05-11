@@ -1,5 +1,5 @@
 import { extractTextFromRuntimeContent } from '#/lib/runtime-message'
-import type { RoomRealtimeEvent } from '#/server/rooms/execution-types'
+import type { RoomRealtimeEvent } from '#/lib/room-execution-types'
 
 import { toolTaskFromRuntimeEvent, type ToolActivityTask } from './tool-activity-model'
 

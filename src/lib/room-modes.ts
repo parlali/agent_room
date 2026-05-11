@@ -1,4 +1,4 @@
-import type { RoomMode } from '#/server/domain/types'
+import type { RoomMode } from '#/lib/domain-types'
 
 export const ROOM_MODE_OPTIONS = [
     {

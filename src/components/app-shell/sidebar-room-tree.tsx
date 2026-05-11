@@ -11,7 +11,7 @@ import { Button } from '#/components/ui/button'
 import { Skeleton } from '#/components/ui/skeleton'
 import { SessionContextMenu, SessionContextMenuTrigger, StatusDot } from '#/components/agent-room'
 import { createThreadServer, getRoomExecutionServer } from '#/routes/-room-runtime-server'
-import type { RoomExecutionThread, RoomRuntimeOverview } from '#/server/rooms/execution-types'
+import type { RoomExecutionThread, RoomRuntimeOverview } from '#/lib/room-execution-types'
 
 const SESSION_PREVIEW_LIMIT = 5
 

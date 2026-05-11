@@ -1,5 +1,5 @@
 import { formatBytes } from '#/lib/format'
-import type { RoomFileSurface } from '#/server/rooms/file-store'
+import type { RoomFileSurface } from '#/lib/room-file-types'
 
 export interface RoomAttachment {
     id: string

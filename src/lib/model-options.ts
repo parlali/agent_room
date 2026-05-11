@@ -1,9 +1,15 @@
-import type { OperatorConfigSnapshot } from '#/server/configuration/operator-configuration'
-import type { ImageProviderId } from '#/server/domain/types'
+import type { ImageProviderId, ProviderApi } from '#/lib/domain-types'
 
 export interface ModelOption {
     value: string
     label: string
+}
+
+export interface ProviderCatalogEntry {
+    provider: string
+    label: string
+    api: ProviderApi
+    model: string
 }
 
 const PROVIDER_MODEL_OPTIONS: Record<string, ModelOption[]> = {
@@ -49,7 +55,7 @@ function includeCurrentOption(options: ModelOption[], current: string | null | u
 export function providerModelOptionsForProvider(input: {
     provider: string
     currentModel?: string | null
-    providerCatalog?: OperatorConfigSnapshot['providerCatalog']
+    providerCatalog?: ProviderCatalogEntry[]
 }): ModelOption[] {
     const provider = input.provider.trim().toLowerCase()
     const catalogDefault = input.providerCatalog?.find((entry) => entry.provider === provider)

@@ -1,5 +1,5 @@
 import { extractTextFromRuntimeContent } from '#/lib/runtime-message'
-import type { RoomExecutionMessagePart } from '#/server/rooms/execution-types'
+import type { RoomExecutionMessagePart } from '#/lib/room-execution-types'
 
 export type ToolTaskStatus = 'pending' | 'in_progress' | 'complete' | 'error'
 

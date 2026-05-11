@@ -6,7 +6,7 @@ import { Button } from '#/components/ui/button'
 import { Textarea } from '#/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
 import type { RoomAttachment } from '#/lib/room-attachments'
-import type { RoomExecutionModelState } from '#/server/rooms/execution-types'
+import type { RoomExecutionModelState } from '#/lib/room-execution-types'
 import { AttachmentCards } from './attachment-cards'
 import { ModelModeMenu, type ModelModeChange } from './model-mode-menu'
 

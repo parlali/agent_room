@@ -1,4 +1,4 @@
-import type { RoomExecutionMessage } from '#/server/rooms/execution-types'
+import type { RoomExecutionMessage } from '#/lib/room-execution-types'
 
 export function isLastMessageInProgress(messages: RoomExecutionMessage[] | undefined): boolean {
     if (!messages || messages.length === 0) return false

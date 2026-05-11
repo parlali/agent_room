@@ -5,8 +5,8 @@ import { requireApiSession } from '#/server/auth/api-session'
 import {
     resolveRoomFileDownloadAsset,
     resolveRoomFilePreviewAsset,
-    type RoomFileSurface,
-} from '#/server/rooms/file-store'
+} from '#/server/rooms/file-store-preview'
+import type { RoomFileSurface } from '#/lib/room-file-types'
 
 function contentDispositionFilename(name: string): string {
     return name.replace(/["\r\n]/g, '_')
