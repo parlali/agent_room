@@ -1,11 +1,11 @@
 import type { RoomAttachment } from '#/lib/room-attachments'
-import type { RoomExecutionMessage, RoomExecutionThread } from '#/lib/room-execution-types'
+import type {
+    RoomExecutionMessage,
+    RoomExecutionMessagePart,
+    RoomExecutionThread,
+} from '#/lib/room-execution-types'
 
-import {
-    toolTasksFromParts,
-    type ToolActivityTask,
-    type ToolTaskStatus,
-} from './tool-activity-model'
+import { toolTasksFromParts, type ToolActivityTask, type ToolTaskStatus } from './tool-activity'
 
 export type DisplayItem =
     | { type: 'message'; message: RoomExecutionMessage }
@@ -52,7 +52,7 @@ export function buildDisplayItems(
         pendingTools = null
     }
 
-    const appendTools = (message: RoomExecutionMessage, parts: RoomExecutionMessage['parts']) => {
+    const appendTools = (message: RoomExecutionMessage, parts: RoomExecutionMessagePart[]) => {
         const tasks = toolTasksFromParts(parts)
         if (tasks.length === 0) return
         if (!pendingTools) {
@@ -77,36 +77,66 @@ export function buildDisplayItems(
         pendingTools.timestamp = pendingTools.timestamp ?? message.timestamp
     }
 
-    for (const message of messages) {
-        const toolParts = message.parts.filter(
-            (part) => part.type === 'tool_call' || part.type === 'tool_result',
-        )
+    const appendAssistantText = (
+        message: RoomExecutionMessage,
+        part: RoomExecutionMessagePart,
+        index: number,
+        split: boolean,
+    ) => {
+        if (!part.text.trim()) return
+        flushTools('complete')
+        items.push({
+            type: 'message',
+            message: {
+                ...message,
+                id: split ? `${message.id}:part:${index}` : message.id,
+                text: part.text,
+                parts: [part],
+            },
+        })
+    }
 
+    for (const message of messages) {
         if (message.role === 'tool') {
-            appendTools(message, toolParts)
+            appendTools(
+                message,
+                message.parts.filter((part) => part.type === 'tool_result'),
+            )
             continue
         }
 
-        if (message.role === 'assistant' && toolParts.length > 0) {
-            if (message.text.trim()) {
+        if (message.role === 'assistant') {
+            const displayParts = message.parts.filter(
+                (part) =>
+                    (part.type === 'text' && part.text.trim()) ||
+                    part.type === 'tool_call' ||
+                    part.type === 'tool_result',
+            )
+            const shouldSplit =
+                displayParts.length > 1 ||
+                displayParts.some(
+                    (part) => part.type === 'tool_call' || part.type === 'tool_result',
+                )
+
+            if (displayParts.length === 0) {
                 flushTools('complete')
-                items.push({
-                    type: 'message',
-                    message: {
-                        ...message,
-                        parts: message.parts.filter(
-                            (part) => part.type !== 'tool_call' && part.type !== 'tool_result',
-                        ),
-                    },
-                })
+                items.push({ type: 'message', message })
+                continue
             }
-            appendTools(message, toolParts)
+
+            for (const [index, part] of displayParts.entries()) {
+                if (part.type === 'text') {
+                    appendAssistantText(message, part, index, shouldSplit)
+                } else {
+                    appendTools(message, [part])
+                }
+            }
             continue
         }
 
         flushTools('complete')
         items.push({ type: 'message', message })
-        if (message.id === runStatusAfterMessageId) {
+        if (message.id === runStatusAfterMessageId && shouldIncludeRunStatus(thread)) {
             items.push({
                 type: 'run-status',
                 id: `run-status-${message.id}`,
@@ -117,6 +147,10 @@ export function buildDisplayItems(
 
     flushTools(isWorking ? undefined : 'complete')
     return items
+}
+
+function shouldIncludeRunStatus(thread: RoomExecutionThread | null): boolean {
+    return Boolean(thread && (thread.runStartedAt !== null || thread.runtimeMs !== null))
 }
 
 export function latestUserMessageId(messages: RoomExecutionMessage[]): string | null {

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -125,6 +125,20 @@ describe('Pi runtime usage sync', () => {
         await adapter.syncRuntimeUsageEvents(roomId)
 
         expect(mocks.usageRepository.appendEvent).toHaveBeenCalledTimes(2)
+        const syncState = JSON.parse(
+            await readFile(join(paths.engineStateDir, 'usage-sync.json'), 'utf8'),
+        ) as {
+            version: number
+            lastLine: number
+            lastByteOffset: number
+        }
+        expect(syncState).toEqual(
+            expect.objectContaining({
+                version: 2,
+                lastLine: 2,
+                lastByteOffset: expect.any(Number),
+            }),
+        )
         expect(mocks.usageRepository.appendEvent).toHaveBeenNthCalledWith(
             1,
             expect.objectContaining({
@@ -156,6 +170,67 @@ describe('Pi runtime usage sync', () => {
                 model: 'gemini-image',
                 toolName: 'agent_room_image_generate',
                 durationMs: 2500,
+            }),
+        )
+    })
+
+    it('resumes from the persisted byte offset instead of rereading old runtime events', async () => {
+        const roomId = 'usage-room'
+        const { getRoomPaths } = await import('./room-paths')
+        const paths = getRoomPaths(roomId)
+        await mkdir(paths.engineStateDir, {
+            recursive: true,
+        })
+        const runtimeEventsPath = join(paths.engineStateDir, 'runtime-events.jsonl')
+        await writeFile(
+            runtimeEventsPath,
+            [
+                JSON.stringify({
+                    ts: 1000,
+                    event: 'run.finished',
+                    sessionKey: 'thread-1',
+                    runId: 'run-1',
+                    payload: {
+                        runKind: 'manual',
+                        status: 'idle',
+                    },
+                }),
+                '',
+            ].join('\n'),
+            'utf8',
+        )
+
+        const adapter = await import('./pi-execution-adapter')
+        await adapter.syncRuntimeUsageEvents(roomId)
+        mocks.usageRepository.appendEvent.mockClear()
+        await appendFile(
+            runtimeEventsPath,
+            `${JSON.stringify({
+                ts: 1100,
+                event: 'provider.finished',
+                sessionKey: 'thread-1',
+                runId: 'run-2',
+                payload: {
+                    provider: 'openai-codex',
+                    model: 'gpt-5.5',
+                    durationMs: 100,
+                    usage: {
+                        totalTokens: 12,
+                    },
+                },
+            })}\n`,
+            'utf8',
+        )
+
+        await adapter.syncRuntimeUsageEvents(roomId)
+
+        expect(mocks.usageRepository.appendEvent).toHaveBeenCalledTimes(1)
+        expect(mocks.usageRepository.appendEvent).toHaveBeenCalledWith(
+            expect.objectContaining({
+                roomId,
+                runId: 'run-2',
+                kind: 'provider',
+                totalTokens: 12,
             }),
         )
     })

@@ -52,6 +52,7 @@ function roomConfiguration(): MaterializedRoomConfiguration {
         },
         entitlements: {
             env: {},
+            internalEnv: {},
             secretRefs: [],
             mcpServers: [],
             github: {
@@ -208,6 +209,45 @@ describe('Pi runtime config materialization', () => {
             )
             expect((await stat(join(root, 'pi-state', 'home'))).isDirectory()).toBe(true)
             expect((await stat(join(root, 'pi-state', 'tmp'))).isDirectory()).toBe(true)
+        } finally {
+            await rm(root, {
+                recursive: true,
+                force: true,
+            })
+        }
+    })
+
+    it('allows internally materialized GitHub tokens while keeping user env reserved', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'agent-room-pi-profile-'))
+        try {
+            const config = roomConfiguration()
+            config.entitlements.internalEnv = {
+                AGENT_ROOM_GITHUB_INSTALLATION_TOKEN: 'github-installation-token',
+            }
+            config.entitlements.github = {
+                enabled: true,
+                installationId: '123',
+                accountLogin: 'agent-room',
+                repositories: ['agent-room/example'],
+                tokenEnvKey: 'AGENT_ROOM_GITHUB_INSTALLATION_TOKEN',
+                tokenExpiresAt: '2026-05-11T12:00:00.000Z',
+                ghHostsPath: null,
+                gitCredentialsPath: null,
+                gitConfigPath: null,
+            }
+
+            const profile = piRuntimeEngineProfile.buildRuntimeProfile({
+                roomId: 'room-1',
+                displayName: 'Room One',
+                port: 31234,
+                token: 'token-token-token-token-token',
+                paths: roomPaths(root),
+                roomConfiguration: config,
+            })
+
+            expect(profile.env.AGENT_ROOM_GITHUB_INSTALLATION_TOKEN).toBe(
+                'github-installation-token',
+            )
         } finally {
             await rm(root, {
                 recursive: true,

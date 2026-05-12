@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import type { KeyboardEvent } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import type { KeyboardEvent, ReactNode } from 'react'
 import { CopyIcon, PencilIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -10,15 +10,19 @@ import { copyText } from '#/lib/clipboard'
 import { formatDateTime, initialsFromName } from '#/lib/format'
 import { parseRoomMessageAttachments } from '#/lib/room-attachments'
 import { cn } from '#/lib/utils'
-import type { RoomExecutionMessage, RoomRuntimeOverview } from '#/lib/room-execution-types'
+import type {
+    RoomExecutionMessage,
+    RoomRuntimeOverview,
+    RoomSessionDisplayRow,
+} from '#/lib/room-execution-types'
 
 import { AttachmentCards } from './attachment-cards'
 import { renderMarkdown } from './markdown'
-import type { EditingMessageDraft, DisplayItem } from './message-list-model'
+import type { EditingMessageDraft, DisplayItem } from '#/lib/message-list-model'
 import { SessionRunStatus } from './session-run-status'
 import type { StreamTurnItem } from './stream-state'
 import { ToolActivity } from './tool-step'
-import type { ToolActivityTask } from './tool-activity-model'
+import type { ToolActivityTask } from '#/lib/tool-activity'
 
 type EditMessageHandler = (input: EditingMessageDraft) => void
 
@@ -32,9 +36,10 @@ export function DisplayRow({
     onChangeEditingMessageText,
     onSubmitEditingMessage,
     onCancelEditingMessage,
+    deferRichText = false,
 }: {
     room: RoomRuntimeOverview
-    item: DisplayItem
+    item: DisplayItem | RoomSessionDisplayRow
     canEditMessages: boolean
     editingMessage: EditingMessageDraft | null
     editPending: boolean
@@ -42,6 +47,7 @@ export function DisplayRow({
     onChangeEditingMessageText: (text: string) => void
     onSubmitEditingMessage: () => void
     onCancelEditingMessage: () => void
+    deferRichText?: boolean
 }) {
     if (item.type === 'tools') {
         return <ToolRow id={item.id} tasks={item.tasks} />
@@ -62,6 +68,7 @@ export function DisplayRow({
             onChangeEditingMessageText={onChangeEditingMessageText}
             onSubmitEditingMessage={onSubmitEditingMessage}
             onCancelEditingMessage={onCancelEditingMessage}
+            deferRichText={deferRichText}
         />
     )
 }
@@ -108,6 +115,7 @@ function MessageRow({
     onChangeEditingMessageText,
     onSubmitEditingMessage,
     onCancelEditingMessage,
+    deferRichText,
 }: {
     room: RoomRuntimeOverview
     message: RoomExecutionMessage
@@ -118,6 +126,7 @@ function MessageRow({
     onChangeEditingMessageText: (text: string) => void
     onSubmitEditingMessage: () => void
     onCancelEditingMessage: () => void
+    deferRichText: boolean
 }) {
     if (message.role === 'system' || message.role === 'other') {
         return (
@@ -139,6 +148,7 @@ function MessageRow({
                 text={message.text}
                 timestamp={message.timestamp}
                 streaming={false}
+                deferRichText={deferRichText}
             />
         )
     }
@@ -169,7 +179,7 @@ function MessageRow({
                     />
                 ) : showMessageBubble ? (
                     <div className="max-w-[min(36rem,90%)] rounded-2xl bg-primary px-3.5 py-2 text-sm break-words whitespace-pre-wrap text-primary-foreground shadow-sm">
-                        <MessageText text={parsed.text} />
+                        <MessageText text={parsed.text} deferRichText={deferRichText} />
                     </div>
                 ) : null}
                 {isEditing ? null : (
@@ -285,11 +295,13 @@ function AssistantRow({
     text,
     timestamp,
     streaming,
+    deferRichText = false,
 }: {
     room: RoomRuntimeOverview
     text: string
     timestamp: number | null
     streaming: boolean
+    deferRichText?: boolean
 }) {
     return (
         <div className="group/message flex w-full justify-start gap-3">
@@ -297,7 +309,11 @@ function AssistantRow({
             <div className="flex min-w-0 flex-col items-start gap-1">
                 <div className="max-w-[min(42rem,92%)] rounded-2xl bg-card px-3.5 py-2 text-card-foreground shadow-sm ring-1 ring-foreground/10">
                     {text ? (
-                        <MessageText text={text} streaming={streaming} />
+                        <MessageText
+                            text={text}
+                            streaming={streaming}
+                            deferRichText={deferRichText}
+                        />
                     ) : (
                         <span className="text-muted-foreground">
                             {initialsFromName(room.displayName, '..')} is working...
@@ -382,7 +398,92 @@ function MessageDate({ timestamp, className }: { timestamp: number | null; class
     )
 }
 
-function MessageText({ text, streaming = false }: { text: string; streaming?: boolean }) {
+const MessageText = memo(function RenderedMessageText({
+    text,
+    streaming = false,
+    deferRichText = false,
+}: {
+    text: string
+    streaming?: boolean
+    deferRichText?: boolean
+}) {
+    const cacheKey = useMemo(() => markdownCacheKey(text, streaming), [streaming, text])
+    const [ready, setReady] = useState(() => !deferRichText || markdownRenderCache.has(cacheKey))
+
+    useEffect(() => {
+        if (!deferRichText || markdownRenderCache.has(cacheKey)) {
+            setReady(true)
+            return
+        }
+        setReady(false)
+        return enqueueMarkdownHydration(() => setReady(true))
+    }, [cacheKey, deferRichText])
+
+    const rendered = useMemo(() => {
+        if (!ready) return null
+        if (markdownRenderCache.has(cacheKey)) {
+            return markdownRenderCache.get(cacheKey) ?? null
+        }
+        const next = renderMarkdown(text, { streaming, complete: !streaming })
+        rememberMarkdownRender(cacheKey, next)
+        return next
+    }, [cacheKey, ready, streaming, text])
     if (!text) return null
-    return <>{renderMarkdown(text, { streaming, complete: !streaming })}</>
+    if (!ready) {
+        return <span className="whitespace-pre-wrap">{text}</span>
+    }
+    return <>{rendered}</>
+})
+
+const markdownRenderCacheLimit = 160
+const markdownRenderCache = new Map<string, ReactNode>()
+const markdownHydrationQueue: Array<() => void> = []
+let markdownHydrationScheduled = false
+
+function markdownCacheKey(text: string, streaming: boolean): string {
+    return `${streaming ? 'streaming' : 'complete'}:${text}`
+}
+
+function rememberMarkdownRender(key: string, value: ReactNode): void {
+    if (markdownRenderCache.has(key)) {
+        markdownRenderCache.delete(key)
+    }
+    markdownRenderCache.set(key, value)
+    while (markdownRenderCache.size > markdownRenderCacheLimit) {
+        const oldest = markdownRenderCache.keys().next().value
+        if (oldest === undefined) return
+        markdownRenderCache.delete(oldest)
+    }
+}
+
+function enqueueMarkdownHydration(task: () => void): () => void {
+    let active = true
+    markdownHydrationQueue.push(() => {
+        if (active) task()
+    })
+    scheduleMarkdownHydration()
+    return () => {
+        active = false
+    }
+}
+
+function scheduleMarkdownHydration(): void {
+    if (markdownHydrationScheduled) return
+    markdownHydrationScheduled = true
+    const run = () => {
+        markdownHydrationScheduled = false
+        const task = markdownHydrationQueue.shift()
+        task?.()
+        if (markdownHydrationQueue.length > 0) {
+            scheduleMarkdownHydration()
+        }
+    }
+    const idleWindow = window as Window & {
+        requestIdleCallback?: Window['requestIdleCallback']
+    }
+    if (typeof idleWindow.requestIdleCallback === 'function') {
+        idleWindow.requestIdleCallback(run, { timeout: 500 })
+        return
+    }
+    window.setTimeout(run, 80)
 }

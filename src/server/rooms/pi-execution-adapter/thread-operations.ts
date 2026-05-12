@@ -59,8 +59,8 @@ export async function sendRoomThreadMessage(input: {
                 },
             },
         )
-        await syncRuntimeUsageEvents(input.roomId)
         if (input.jobId && result.runId) {
+            await syncRuntimeUsageEvents(input.roomId)
             await usageRepository.attachJobToRun({
                 roomId: input.roomId,
                 runId: result.runId,
@@ -201,7 +201,6 @@ export async function editRoomThreadMessage(input: {
                 },
             },
         )
-        await syncRuntimeUsageEvents(input.roomId)
         return result
     } catch (error) {
         await usageRepository.appendEvent({

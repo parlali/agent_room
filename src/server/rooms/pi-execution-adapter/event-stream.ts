@@ -5,6 +5,11 @@ import {
     openPiRuntimeRoomEventStream,
     publishPiRuntimeRoomFileChanged,
 } from '../pi-runtime-client'
+import {
+    elapsedPerformanceMs,
+    logPerformanceEvent,
+    performanceNow,
+} from '../../telemetry/performance'
 
 const ROOM_STREAM_BACKPRESSURE_LIMIT = -64
 
@@ -14,6 +19,9 @@ export function createRoomSessionEventStream(input: {
     abortSignal?: AbortSignal
 }): ReadableStream<Uint8Array> {
     return createRuntimeEventProxyStream({
+        roomId: input.roomId,
+        sessionKey: input.sessionKey,
+        streamKind: 'session',
         abortSignal: input.abortSignal,
         open: () =>
             openPiRuntimeEventStream({
@@ -29,6 +37,9 @@ export function createRoomEventStream(input: {
     abortSignal?: AbortSignal
 }): ReadableStream<Uint8Array> {
     return createRuntimeEventProxyStream({
+        roomId: input.roomId,
+        sessionKey: null,
+        streamKind: 'room',
         abortSignal: input.abortSignal,
         open: () =>
             openPiRuntimeRoomEventStream({
@@ -43,15 +54,41 @@ export async function publishRoomFileChanged(input: RoomFileChangedPayload): Pro
 }
 
 function createRuntimeEventProxyStream(input: {
+    roomId: string
+    sessionKey: string | null
+    streamKind: 'session' | 'room'
     abortSignal?: AbortSignal
     open: () => Promise<ReadableStream<Uint8Array>>
 }): ReadableStream<Uint8Array> {
     let closed = false
+    let closeLogged = false
+    let firstChunkLogged = false
+    let chunks = 0
+    let bytes = 0
+    let openMs: number | null = null
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
+    const startedAt = performanceNow()
+
+    const logClose = (reason: string) => {
+        if (closeLogged) {
+            return
+        }
+        closeLogged = true
+        logPerformanceEvent('sse.runtime_proxy.closed', {
+            roomId: input.roomId,
+            sessionKey: input.sessionKey,
+            streamKind: input.streamKind,
+            reason,
+            durationMs: elapsedPerformanceMs(startedAt),
+            openMs,
+            chunks,
+            bytes,
+        })
+    }
 
     return new ReadableStream<Uint8Array>({
         start(controller) {
-            const close = async () => {
+            const close = async (reason: string) => {
                 if (closed) {
                     return
                 }
@@ -64,6 +101,7 @@ function createRuntimeEventProxyStream(input: {
                 try {
                     controller.close()
                 } catch {}
+                logClose(reason)
             }
 
             const enqueue = (chunk: Uint8Array) => {
@@ -79,24 +117,54 @@ function createRuntimeEventProxyStream(input: {
                             message: 'Browser stream consumer is too far behind',
                         }),
                     )
-                    void close()
+                    logPerformanceEvent('sse.runtime_proxy.backpressure', {
+                        roomId: input.roomId,
+                        sessionKey: input.sessionKey,
+                        streamKind: input.streamKind,
+                        durationMs: elapsedPerformanceMs(startedAt),
+                        chunks,
+                        bytes,
+                    })
+                    void close('backpressure')
                     return
+                }
+                chunks += 1
+                bytes += chunk.byteLength
+                if (!firstChunkLogged) {
+                    firstChunkLogged = true
+                    logPerformanceEvent('sse.runtime_proxy.first_chunk', {
+                        roomId: input.roomId,
+                        sessionKey: input.sessionKey,
+                        streamKind: input.streamKind,
+                        durationMs: elapsedPerformanceMs(startedAt),
+                        openMs,
+                        chunkBytes: chunk.byteLength,
+                    })
                 }
                 controller.enqueue(chunk)
             }
 
             const onAbort = () => {
-                void close()
+                void close('aborted')
             }
 
             const run = async () => {
                 try {
+                    const openStartedAt = performanceNow()
                     const stream = await input.open()
+                    openMs = elapsedPerformanceMs(openStartedAt)
+                    logPerformanceEvent('sse.runtime_proxy.open', {
+                        roomId: input.roomId,
+                        sessionKey: input.sessionKey,
+                        streamKind: input.streamKind,
+                        durationMs: elapsedPerformanceMs(startedAt),
+                        openMs,
+                    })
                     reader = stream.getReader()
                     while (!closed) {
                         const result = await reader.read()
                         if (result.done) {
-                            await close()
+                            await close('upstream_done')
                             return
                         }
                         enqueue(result.value)
@@ -117,7 +185,17 @@ function createRuntimeEventProxyStream(input: {
                                 }),
                             ),
                         )
-                        await close()
+                        logPerformanceEvent('sse.runtime_proxy.error', {
+                            roomId: input.roomId,
+                            sessionKey: input.sessionKey,
+                            streamKind: input.streamKind,
+                            durationMs: elapsedPerformanceMs(startedAt),
+                            openMs,
+                            chunks,
+                            bytes,
+                            errorName: error instanceof Error ? error.name : typeof error,
+                        })
+                        await close('error')
                     }
                 }
             }
@@ -131,6 +209,7 @@ function createRuntimeEventProxyStream(input: {
                 void reader.cancel()
                 reader = null
             }
+            logClose('consumer_cancelled')
         },
     })
 }

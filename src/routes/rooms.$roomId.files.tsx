@@ -45,7 +45,6 @@ import {
     readRoomFileServer,
 } from '#/routes/-room-runtime-server'
 import { useEventSourceRefetch } from '#/routes/-session-chat/streaming'
-import { requireRouteUser } from '#/routes/-route-auth'
 import type {
     RoomDirectoryListing,
     RoomFileEntry,
@@ -56,7 +55,6 @@ import type {
 import type { RoomRealtimeEvent } from '#/lib/room-execution-types'
 
 export const Route = createFileRoute('/rooms/$roomId/files')({
-    beforeLoad: requireRouteUser,
     component: RoomFilesPage,
 })
 

@@ -1,4 +1,4 @@
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
     HomeIcon,
@@ -15,7 +15,7 @@ import {
     type LucideIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 
 import { cn } from '#/lib/utils'
 import { roomModeLabel } from '#/lib/room-modes'
@@ -34,6 +34,7 @@ import { AppShell } from '#/components/app-shell'
 import { RoomGlyph, StateBadge } from '#/components/agent-room'
 import { listRoomsServer, setRoomDesiredStateServer } from '#/routes/-room-runtime-server'
 import type { RoomRuntimeOverview } from '#/lib/room-execution-types'
+import { preloadRoomDashboardRoutes, scheduleRoomDashboardRoutePreload } from './preload'
 
 export type RoomDashboardTab =
     | 'home'
@@ -154,6 +155,8 @@ export function RoomDashboardLayout({
     children: ReactNode
     headerActions?: ReactNode
 }) {
+    usePreloadRoomDashboardRoutes()
+
     return (
         <AppShell>
             <div className="flex min-h-full flex-col">
@@ -165,6 +168,12 @@ export function RoomDashboardLayout({
             </div>
         </AppShell>
     )
+}
+
+function usePreloadRoomDashboardRoutes(): void {
+    useEffect(() => {
+        return scheduleRoomDashboardRoutePreload(350)
+    }, [])
 }
 
 function RoomHeader({ roomId, headerActions }: { roomId: string; headerActions?: ReactNode }) {
@@ -271,6 +280,8 @@ function RoomHeaderContent({
 }
 
 function RoomTabs({ roomId, activeTab }: { roomId: string; activeTab: RoomDashboardTab }) {
+    const navigate = useNavigate()
+
     return (
         <nav
             className="sticky top-0 z-10 flex shrink-0 items-center gap-2 border-b border-border/60 bg-background/95 px-4 py-2 backdrop-blur sm:px-6"
@@ -281,7 +292,12 @@ function RoomTabs({ roomId, activeTab }: { roomId: string; activeTab: RoomDashbo
                 const activeItem = group.tabs.find((tab) => tab.id === activeTab) ?? null
                 const isActive = activeItem !== null
                 return (
-                    <DropdownMenu key={group.id}>
+                    <DropdownMenu
+                        key={group.id}
+                        onOpenChange={(open) => {
+                            if (open) void preloadRoomDashboardRoutes()
+                        }}
+                    >
                         <DropdownMenuTrigger asChild>
                             <Button
                                 variant={isActive ? 'secondary' : 'ghost'}
@@ -307,26 +323,29 @@ function RoomTabs({ roomId, activeTab }: { roomId: string; activeTab: RoomDashbo
                                 return (
                                     <DropdownMenuItem
                                         key={tab.id}
-                                        asChild
                                         className={cn(
                                             'items-start gap-2 py-2',
                                             tabActive && 'bg-accent text-accent-foreground',
                                         )}
+                                        onSelect={(event) => {
+                                            event.preventDefault()
+                                            void preloadRoomDashboardRoutes()
+                                            void navigate({
+                                                to: tab.to,
+                                                params: { roomId },
+                                            })
+                                        }}
                                     >
-                                        <Link to={tab.to} params={{ roomId }}>
-                                            <Icon className="mt-0.5 size-4" />
-                                            <span className="min-w-0 flex-1">
-                                                <span className="block font-medium">
-                                                    {tab.label}
-                                                </span>
-                                                <span className="mt-0.5 block text-xs leading-snug text-muted-foreground group-focus/dropdown-menu-item:text-accent-foreground">
-                                                    {tab.description}
-                                                </span>
+                                        <Icon className="mt-0.5 size-4" />
+                                        <span className="min-w-0 flex-1">
+                                            <span className="block font-medium">{tab.label}</span>
+                                            <span className="mt-0.5 block text-xs leading-snug text-muted-foreground group-focus/dropdown-menu-item:text-accent-foreground">
+                                                {tab.description}
                                             </span>
-                                            {tabActive ? (
-                                                <CheckIcon className="ml-auto mt-0.5 size-4" />
-                                            ) : null}
-                                        </Link>
+                                        </span>
+                                        {tabActive ? (
+                                            <CheckIcon className="ml-auto mt-0.5 size-4" />
+                                        ) : null}
                                     </DropdownMenuItem>
                                 )
                             })}

@@ -470,7 +470,9 @@ export async function materializeRoomConfiguration(input: {
                 ...providerMaterialization.entitlements.env,
                 ...imageMaterialization.env,
                 ...roomSecretMaterialization.env,
-                ...githubMaterialization.env,
+            },
+            internalEnv: {
+                ...githubMaterialization.internalEnv,
             },
             secretRefs: [
                 ...providerMaterialization.entitlements.secretRefs,

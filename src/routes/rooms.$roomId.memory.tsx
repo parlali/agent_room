@@ -9,7 +9,6 @@ import { Textarea } from '#/components/ui/textarea'
 import { RoomDashboardLayout } from '#/components/room-dashboard'
 import { EmptyState, LoadingRows, Section } from '#/components/agent-room'
 import { getRoomMemoryServer, updateRoomMemoryServer } from '#/routes/-room-runtime-server'
-import { requireRouteUser } from '#/routes/-route-auth'
 
 type MemoryItem = {
     id: string
@@ -164,7 +163,6 @@ const memorySections: MemorySectionDefinition[] = [
 ]
 
 export const Route = createFileRoute('/rooms/$roomId/memory')({
-    beforeLoad: requireRouteUser,
     component: RoomMemoryPage,
 })
 

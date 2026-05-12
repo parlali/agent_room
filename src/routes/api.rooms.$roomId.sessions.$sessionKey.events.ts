@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { requireApiSession } from '#/server/auth/api-session'
 import { ensureRuntimeSupervisorBoot } from '#/server/rooms/runtime-supervisor-bootstrap'
 import { createRoomSessionEventStream } from '#/server/rooms/execution-engine'
+import { instrumentReadableByteStream } from '#/server/telemetry/performance'
 
 export const Route = createFileRoute('/api/rooms/$roomId/sessions/$sessionKey/events')({
     server: {
@@ -14,9 +15,18 @@ export const Route = createFileRoute('/api/rooms/$roomId/sessions/$sessionKey/ev
                 }
 
                 await ensureRuntimeSupervisorBoot()
-                const stream = createRoomSessionEventStream({
-                    roomId: params.roomId,
-                    sessionKey: params.sessionKey,
+                const stream = instrumentReadableByteStream({
+                    stream: createRoomSessionEventStream({
+                        roomId: params.roomId,
+                        sessionKey: params.sessionKey,
+                        abortSignal: request.signal,
+                    }),
+                    name: 'sse.browser',
+                    attributes: {
+                        roomId: params.roomId,
+                        sessionKey: params.sessionKey,
+                        streamKind: 'session',
+                    },
                     abortSignal: request.signal,
                 })
 

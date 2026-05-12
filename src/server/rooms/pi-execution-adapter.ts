@@ -16,6 +16,7 @@ export {
 export { getRoomExecutionTruthSnapshot } from './pi-execution-adapter/runtime-truth'
 export {
     getRoomExecutionSnapshot,
+    getRoomSessionWindow,
     listRoomsWithRuntime,
     wakeRoomRuntime,
 } from './pi-execution-adapter/runtime-snapshots'

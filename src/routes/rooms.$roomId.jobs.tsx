@@ -17,7 +17,6 @@ import {
     setCronEnabledServer,
     updateCronJobServer,
 } from '#/routes/-room-runtime-server'
-import { requireRouteUser } from '#/routes/-route-auth'
 import type { RoomCronJob } from '#/lib/room-execution-types'
 import type { UsageEventRecord } from '#/lib/domain-types'
 import { JobDeleteDialog } from './-jobs/delete-dialog'
@@ -27,7 +26,6 @@ import { describeJobMutationError, emptyJobForm, jobToForm, type JobFormState } 
 import { JobRow } from './-jobs/row-actions'
 
 export const Route = createFileRoute('/rooms/$roomId/jobs')({
-    beforeLoad: requireRouteUser,
     component: RoomJobsPage,
 })
 

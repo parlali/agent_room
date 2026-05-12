@@ -2,6 +2,7 @@ import type { JsonValue } from '#/lib/domain-types'
 import type { RoomExecutionMessage, RoomExecutionMessagePart } from '#/lib/room-execution-types'
 
 export type RuntimeSerializable = JsonValue
+export type RuntimeTextPhase = RoomExecutionMessagePart['textPhase']
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -72,6 +73,24 @@ export function extractTextFromRuntimeContent(content: unknown): string {
     return textFromContentBlock(content)
 }
 
+export function runtimeTextPhaseFromSignature(value: unknown): RuntimeTextPhase {
+    if (typeof value !== 'string' || !value.trim().startsWith('{')) {
+        return null
+    }
+
+    try {
+        const parsed = JSON.parse(value) as unknown
+        if (!isRecord(parsed) || parsed.v !== 1) {
+            return null
+        }
+        if (parsed.phase === 'commentary' || parsed.phase === 'final_answer') {
+            return parsed.phase
+        }
+    } catch {}
+
+    return null
+}
+
 export function emptyRuntimePart(
     input?: Partial<RoomExecutionMessagePart>,
 ): RoomExecutionMessagePart {
@@ -84,5 +103,7 @@ export function emptyRuntimePart(
         input: input?.input ?? null,
         result: input?.result ?? null,
         rawType: input?.rawType ?? null,
+        contentIndex: input?.contentIndex ?? null,
+        textPhase: input?.textPhase ?? null,
     }
 }

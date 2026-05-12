@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronRight, Loader2Icon, Plus } from 'lucide-react'
@@ -23,10 +23,29 @@ export function SidebarRoomTree({
     onNavigate?: () => void
 }) {
     const pathname = useRouterState({ select: (s) => s.location.pathname })
-    const activeRoomId = pathname.match(/^\/rooms\/([^/]+)/)?.[1] ?? null
+    const [optimisticPathname, setOptimisticPathname] = useState<string | null>(null)
+    const activePathname = optimisticPathname ?? pathname
+    const activeRoomId = activePathname.match(/^\/rooms\/([^/]+)/)?.[1] ?? null
     const [expanded, setExpanded] = useState<Set<string>>(() =>
         activeRoomId ? new Set([activeRoomId]) : new Set(),
     )
+
+    useEffect(() => {
+        if (optimisticPathname === pathname) {
+            setOptimisticPathname(null)
+        }
+    }, [optimisticPathname, pathname])
+
+    useEffect(() => {
+        const nextActiveRoomId = activePathname.match(/^\/rooms\/([^/]+)/)?.[1] ?? null
+        if (!nextActiveRoomId) return
+        setExpanded((current) => {
+            if (current.has(nextActiveRoomId)) return current
+            const next = new Set(current)
+            next.add(nextActiveRoomId)
+            return next
+        })
+    }, [activePathname])
 
     const toggle = (id: string) => {
         setExpanded((prev) => {
@@ -54,7 +73,8 @@ export function SidebarRoomTree({
                     expanded={expanded.has(room.roomId)}
                     isActiveRoom={activeRoomId === room.roomId}
                     onToggle={() => toggle(room.roomId)}
-                    activePathname={pathname}
+                    activePathname={activePathname}
+                    onPreviewNavigate={setOptimisticPathname}
                     onNavigate={onNavigate}
                 />
             ))}
@@ -68,6 +88,7 @@ function RoomNode({
     isActiveRoom,
     onToggle,
     activePathname,
+    onPreviewNavigate,
     onNavigate,
 }: {
     room: RoomRuntimeOverview
@@ -75,6 +96,7 @@ function RoomNode({
     isActiveRoom: boolean
     onToggle: () => void
     activePathname: string
+    onPreviewNavigate: (pathname: string) => void
     onNavigate?: () => void
 }) {
     const state = describeRoomState({
@@ -135,7 +157,10 @@ function RoomNode({
                 <Link
                     to="/rooms/$roomId"
                     params={{ roomId: room.roomId }}
-                    onClick={onNavigate}
+                    onClick={() => {
+                        onPreviewNavigate(`/rooms/${room.roomId}`)
+                        onNavigate?.()
+                    }}
                     className="flex min-w-0 flex-1 items-center gap-2"
                 >
                     <span className="truncate text-sm font-medium">{room.displayName}</span>
@@ -165,6 +190,7 @@ function RoomNode({
                 <RoomSessions
                     roomId={room.roomId}
                     activePathname={activePathname}
+                    onPreviewNavigate={onPreviewNavigate}
                     onNavigate={onNavigate}
                 />
             ) : null}
@@ -175,17 +201,19 @@ function RoomNode({
 function RoomSessions({
     roomId,
     activePathname,
+    onPreviewNavigate,
     onNavigate,
 }: {
     roomId: string
     activePathname: string
+    onPreviewNavigate: (pathname: string) => void
     onNavigate?: () => void
 }) {
     const navigate = useNavigate()
     const [showAll, setShowAll] = useState(false)
     const query = useQuery({
         queryKey: ['room-execution', roomId, 'sidebar'],
-        queryFn: () => getRoomExecutionServer({ data: { roomId } }),
+        queryFn: () => getRoomExecutionServer({ data: { roomId, messageLimit: 0 } }),
         staleTime: 5_000,
         refetchInterval: 5_000,
     })
@@ -243,7 +271,10 @@ function RoomSessions({
                             <Link
                                 to="/rooms/$roomId/sessions/$sessionKey"
                                 params={{ roomId, sessionKey: thread.key }}
-                                onClick={onNavigate}
+                                onClick={() => {
+                                    onPreviewNavigate(sessionPath)
+                                    onNavigate?.()
+                                }}
                                 className="flex min-w-0 flex-1 items-center"
                             >
                                 <span className="min-w-0 flex-1 truncate">

@@ -4,11 +4,7 @@ import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, LoaderIcon, WrenchIcon }
 import { Button } from '#/components/ui/button'
 import { cn } from '#/lib/utils'
 
-import {
-    summarizeToolTasks,
-    type ToolActivityTask,
-    type ToolTaskStatus,
-} from './tool-activity-model'
+import { summarizeToolTasks, type ToolActivityTask, type ToolTaskStatus } from '#/lib/tool-activity'
 
 export function ToolActivity({
     id,

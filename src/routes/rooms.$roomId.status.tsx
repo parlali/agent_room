@@ -13,7 +13,6 @@ import {
     listRoomRunHistoryServer,
 } from './-room-runtime-server'
 import { getRoomConfigServer } from './-operator-config-server'
-import { requireRouteUser } from './-route-auth'
 import {
     ChecksSection,
     LastWorkSummary,
@@ -24,7 +23,6 @@ import {
 import { buildOverall, buildStatusChecks, isFailed, isSucceeded } from './-room-status/model'
 
 export const Route = createFileRoute('/rooms/$roomId/status')({
-    beforeLoad: requireRouteUser,
     component: RoomStatusPage,
 })
 
@@ -32,7 +30,7 @@ function RoomStatusPage() {
     const { roomId } = Route.useParams()
     const executionQuery = useQuery({
         queryKey: ['room-execution', roomId],
-        queryFn: () => getRoomExecutionServer({ data: { roomId } }),
+        queryFn: () => getRoomExecutionServer({ data: { roomId, messageLimit: 0 } }),
         staleTime: 5_000,
     })
     const configQuery = useQuery({

@@ -49,6 +49,7 @@ services:
             - AGENT_ROOM_ROOT_EMAIL
             - AGENT_ROOM_ROOT_PASSWORD
             - AGENT_ROOM_SESSION_TTL_HOURS
+            - AGENT_ROOM_PERF_LOGS
         volumes:
             - agent-room-data:/app/.agent-room
         restart: unless-stopped

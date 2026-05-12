@@ -11,6 +11,7 @@ import {
     deleteProviderConnectionServer,
     getOperatorConfigServer,
     refreshGitHubInstallationsServer,
+    resetGitHubAppConfigurationServer,
     saveMcpConnectionServer,
     saveProviderConnectionServer,
     startGitHubAppManifestServer,
@@ -336,6 +337,16 @@ function SettingsPage() {
             ),
     })
 
+    const resetGitHubMutation = useMutation({
+        mutationFn: async () => resetGitHubAppConfigurationServer(),
+        onSuccess: async () => {
+            toast.success('GitHub App configuration removed')
+            await invalidateConfig()
+        },
+        onError: (error) =>
+            toast.error(error instanceof Error ? error.message : 'GitHub App reset failed'),
+    })
+
     const onSubmitProvider = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
         if (!providerForm.label.trim()) return toast.error('Connection name is required')
@@ -479,10 +490,12 @@ function SettingsPage() {
                         targetOwner={githubTargetOwner}
                         setupPending={startGitHubManifestMutation.isPending}
                         refreshPending={refreshGitHubMutation.isPending}
+                        resetPending={resetGitHubMutation.isPending}
                         onChangePublicOrigin={setGithubPublicOrigin}
                         onChangeTargetOwner={setGithubTargetOwner}
                         onStartSetup={() => startGitHubManifestMutation.mutate()}
                         onRefresh={() => refreshGitHubMutation.mutate()}
+                        onReset={() => resetGitHubMutation.mutate()}
                     />
 
                     <AppDefaultsSection

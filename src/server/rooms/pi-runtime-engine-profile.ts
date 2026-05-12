@@ -41,6 +41,7 @@ function buildPiRuntimeProfile(input: RuntimeEngineProfileBuildInput) {
 
     const env: Record<string, string> = {
         ...input.roomConfiguration.entitlements.env,
+        ...input.roomConfiguration.entitlements.internalEnv,
         AGENT_ROOM_PI_RUNTIME_CONFIG_PATH: input.paths.runtimeConfigPath,
         AGENT_ROOM_PI_RUNTIME_TOKEN: input.token,
         AGENT_ROOM_PI_STATE_DIR: input.paths.engineStateDir,

@@ -1,16 +1,12 @@
 import { extractTextFromRuntimeContent } from '#/lib/runtime-message'
-import type { RoomExecutionMessagePart } from '#/lib/room-execution-types'
+import type {
+    RoomExecutionMessagePart,
+    RoomToolActivityStatus,
+    RoomToolActivityTask,
+} from '#/lib/room-execution-types'
 
-export type ToolTaskStatus = 'pending' | 'in_progress' | 'complete' | 'error'
-
-export interface ToolActivityTask {
-    id: string
-    title: string
-    action: string
-    status: ToolTaskStatus
-    detail: string | null
-    result: string | null
-}
+export type ToolTaskStatus = RoomToolActivityStatus
+export type ToolActivityTask = RoomToolActivityTask
 
 interface ToolStepParts {
     id: string

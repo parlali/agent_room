@@ -5,6 +5,7 @@ import {
     roomThreadReadRepository,
 } from '../../db/repositories'
 import type { RoomExecutionSnapshot, RoomRuntimeOverview } from '../execution-types'
+import type { RoomSessionWindow } from '#/lib/room-execution-types'
 import { requestPiRuntime } from '../pi-runtime-client'
 
 import {
@@ -12,9 +13,47 @@ import {
     buildRoomExecutionCapabilities,
     mapRuntimeOverview,
 } from './runtime-overview'
-import { snapshotSchema } from './runtime-schemas'
+import { sessionWindowSchema, snapshotSchema } from './runtime-schemas'
 import { createRoomThread, sendRoomThreadMessage } from './thread-operations'
-import { syncRuntimeUsageEvents } from './usage-sync'
+import {
+    elapsedPerformanceMs,
+    jsonPayloadByteLength,
+    logPerformanceEvent,
+    performanceNow,
+} from '../../telemetry/performance'
+
+export async function getRoomSessionWindow(input: {
+    roomId: string
+    sessionKey: string
+    before?: string | null
+    after?: string | null
+    limitRows?: number
+}): Promise<RoomSessionWindow> {
+    const startedAt = performanceNow()
+    const query = new URLSearchParams()
+    query.set('limitRows', String(input.limitRows ?? 40))
+    if (input.before) {
+        query.set('before', input.before)
+    }
+    if (input.after) {
+        query.set('after', input.after)
+    }
+    const payload = await requestPiRuntime(
+        input.roomId,
+        `/threads/${encodeURIComponent(input.sessionKey)}/window?${query.toString()}`,
+        sessionWindowSchema,
+    )
+    logPerformanceEvent('chat.window.proxy', {
+        roomId: input.roomId,
+        sessionKey: input.sessionKey,
+        durationMs: elapsedPerformanceMs(startedAt),
+        rowCount: payload.rows.length,
+        totalRows: payload.totalRows,
+        artifactCount: payload.artifacts.length,
+        payloadBytes: jsonPayloadByteLength(payload),
+    })
+    return payload
+}
 
 export async function listRoomsWithRuntime(): Promise<RoomRuntimeOverview[]> {
     const rooms = await roomRepository.listRooms()
@@ -42,13 +81,47 @@ export async function getRoomExecutionSnapshot(input: {
     messageLimit?: number
     actorUserId?: string | null
 }): Promise<RoomExecutionSnapshot> {
+    const startedAt = performanceNow()
+    const requestedMessageLimit =
+        typeof input.messageLimit === 'number' && Number.isFinite(input.messageLimit)
+            ? Math.max(0, Math.floor(input.messageLimit))
+            : 200
+    let metadataMs: number | null = null
+    let runtimeFetchMs: number | null = null
+    let readStateMs: number | null = null
+
+    const logSnapshot = (status: string, snapshot: RoomExecutionSnapshot | null) => {
+        logPerformanceEvent('snapshot.load', {
+            roomId: input.roomId,
+            status,
+            executionState: snapshot?.executionState ?? null,
+            selectedThreadRequested: Boolean(input.selectedThreadKey),
+            selectedThreadResolved: Boolean(snapshot?.selectedThreadKey),
+            messageLimit: requestedMessageLimit,
+            durationMs: elapsedPerformanceMs(startedAt),
+            metadataMs,
+            runtimeFetchMs,
+            usageSyncMs: null,
+            readStateMs,
+            threadCount: snapshot?.threads.length ?? null,
+            selectedMessageCount: snapshot?.selectedThreadMessages.length ?? null,
+            selectedArtifactCount: snapshot?.selectedThreadArtifacts.length ?? null,
+            activityCount: snapshot?.recentActivity.length ?? null,
+            payloadBytes: snapshot ? jsonPayloadByteLength(snapshot) : null,
+        })
+    }
+
+    const metadataStartedAt = performanceNow()
     const room = await roomRepository.findRoomById(input.roomId)
     if (!room) {
+        metadataMs = elapsedPerformanceMs(metadataStartedAt)
+        logSnapshot('missing_room', null)
         throw new Error(`Room ${input.roomId} does not exist`)
     }
 
     const runtimeMetadata = await roomRuntimeMetadataRepository.findByRoomId(input.roomId)
     const config = await roomConfigRepository.getOrCreate(input.roomId)
+    metadataMs = elapsedPerformanceMs(metadataStartedAt)
     const roomOverview = mapRuntimeOverview({
         roomId: room.id,
         displayName: room.displayName,
@@ -60,19 +133,23 @@ export async function getRoomExecutionSnapshot(input: {
     })
 
     if (!runtimeMetadata || runtimeMetadata.port === null) {
-        return emptySnapshot({
+        const snapshot = emptySnapshot({
             room: roomOverview,
             state: 'unavailable',
             message: 'Room runtime has no allocated Pi endpoint',
         })
+        logSnapshot('unavailable_no_endpoint', snapshot)
+        return snapshot
     }
 
     if (room.status !== 'running' && room.status !== 'degraded') {
-        return emptySnapshot({
+        const snapshot = emptySnapshot({
             room: roomOverview,
             state: 'unavailable',
             message: `Room is ${room.status}. Start the runtime to load threads and chat`,
         })
+        logSnapshot('unavailable_room_status', snapshot)
+        return snapshot
     }
 
     try {
@@ -80,20 +157,15 @@ export async function getRoomExecutionSnapshot(input: {
         if (input.selectedThreadKey) {
             query.set('selectedThreadKey', input.selectedThreadKey)
         }
-        query.set(
-            'messageLimit',
-            String(
-                input.messageLimit && Number.isFinite(input.messageLimit)
-                    ? Math.max(1, Math.floor(input.messageLimit))
-                    : 200,
-            ),
-        )
+        query.set('messageLimit', String(requestedMessageLimit))
+        const runtimeFetchStartedAt = performanceNow()
         const payload = await requestPiRuntime(
             input.roomId,
             `/snapshot?${query.toString()}`,
             snapshotSchema,
         )
-        await syncRuntimeUsageEvents(input.roomId)
+        runtimeFetchMs = elapsedPerformanceMs(runtimeFetchStartedAt)
+        const readStateStartedAt = performanceNow()
         const snapshot = await applyThreadReadState({
             roomId: input.roomId,
             actorUserId: input.actorUserId ?? null,
@@ -107,14 +179,18 @@ export async function getRoomExecutionSnapshot(input: {
                 selectedThreadArtifacts: payload.selectedThreadArtifacts ?? [],
             },
         })
+        readStateMs = elapsedPerformanceMs(readStateStartedAt)
 
+        logSnapshot('connected', snapshot)
         return snapshot
     } catch (error) {
-        return emptySnapshot({
+        const snapshot = emptySnapshot({
             room: roomOverview,
             state: 'error',
             message: error instanceof Error ? error.message : 'Unknown Pi adapter error',
         })
+        logSnapshot('error', snapshot)
+        return snapshot
     }
 }
 

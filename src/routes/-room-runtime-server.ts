@@ -13,6 +13,15 @@ const roomIdSchema = z.string().uuid()
 const roomExecutionInputSchema = z.object({
     roomId: roomIdSchema,
     selectedThreadKey: z.string().min(1).nullable().optional(),
+    messageLimit: z.number().int().min(0).max(200).optional(),
+})
+
+const sessionWindowInputSchema = z.object({
+    roomId: roomIdSchema,
+    sessionKey: z.string().min(1),
+    before: z.string().min(1).nullable().optional(),
+    after: z.string().min(1).nullable().optional(),
+    limitRows: z.number().int().min(1).max(120).optional(),
 })
 
 const sendMessageInputSchema = z.object({
@@ -121,6 +130,16 @@ const roomRunHistoryInputSchema = z.object({
 const roomUsageInputSchema = z.object({
     roomId: roomIdSchema,
     limit: z.number().int().positive().max(200).optional(),
+})
+
+const clientPerformanceInputSchema = z.object({
+    name: z.enum(['chat.window.render', 'navigation.paint']),
+    roomId: roomIdSchema.nullable().optional(),
+    sessionKey: z.string().min(1).nullable().optional(),
+    rowCount: z.number().int().min(0).nullable().optional(),
+    virtualRowCount: z.number().int().min(0).nullable().optional(),
+    totalRows: z.number().int().min(0).nullable().optional(),
+    durationMs: z.number().min(0).nullable().optional(),
 })
 
 const usageInputSchema = z.object({
@@ -308,8 +327,45 @@ export const getRoomExecutionServer = createServerFn({ method: 'GET' })
         return getRoomExecutionSnapshot({
             roomId: data.roomId,
             selectedThreadKey: data.selectedThreadKey ?? null,
+            messageLimit: data.messageLimit,
             actorUserId: actor.userId,
         })
+    })
+
+export const getRoomSessionWindowServer = createServerFn({ method: 'GET' })
+    .inputValidator((input: unknown) => sessionWindowInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        await requireAuthenticatedActor()
+        setResponseHeaders({
+            'cache-control': 'no-store',
+        })
+        await ensureRuntimeSupervisorBoot()
+        const { getRoomSessionWindow } = await import('#/server/rooms/execution-engine')
+        return getRoomSessionWindow({
+            roomId: data.roomId,
+            sessionKey: data.sessionKey,
+            before: data.before ?? null,
+            after: data.after ?? null,
+            limitRows: data.limitRows ?? 40,
+        })
+    })
+
+export const recordClientPerformanceServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => clientPerformanceInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        await requireAuthenticatedActor()
+        const { logPerformanceEvent } = await import('#/server/telemetry/performance')
+        logPerformanceEvent(data.name, {
+            roomId: data.roomId ?? null,
+            sessionKey: data.sessionKey ?? null,
+            rowCount: data.rowCount ?? null,
+            virtualRowCount: data.virtualRowCount ?? null,
+            totalRows: data.totalRows ?? null,
+            durationMs: data.durationMs ?? null,
+        })
+        return {
+            ok: true,
+        }
     })
 
 export const sendMessageServer = createServerFn({ method: 'POST' })

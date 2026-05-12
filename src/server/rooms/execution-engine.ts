@@ -7,6 +7,7 @@ import type {
     RoomFileChangedPayload,
     RoomRunHistorySnapshot,
     RoomRuntimeOverview,
+    RoomSessionWindow,
     RoomThreadAbortResult,
     RoomThreadCompactResult,
     RoomThreadForkResult,
@@ -33,6 +34,8 @@ export type {
     RoomRunHistoryEntry,
     RoomRunHistorySnapshot,
     RoomRuntimeOverview,
+    RoomSessionDisplayRow,
+    RoomSessionWindow,
     RoomThreadAbortResult,
     RoomThreadCompactResult,
     RoomThreadForkResult,
@@ -55,6 +58,17 @@ export async function getRoomExecutionSnapshot(input: {
 }): Promise<RoomExecutionSnapshot> {
     const module = await loadExecutionEngineModule()
     return module.getRoomExecutionSnapshot(input)
+}
+
+export async function getRoomSessionWindow(input: {
+    roomId: string
+    sessionKey: string
+    before?: string | null
+    after?: string | null
+    limitRows?: number
+}): Promise<RoomSessionWindow> {
+    const module = await loadExecutionEngineModule()
+    return module.getRoomSessionWindow(input)
 }
 
 export async function sendRoomThreadMessage(input: {

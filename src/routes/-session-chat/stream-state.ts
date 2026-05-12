@@ -1,7 +1,15 @@
-import { extractTextFromRuntimeContent } from '#/lib/runtime-message'
-import type { RoomRealtimeEvent } from '#/lib/room-execution-types'
-
-import { toolTaskFromRuntimeEvent, type ToolActivityTask } from './tool-activity-model'
+import {
+    emptyRuntimePart,
+    extractTextFromRuntimeContent,
+    runtimeTextPhaseFromSignature,
+    toRuntimeSerializable,
+} from '#/lib/runtime-message'
+import type { RoomExecutionMessagePart, RoomRealtimeEvent } from '#/lib/room-execution-types'
+import {
+    toolTaskFromRuntimeEvent,
+    toolTasksFromParts,
+    type ToolActivityTask,
+} from '#/lib/tool-activity'
 
 export type StreamTurnStatus =
     | 'idle'
@@ -16,12 +24,15 @@ export type StreamTurnItem =
     | {
           type: 'assistant'
           id: string
+          contentIndex: number | null
           markdown: string
           complete: boolean
+          textPhase: RoomExecutionMessagePart['textPhase']
       }
     | {
           type: 'tools'
           id: string
+          contentIndex: number | null
           tasks: ToolActivityTask[]
       }
 
@@ -31,6 +42,12 @@ export interface StreamTurnState {
     items: StreamTurnItem[]
     finished: boolean
     updatedAt: number | null
+}
+
+type AssistantTextUpdate = {
+    contentIndex: number | null
+    text: string
+    textPhase: RoomExecutionMessagePart['textPhase']
 }
 
 export const emptyStreamTurnState: StreamTurnState = {
@@ -89,6 +106,20 @@ export function reduceRoomStreamEvent(
                 updatedAt: realtime.receivedAt,
             }
         }
+        if (assistantEvent?.type === 'toolcall_start') {
+            const tool = toolTaskFromAssistantToolCall(assistantEvent)
+            if (!tool) {
+                return {
+                    ...state,
+                    status:
+                        state.status === 'idle' || state.status === 'queued'
+                            ? 'thinking'
+                            : state.status,
+                    updatedAt: realtime.receivedAt,
+                }
+            }
+            return upsertToolTask(state, tool.task, realtime.receivedAt, tool.contentIndex)
+        }
         if (
             assistantEvent?.type !== 'text_start' &&
             assistantEvent?.type !== 'text_delta' &&
@@ -97,11 +128,11 @@ export function reduceRoomStreamEvent(
             return state
         }
 
-        const canonicalText = assistantTextFromUpdate(event, assistantEvent)
-        if (canonicalText.trim()) {
+        const update = assistantTextFromUpdate(event, assistantEvent)
+        if (update.text.trim()) {
             return setAssistantMarkdown(
                 state,
-                canonicalText,
+                update,
                 assistantEvent.type === 'text_end',
                 realtime.receivedAt,
             )
@@ -117,15 +148,21 @@ export function reduceRoomStreamEvent(
 
         const delta = typeof assistantEvent.delta === 'string' ? assistantEvent.delta : ''
         if (!delta) return state
-        return appendAssistantDelta(state, delta, realtime.receivedAt)
+        return appendAssistantDelta(
+            state,
+            {
+                contentIndex: contentIndexFromAssistantEvent(assistantEvent),
+                text: delta,
+                textPhase: null,
+            },
+            realtime.receivedAt,
+        )
     }
 
     if (event.type === 'message_end') {
         const message = isRecord(event.message) ? event.message : null
         if (message?.role !== 'assistant') return state
-        const text = extractTextFromRuntimeContent(message.content)
-        if (!text.trim()) return state
-        return setAssistantMarkdown(state, text, true, realtime.receivedAt)
+        return setAssistantContentBlocks(state, message.content, true, realtime.receivedAt)
     }
 
     if (
@@ -138,21 +175,16 @@ export function reduceRoomStreamEvent(
         return upsertToolTask(state, task, realtime.receivedAt)
     }
 
-    if (event.type === 'toolcall_start') {
-        return {
-            ...state,
-            status:
-                state.status === 'idle' || state.status === 'queued' ? 'thinking' : state.status,
-            updatedAt: realtime.receivedAt,
-        }
-    }
-
     if (event.type === 'turn_end') {
         const message = isRecord(event.message) ? event.message : null
         if (message?.role === 'assistant') {
-            const text = extractTextFromRuntimeContent(message.content)
-            if (text.trim()) {
-                const withText = setAssistantMarkdown(state, text, true, realtime.receivedAt)
+            const withText = setAssistantContentBlocks(
+                state,
+                message.content,
+                true,
+                realtime.receivedAt,
+            )
+            if (streamTurnHasContent(withText)) {
                 const settled = settleToolTasks(
                     withText,
                     state.status === 'error' ? 'error' : 'complete',
@@ -161,6 +193,7 @@ export function reduceRoomStreamEvent(
                     ...settled,
                     status: state.status === 'error' ? 'error' : 'complete',
                     finished: true,
+                    updatedAt: realtime.receivedAt,
                 }
             }
         }
@@ -203,23 +236,29 @@ export function shouldRefetchForRoomEvent(realtime: RoomRealtimeEvent): boolean 
 
 function appendAssistantDelta(
     state: StreamTurnState,
-    delta: string,
+    update: AssistantTextUpdate,
     updatedAt: number,
 ): StreamTurnState {
     const items = [...state.items]
-    const last = items[items.length - 1]
+    const existingIndex = findAssistantItemIndex(items, update.contentIndex)
 
-    if (last?.type === 'assistant' && !last.complete) {
-        items[items.length - 1] = {
-            ...last,
-            markdown: `${last.markdown}${delta}`,
+    if (existingIndex !== null) {
+        const item = items[existingIndex]!
+        if (item.type === 'assistant' && !item.complete) {
+            items[existingIndex] = {
+                ...item,
+                markdown: `${item.markdown}${update.text}`,
+                textPhase: update.textPhase ?? item.textPhase,
+            }
         }
     } else {
-        items.push({
+        insertStreamItem(items, {
             type: 'assistant',
-            id: `assistant-${items.length + 1}`,
-            markdown: delta,
+            id: assistantItemId(items.length, update.contentIndex),
+            contentIndex: update.contentIndex,
+            markdown: update.text,
             complete: false,
+            textPhase: update.textPhase,
         })
     }
 
@@ -233,34 +272,33 @@ function appendAssistantDelta(
 
 function setAssistantMarkdown(
     state: StreamTurnState,
-    markdown: string,
+    update: AssistantTextUpdate,
     complete: boolean,
     updatedAt: number,
 ): StreamTurnState {
     const items = [...state.items]
+    const existingIndex = findAssistantItemIndex(items, update.contentIndex)
 
-    for (let index = items.length - 1; index >= 0; index -= 1) {
-        const item = items[index]!
-        if (item.type !== 'assistant') continue
-        items[index] = {
-            ...item,
-            markdown,
+    if (existingIndex !== null) {
+        const item = items[existingIndex]!
+        if (item.type === 'assistant') {
+            items[existingIndex] = {
+                ...item,
+                markdown: update.text,
+                complete,
+                textPhase: update.textPhase ?? item.textPhase,
+            }
+        }
+    } else {
+        insertStreamItem(items, {
+            type: 'assistant',
+            id: assistantItemId(items.length, update.contentIndex),
+            contentIndex: update.contentIndex,
+            markdown: update.text,
             complete,
-        }
-        return {
-            ...state,
-            status: assistantStatusAfterTextUpdate(state),
-            items,
-            updatedAt,
-        }
+            textPhase: update.textPhase,
+        })
     }
-
-    items.push({
-        type: 'assistant',
-        id: `assistant-${items.length + 1}`,
-        markdown,
-        complete,
-    })
 
     return {
         ...state,
@@ -270,10 +308,27 @@ function setAssistantMarkdown(
     }
 }
 
+function setAssistantContentBlocks(
+    state: StreamTurnState,
+    content: unknown,
+    complete: boolean,
+    updatedAt: number,
+): StreamTurnState {
+    const updates = assistantTextBlocks(content)
+    if (updates.length === 0) return state
+
+    let next = state
+    for (const update of updates) {
+        next = setAssistantMarkdown(next, update, complete, updatedAt)
+    }
+    return next
+}
+
 function upsertToolTask(
     state: StreamTurnState,
     task: ToolActivityTask,
     updatedAt: number,
+    contentIndex: number | null = null,
 ): StreamTurnState {
     const items = [...state.items]
 
@@ -287,6 +342,7 @@ function upsertToolTask(
         items[itemIndex] = {
             ...item,
             tasks,
+            contentIndex: item.contentIndex ?? contentIndex,
         }
         return {
             ...state,
@@ -297,15 +353,17 @@ function upsertToolTask(
     }
 
     const last = items[items.length - 1]
-    if (last?.type === 'tools') {
+    if (last?.type === 'tools' && (contentIndex === null || last.contentIndex === contentIndex)) {
         items[items.length - 1] = {
             ...last,
+            contentIndex: last.contentIndex ?? contentIndex,
             tasks: [...last.tasks, task],
         }
     } else {
-        items.push({
+        insertStreamItem(items, {
             type: 'tools',
             id: `tools-${items.length + 1}`,
+            contentIndex,
             tasks: [task],
         })
     }
@@ -359,6 +417,166 @@ function mergeToolTask(existing: ToolActivityTask, incoming: ToolActivityTask): 
     }
 }
 
+function insertStreamItem(items: StreamTurnItem[], item: StreamTurnItem): void {
+    if (item.contentIndex === null) {
+        items.push(item)
+        return
+    }
+
+    const index = items.findIndex(
+        (existing) => existing.contentIndex !== null && existing.contentIndex > item.contentIndex!,
+    )
+    if (index < 0) {
+        items.push(item)
+        return
+    }
+    items.splice(index, 0, item)
+}
+
+function findAssistantItemIndex(
+    items: StreamTurnItem[],
+    contentIndex: number | null,
+): number | null {
+    if (contentIndex !== null) {
+        const index = items.findIndex(
+            (item) => item.type === 'assistant' && item.contentIndex === contentIndex,
+        )
+        return index >= 0 ? index : null
+    }
+
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+        const item = items[index]!
+        if (item.type === 'assistant' && !item.complete && item.contentIndex === null) {
+            return index
+        }
+    }
+
+    return null
+}
+
+function assistantItemId(position: number, contentIndex: number | null): string {
+    return contentIndex === null ? `assistant-${position + 1}` : `assistant-content-${contentIndex}`
+}
+
+function toolTaskFromAssistantToolCall(
+    assistantEvent: Record<string, unknown>,
+): { task: ToolActivityTask; contentIndex: number | null } | null {
+    const contentIndex = contentIndexFromAssistantEvent(assistantEvent)
+    const block = assistantBlockFromEvent(assistantEvent, contentIndex)
+    if (!block || block.type !== 'toolCall') return null
+
+    const tasks = toolTasksFromParts([
+        emptyRuntimePart({
+            type: 'tool_call',
+            text: typeof block.name === 'string' ? block.name : '',
+            toolName: typeof block.name === 'string' ? block.name : null,
+            toolCallId: typeof block.id === 'string' ? block.id : null,
+            status: 'running',
+            input: toRuntimeSerializable(block.arguments ?? {}),
+            rawType: 'toolCall',
+            contentIndex,
+        }),
+    ])
+    const task = tasks[0] ?? null
+    return task ? { task, contentIndex } : null
+}
+
+function assistantTextFromUpdate(
+    event: Record<string, unknown>,
+    assistantEvent: Record<string, unknown>,
+): AssistantTextUpdate {
+    const contentIndex = contentIndexFromAssistantEvent(assistantEvent)
+
+    if (typeof assistantEvent.content === 'string') {
+        return {
+            contentIndex,
+            text: assistantEvent.content,
+            textPhase: null,
+        }
+    }
+
+    const block = assistantBlockFromEvent(assistantEvent, contentIndex)
+    if (block) {
+        return textUpdateFromBlock(block, contentIndex)
+    }
+
+    const message = isRecord(event.message) ? event.message : null
+    const fallbackBlock =
+        message?.role === 'assistant' ? contentBlockAt(message.content, contentIndex) : null
+    if (fallbackBlock) {
+        return textUpdateFromBlock(fallbackBlock, contentIndex)
+    }
+
+    return {
+        contentIndex,
+        text: '',
+        textPhase: null,
+    }
+}
+
+function assistantTextBlocks(content: unknown): AssistantTextUpdate[] {
+    if (Array.isArray(content)) {
+        const updates: AssistantTextUpdate[] = []
+        for (const [contentIndex, block] of content.entries()) {
+            if (!isRecord(block)) continue
+            const update = textUpdateFromBlock(block, contentIndex)
+            if (update.text.trim()) {
+                updates.push(update)
+            }
+        }
+        return updates
+    }
+
+    const text = extractTextFromRuntimeContent(content)
+    return text.trim()
+        ? [
+              {
+                  contentIndex: null,
+                  text,
+                  textPhase: null,
+              },
+          ]
+        : []
+}
+
+function textUpdateFromBlock(
+    block: Record<string, unknown>,
+    contentIndex: number | null,
+): AssistantTextUpdate {
+    return {
+        contentIndex,
+        text: extractTextFromRuntimeContent(block),
+        textPhase: runtimeTextPhaseFromSignature(block.textSignature),
+    }
+}
+
+function assistantBlockFromEvent(
+    assistantEvent: Record<string, unknown>,
+    contentIndex: number | null,
+): Record<string, unknown> | null {
+    const partial = isRecord(assistantEvent.partial) ? assistantEvent.partial : null
+    if (partial?.role !== 'assistant') return null
+    return contentBlockAt(partial.content, contentIndex)
+}
+
+function contentBlockAt(
+    content: unknown,
+    contentIndex: number | null,
+): Record<string, unknown> | null {
+    if (!Array.isArray(content)) return null
+    if (contentIndex === null) return null
+    const block = content[contentIndex]
+    return isRecord(block) ? block : null
+}
+
+function contentIndexFromAssistantEvent(assistantEvent: Record<string, unknown>): number | null {
+    return typeof assistantEvent.contentIndex === 'number' &&
+        Number.isInteger(assistantEvent.contentIndex) &&
+        assistantEvent.contentIndex >= 0
+        ? assistantEvent.contentIndex
+        : null
+}
+
 function isTerminalToolStatus(status: ToolActivityTask['status']): boolean {
     return status === 'complete' || status === 'error'
 }
@@ -371,24 +589,6 @@ function payloadRuntimeEvent(payload: unknown): Record<string, unknown> | null {
 function assistantStatusAfterTextUpdate(state: StreamTurnState): StreamTurnStatus {
     if (!state.finished) return 'responding'
     return state.status === 'error' ? 'error' : 'complete'
-}
-
-function assistantTextFromUpdate(
-    event: Record<string, unknown>,
-    assistantEvent: Record<string, unknown>,
-): string {
-    if (typeof assistantEvent.content === 'string') {
-        return assistantEvent.content
-    }
-    const partial = isRecord(assistantEvent.partial) ? assistantEvent.partial : null
-    if (partial?.role === 'assistant') {
-        return extractTextFromRuntimeContent(partial.content)
-    }
-    const message = isRecord(event.message) ? event.message : null
-    if (message?.role === 'assistant') {
-        return extractTextFromRuntimeContent(message.content)
-    }
-    return ''
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -477,6 +477,7 @@ export interface MaterializedGitHubBinding {
 
 export interface MaterializedEntitlements {
     env: Record<string, string>
+    internalEnv: Record<string, string>
     secretRefs: MaterializedSecretRef[]
     mcpServers: MaterializedMcpServer[]
     github: MaterializedGitHubBinding

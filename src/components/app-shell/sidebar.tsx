@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { PlusIcon } from 'lucide-react'
@@ -6,10 +7,13 @@ import { Skeleton } from '#/components/ui/skeleton'
 import { BrandWordmark, CreateRoomButton } from '#/components/agent-room'
 import { listRoomsServer } from '#/routes/-room-runtime-server'
 import { currentUserServer } from '#/routes/-auth-server'
+import { scheduleRoomDashboardRoutePreload } from '#/components/room-dashboard/preload'
 import { SidebarRoomTree } from './sidebar-room-tree'
 import { UserMenu } from './user-menu'
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+    useEffect(() => scheduleRoomDashboardRoutePreload(), [])
+
     const userQuery = useQuery({
         queryKey: ['auth-current-user'],
         queryFn: () => currentUserServer(),

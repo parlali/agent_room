@@ -3,6 +3,7 @@ export type {
     GitHubAppSummary,
     GitHubInstallationSummary,
     GitHubIntegrationSummary,
+    GitHubRepositorySearchResult,
     GitHubRepositorySummary,
     GitHubRoomBindingSummary,
     McpConnectionSummary,
@@ -19,6 +20,7 @@ export {
     completeGitHubAppManifest,
     listGitHubInstallationRepositories,
     refreshGitHubInstallations,
+    resetGitHubAppConfiguration,
     startGitHubAppManifest,
 } from './github-app'
 export {

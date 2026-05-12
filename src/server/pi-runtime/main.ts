@@ -43,7 +43,8 @@ import {
 } from './session-context-budget'
 import { createPiRuntimeSession } from './pi-runtime-session'
 import { createRuntimeEventBus } from './runtime-event-bus'
-import { buildRuntimeSnapshot } from './runtime-snapshot'
+import { buildRuntimeSnapshot, mapThread } from './runtime-snapshot'
+import { createSessionWindowStore } from './session-display-window'
 import { createPiRuntimeRouter } from './pi-runtime-router'
 import { createRuntimeEventAppender } from './runtime-event-log'
 import { createRuntimeRunPrompt, type ActiveThread } from './runtime-runner'
@@ -176,6 +177,11 @@ function readThreadMessages(record: ThreadRecord, limit: number): RoomExecutionM
         return []
     }
 }
+
+const sessionWindowStore = createSessionWindowStore({
+    config,
+    readThreadEntries,
+})
 
 function readThreadArtifacts(record: ThreadRecord) {
     try {
@@ -650,6 +656,21 @@ function snapshot(input: { selectedThreadKey?: string | null; messageLimit?: num
     })
 }
 
+function sessionWindow(input: {
+    record: ThreadRecord
+    before?: string | null
+    after?: string | null
+    limitRows?: number
+}) {
+    return sessionWindowStore.window({
+        record: input.record,
+        thread: mapThread(input.record, compactionStats),
+        before: input.before,
+        after: input.after,
+        limitRows: input.limitRows ?? 40,
+    })
+}
+
 const route = createPiRuntimeRouter({
     config,
     activeThreads,
@@ -663,6 +684,7 @@ const route = createPiRuntimeRouter({
     forkThread,
     editThreadMessage,
     snapshot,
+    sessionWindow,
     createEventStream,
     createRoomEventStream,
     publishRoomFileChanged: (payload) => {

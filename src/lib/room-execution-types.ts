@@ -107,6 +107,52 @@ export interface RoomExecutionMessagePart {
     input: JsonValue
     result: JsonValue
     rawType: string | null
+    contentIndex: number | null
+    textPhase: 'commentary' | 'final_answer' | null
+}
+
+export type RoomToolActivityStatus = 'pending' | 'in_progress' | 'complete' | 'error'
+
+export interface RoomToolActivityTask {
+    id: string
+    title: string
+    action: string
+    status: RoomToolActivityStatus
+    detail: string | null
+    result: string | null
+}
+
+export type RoomSessionDisplayRow =
+    | {
+          type: 'message'
+          id: string
+          seq: number
+          message: RoomExecutionMessage
+          timestamp: number | null
+      }
+    | {
+          type: 'tools'
+          id: string
+          seq: number
+          tasks: RoomToolActivityTask[]
+          timestamp: number | null
+      }
+    | {
+          type: 'run-status'
+          id: string
+          seq: number
+          thread: RoomExecutionThread | null
+      }
+
+export interface RoomSessionWindow {
+    sessionKey: string
+    rows: RoomSessionDisplayRow[]
+    beforeCursor: string | null
+    afterCursor: string | null
+    hasOlder: boolean
+    hasNewer: boolean
+    totalRows: number
+    artifacts: RoomSessionArtifact[]
 }
 
 export type RoomSessionArtifactKind = 'attached' | 'created' | 'edited' | 'referenced'

@@ -78,6 +78,9 @@ const githubAppManifestCompleteInputSchema = z.object({
 
 const githubInstallationQuerySchema = z.object({
     installationId: z.string().min(1),
+    query: z.string().optional(),
+    page: z.number().int().positive().optional(),
+    pageSize: z.number().int().positive().max(50).optional(),
 })
 
 const roomConfigInputSchema = z.object({
@@ -244,6 +247,15 @@ export const refreshGitHubInstallationsServer = createServerFn({ method: 'POST' 
     },
 )
 
+export const resetGitHubAppConfigurationServer = createServerFn({ method: 'POST' }).handler(
+    async () => {
+        const actor = await requireMutationActor()
+        const { resetGitHubAppConfiguration } =
+            await import('#/server/configuration/operator-configuration')
+        return resetGitHubAppConfiguration(actor.userId)
+    },
+)
+
 export const listGitHubInstallationRepositoriesServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => githubInstallationQuerySchema.parse(input))
     .handler(async ({ data }) => {
@@ -255,6 +267,9 @@ export const listGitHubInstallationRepositoriesServer = createServerFn({ method:
             await import('#/server/configuration/operator-configuration')
         return listGitHubInstallationRepositories({
             installationId: data.installationId,
+            query: data.query,
+            page: data.page,
+            pageSize: data.pageSize,
         })
     })
 

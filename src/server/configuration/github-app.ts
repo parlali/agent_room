@@ -180,12 +180,43 @@ function buildManifest(input: { name: string; publicOrigin: string }): Record<st
         redirect_url: `${input.publicOrigin}/github/app/callback`,
         callback_urls: [`${input.publicOrigin}/github/app/callback`],
         setup_url: `${input.publicOrigin}/settings`,
-        public: false,
+        public: true,
         default_permissions: installationTokenPermissions,
         default_events: [],
         request_oauth_on_install: false,
         setup_on_update: true,
     }
+}
+
+export async function resetGitHubAppConfiguration(
+    actorUserId: string,
+): Promise<GitHubIntegrationSummary> {
+    const app = await appGitHubAppRepository.get()
+    await roomGitHubBindingRepository.deleteAll()
+    await appGitHubInstallationRepository.deleteAll()
+    await appGitHubAppRepository.delete()
+
+    for (const secretId of [
+        app?.clientSecretSecretId,
+        app?.privateKeySecretId,
+        app?.webhookSecretSecretId,
+    ]) {
+        if (secretId) {
+            await secretRepository.deleteById(secretId)
+        }
+    }
+
+    await auditRepository.appendEvent({
+        actorUserId,
+        roomId: null,
+        action: 'github_app.reset',
+        payload: {
+            appId: app?.appId ?? null,
+            slug: app?.slug ?? null,
+        },
+    })
+
+    return getGitHubIntegrationSummary()
 }
 
 export async function startGitHubAppManifest(input: {
@@ -436,23 +467,47 @@ export async function createGitHubInstallationToken(input: {
 
 export async function listGitHubInstallationRepositories(input: {
     installationId: string
-}): Promise<GitHubRepositorySummary[]> {
+    query?: string | null
+    page?: number
+    pageSize?: number
+}): Promise<{
+    repositories: GitHubRepositorySummary[]
+    totalCount: number
+    scannedCount: number
+    hasMore: boolean
+    nextPage: number | null
+    query: string
+}> {
     const installationToken = await createGitHubInstallationToken({
         installationId: input.installationId,
     })
+    const query = input.query?.trim().toLowerCase() ?? ''
+    const page = Math.max(1, input.page ?? 1)
+    const pageSize = Math.min(50, Math.max(5, input.pageSize ?? 25))
     const repositories: GitHubRepositorySummary[] = []
-    for (let page = 1; page <= 10; page += 1) {
+    let totalCount = 0
+    let scannedCount = 0
+    let hasMore = false
+    let nextPage: number | null = null
+    const offset = (page - 1) * pageSize
+    const firstGitHubPage = query ? 1 : Math.floor(offset / 100) + 1
+    const localOffset = query ? 0 : offset - (firstGitHubPage - 1) * 100
+    const maxPagesToScan = query ? 50 : firstGitHubPage + 1
+    for (let currentPage = firstGitHubPage; currentPage <= maxPagesToScan; currentPage += 1) {
         const payload = await githubRequest<Record<string, unknown>>({
             method: 'GET',
-            path: `/installation/repositories?per_page=100&page=${page}`,
+            path: `/installation/repositories?per_page=100&page=${currentPage}`,
             token: installationToken.token,
         })
+        totalCount = typeof payload.total_count === 'number' ? payload.total_count : totalCount
         const items = Array.isArray(payload.repositories) ? payload.repositories : []
         for (const item of items) {
             if (!isRecord(item)) continue
+            scannedCount += 1
             const id = String(item.id ?? '')
             const fullName = typeof item.full_name === 'string' ? item.full_name : ''
             if (!id || !fullName) continue
+            if (query && !fullName.toLowerCase().includes(query)) continue
             repositories.push({
                 id,
                 fullName,
@@ -460,9 +515,33 @@ export async function listGitHubInstallationRepositories(input: {
                 defaultBranch: typeof item.default_branch === 'string' ? item.default_branch : null,
             })
         }
+        if (!query) {
+            if (repositories.length >= localOffset + pageSize || items.length < 100) {
+                break
+            }
+        }
         if (items.length < 100) break
     }
-    return repositories.sort((left, right) => left.fullName.localeCompare(right.fullName))
+    const sorted = repositories.sort((left, right) => left.fullName.localeCompare(right.fullName))
+    const visible = query
+        ? sorted.slice(0, pageSize)
+        : sorted.slice(localOffset, localOffset + pageSize)
+    if (!query) {
+        hasMore = offset + pageSize < totalCount
+        nextPage = hasMore ? page + 1 : null
+    }
+    if (query) {
+        hasMore = sorted.length > pageSize || scannedCount < totalCount
+        nextPage = null
+    }
+    return {
+        repositories: visible,
+        totalCount,
+        scannedCount,
+        hasMore,
+        nextPage,
+        query,
+    }
 }
 
 export function summarizeRoomGitHubBinding(
@@ -596,11 +675,11 @@ export async function materializeRoomGitHubBinding(input: {
     roomMode: 'programmer' | 'coworker'
     binding: RoomGitHubBindingRecord | null
 }): Promise<{
-    env: Record<string, string>
+    internalEnv: Record<string, string>
     github: MaterializedGitHubBinding
 }> {
     const disabled = {
-        env: {},
+        internalEnv: {},
         github: {
             enabled: false,
             installationId: null,
@@ -628,7 +707,7 @@ export async function materializeRoomGitHubBinding(input: {
         repositories: status.repositories,
     })
     return {
-        env: {
+        internalEnv: {
             [githubTokenEnvKey]: installationToken.token,
         },
         github: {

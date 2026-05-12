@@ -6,11 +6,15 @@ import type {
     PiRuntimeForkPayload,
     PiRuntimeSendPayload,
     PiRuntimeSnapshotPayload,
+    PiRuntimeSessionWindowPayload,
     PiRuntimeThreadModelPayload,
     PiRuntimeThreadCreatePayload,
 } from '../../pi-runtime/protocol'
 
 export const snapshotSchema = z.custom<PiRuntimeSnapshotPayload>(
+    (value) => typeof value === 'object' && value !== null,
+)
+export const sessionWindowSchema = z.custom<PiRuntimeSessionWindowPayload>(
     (value) => typeof value === 'object' && value !== null,
 )
 export const createThreadSchema = z.custom<PiRuntimeThreadCreatePayload>(

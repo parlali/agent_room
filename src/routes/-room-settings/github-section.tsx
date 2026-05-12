@@ -1,6 +1,7 @@
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { GitBranchIcon, RefreshCwIcon } from 'lucide-react'
+import { GitBranchIcon, RefreshCwIcon, SearchIcon, XIcon } from 'lucide-react'
 import {
     AttentionBanner,
     EmptyState,
@@ -9,6 +10,7 @@ import {
     StateBadge,
 } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
+import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import {
     Select,
@@ -43,6 +45,8 @@ export function GitHubSection({
     pending: boolean
 }) {
     const queryClient = useQueryClient()
+    const [repositorySearch, setRepositorySearch] = useState('')
+    const [repositoryPage, setRepositoryPage] = useState(1)
     const installations = github?.installations ?? []
     const app = github?.app ?? null
     const selectedInstallation =
@@ -50,16 +54,27 @@ export function GitHubSection({
             (installation) => installation.installationId === draft.githubInstallationId,
         ) ?? null
     const repositoriesQuery = useQuery({
-        queryKey: ['github-installation-repositories', draft.githubInstallationId],
+        queryKey: [
+            'github-installation-repositories',
+            draft.githubInstallationId,
+            repositorySearch,
+            repositoryPage,
+        ],
         queryFn: () =>
             listGitHubInstallationRepositoriesServer({
                 data: {
                     installationId: draft.githubInstallationId,
+                    query: repositorySearch,
+                    page: repositoryPage,
+                    pageSize: 25,
                 },
             }),
         enabled: draft.githubEnabled && Boolean(draft.githubInstallationId),
         staleTime: 30_000,
     })
+    useEffect(() => {
+        setRepositoryPage(1)
+    }, [draft.githubInstallationId, repositorySearch])
     const refreshMutation = useMutation({
         mutationFn: () => refreshGitHubInstallationsServer(),
         onSuccess: async () => {
@@ -69,7 +84,26 @@ export function GitHubSection({
         onError: (error) =>
             toast.error(error instanceof Error ? error.message : 'GitHub refresh failed'),
     })
-    const repositories = repositoriesQuery.data ?? []
+    const repositoryResult = repositoriesQuery.data
+    const repositories = repositoryResult?.repositories ?? []
+    const selectedRepositoryRows = useMemo(
+        () =>
+            draft.githubRepositories.map((repository) => ({
+                id: `selected:${repository}`,
+                fullName: repository,
+                private: null,
+                defaultBranch: null,
+            })),
+        [draft.githubRepositories],
+    )
+    const visibleRepositories = useMemo(() => {
+        const seen = new Set<string>()
+        return [...selectedRepositoryRows, ...repositories].filter((repository) => {
+            if (seen.has(repository.fullName)) return false
+            seen.add(repository.fullName)
+            return true
+        })
+    }, [repositories, selectedRepositoryRows])
     const toggleRepository = (repository: string, enabled: boolean) => {
         const next = enabled
             ? Array.from(new Set([...draft.githubRepositories, repository]))
@@ -186,6 +220,43 @@ export function GitHubSection({
                                             {selectedInstallation.repositorySelection} repositories
                                         </span>
                                     </div>
+                                    <div className="relative">
+                                        <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                                        <Input
+                                            value={repositorySearch}
+                                            onChange={(event) =>
+                                                setRepositorySearch(event.target.value)
+                                            }
+                                            placeholder="Search repositories"
+                                            className="h-9 pl-9 pr-9"
+                                        />
+                                        {repositorySearch ? (
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                className="absolute right-1 top-1/2 size-7 -translate-y-1/2"
+                                                onClick={() => setRepositorySearch('')}
+                                                aria-label="Clear repository search"
+                                            >
+                                                <XIcon />
+                                            </Button>
+                                        ) : null}
+                                    </div>
+                                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                                        <span>
+                                            {draft.githubRepositories.length} selected
+                                            {repositoryResult
+                                                ? ` · ${repositoryResult.totalCount} available`
+                                                : ''}
+                                        </span>
+                                        {repositoryResult?.scannedCount &&
+                                        repositorySearch.trim() ? (
+                                            <span>
+                                                Scanned {repositoryResult.scannedCount} repositories
+                                            </span>
+                                        ) : null}
+                                    </div>
                                     {repositoriesQuery.isLoading ? (
                                         <LoadingRows count={3} />
                                     ) : repositoriesQuery.isError ? (
@@ -198,50 +269,101 @@ export function GitHubSection({
                                                     : 'Unexpected GitHub repository error'
                                             }
                                         />
-                                    ) : repositories.length === 0 ? (
+                                    ) : visibleRepositories.length === 0 ? (
                                         <EmptyState
                                             icon={GitBranchIcon}
                                             title="No repositories available"
-                                            description="Update the GitHub App installation to include at least one repository."
+                                            description={
+                                                repositorySearch.trim()
+                                                    ? 'No repositories matched this search.'
+                                                    : 'Update the GitHub App installation to include at least one repository.'
+                                            }
                                         />
                                     ) : (
-                                        <ul className="max-h-72 divide-y divide-border/60 overflow-auto rounded-md border">
-                                            {repositories.map((repository) => {
-                                                const checked = draft.githubRepositories.includes(
-                                                    repository.fullName,
-                                                )
-                                                return (
-                                                    <li
-                                                        key={repository.id}
-                                                        className="flex items-center gap-3 px-4 py-3"
-                                                    >
-                                                        <div className="min-w-0 flex-1">
-                                                            <div className="truncate text-sm font-medium">
-                                                                {repository.fullName}
+                                        <div className="rounded-md border">
+                                            <ul className="max-h-72 divide-y divide-border/60 overflow-auto">
+                                                {visibleRepositories.map((repository) => {
+                                                    const checked =
+                                                        draft.githubRepositories.includes(
+                                                            repository.fullName,
+                                                        )
+                                                    return (
+                                                        <li
+                                                            key={repository.id}
+                                                            className="flex items-center gap-3 px-4 py-3"
+                                                        >
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="truncate text-sm font-medium">
+                                                                    {repository.fullName}
+                                                                </div>
+                                                                <div className="text-xs text-muted-foreground">
+                                                                    {repository.private === null
+                                                                        ? 'Selected'
+                                                                        : repository.private
+                                                                          ? 'Private'
+                                                                          : 'Public'}
+                                                                    {repository.defaultBranch
+                                                                        ? ` · ${repository.defaultBranch}`
+                                                                        : ''}
+                                                                </div>
                                                             </div>
-                                                            <div className="text-xs text-muted-foreground">
-                                                                {repository.private
-                                                                    ? 'Private'
-                                                                    : 'Public'}
-                                                                {repository.defaultBranch
-                                                                    ? ` · ${repository.defaultBranch}`
-                                                                    : ''}
-                                                            </div>
+                                                            <Switch
+                                                                checked={checked}
+                                                                onCheckedChange={(enabled) =>
+                                                                    toggleRepository(
+                                                                        repository.fullName,
+                                                                        enabled,
+                                                                    )
+                                                                }
+                                                                aria-label={`Toggle ${repository.fullName}`}
+                                                            />
+                                                        </li>
+                                                    )
+                                                })}
+                                            </ul>
+                                            {repositoryResult?.hasMore || repositoryPage > 1 ? (
+                                                <div className="flex items-center justify-between gap-3 border-t px-4 py-2">
+                                                    <span className="text-xs text-muted-foreground">
+                                                        {repositorySearch.trim()
+                                                            ? 'Refine search to narrow remaining repositories.'
+                                                            : `Page ${repositoryPage}`}
+                                                    </span>
+                                                    {!repositorySearch.trim() ? (
+                                                        <div className="flex items-center gap-2">
+                                                            {repositoryPage > 1 ? (
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={() =>
+                                                                        setRepositoryPage(
+                                                                            repositoryPage - 1,
+                                                                        )
+                                                                    }
+                                                                >
+                                                                    Previous
+                                                                </Button>
+                                                            ) : null}
+                                                            {repositoryResult?.nextPage ? (
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={() =>
+                                                                        setRepositoryPage(
+                                                                            repositoryResult.nextPage ??
+                                                                                1,
+                                                                        )
+                                                                    }
+                                                                >
+                                                                    Next
+                                                                </Button>
+                                                            ) : null}
                                                         </div>
-                                                        <Switch
-                                                            checked={checked}
-                                                            onCheckedChange={(enabled) =>
-                                                                toggleRepository(
-                                                                    repository.fullName,
-                                                                    enabled,
-                                                                )
-                                                            }
-                                                            aria-label={`Toggle ${repository.fullName}`}
-                                                        />
-                                                    </li>
-                                                )
-                                            })}
-                                        </ul>
+                                                    ) : null}
+                                                </div>
+                                            ) : null}
+                                        </div>
                                     )}
                                 </div>
                             ) : null}

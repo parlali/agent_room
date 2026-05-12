@@ -1,13 +1,46 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { createReadStream } from 'node:fs'
+import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { roomRepository, usageRepository } from '../../db/repositories'
 import type { JsonValue, UsageEventKind } from '../../domain/types'
 import { getRoomPaths } from '../room-paths'
 import { toNullableNumber } from './helpers'
+import {
+    elapsedPerformanceMs,
+    logPerformanceEvent,
+    performanceNow,
+} from '../../telemetry/performance'
 
-const usageSyncStateVersion = 1
+const usageSyncStateVersion = 2
 const usageSyncQueues = new Map<string, Promise<void>>()
+
+type UsageSyncState = {
+    lastLine: number
+    lastByteOffset: number | null
+}
+
+type UsageSyncCounters = {
+    scannedLines: number
+    blankLines: number
+    invalidLines: number
+    persistedEvents: number
+    runEvents: number
+    providerEvents: number
+    toolEvents: number
+}
+
+function emptyCounters(): UsageSyncCounters {
+    return {
+        scannedLines: 0,
+        blankLines: 0,
+        invalidLines: 0,
+        persistedEvents: 0,
+        runEvents: 0,
+        providerEvents: 0,
+        toolEvents: 0,
+    }
+}
 
 function payloadRecord(payload: unknown): Record<string, unknown> {
     return payload && typeof payload === 'object' && !Array.isArray(payload)
@@ -84,28 +117,41 @@ function usageSyncStatePath(roomId: string): string {
     return join(getRoomPaths(roomId).engineStateDir, 'usage-sync.json')
 }
 
-async function readUsageSyncState(roomId: string): Promise<{ lastLine: number }> {
+function finiteInteger(value: unknown): number | null {
+    return typeof value === 'number' && Number.isFinite(value)
+        ? Math.max(0, Math.floor(value))
+        : null
+}
+
+async function readUsageSyncState(roomId: string): Promise<UsageSyncState> {
     try {
         const raw = JSON.parse(await readFile(usageSyncStatePath(roomId), 'utf8')) as {
             version?: number
             lastLine?: number
+            lastByteOffset?: number
         }
-        if (
-            raw.version === usageSyncStateVersion &&
-            typeof raw.lastLine === 'number' &&
-            Number.isFinite(raw.lastLine)
-        ) {
+        const lastLine = finiteInteger(raw.lastLine)
+        const lastByteOffset = finiteInteger(raw.lastByteOffset)
+        if (raw.version === usageSyncStateVersion && lastLine !== null && lastByteOffset !== null) {
             return {
-                lastLine: Math.max(0, Math.floor(raw.lastLine)),
+                lastLine,
+                lastByteOffset,
+            }
+        }
+        if (raw.version === 1 && lastLine !== null) {
+            return {
+                lastLine,
+                lastByteOffset: null,
             }
         }
     } catch {}
     return {
         lastLine: 0,
+        lastByteOffset: 0,
     }
 }
 
-async function writeUsageSyncState(roomId: string, state: { lastLine: number }): Promise<void> {
+async function writeUsageSyncState(roomId: string, state: UsageSyncState): Promise<void> {
     const path = usageSyncStatePath(roomId)
     await mkdir(dirname(path), {
         recursive: true,
@@ -118,6 +164,7 @@ async function writeUsageSyncState(roomId: string, state: { lastLine: number }):
             {
                 version: usageSyncStateVersion,
                 lastLine: state.lastLine,
+                lastByteOffset: state.lastByteOffset ?? 0,
                 updatedAt: new Date().toISOString(),
             },
             null,
@@ -131,160 +178,332 @@ async function writeUsageSyncState(roomId: string, state: { lastLine: number }):
     await rename(tempPath, path)
 }
 
-async function syncRuntimeUsageEventsUnlocked(roomId: string): Promise<void> {
-    const syncState = await readUsageSyncState(roomId)
-    const paths = getRoomPaths(roomId)
-    const runtimeEventsPath = join(paths.engineStateDir, 'runtime-events.jsonl')
-    let raw = ''
-    try {
-        raw = await readFile(runtimeEventsPath, 'utf8')
-    } catch {
+function normalizeStateForFile(state: UsageSyncState, fileBytes: number): UsageSyncState {
+    if (state.lastByteOffset === null) {
+        return state
+    }
+    if (state.lastByteOffset > fileBytes) {
+        return {
+            lastLine: 0,
+            lastByteOffset: 0,
+        }
+    }
+    return state
+}
+
+async function appendRunUsage(input: {
+    roomId: string
+    sessionKey: string | null
+    runId: string | null
+    ts: number
+    payload: Record<string, unknown>
+}): Promise<void> {
+    const runKind = typeof input.payload.runKind === 'string' ? input.payload.runKind : null
+    await usageRepository.appendEvent({
+        roomId: input.roomId,
+        sessionKey: input.sessionKey,
+        runId: input.runId,
+        jobId: null,
+        kind: runKind === 'scheduled' ? 'job' : 'run',
+        provider: typeof input.payload.provider === 'string' ? input.payload.provider : null,
+        model: typeof input.payload.model === 'string' ? input.payload.model : null,
+        toolName: null,
+        inputTokens: usageNumber(input.payload, 'inputTokens'),
+        outputTokens: usageNumber(input.payload, 'outputTokens'),
+        cachedTokens: usageNumber(input.payload, 'cachedTokens'),
+        reasoningTokens: usageNumber(input.payload, 'reasoningTokens'),
+        totalTokens: usageNumber(input.payload, 'totalTokens'),
+        durationMs: toNullableNumber(input.payload.durationMs),
+        activeDurationMs: toNullableNumber(input.payload.activeDurationMs),
+        idleDurationMs: toNullableNumber(input.payload.idleDurationMs),
+        estimatedCostUsd: usageNumber(input.payload, 'estimatedCostUsd'),
+        metadata: toJsonValue({
+            runtimeEventTs: input.ts,
+            event: 'run.finished',
+            status: typeof input.payload.status === 'string' ? input.payload.status : null,
+            error: typeof input.payload.error === 'string' ? input.payload.error : null,
+            runKind,
+            tokenUsageKnown: tokenUsageKnown(input.payload),
+            costUsageKnown: costUsageKnown(input.payload),
+        }),
+    })
+}
+
+async function appendProviderUsage(input: {
+    roomId: string
+    sessionKey: string | null
+    runId: string | null
+    ts: number
+    payload: Record<string, unknown>
+}): Promise<void> {
+    await usageRepository.appendEvent({
+        roomId: input.roomId,
+        sessionKey: input.sessionKey,
+        runId: input.runId,
+        jobId: null,
+        kind: 'provider',
+        provider: typeof input.payload.provider === 'string' ? input.payload.provider : null,
+        model: typeof input.payload.model === 'string' ? input.payload.model : null,
+        toolName: null,
+        inputTokens: usageNumber(input.payload, 'inputTokens'),
+        outputTokens: usageNumber(input.payload, 'outputTokens'),
+        cachedTokens: usageNumber(input.payload, 'cachedTokens'),
+        reasoningTokens: usageNumber(input.payload, 'reasoningTokens'),
+        totalTokens: usageNumber(input.payload, 'totalTokens'),
+        durationMs: toNullableNumber(input.payload.durationMs),
+        activeDurationMs: null,
+        idleDurationMs: null,
+        estimatedCostUsd: usageNumber(input.payload, 'estimatedCostUsd'),
+        metadata: toJsonValue({
+            runtimeEventTs: input.ts,
+            event: 'provider.finished',
+            purpose: typeof input.payload.purpose === 'string' ? input.payload.purpose : null,
+            tokenUsageKnown: tokenUsageKnown(input.payload),
+            costUsageKnown: costUsageKnown(input.payload),
+        }),
+    })
+}
+
+async function appendToolUsage(input: {
+    roomId: string
+    sessionKey: string | null
+    runId: string | null
+    ts: number
+    event: string
+    kind: UsageEventKind
+    payload: Record<string, unknown>
+}): Promise<void> {
+    await usageRepository.appendEvent({
+        roomId: input.roomId,
+        sessionKey: input.sessionKey,
+        runId: input.runId,
+        jobId: null,
+        kind: input.kind,
+        provider: typeof input.payload.provider === 'string' ? input.payload.provider : null,
+        model: typeof input.payload.model === 'string' ? input.payload.model : null,
+        toolName: runtimeEventToolName(input.event),
+        inputTokens: null,
+        outputTokens: null,
+        cachedTokens: null,
+        reasoningTokens: null,
+        totalTokens: null,
+        durationMs:
+            toNullableNumber(input.payload.durationMs) ?? toNullableNumber(input.payload.latencyMs),
+        activeDurationMs: null,
+        idleDurationMs: null,
+        estimatedCostUsd: null,
+        metadata: toJsonValue({
+            runtimeEventTs: input.ts,
+            event: input.event,
+            payload: input.payload,
+        }),
+    })
+}
+
+async function processRuntimeEventLine(input: {
+    roomId: string
+    line: string
+    counters: UsageSyncCounters
+}): Promise<void> {
+    if (!input.line.trim()) {
+        input.counters.blankLines += 1
         return
     }
-    const lines = raw.split('\n')
-    let lastLine = syncState.lastLine
-    for (const [index, line] of lines.entries()) {
-        const lineNumber = index + 1
-        if (lineNumber <= syncState.lastLine) {
-            continue
-        }
-        if (!line.trim()) {
-            if (index < lines.length - 1) {
-                lastLine = lineNumber
-            }
-            continue
-        }
-        let entry: unknown
-        try {
-            entry = JSON.parse(line)
-        } catch {
-            lastLine = lineNumber
-            continue
-        }
-        const record = payloadRecord(entry)
-        const ts = toNullableNumber(record.ts)
-        const event = typeof record.event === 'string' ? record.event : null
-        if (!event || ts === null) {
-            lastLine = lineNumber
-            continue
-        }
-        const payload = payloadRecord(record.payload)
-        const sessionKey =
-            typeof record.sessionKey === 'string'
-                ? record.sessionKey
-                : typeof payload.sessionKey === 'string'
-                  ? payload.sessionKey
-                  : null
-        const runId =
-            typeof record.runId === 'string'
-                ? record.runId
-                : typeof payload.runId === 'string'
-                  ? payload.runId
-                  : null
-        if (event === 'run.finished') {
-            const runKind = typeof payload.runKind === 'string' ? payload.runKind : null
-            const totalTokens = usageNumber(payload, 'totalTokens')
-            await usageRepository.appendEvent({
-                roomId,
-                sessionKey,
-                runId,
-                jobId: null,
-                kind: runKind === 'scheduled' ? 'job' : 'run',
-                provider: typeof payload.provider === 'string' ? payload.provider : null,
-                model: typeof payload.model === 'string' ? payload.model : null,
-                toolName: null,
-                inputTokens: usageNumber(payload, 'inputTokens'),
-                outputTokens: usageNumber(payload, 'outputTokens'),
-                cachedTokens: usageNumber(payload, 'cachedTokens'),
-                reasoningTokens: usageNumber(payload, 'reasoningTokens'),
-                totalTokens,
-                durationMs: toNullableNumber(payload.durationMs),
-                activeDurationMs: toNullableNumber(payload.activeDurationMs),
-                idleDurationMs: toNullableNumber(payload.idleDurationMs),
-                estimatedCostUsd: usageNumber(payload, 'estimatedCostUsd'),
-                metadata: toJsonValue({
-                    runtimeEventTs: ts,
-                    event,
-                    status: typeof payload.status === 'string' ? payload.status : null,
-                    error: typeof payload.error === 'string' ? payload.error : null,
-                    runKind,
-                    tokenUsageKnown: tokenUsageKnown(payload),
-                    costUsageKnown: costUsageKnown(payload),
-                }),
-            })
-            lastLine = lineNumber
-            continue
-        }
-        if (event === 'provider.finished') {
-            const totalTokens = usageNumber(payload, 'totalTokens')
-            await usageRepository.appendEvent({
-                roomId,
-                sessionKey,
-                runId,
-                jobId: null,
-                kind: 'provider',
-                provider: typeof payload.provider === 'string' ? payload.provider : null,
-                model: typeof payload.model === 'string' ? payload.model : null,
-                toolName: null,
-                inputTokens: usageNumber(payload, 'inputTokens'),
-                outputTokens: usageNumber(payload, 'outputTokens'),
-                cachedTokens: usageNumber(payload, 'cachedTokens'),
-                reasoningTokens: usageNumber(payload, 'reasoningTokens'),
-                totalTokens,
-                durationMs: toNullableNumber(payload.durationMs),
-                activeDurationMs: null,
-                idleDurationMs: null,
-                estimatedCostUsd: usageNumber(payload, 'estimatedCostUsd'),
-                metadata: toJsonValue({
-                    runtimeEventTs: ts,
-                    event,
-                    purpose: typeof payload.purpose === 'string' ? payload.purpose : null,
-                    tokenUsageKnown: tokenUsageKnown(payload),
-                    costUsageKnown: costUsageKnown(payload),
-                }),
-            })
-            lastLine = lineNumber
-            continue
-        }
-        const kind = usageKindForRuntimeEvent(event)
-        if (!kind) {
-            lastLine = lineNumber
-            continue
-        }
-        await usageRepository.appendEvent({
-            roomId,
+
+    let entry: unknown
+    try {
+        entry = JSON.parse(input.line)
+    } catch {
+        input.counters.invalidLines += 1
+        return
+    }
+
+    const record = payloadRecord(entry)
+    const ts = toNullableNumber(record.ts)
+    const event = typeof record.event === 'string' ? record.event : null
+    if (!event || ts === null) {
+        input.counters.invalidLines += 1
+        return
+    }
+
+    const payload = payloadRecord(record.payload)
+    const sessionKey =
+        typeof record.sessionKey === 'string'
+            ? record.sessionKey
+            : typeof payload.sessionKey === 'string'
+              ? payload.sessionKey
+              : null
+    const runId =
+        typeof record.runId === 'string'
+            ? record.runId
+            : typeof payload.runId === 'string'
+              ? payload.runId
+              : null
+
+    if (event === 'run.finished') {
+        await appendRunUsage({
+            roomId: input.roomId,
             sessionKey,
             runId,
-            jobId: null,
-            kind,
-            provider: typeof payload.provider === 'string' ? payload.provider : null,
-            model: typeof payload.model === 'string' ? payload.model : null,
-            toolName: runtimeEventToolName(event),
-            inputTokens: null,
-            outputTokens: null,
-            cachedTokens: null,
-            reasoningTokens: null,
-            totalTokens: null,
-            durationMs: toNullableNumber(payload.durationMs) ?? toNullableNumber(payload.latencyMs),
-            activeDurationMs: null,
-            idleDurationMs: null,
-            estimatedCostUsd: null,
-            metadata: toJsonValue({
-                runtimeEventTs: ts,
-                event,
-                payload,
-            }),
+            ts,
+            payload,
         })
-        lastLine = lineNumber
+        input.counters.persistedEvents += 1
+        input.counters.runEvents += 1
+        return
     }
-    if (lastLine > syncState.lastLine) {
-        await writeUsageSyncState(roomId, {
+
+    if (event === 'provider.finished') {
+        await appendProviderUsage({
+            roomId: input.roomId,
+            sessionKey,
+            runId,
+            ts,
+            payload,
+        })
+        input.counters.persistedEvents += 1
+        input.counters.providerEvents += 1
+        return
+    }
+
+    const kind = usageKindForRuntimeEvent(event)
+    if (!kind) {
+        return
+    }
+
+    await appendToolUsage({
+        roomId: input.roomId,
+        sessionKey,
+        runId,
+        ts,
+        event,
+        kind,
+        payload,
+    })
+    input.counters.persistedEvents += 1
+    input.counters.toolEvents += 1
+}
+
+async function scanRuntimeEventTail(input: {
+    roomId: string
+    path: string
+    state: UsageSyncState
+    counters: UsageSyncCounters
+}): Promise<UsageSyncState> {
+    const startByteOffset = input.state.lastByteOffset ?? 0
+    const skipThroughLine = input.state.lastByteOffset === null ? input.state.lastLine : 0
+    let currentLine = input.state.lastByteOffset === null ? 0 : input.state.lastLine
+    let lastLine = input.state.lastByteOffset === null ? input.state.lastLine : currentLine
+    let lastByteOffset = startByteOffset
+    let pending = Buffer.alloc(0)
+
+    for await (const chunk of createReadStream(input.path, { start: startByteOffset })) {
+        pending = Buffer.concat([pending, Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)])
+        let newlineIndex = pending.indexOf(10)
+        while (newlineIndex >= 0) {
+            const lineBytes = pending.subarray(0, newlineIndex)
+            pending = pending.subarray(newlineIndex + 1)
+            currentLine += 1
+            const lineEndByteOffset = lastByteOffset + lineBytes.byteLength + 1
+            if (currentLine > skipThroughLine) {
+                input.counters.scannedLines += 1
+                await processRuntimeEventLine({
+                    roomId: input.roomId,
+                    line: lineBytes.toString('utf8'),
+                    counters: input.counters,
+                })
+                lastLine = currentLine
+            }
+            lastByteOffset = lineEndByteOffset
+            newlineIndex = pending.indexOf(10)
+        }
+    }
+
+    return {
+        lastLine,
+        lastByteOffset,
+    }
+}
+
+async function syncRuntimeUsageEventsUnlocked(roomId: string): Promise<void> {
+    const startedAt = performanceNow()
+    const counters = emptyCounters()
+    let status = 'ok'
+    let errorName: string | null = null
+    let startingLine = 0
+    let lastLine = 0
+    let startingByteOffset: number | null = null
+    let lastByteOffset: number | null = null
+    let fileBytes: number | null = null
+
+    try {
+        const paths = getRoomPaths(roomId)
+        const runtimeEventsPath = join(paths.engineStateDir, 'runtime-events.jsonl')
+        let fileStat: Awaited<ReturnType<typeof stat>>
+        try {
+            fileStat = await stat(runtimeEventsPath)
+        } catch {
+            status = 'no_log'
+            return
+        }
+
+        fileBytes = fileStat.size
+        const syncState = normalizeStateForFile(await readUsageSyncState(roomId), fileBytes)
+        startingLine = syncState.lastLine
+        lastLine = syncState.lastLine
+        startingByteOffset = syncState.lastByteOffset
+        lastByteOffset = syncState.lastByteOffset
+
+        const nextState = await scanRuntimeEventTail({
+            roomId,
+            path: runtimeEventsPath,
+            state: syncState,
+            counters,
+        })
+        lastLine = nextState.lastLine
+        lastByteOffset = nextState.lastByteOffset
+
+        if (
+            nextState.lastLine !== syncState.lastLine ||
+            nextState.lastByteOffset !== syncState.lastByteOffset ||
+            syncState.lastByteOffset === null
+        ) {
+            await writeUsageSyncState(roomId, nextState)
+        }
+    } catch (error) {
+        status = 'error'
+        errorName = error instanceof Error ? error.name : typeof error
+        throw error
+    } finally {
+        logPerformanceEvent('usage_sync.run', {
+            roomId,
+            status,
+            durationMs: elapsedPerformanceMs(startedAt),
+            startingLine,
             lastLine,
+            advancedLines: Math.max(0, lastLine - startingLine),
+            startingByteOffset,
+            lastByteOffset,
+            advancedBytes:
+                startingByteOffset === null || lastByteOffset === null
+                    ? null
+                    : Math.max(0, lastByteOffset - startingByteOffset),
+            fileBytes,
+            scannedLines: counters.scannedLines,
+            blankLines: counters.blankLines,
+            invalidLines: counters.invalidLines,
+            persistedEvents: counters.persistedEvents,
+            runEvents: counters.runEvents,
+            providerEvents: counters.providerEvents,
+            toolEvents: counters.toolEvents,
+            errorName,
         })
     }
 }
 
 export async function syncRuntimeUsageEvents(roomId: string): Promise<void> {
+    const startedAt = performanceNow()
+    const queued = usageSyncQueues.has(roomId)
     const previous = usageSyncQueues.get(roomId) ?? Promise.resolve()
     const next = previous.catch(() => {}).then(() => syncRuntimeUsageEventsUnlocked(roomId))
     usageSyncQueues.set(roomId, next)
@@ -294,6 +513,11 @@ export async function syncRuntimeUsageEvents(roomId: string): Promise<void> {
         if (usageSyncQueues.get(roomId) === next) {
             usageSyncQueues.delete(roomId)
         }
+        logPerformanceEvent('usage_sync.queue', {
+            roomId,
+            queued,
+            durationMs: elapsedPerformanceMs(startedAt),
+        })
     }
 }
 

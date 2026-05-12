@@ -61,7 +61,7 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
 
     const executionQuery = useQuery({
         queryKey: ['room-execution', roomId],
-        queryFn: () => getRoomExecutionServer({ data: { roomId } }),
+        queryFn: () => getRoomExecutionServer({ data: { roomId, messageLimit: 0 } }),
         staleTime: 10_000,
         refetchInterval: 20_000,
     })

@@ -156,6 +156,13 @@ export const appGitHubAppRepository = {
         `
         return mapAppGitHubApp(rows[0] as Record<string, unknown>)
     },
+
+    async delete(): Promise<void> {
+        await sql`
+            DELETE FROM app_github_apps
+            WHERE id = true
+        `
+    },
 }
 
 export const appGitHubInstallationRepository = {
@@ -266,6 +273,12 @@ export const appGitHubInstallationRepository = {
                   `
         return rows.length
     },
+
+    async deleteAll(): Promise<void> {
+        await sql`
+            DELETE FROM app_github_installations
+        `
+    },
 }
 
 export const roomGitHubBindingRepository = {
@@ -333,6 +346,12 @@ export const roomGitHubBindingRepository = {
         await sql`
             DELETE FROM room_github_bindings
             WHERE room_id = ${roomId}
+        `
+    },
+
+    async deleteAll(): Promise<void> {
+        await sql`
+            DELETE FROM room_github_bindings
         `
     },
 }

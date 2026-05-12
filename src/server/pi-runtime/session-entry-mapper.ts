@@ -2,6 +2,7 @@ import {
     emptyRuntimePart,
     extractTextFromRuntimeContent,
     normalizeRuntimeRole,
+    runtimeTextPhaseFromSignature,
     toRuntimeSerializable,
 } from '#/lib/runtime-message'
 import type { RoomExecutionMessage, RoomExecutionMessagePart } from '../rooms/execution-types'
@@ -13,16 +14,23 @@ export function shortText(value: string, length = 120): string {
     return trimmed.length > length ? `${trimmed.slice(0, length - 3)}...` : trimmed
 }
 
-function textPart(text: string): RoomExecutionMessagePart {
+function textPart(
+    block: Record<string, unknown>,
+    text: string,
+    contentIndex: number | null,
+): RoomExecutionMessagePart {
     return emptyRuntimePart({
         type: 'text',
         text,
+        contentIndex,
+        textPhase: runtimeTextPhaseFromSignature(block.textSignature),
     })
 }
 
 function toolCallPart(
     block: Record<string, unknown>,
     completedIds: Set<string>,
+    contentIndex: number | null,
 ): RoomExecutionMessagePart {
     const toolCallId = typeof block.id === 'string' ? block.id : null
     return emptyRuntimePart({
@@ -33,6 +41,7 @@ function toolCallPart(
         status: toolCallId && completedIds.has(toolCallId) ? 'complete' : 'running',
         input: toRuntimeSerializable(block.arguments ?? {}),
         rawType: 'toolCall',
+        contentIndex,
     })
 }
 
@@ -110,24 +119,25 @@ export function mapSessionEntry(
     const content = message.content
     const parts: RoomExecutionMessagePart[] = []
     if (Array.isArray(content)) {
-        for (const block of content) {
+        for (const [contentIndex, block] of content.entries()) {
             if (!isRecord(block)) {
                 continue
             }
             if (block.type === 'text') {
                 const text = extractTextFromRuntimeContent(block)
                 if (text) {
-                    parts.push(textPart(text))
+                    parts.push(textPart(block, text, contentIndex))
                 }
             } else if (block.type === 'thinking') {
                 continue
             } else if (block.type === 'toolCall') {
-                parts.push(toolCallPart(block, completedIds))
+                parts.push(toolCallPart(block, completedIds, contentIndex))
             } else {
                 parts.push(
                     emptyRuntimePart({
                         rawType: typeof block.type === 'string' ? block.type : null,
                         input: toRuntimeSerializable(block),
+                        contentIndex,
                     }),
                 )
             }
@@ -135,7 +145,7 @@ export function mapSessionEntry(
     } else {
         const text = extractTextFromRuntimeContent(content)
         if (text) {
-            parts.push(textPart(text))
+            parts.push(textPart({}, text, null))
         }
     }
     const text =

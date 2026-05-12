@@ -23,7 +23,7 @@ interface RuntimeSnapshotInput {
     selectedThreadModelState: (record: ThreadRecord) => RoomExecutionModelState | null
 }
 
-function mapThread(
+export function mapThread(
     record: ThreadRecord,
     compactionStats: RuntimeSnapshotInput['compactionStats'],
 ): RoomExecutionThread {
@@ -78,8 +78,8 @@ function roomAgent(config: PiRuntimeConfig, threads: RoomExecutionThread[]): Roo
 
 export function buildRuntimeSnapshot(input: RuntimeSnapshotInput): PiRuntimeSnapshotPayload {
     const limit =
-        input.messageLimit && Number.isFinite(input.messageLimit)
-            ? Math.max(1, Math.floor(input.messageLimit))
+        typeof input.messageLimit === 'number' && Number.isFinite(input.messageLimit)
+            ? Math.max(0, Math.floor(input.messageLimit))
             : 200
     const orderedRecords = [...input.records].sort(
         (left, right) => right.updatedAt - left.updatedAt,
@@ -93,13 +93,13 @@ export function buildRuntimeSnapshot(input: RuntimeSnapshotInput): PiRuntimeSnap
         orderedThreadKeys: threads.map((thread) => thread.key),
     })
     const selectedRecord = selectedThreadKey ? input.findThread(selectedThreadKey) : null
-    const selectedThreadMessages = selectedRecord
-        ? input.readThreadMessages(selectedRecord, limit)
-        : []
+    const selectedThreadMessages =
+        selectedRecord && limit > 0 ? input.readThreadMessages(selectedRecord, limit) : []
     const selectedThreadModel = selectedRecord
         ? input.selectedThreadModelState(selectedRecord)
         : null
-    const selectedThreadArtifacts = selectedRecord ? input.readThreadArtifacts(selectedRecord) : []
+    const selectedThreadArtifacts =
+        selectedRecord && limit > 0 ? input.readThreadArtifacts(selectedRecord) : []
 
     return {
         roomAgent: roomAgent(input.config, threads),

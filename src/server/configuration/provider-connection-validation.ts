@@ -93,6 +93,7 @@ function buildValidationRoomConfiguration(
         },
         entitlements: {
             env: {},
+            internalEnv: {},
             secretRefs: [],
             mcpServers: [],
             github: {

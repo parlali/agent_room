@@ -5,7 +5,6 @@ import { BarChart3Icon } from 'lucide-react'
 import { RoomDashboardLayout } from '#/components/room-dashboard'
 import { EmptyState, LoadingRows, Section } from '#/components/agent-room'
 import { listRoomUsageServer } from '#/routes/-room-runtime-server'
-import { requireRouteUser } from '#/routes/-route-auth'
 import { UsageTimeline, UsageTotalsGrid, usageTimelineCount } from './-usage/usage-components'
 
 type UsageEvent = {
@@ -22,7 +21,6 @@ type UsageEvent = {
 }
 
 export const Route = createFileRoute('/rooms/$roomId/usage')({
-    beforeLoad: requireRouteUser,
     component: RoomUsagePage,
 })
 

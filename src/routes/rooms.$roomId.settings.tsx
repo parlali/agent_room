@@ -5,7 +5,6 @@ import { AttentionBanner } from '#/components/agent-room'
 import { TooltipProvider } from '#/components/ui/tooltip'
 import { getRoomConfigServer } from '#/routes/-operator-config-server'
 import { listRoomsServer } from '#/routes/-room-runtime-server'
-import { requireRouteUser } from '#/routes/-route-auth'
 import {
     ConfigSections,
     DangerZoneSection,
@@ -15,7 +14,6 @@ import {
 } from './-room-settings/sections'
 
 export const Route = createFileRoute('/rooms/$roomId/settings')({
-    beforeLoad: requireRouteUser,
     component: RoomSettingsPage,
 })
 

@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import type { Dispatch, SetStateAction } from 'react'
+import { useState, type Dispatch, type SetStateAction } from 'react'
 import {
     ExternalLinkIcon,
     GitBranchIcon,
@@ -67,143 +67,223 @@ export function GitHubAppSection({
     targetOwner,
     setupPending,
     refreshPending,
+    resetPending,
     onChangePublicOrigin,
     onChangeTargetOwner,
     onStartSetup,
     onRefresh,
+    onReset,
 }: {
     config: OperatorConfigSnapshot | undefined
     publicOrigin: string
     targetOwner: string
     setupPending: boolean
     refreshPending: boolean
+    resetPending: boolean
     onChangePublicOrigin: (value: string) => void
     onChangeTargetOwner: (value: string) => void
     onStartSetup: () => void
     onRefresh: () => void
+    onReset: () => void
 }) {
+    const [resetOpen, setResetOpen] = useState(false)
     const github = config?.github
     const app = github?.app
     const configured = app?.configured ?? false
     const installations = github?.installations ?? []
     return (
-        <Section
-            title="GitHub App"
-            description="First-party GitHub access for programmer rooms."
-            actions={
-                configured ? (
-                    <div className="flex flex-wrap justify-end gap-2">
-                        {app?.installUrl ? (
-                            <Button type="button" size="sm" variant="outline" asChild>
-                                <a href={app.installUrl} target="_blank" rel="noreferrer">
-                                    <ExternalLinkIcon />
-                                    Install
-                                </a>
+        <>
+            <Section
+                title="GitHub App"
+                description="First-party GitHub access for programmer rooms."
+                actions={
+                    configured ? (
+                        <div className="flex flex-wrap justify-end gap-2">
+                            {app?.htmlUrl ? (
+                                <Button type="button" size="sm" variant="outline" asChild>
+                                    <a href={app.htmlUrl} target="_blank" rel="noreferrer">
+                                        <ExternalLinkIcon />
+                                        App
+                                    </a>
+                                </Button>
+                            ) : null}
+                            {app?.installUrl ? (
+                                <Button type="button" size="sm" variant="outline" asChild>
+                                    <a href={app.installUrl} target="_blank" rel="noreferrer">
+                                        <ExternalLinkIcon />
+                                        Install
+                                    </a>
+                                </Button>
+                            ) : null}
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={onRefresh}
+                                disabled={refreshPending || resetPending}
+                            >
+                                <RefreshCwIcon className={refreshPending ? 'animate-spin' : ''} />
+                                Refresh
                             </Button>
-                        ) : null}
-                        <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={onRefresh}
-                            disabled={refreshPending}
-                        >
-                            <RefreshCwIcon className={refreshPending ? 'animate-spin' : ''} />
-                            Refresh
-                        </Button>
-                    </div>
-                ) : null
-            }
-        >
-            {!configured ? (
-                <div className="space-y-4">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                        <FieldGroup
-                            label="Public origin"
-                            htmlFor="github-public-origin"
-                            hint="The URL GitHub can redirect back to after app creation."
-                        >
-                            <Input
-                                id="github-public-origin"
-                                value={publicOrigin}
-                                onChange={(event) => onChangePublicOrigin(event.target.value)}
-                                placeholder="https://agent-room.example.com"
-                            />
-                        </FieldGroup>
-                        <FieldGroup
-                            label="Organization owner"
-                            htmlFor="github-target-owner"
-                            hint="Leave blank to create the app under your personal account."
-                        >
-                            <Input
-                                id="github-target-owner"
-                                value={targetOwner}
-                                onChange={(event) => onChangeTargetOwner(event.target.value)}
-                                placeholder="Optional"
-                            />
-                        </FieldGroup>
-                    </div>
-                    <div className="flex justify-end">
-                        <Button type="button" onClick={onStartSetup} disabled={setupPending}>
-                            <GitBranchIcon />
-                            {setupPending ? 'Preparing...' : 'Create GitHub App'}
-                        </Button>
-                    </div>
-                </div>
-            ) : (
-                <div className="space-y-4">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                        <FieldGroup label="App">
-                            <div className="flex min-h-10 items-center rounded-md border border-border bg-muted/30 px-3 text-sm">
-                                {app?.name} · {app?.slug}
-                            </div>
-                        </FieldGroup>
-                        <FieldGroup label="Installations">
-                            <div className="flex min-h-10 items-center rounded-md border border-border bg-muted/30 px-3 text-sm">
-                                {installations.length}
-                            </div>
-                        </FieldGroup>
-                    </div>
-                    {installations.length === 0 ? (
-                        <EmptyState
-                            icon={GitBranchIcon}
-                            title="No GitHub installations"
-                            description="Install the GitHub App on the repositories programmer rooms should use, then refresh."
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setResetOpen(true)}
+                                disabled={resetPending}
+                            >
+                                <Trash2Icon />
+                                Forget
+                            </Button>
+                        </div>
+                    ) : null
+                }
+            >
+                {!configured ? (
+                    <div className="space-y-4">
+                        <AttentionBanner
+                            tone="info"
+                            title="Installable across GitHub accounts"
+                            description="New Agent Room GitHub Apps are public so GitHub can offer your personal account and organizations during installation."
                         />
-                    ) : (
-                        <div className="divide-y divide-border/60 rounded-md border">
-                            {installations.map((installation) => {
-                                const status = describeProviderStatus(installation.status)
-                                return (
-                                    <div
-                                        key={installation.installationId}
-                                        className="flex items-start justify-between gap-3 px-4 py-3"
-                                    >
-                                        <div className="min-w-0">
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                <span className="text-sm font-medium">
-                                                    {installation.accountLogin}
-                                                </span>
-                                                <ChipBadge>
-                                                    {installation.repositorySelection}
-                                                </ChipBadge>
-                                                <StateBadge
-                                                    tone={status.tone}
-                                                    label={status.label}
-                                                />
-                                            </div>
-                                            <div className="mt-0.5 text-xs text-muted-foreground">
-                                                Updated {formatRelativeTime(installation.updatedAt)}
+                        <div className="grid gap-3 sm:grid-cols-2">
+                            <FieldGroup
+                                label="Public origin"
+                                htmlFor="github-public-origin"
+                                hint="The URL GitHub can redirect back to after app creation."
+                            >
+                                <Input
+                                    id="github-public-origin"
+                                    value={publicOrigin}
+                                    onChange={(event) => onChangePublicOrigin(event.target.value)}
+                                    placeholder="https://agent-room.example.com"
+                                />
+                            </FieldGroup>
+                            <FieldGroup
+                                label="Organization owner"
+                                htmlFor="github-target-owner"
+                                hint="Optional owner for the GitHub App registration."
+                            >
+                                <Input
+                                    id="github-target-owner"
+                                    value={targetOwner}
+                                    onChange={(event) => onChangeTargetOwner(event.target.value)}
+                                    placeholder="Optional"
+                                />
+                            </FieldGroup>
+                        </div>
+                        <div className="flex justify-end">
+                            <Button type="button" onClick={onStartSetup} disabled={setupPending}>
+                                <GitBranchIcon />
+                                {setupPending ? 'Preparing...' : 'Create GitHub App'}
+                            </Button>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="space-y-4">
+                        <AttentionBanner
+                            tone="info"
+                            title="Need organizations?"
+                            description="If this app was created as private on GitHub, make it public in GitHub App settings or forget it here and create a new installable app."
+                        />
+                        <div className="grid gap-3 sm:grid-cols-2">
+                            <FieldGroup label="App">
+                                <div className="flex min-h-10 items-center rounded-md border border-border bg-muted/30 px-3 text-sm">
+                                    {app?.name} · {app?.slug}
+                                </div>
+                            </FieldGroup>
+                            <FieldGroup label="Installations">
+                                <div className="flex min-h-10 items-center rounded-md border border-border bg-muted/30 px-3 text-sm">
+                                    {installations.length}
+                                </div>
+                            </FieldGroup>
+                        </div>
+                        {installations.length === 0 ? (
+                            <EmptyState
+                                icon={GitBranchIcon}
+                                title="No GitHub installations"
+                                description="Install the GitHub App on the repositories programmer rooms should use, then refresh."
+                            />
+                        ) : (
+                            <div className="divide-y divide-border/60 rounded-md border">
+                                {installations.map((installation) => {
+                                    const status = describeProviderStatus(installation.status)
+                                    return (
+                                        <div
+                                            key={installation.installationId}
+                                            className="flex items-start justify-between gap-3 px-4 py-3"
+                                        >
+                                            <div className="min-w-0">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <span className="text-sm font-medium">
+                                                        {installation.accountLogin}
+                                                    </span>
+                                                    <ChipBadge>
+                                                        {installation.repositorySelection}
+                                                    </ChipBadge>
+                                                    <StateBadge
+                                                        tone={status.tone}
+                                                        label={status.label}
+                                                    />
+                                                </div>
+                                                <div className="mt-0.5 text-xs text-muted-foreground">
+                                                    Updated{' '}
+                                                    {formatRelativeTime(installation.updatedAt)}
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                )
-                            })}
-                        </div>
-                    )}
-                </div>
-            )}
-        </Section>
+                                    )
+                                })}
+                            </div>
+                        )}
+                    </div>
+                )}
+            </Section>
+            <Dialog
+                open={resetOpen}
+                onOpenChange={(open) => {
+                    if (!open && !resetPending) setResetOpen(false)
+                }}
+            >
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Forget GitHub App configuration?</DialogTitle>
+                        <DialogDescription className="space-y-2">
+                            <span className="block">
+                                Agent Room will remove its stored GitHub App credentials,
+                                installations, and room bindings. The GitHub App registration and
+                                installations on github.com are not deleted.
+                            </span>
+                            <span className="block">
+                                Use this when you want to set up a new app that can be installed on
+                                organizations.
+                            </span>
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setResetOpen(false)}
+                            disabled={resetPending}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="destructive"
+                            onClick={() => {
+                                onReset()
+                                setResetOpen(false)
+                            }}
+                            disabled={resetPending}
+                        >
+                            Forget GitHub App
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
     )
 }
 

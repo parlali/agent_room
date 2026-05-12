@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { parseMarkdown, StreamingMarkdownRenderer } from 'chat'
+import { Link } from '@tanstack/react-router'
 
 import { cn } from '#/lib/utils'
 
@@ -175,6 +176,19 @@ function renderListItem(node: MarkdownNode, key: string): ReactNode {
 
 function renderLink(node: MarkdownNode, key: string): ReactNode {
     const href = typeof node.url === 'string' ? node.url : ''
+    if (isAppRouteHref(href)) {
+        return (
+            <Link
+                key={key}
+                to={href}
+                title={node.title ?? undefined}
+                className="font-medium text-primary underline underline-offset-3"
+            >
+                {renderInlineChildren(node.children, key)}
+            </Link>
+        )
+    }
+
     return (
         <a
             key={key}
@@ -234,4 +248,24 @@ function renderTable(node: MarkdownNode, key: string): ReactNode {
 
 function isExternalHref(href: string): boolean {
     return /^https?:\/\//i.test(href)
+}
+
+function isAppRouteHref(href: string): boolean {
+    if (!href.startsWith('/') || href.startsWith('//')) return false
+    const pathname = href.split(/[?#]/, 1)[0] ?? ''
+    if (pathname === '/') return true
+    if (pathname.startsWith('/api/') || pathname.startsWith('/assets/')) return false
+    if (pathname.startsWith('/_serverFn/')) return false
+    return (
+        pathname === '/about' ||
+        pathname === '/activity' ||
+        pathname === '/files' ||
+        pathname === '/jobs' ||
+        pathname === '/login' ||
+        pathname === '/onboarding' ||
+        pathname === '/settings' ||
+        pathname === '/usage' ||
+        pathname.startsWith('/github/app/callback') ||
+        pathname.startsWith('/rooms/')
+    )
 }

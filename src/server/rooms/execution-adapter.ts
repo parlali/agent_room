@@ -8,6 +8,7 @@ import type {
     RoomRealtimeEvent,
     RoomRunHistorySnapshot,
     RoomRuntimeOverview,
+    RoomSessionWindow,
     RoomThreadAbortResult,
     RoomThreadCompactResult,
     RoomThreadForkResult,
@@ -23,6 +24,13 @@ export interface RoomExecutionAdapter {
         messageLimit?: number
         actorUserId?: string | null
     }) => Promise<RoomExecutionSnapshot>
+    getRoomSessionWindow: (input: {
+        roomId: string
+        sessionKey: string
+        before?: string | null
+        after?: string | null
+        limitRows?: number
+    }) => Promise<RoomSessionWindow>
     sendRoomThreadMessage: (input: {
         roomId: string
         sessionKey: string

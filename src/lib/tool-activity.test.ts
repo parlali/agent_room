@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { emptyRuntimePart } from '#/lib/runtime-message'
-import { toolTasksFromParts } from './tool-activity-model'
+import { toolTasksFromParts } from './tool-activity'
 
 describe('tool activity model', () => {
     it('treats completed persisted tool calls as done even before pairing the result row', () => {

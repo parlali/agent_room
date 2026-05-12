@@ -184,6 +184,15 @@ export interface GitHubRepositorySummary {
     defaultBranch: string | null
 }
 
+export interface GitHubRepositorySearchResult {
+    repositories: GitHubRepositorySummary[]
+    totalCount: number
+    scannedCount: number
+    hasMore: boolean
+    nextPage: number | null
+    query: string
+}
+
 export interface OperatorConfigSnapshot {
     settings: AppSettingsSummary
     providerCatalog: typeof providerCatalog

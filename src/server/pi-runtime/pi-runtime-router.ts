@@ -9,6 +9,7 @@ import type {
     PiRuntimeForkPayload,
     PiRuntimeSendPayload,
     PiRuntimeSnapshotPayload,
+    PiRuntimeSessionWindowPayload,
     PiRuntimeThreadModelPayload,
     PiRuntimeThreadCreatePayload,
 } from './protocol'
@@ -91,6 +92,7 @@ export function createPiRuntimeRouter({
     forkThread,
     editThreadMessage,
     snapshot,
+    sessionWindow,
     createEventStream,
     createRoomEventStream,
     publishRoomFileChanged,
@@ -135,6 +137,12 @@ export function createPiRuntimeRouter({
         selectedThreadKey?: string | null
         messageLimit?: number
     }) => PiRuntimeSnapshotPayload
+    sessionWindow: (input: {
+        record: ThreadRecord
+        before?: string | null
+        after?: string | null
+        limitRows?: number
+    }) => PiRuntimeSessionWindowPayload
     createEventStream: (sessionKey: string) => ReadableStream<Uint8Array>
     createRoomEventStream: () => ReadableStream<Uint8Array>
     publishRoomFileChanged: (payload: RoomFileChangedPayload) => void
@@ -163,6 +171,26 @@ export function createPiRuntimeRouter({
                 snapshot({
                     selectedThreadKey: url.searchParams.get('selectedThreadKey'),
                     messageLimit: Number(url.searchParams.get('messageLimit') ?? 200),
+                }),
+            )
+            return
+        }
+
+        const threadWindowMatch = url.pathname.match(/^\/threads\/([^/]+)\/window$/)
+        if (request.method === 'GET' && threadWindowMatch) {
+            const sessionKey = decodeURIComponent(threadWindowMatch[1]!)
+            const record = findThread(sessionKey)
+            if (!record) {
+                throw new HttpError(404, `Thread ${sessionKey} does not exist`)
+            }
+            sendJson(
+                response,
+                200,
+                sessionWindow({
+                    record,
+                    before: url.searchParams.get('before'),
+                    after: url.searchParams.get('after'),
+                    limitRows: Number(url.searchParams.get('limitRows') ?? 40),
                 }),
             )
             return
