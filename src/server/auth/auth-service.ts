@@ -4,6 +4,8 @@ import { userRepository, sessionRepository, auditRepository } from '../db/reposi
 import { hashPassword, hashSessionToken, verifyPassword } from '../security/password'
 
 const env = getAppEnv()
+const sessionTouchThrottleMs = 60_000
+const sessionTouchCache = new Map<string, number>()
 
 export interface AuthenticatedSession {
     token: string
@@ -93,7 +95,10 @@ export async function validateSessionToken(token: string) {
     if (!user) {
         return null
     }
-    await sessionRepository.touchSession(session.id, new Date())
+    await touchSessionThrottled({
+        tokenHash,
+        sessionId: session.id,
+    })
     return {
         user,
         session,
@@ -113,4 +118,17 @@ export async function revokeSession(token: string) {
         action: 'auth.logout',
         payload: { sessionId: session.id },
     })
+}
+
+async function touchSessionThrottled(input: {
+    tokenHash: string
+    sessionId: string
+}): Promise<void> {
+    const now = Date.now()
+    const lastTouchedAt = sessionTouchCache.get(input.tokenHash) ?? 0
+    if (now - lastTouchedAt < sessionTouchThrottleMs) {
+        return
+    }
+    sessionTouchCache.set(input.tokenHash, now)
+    await sessionRepository.touchSession(input.sessionId, new Date(now))
 }

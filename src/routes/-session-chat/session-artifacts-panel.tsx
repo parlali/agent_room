@@ -30,6 +30,7 @@ import {
 import { roomFilePreviewUrl } from '#/lib/room-file-links'
 import { formatBytes, formatRelativeTime } from '#/lib/format'
 import { cn } from '#/lib/utils'
+import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import { readRoomFileServer } from '#/routes/-room-runtime-server'
 import type { RoomFileEntry, RoomFilePreview } from '#/lib/room-file-types'
 import type { RoomSessionArtifact, RoomSessionArtifactKind } from '#/lib/room-execution-types'
@@ -76,24 +77,34 @@ export function SessionArtifactsPanel({
     roomId,
     artifacts,
     onClose,
+    selectedArtifactId,
+    onSelectArtifact,
     className,
 }: {
     roomId: string
     artifacts: RoomSessionArtifact[]
     onClose?: () => void
+    selectedArtifactId?: string | null
+    onSelectArtifact?: (id: string | null) => void
     className?: string
 }) {
-    const [selectedId, setSelectedId] = useState<string | null>(artifacts[0]?.id ?? null)
+    const [uncontrolledSelectedId, setUncontrolledSelectedId] = useState<string | null>(
+        artifacts[0]?.id ?? null,
+    )
     const [expanded, setExpanded] = useState(false)
+    const selectedId = selectedArtifactId ?? uncontrolledSelectedId
+    const setSelectedId = (id: string | null) => {
+        setUncontrolledSelectedId(id)
+        onSelectArtifact?.(id)
+    }
     const selectedArtifact = artifacts.find((artifact) => artifact.id === selectedId) ?? null
     const selectedEntry = selectedArtifact ? artifactToFileEntry(selectedArtifact) : null
     const previewQuery = useQuery({
-        queryKey: [
-            'room-file-preview',
+        queryKey: roomQueryKey.roomFilePreview(
             roomId,
             selectedEntry?.surface,
             selectedEntry?.relativePath,
-        ],
+        ),
         queryFn: () =>
             readRoomFileServer({
                 data: {
@@ -103,7 +114,7 @@ export function SessionArtifactsPanel({
                 },
             }),
         enabled: selectedEntry !== null,
-        staleTime: 60_000,
+        staleTime: roomQueryPolicy.coldStaleMs,
     })
     const preview = previewQuery.data as RoomFilePreview | undefined
     const previewUrl = selectedEntry ? roomFilePreviewUrl(roomId, selectedEntry) : ''

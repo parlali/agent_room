@@ -38,6 +38,7 @@ import {
 import { formatBytes, formatRelativeTime } from '#/lib/format'
 import { roomFileEntryDownloadUrl, roomFileEntryPreviewUrl } from '#/lib/room-file-links'
 import { uploadRoomFiles } from '#/lib/room-file-upload'
+import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import {
     listRoomDirectoryServer,
     listRoomFilesServer,
@@ -131,7 +132,7 @@ function FilesContent({ roomId }: { roomId: string }) {
     const [streamError, setStreamError] = useState<string | null>(null)
 
     const directoryQuery = useQuery({
-        queryKey: ['room-directory', roomId, surface, path],
+        queryKey: roomQueryKey.roomDirectory(roomId, surface, path),
         queryFn: () =>
             listRoomDirectoryServer({
                 data: {
@@ -140,19 +141,19 @@ function FilesContent({ roomId }: { roomId: string }) {
                     relativePath: path,
                 },
             }),
-        staleTime: 5_000,
+        staleTime: roomQueryPolicy.hotStaleMs,
     })
 
     const treeQuery = useQuery({
-        queryKey: ['room-file-tree', roomId],
+        queryKey: roomQueryKey.roomFileTree(roomId),
         queryFn: () => listRoomFileTreeServer({ data: { roomId } }),
-        staleTime: 5_000,
+        staleTime: roomQueryPolicy.hotStaleMs,
     })
 
     const allFilesQuery = useQuery({
-        queryKey: ['room-files', roomId],
+        queryKey: roomQueryKey.roomFiles(roomId),
         queryFn: () => listRoomFilesServer({ data: { roomId } }),
-        staleTime: 5_000,
+        staleTime: roomQueryPolicy.hotStaleMs,
     })
 
     const searchResults = useMemo(() => {
@@ -173,10 +174,16 @@ function FilesContent({ roomId }: { roomId: string }) {
 
     const invalidateFileQueries = useCallback(() => {
         void Promise.all([
-            queryClient.invalidateQueries({ queryKey: ['room-directory', roomId] }),
-            queryClient.invalidateQueries({ queryKey: ['room-file-tree', roomId] }),
-            queryClient.invalidateQueries({ queryKey: ['room-files', roomId] }),
-            queryClient.invalidateQueries({ queryKey: ['room-file-preview', roomId] }),
+            queryClient.invalidateQueries({
+                queryKey: roomQueryKey.roomDirectory(roomId),
+                exact: false,
+            }),
+            queryClient.invalidateQueries({ queryKey: roomQueryKey.roomFileTree(roomId) }),
+            queryClient.invalidateQueries({ queryKey: roomQueryKey.roomFiles(roomId) }),
+            queryClient.invalidateQueries({
+                queryKey: roomQueryKey.roomFilePreview(roomId),
+                exact: false,
+            }),
         ])
     }, [queryClient, roomId])
 
@@ -220,9 +227,12 @@ function FilesContent({ roomId }: { roomId: string }) {
             }),
         onSuccess: async (result) => {
             await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['room-directory', roomId] }),
-                queryClient.invalidateQueries({ queryKey: ['room-file-tree', roomId] }),
-                queryClient.invalidateQueries({ queryKey: ['room-files', roomId] }),
+                queryClient.invalidateQueries({
+                    queryKey: roomQueryKey.roomDirectory(roomId),
+                    exact: false,
+                }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomFileTree(roomId) }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomFiles(roomId) }),
             ])
             setSelectedEntry(result.files[0] ?? null)
             toast.success(
@@ -584,7 +594,7 @@ function FileBrowserRow({
 function PreviewPane({ roomId, entry }: { roomId: string; entry: RoomFileEntry | null }) {
     const [expanded, setExpanded] = useState(false)
     const previewQuery = useQuery({
-        queryKey: ['room-file-preview', roomId, entry?.surface, entry?.relativePath],
+        queryKey: roomQueryKey.roomFilePreview(roomId, entry?.surface, entry?.relativePath),
         queryFn: () =>
             readRoomFileServer({
                 data: {
@@ -594,7 +604,7 @@ function PreviewPane({ roomId, entry }: { roomId: string; entry: RoomFileEntry |
                 },
             }),
         enabled: entry !== null && entry.kind === 'file',
-        staleTime: 60_000,
+        staleTime: roomQueryPolicy.coldStaleMs,
     })
     const preview = previewQuery.data as RoomFilePreview | undefined
     const previewUrl = entry ? roomFileEntryPreviewUrl(roomId, entry) : ''

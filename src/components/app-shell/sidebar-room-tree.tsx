@@ -10,8 +10,12 @@ import { formatRelativeTime } from '#/lib/format'
 import { Button } from '#/components/ui/button'
 import { Skeleton } from '#/components/ui/skeleton'
 import { SessionContextMenu, SessionContextMenuTrigger, StatusDot } from '#/components/agent-room'
-import { createThreadServer, getRoomExecutionServer } from '#/routes/-room-runtime-server'
+import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
+import { createThreadServer, getRoomSidebarServer } from '#/routes/-room-runtime-server'
 import type { RoomExecutionThread, RoomRuntimeOverview } from '#/lib/room-execution-types'
+import { markChatSelection } from '#/lib/browser-performance'
+import { prewarmSessionDetail } from '#/routes/-session-chat/chat-projection-store'
+import { useRoomEventCacheSync } from '#/routes/-session-chat/room-event-cache'
 
 const SESSION_PREVIEW_LIMIT = 5
 
@@ -110,13 +114,14 @@ function RoomNode({
         mutationFn: () => createThreadServer({ data: { roomId: room.roomId } }),
         onSuccess: async ({ key }) => {
             await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['room-execution', room.roomId] }),
                 queryClient.invalidateQueries({
-                    queryKey: ['room-execution', room.roomId, 'sidebar'],
+                    queryKey: roomQueryKey.roomExecution(room.roomId),
                 }),
-                queryClient.invalidateQueries({ queryKey: ['rooms-list'] }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(room.roomId) }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList }),
             ])
             onNavigate?.()
+            markChatSelection(room.roomId, key)
             navigate({
                 to: '/rooms/$roomId/sessions/$sessionKey',
                 params: { roomId: room.roomId, sessionKey: key },
@@ -210,13 +215,32 @@ function RoomSessions({
     onNavigate?: () => void
 }) {
     const navigate = useNavigate()
+    const queryClient = useQueryClient()
     const [showAll, setShowAll] = useState(false)
+    const [streamError, setStreamError] = useState<string | null>(null)
     const query = useQuery({
-        queryKey: ['room-execution', roomId, 'sidebar'],
-        queryFn: () => getRoomExecutionServer({ data: { roomId, messageLimit: 0 } }),
-        staleTime: 5_000,
-        refetchInterval: 5_000,
+        queryKey: roomQueryKey.roomSidebar(roomId),
+        queryFn: () => getRoomSidebarServer({ data: { roomId } }),
+        staleTime: roomQueryPolicy.hotStaleMs,
+        gcTime: roomQueryPolicy.retainedSessionMs,
     })
+    useRoomEventCacheSync({ roomId, queryClient, onError: setStreamError })
+
+    useEffect(() => {
+        const threads = query.data?.threads ?? []
+        const targets = threads
+            .filter((thread, index) => index < SESSION_PREVIEW_LIMIT || isThreadActive(thread))
+            .slice(0, SESSION_PREVIEW_LIMIT + 3)
+        const timeout = window.setTimeout(() => {
+            for (const thread of targets) {
+                void prewarmSessionDetail(queryClient, {
+                    roomId,
+                    sessionKey: thread.key,
+                })
+            }
+        }, 600)
+        return () => window.clearTimeout(timeout)
+    }, [query.data?.threads, queryClient, roomId])
 
     if (query.isLoading) {
         return (
@@ -272,7 +296,12 @@ function RoomSessions({
                                 to="/rooms/$roomId/sessions/$sessionKey"
                                 params={{ roomId, sessionKey: thread.key }}
                                 onClick={() => {
+                                    markChatSelection(roomId, thread.key)
                                     onPreviewNavigate(sessionPath)
+                                    void prewarmSessionDetail(queryClient, {
+                                        roomId,
+                                        sessionKey: thread.key,
+                                    })
                                     onNavigate?.()
                                 }}
                                 className="flex min-w-0 flex-1 items-center"
@@ -308,7 +337,16 @@ function RoomSessions({
                     </Button>
                 </li>
             ) : null}
+            {streamError ? (
+                <li className="px-2 py-1 text-[0.6875rem] text-muted-foreground">{streamError}</li>
+            ) : null}
         </ul>
+    )
+}
+
+function isThreadActive(thread: RoomExecutionThread): boolean {
+    return (
+        thread.status === 'running' || thread.status === 'compacting' || thread.status === 'queued'
     )
 }
 

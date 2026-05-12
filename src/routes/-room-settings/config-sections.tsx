@@ -15,6 +15,7 @@ import {
     SelectValue,
 } from '#/components/ui/select'
 import { describeProviderStatus } from '#/lib/state'
+import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import { getOperatorConfigServer, saveRoomConfigServer } from '#/routes/-operator-config-server'
 import type {
     ProviderConnectionSummary,
@@ -42,9 +43,9 @@ export function ConfigSections({
     onSaved: () => Promise<void>
 }) {
     const operatorQuery = useQuery({
-        queryKey: ['operator-config'],
+        queryKey: roomQueryKey.operatorConfig,
         queryFn: () => getOperatorConfigServer(),
-        staleTime: 30_000,
+        staleTime: roomQueryPolicy.warmStaleMs,
     })
 
     const [draft, setDraft] = useState<ConfigDraft | null>(null)

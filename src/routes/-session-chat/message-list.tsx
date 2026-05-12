@@ -7,7 +7,7 @@ import type { RoomSessionDisplayRow, RoomRuntimeOverview } from '#/lib/room-exec
 
 import type { EditingMessageDraft } from '#/lib/message-list-model'
 import { DisplayRow, StreamRow } from './message-rows'
-import { recordClientPerformanceServer } from '#/routes/-room-runtime-server'
+import { recordClientPerformance } from '#/lib/browser-performance'
 import type { StreamTurnState } from './stream-state'
 import { streamTurnHasContent } from './stream-state'
 
@@ -106,16 +106,14 @@ export function MessageList({
         if (renderLoggedSessionRef.current === sessionKey) return
         if (rows.length === 0 || virtualRows.length === 0) return
         renderLoggedSessionRef.current = sessionKey
-        void recordClientPerformanceServer({
-            data: {
-                name: 'chat.window.render',
-                roomId: room.roomId,
-                sessionKey,
-                rowCount: rows.length,
-                virtualRowCount: virtualRows.length,
-                totalRows,
-                durationMs: performance.now() - mountedAtRef.current,
-            },
+        recordClientPerformance({
+            name: 'chat.window.render',
+            roomId: room.roomId,
+            sessionKey,
+            rowCount: rows.length,
+            virtualRowCount: virtualRows.length,
+            totalRows,
+            durationMs: performance.now() - mountedAtRef.current,
         })
     }, [room.roomId, rows.length, sessionKey, totalRows, virtualRows.length])
 
@@ -170,7 +168,6 @@ export function MessageList({
                                     onChangeEditingMessageText={onChangeEditingMessageText}
                                     onSubmitEditingMessage={onSubmitEditingMessage}
                                     onCancelEditingMessage={onCancelEditingMessage}
-                                    deferRichText
                                 />
                             </div>
                         )

@@ -25,6 +25,8 @@ import {
 import { Textarea } from '#/components/ui/textarea'
 import { cn } from '#/lib/utils'
 import type { ProviderApi } from '#/lib/domain-types'
+import { roomQueryKey } from '#/lib/room-query-keys'
+import { markChatSelection } from '#/lib/browser-performance'
 
 import { currentUserServer } from './-auth-server'
 import { friendlyNotice } from './-notice-copy'
@@ -82,11 +84,11 @@ function OnboardingPage() {
     const queryClient = useQueryClient()
 
     const configQuery = useQuery({
-        queryKey: ['operator-config'],
+        queryKey: roomQueryKey.operatorConfig,
         queryFn: () => getOperatorConfigServer(),
     })
     const readinessQuery = useQuery({
-        queryKey: ['room-setup-readiness'],
+        queryKey: roomQueryKey.setupReadiness,
         queryFn: () => getRoomSetupReadinessServer(),
     })
 
@@ -153,7 +155,7 @@ function OnboardingPage() {
                 status: summary.status,
                 validationMessage: summary.validationMessage,
             })
-            await queryClient.invalidateQueries({ queryKey: ['operator-config'] })
+            await queryClient.invalidateQueries({ queryKey: roomQueryKey.operatorConfig })
             setActiveStep('room')
         },
         onError: (error: unknown) => {
@@ -177,7 +179,7 @@ function OnboardingPage() {
             setRoomError(null)
             setCreatedRoomId(room.id)
             setFirstRoomBlockedReason(null)
-            await queryClient.invalidateQueries({ queryKey: ['rooms-list'] })
+            await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
             try {
                 const thread = await createThreadServer({
                     data: {
@@ -220,8 +222,9 @@ function OnboardingPage() {
             }
         },
         onSuccess: async (target) => {
-            await queryClient.invalidateQueries({ queryKey: ['operator-config'] })
+            await queryClient.invalidateQueries({ queryKey: roomQueryKey.operatorConfig })
             if (target.sessionKey) {
+                markChatSelection(target.roomId, target.sessionKey)
                 await navigate({
                     to: '/rooms/$roomId/sessions/$sessionKey',
                     params: { roomId: target.roomId, sessionKey: target.sessionKey },

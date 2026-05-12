@@ -215,23 +215,14 @@ export function shouldRefetchForRoomEvent(realtime: RoomRealtimeEvent): boolean 
         realtime.event === 'agent_end' ||
         realtime.event === 'thread.renamed' ||
         realtime.event === 'thread.title_generated' ||
-        realtime.event === 'thread.forked'
+        realtime.event === 'thread.forked' ||
+        realtime.event === 'thread.deleted' ||
+        realtime.event === 'thread.model_changed' ||
+        realtime.event === 'room.files.changed'
     ) {
         return true
     }
-
-    const event = payloadRuntimeEvent(realtime.payload)
-    if (!event) return false
-    if (event.type === 'message_end') {
-        const message = isRecord(event.message) ? event.message : null
-        return message?.role === 'assistant'
-    }
-    return (
-        event.type === 'tool_execution_end' ||
-        event.type === 'turn_end' ||
-        event.type === 'compaction_end' ||
-        event.type === 'agent_end'
-    )
+    return false
 }
 
 function appendAssistantDelta(

@@ -206,6 +206,35 @@ export interface RoomExecutionSnapshot {
     recentActivity: RoomExecutionActivity[]
 }
 
+export interface RoomSummarySnapshot {
+    room: RoomRuntimeOverview
+    executionState: RoomExecutionSnapshot['executionState']
+    executionMessage: string | null
+    roomAgent: RoomExecutionAgent | null
+    recentActivity: RoomExecutionActivity[]
+}
+
+export interface RoomSidebarSnapshot {
+    room: RoomRuntimeOverview
+    executionState: RoomExecutionSnapshot['executionState']
+    executionMessage: string | null
+    threads: RoomExecutionThread[]
+    recentActivity: RoomExecutionActivity[]
+}
+
+export interface RoomSessionShellSnapshot {
+    room: RoomRuntimeOverview
+    executionState: RoomExecutionSnapshot['executionState']
+    executionMessage: string | null
+    capabilities: RoomExecutionCapabilities
+    roomAgent: RoomExecutionAgent | null
+    threads: RoomExecutionThread[]
+    selectedThreadKey: string | null
+    selectedThread: RoomExecutionThread | null
+    selectedThreadModel: RoomExecutionModelState | null
+    recentActivity: RoomExecutionActivity[]
+}
+
 export interface RoomThreadSendResult {
     runId: string | null
     status: string

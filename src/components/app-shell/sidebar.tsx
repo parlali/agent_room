@@ -8,6 +8,7 @@ import { BrandWordmark, CreateRoomButton } from '#/components/agent-room'
 import { listRoomsServer } from '#/routes/-room-runtime-server'
 import { currentUserServer } from '#/routes/-auth-server'
 import { scheduleRoomDashboardRoutePreload } from '#/components/room-dashboard/preload'
+import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import { SidebarRoomTree } from './sidebar-room-tree'
 import { UserMenu } from './user-menu'
 
@@ -15,16 +16,17 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     useEffect(() => scheduleRoomDashboardRoutePreload(), [])
 
     const userQuery = useQuery({
-        queryKey: ['auth-current-user'],
+        queryKey: roomQueryKey.authUser,
         queryFn: () => currentUserServer(),
-        staleTime: 60_000,
+        staleTime: 5 * 60_000,
+        gcTime: 15 * 60_000,
     })
 
     const roomsQuery = useQuery({
-        queryKey: ['rooms-list'],
+        queryKey: roomQueryKey.roomsList,
         queryFn: () => listRoomsServer(),
-        staleTime: 10_000,
-        refetchInterval: 15_000,
+        staleTime: roomQueryPolicy.warmStaleMs,
+        refetchInterval: roomQueryPolicy.sidebarPollMs,
     })
 
     return (

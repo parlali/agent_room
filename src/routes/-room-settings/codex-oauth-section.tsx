@@ -7,6 +7,7 @@ import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import { copyText } from '#/lib/clipboard'
+import { roomQueryKey } from '#/lib/room-query-keys'
 import {
     cancelCodexOAuthSessionServer,
     getCodexOAuthSessionServer,
@@ -19,7 +20,7 @@ export function CodexOAuthSection({ roomId }: { roomId: string }) {
     const [redirectUrl, setRedirectUrl] = useState('')
 
     const sessionQuery = useQuery({
-        queryKey: ['codex-oauth-session', roomId],
+        queryKey: roomQueryKey.roomCodexOAuthSession(roomId),
         queryFn: () => getCodexOAuthSessionServer({ data: { roomId } }),
         refetchInterval: (query) => {
             const data = query.state.data
@@ -51,7 +52,7 @@ export function CodexOAuthSection({ roomId }: { roomId: string }) {
         mutationFn: () => startCodexOAuthSessionServer({ data: { roomId } }),
         onSuccess: async () => {
             await queryClient.invalidateQueries({
-                queryKey: ['codex-oauth-session', roomId],
+                queryKey: roomQueryKey.roomCodexOAuthSession(roomId),
             })
         },
         onError: (e: unknown) =>
@@ -67,7 +68,7 @@ export function CodexOAuthSection({ roomId }: { roomId: string }) {
             }),
         onSuccess: async () => {
             await queryClient.invalidateQueries({
-                queryKey: ['codex-oauth-session', roomId],
+                queryKey: roomQueryKey.roomCodexOAuthSession(roomId),
             })
         },
         onError: (e: unknown) =>
@@ -80,7 +81,7 @@ export function CodexOAuthSection({ roomId }: { roomId: string }) {
         mutationFn: () => cancelCodexOAuthSessionServer({ data: { roomId } }),
         onSuccess: async () => {
             await queryClient.invalidateQueries({
-                queryKey: ['codex-oauth-session', roomId],
+                queryKey: roomQueryKey.roomCodexOAuthSession(roomId),
             })
             toast.message('OpenAI sign-in cancelled')
         },

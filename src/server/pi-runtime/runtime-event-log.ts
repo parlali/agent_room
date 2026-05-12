@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises'
+import { rename, rm, stat, writeFile } from 'node:fs/promises'
 import { isAbsolute, relative, sep } from 'node:path'
 import type { RoomFileChangedPayload, RoomFileChangeOperation } from '../rooms/execution-types'
 import type { RoomFileSurface } from '../rooms/file-store'
@@ -13,9 +13,12 @@ type RuntimeEventAppenderInput = {
 }
 
 const internalStoreRoots = new Set(['blobs', 'manifests', 'previews'])
+const maxRuntimeEventLogBytes = 5 * 1024 * 1024
+const runtimeEventLogRotations = 3
 
 export function createRuntimeEventAppender(input: RuntimeEventAppenderInput) {
     let runtimeEventSeq = 0
+    let rotationQueue = Promise.resolve()
 
     return async function appendRuntimeEvent(event: string, payload: unknown): Promise<void> {
         const runContext = currentToolRunContext()
@@ -26,7 +29,11 @@ export function createRuntimeEventAppender(input: RuntimeEventAppenderInput) {
         const runId =
             runContext?.runId ??
             (typeof payloadObject.runId === 'string' ? payloadObject.runId : null)
-        const redactedPayload = input.redactPayload(payload)
+        const redactedPayload = boundedRuntimeEventPayload(event, input.redactPayload(payload))
+        rotationQueue = rotationQueue.then(() =>
+            rotateRuntimeEventLog(input.config.paths.runtimeEventsPath),
+        )
+        await rotationQueue
         await writeFile(
             input.config.paths.runtimeEventsPath,
             `${JSON.stringify({
@@ -53,6 +60,72 @@ export function createRuntimeEventAppender(input: RuntimeEventAppenderInput) {
             input.broadcast(sessionKey ?? '__room__', 'room.files.changed', fileChanged)
         }
     }
+}
+
+async function rotateRuntimeEventLog(path: string): Promise<void> {
+    let currentSize = 0
+    try {
+        currentSize = (await stat(path)).size
+    } catch {
+        return
+    }
+    if (currentSize < maxRuntimeEventLogBytes) {
+        return
+    }
+    await rm(`${path}.${runtimeEventLogRotations}`, { force: true })
+    for (let index = runtimeEventLogRotations - 1; index >= 1; index -= 1) {
+        await renameIfExists(`${path}.${index}`, `${path}.${index + 1}`)
+    }
+    await renameIfExists(path, `${path}.1`)
+}
+
+async function renameIfExists(from: string, to: string): Promise<void> {
+    try {
+        await rename(from, to)
+    } catch (error) {
+        if (isNodeError(error) && error.code === 'ENOENT') {
+            return
+        }
+        throw error
+    }
+}
+
+function boundedRuntimeEventPayload(event: string, payload: unknown): unknown {
+    const payloadRecord = isRecord(payload) ? payload : null
+    const innerEvent = isRecord(payloadRecord?.event) ? payloadRecord.event : null
+    const innerType = typeof innerEvent?.type === 'string' ? innerEvent.type : event
+    if (innerType !== 'message_update') {
+        return payload
+    }
+
+    const assistantEvent = isRecord(innerEvent?.assistantMessageEvent)
+        ? innerEvent.assistantMessageEvent
+        : null
+    const assistantType = typeof assistantEvent?.type === 'string' ? assistantEvent.type : 'unknown'
+    const textDelta =
+        typeof assistantEvent?.delta === 'string'
+            ? assistantEvent.delta
+            : typeof assistantEvent?.content === 'string'
+              ? assistantEvent.content
+              : ''
+    return {
+        ...(payloadRecord ?? {}),
+        event: {
+            type: innerType,
+            assistantMessageEvent: {
+                type: assistantType,
+                contentIndex:
+                    typeof assistantEvent?.contentIndex === 'number'
+                        ? assistantEvent.contentIndex
+                        : null,
+                textLength: textDelta.length,
+            },
+        },
+    }
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+    return error instanceof Error && 'code' in error
 }
 
 function normalizeFileChangeOperation(value: unknown): RoomFileChangeOperation {

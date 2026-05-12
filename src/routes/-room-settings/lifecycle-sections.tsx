@@ -24,6 +24,7 @@ import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import { Switch } from '#/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
+import { roomQueryKey } from '#/lib/room-query-keys'
 import { deleteRoomServer, setRoomDesiredStateServer } from '#/routes/-room-runtime-server'
 
 export function PauseAndArchiveSection({
@@ -44,8 +45,9 @@ export function PauseAndArchiveSection({
             }),
         onSuccess: async (_data, next) => {
             await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['rooms-list'] }),
-                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId] }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomExecution(roomId) }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) }),
             ])
             toast.success(next ? 'Room paused' : 'Room resumed')
         },
@@ -133,7 +135,7 @@ export function DangerZoneSection({
     const deleteMutation = useMutation({
         mutationFn: () => deleteRoomServer({ data: { roomId, confirmSlug } }),
         onSuccess: async () => {
-            await queryClient.invalidateQueries({ queryKey: ['rooms-list'] })
+            await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
             toast.success('Room deleted')
             navigate({ to: '/' })
         },

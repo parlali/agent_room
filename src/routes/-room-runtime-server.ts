@@ -133,13 +133,27 @@ const roomUsageInputSchema = z.object({
 })
 
 const clientPerformanceInputSchema = z.object({
-    name: z.enum(['chat.window.render', 'navigation.paint']),
+    name: z.enum([
+        'navigation.paint',
+        'route.remount',
+        'document.navigation',
+        'long.main_thread_task',
+        'chat.selection.shell_paint',
+        'chat.selection.latest_message_paint',
+        'chat.markdown.render',
+        'chat.window.render',
+        'artifact.panel.mount',
+        'artifact.panel.open',
+    ]),
     roomId: roomIdSchema.nullable().optional(),
     sessionKey: z.string().min(1).nullable().optional(),
     rowCount: z.number().int().min(0).nullable().optional(),
     virtualRowCount: z.number().int().min(0).nullable().optional(),
     totalRows: z.number().int().min(0).nullable().optional(),
     durationMs: z.number().min(0).nullable().optional(),
+    textLength: z.number().int().min(0).nullable().optional(),
+    routePath: z.string().max(300).nullable().optional(),
+    navigationType: z.string().max(80).nullable().optional(),
 })
 
 const usageInputSchema = z.object({
@@ -332,6 +346,68 @@ export const getRoomExecutionServer = createServerFn({ method: 'GET' })
         })
     })
 
+export const getRoomSidebarServer = createServerFn({ method: 'GET' })
+    .inputValidator((input: unknown) => roomExecutionTruthInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireAuthenticatedActor()
+        setResponseHeaders({
+            'cache-control': 'no-store',
+        })
+        await ensureRuntimeSupervisorBoot()
+        const { getRoomExecutionSnapshot } = await import('#/server/rooms/execution-engine')
+        const snapshot = await getRoomExecutionSnapshot({
+            roomId: data.roomId,
+            selectedThreadKey: null,
+            messageLimit: 0,
+            actorUserId: actor.userId,
+        })
+        return {
+            room: snapshot.room,
+            executionState: snapshot.executionState,
+            executionMessage: snapshot.executionMessage,
+            threads: snapshot.threads,
+            recentActivity: snapshot.recentActivity,
+        }
+    })
+
+export const getRoomSessionShellServer = createServerFn({ method: 'GET' })
+    .inputValidator((input: unknown) =>
+        z
+            .object({
+                roomId: roomIdSchema,
+                sessionKey: z.string().min(1),
+            })
+            .parse(input),
+    )
+    .handler(async ({ data }) => {
+        const actor = await requireAuthenticatedActor()
+        setResponseHeaders({
+            'cache-control': 'no-store',
+        })
+        await ensureRuntimeSupervisorBoot()
+        const { getRoomExecutionSnapshot } = await import('#/server/rooms/execution-engine')
+        const snapshot = await getRoomExecutionSnapshot({
+            roomId: data.roomId,
+            selectedThreadKey: data.sessionKey,
+            messageLimit: 0,
+            actorUserId: actor.userId,
+        })
+        const selectedThread =
+            snapshot.threads.find((thread) => thread.key === snapshot.selectedThreadKey) ?? null
+        return {
+            room: snapshot.room,
+            executionState: snapshot.executionState,
+            executionMessage: snapshot.executionMessage,
+            capabilities: snapshot.capabilities,
+            roomAgent: snapshot.roomAgent,
+            threads: snapshot.threads,
+            selectedThreadKey: snapshot.selectedThreadKey,
+            selectedThread,
+            selectedThreadModel: snapshot.selectedThreadModel,
+            recentActivity: snapshot.recentActivity,
+        }
+    })
+
 export const getRoomSessionWindowServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => sessionWindowInputSchema.parse(input))
     .handler(async ({ data }) => {
@@ -362,6 +438,9 @@ export const recordClientPerformanceServer = createServerFn({ method: 'POST' })
             virtualRowCount: data.virtualRowCount ?? null,
             totalRows: data.totalRows ?? null,
             durationMs: data.durationMs ?? null,
+            textLength: data.textLength ?? null,
+            routePath: data.routePath ?? null,
+            navigationType: data.navigationType ?? null,
         })
         return {
             ok: true,

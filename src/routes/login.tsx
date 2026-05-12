@@ -8,6 +8,7 @@ import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import { Alert, AlertDescription } from '#/components/ui/alert'
 import { BrandMark } from '#/components/agent-room'
+import { roomQueryKey } from '#/lib/room-query-keys'
 import { currentUserServer, loginServer } from './-auth-server'
 
 export const Route = createFileRoute('/login')({
@@ -30,7 +31,7 @@ function LoginPage() {
             loginServer({ data: payload }),
         onSuccess: async () => {
             setError(null)
-            await queryClient.invalidateQueries({ queryKey: ['auth-current-user'] })
+            await queryClient.invalidateQueries({ queryKey: roomQueryKey.authUser })
             await navigate({ to: '/' })
         },
         onError: () => setError('Invalid email or password.'),

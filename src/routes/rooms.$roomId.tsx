@@ -26,10 +26,12 @@ import {
 } from '#/components/agent-room'
 import { describeSchedule, describeSessionState } from '#/lib/state'
 import { formatBytes, formatRelativeTime, pluralize } from '#/lib/format'
+import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
+import { markChatSelection } from '#/lib/browser-performance'
 import { requireRouteUser } from './-route-auth'
 import {
     createThreadServer,
-    getRoomExecutionServer,
+    getRoomSidebarServer,
     getRoomSetupReadinessServer,
     listCronJobsServer,
     listRoomFilesServer,
@@ -60,37 +62,38 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
     const queryClient = useQueryClient()
 
     const executionQuery = useQuery({
-        queryKey: ['room-execution', roomId],
-        queryFn: () => getRoomExecutionServer({ data: { roomId, messageLimit: 0 } }),
-        staleTime: 10_000,
-        refetchInterval: 20_000,
+        queryKey: roomQueryKey.roomSidebar(roomId),
+        queryFn: () => getRoomSidebarServer({ data: { roomId } }),
+        staleTime: roomQueryPolicy.hotStaleMs,
     })
     const jobsQuery = useQuery({
-        queryKey: ['room-cron-jobs', roomId],
+        queryKey: roomQueryKey.roomCronJobs(roomId),
         queryFn: () => listCronJobsServer({ data: { roomId } }),
-        staleTime: 30_000,
+        staleTime: roomQueryPolicy.warmStaleMs,
     })
     const filesQuery = useQuery({
-        queryKey: ['room-files', roomId],
+        queryKey: roomQueryKey.roomFiles(roomId),
         queryFn: () => listRoomFilesServer({ data: { roomId } }),
-        staleTime: 30_000,
+        staleTime: roomQueryPolicy.warmStaleMs,
     })
     const configQuery = useQuery({
-        queryKey: ['room-config', roomId],
+        queryKey: roomQueryKey.roomConfig(roomId),
         queryFn: () => getRoomConfigServer({ data: { roomId } }),
-        staleTime: 60_000,
+        staleTime: roomQueryPolicy.coldStaleMs,
     })
     const readinessQuery = useQuery({
-        queryKey: ['room-setup-readiness'],
+        queryKey: roomQueryKey.setupReadiness,
         queryFn: () => getRoomSetupReadinessServer(),
-        staleTime: 60_000,
+        staleTime: roomQueryPolicy.coldStaleMs,
     })
 
     const startSession = useMutation({
         mutationFn: () => createThreadServer({ data: { roomId } }),
         onSuccess: async ({ key }) => {
-            await queryClient.invalidateQueries({ queryKey: ['room-execution', roomId] })
-            await queryClient.invalidateQueries({ queryKey: ['rooms-list'] })
+            await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) })
+            await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomExecution(roomId) })
+            await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
+            markChatSelection(roomId, key)
             navigate({
                 to: '/rooms/$roomId/sessions/$sessionKey',
                 params: { roomId, sessionKey: key },

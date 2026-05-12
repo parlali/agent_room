@@ -1,7 +1,7 @@
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
-import type { FormEvent, KeyboardEvent } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { MessageSquareIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -11,9 +11,16 @@ import { describeSessionState } from '#/lib/state'
 import { uploadRoomFiles } from '#/lib/room-file-upload'
 import { formatMessageWithAttachments } from '#/lib/room-attachments'
 import {
+    afterNextPaint,
+    consumeChatSelection,
+    peekChatSelection,
+    recordClientPerformance,
+} from '#/lib/browser-performance'
+import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
+import {
     abortMessageServer,
     editMessageServer,
-    getRoomExecutionServer,
+    getRoomSessionShellServer,
     getRoomSessionWindowServer,
     renameSessionServer,
     sendMessageServer,
@@ -21,9 +28,11 @@ import {
 } from '#/routes/-room-runtime-server'
 import type {
     RoomExecutionMessage,
-    RoomExecutionSnapshot,
     RoomRealtimeEvent,
+    RoomSidebarSnapshot,
     RoomSessionDisplayRow,
+    RoomSessionArtifact,
+    RoomSessionShellSnapshot,
 } from '#/lib/room-execution-types'
 
 import { ChatHeader } from './chat-header'
@@ -41,6 +50,12 @@ import {
 import { MessageList } from './message-list'
 import type { EditingMessageDraft } from '#/lib/message-list-model'
 import { useStreamingRefetch } from './streaming'
+import {
+    addOptimisticUserMessage,
+    editOptimisticUserMessage,
+    rollbackOptimisticWindow,
+    type OptimisticWindowRollback,
+} from './chat-projection-store'
 
 const loadSessionArtifactsPanel = () => import('./session-artifacts-panel')
 
@@ -54,6 +69,7 @@ const initialSessionRowLimit = 8
 const olderSessionRowLimit = 24
 const backgroundOlderRowsDelayMs = 900
 const artifactsAutoOpenDelayMs = 1300
+const artifactPanelStateCache = new Map<string, SessionArtifactPanelState>()
 
 export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessionKey: string }) {
     const navigate = useNavigate()
@@ -63,33 +79,61 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const [streamTurn, setStreamTurn] = useState<StreamTurnState>(emptyStreamTurnState)
     const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
     const [editingMessage, setEditingMessage] = useState<EditingMessageDraft | null>(null)
-    const [artifactsOpen, setArtifactsOpen] = useState(false)
-    const [autoOpenedArtifactsSession, setAutoOpenedArtifactsSession] = useState<string | null>(
-        null,
+    const [artifactStateBySession, setArtifactStateBySession] = useState<
+        Map<string, SessionArtifactPanelState>
+    >(() => new Map(artifactPanelStateCache))
+    const artifactStateKey = useMemo(
+        () => sessionArtifactStateKey(roomId, sessionKey),
+        [roomId, sessionKey],
     )
+    const shellPaintLoggedRef = useRef<string | null>(null)
+    const latestPaintLoggedRef = useRef<string | null>(null)
     const queryKey = useMemo(
-        () => ['room-execution', roomId, sessionKey] as const,
+        () => roomQueryKey.sessionShell(roomId, sessionKey),
         [roomId, sessionKey],
     )
     const windowQueryKey = useMemo(
-        () => ['room-session-window', roomId, sessionKey] as const,
+        () => roomQueryKey.sessionWindow(roomId, sessionKey),
         [roomId, sessionKey],
     )
 
-    const executionQuery = useQuery<RoomExecutionSnapshot>({
+    const executionQuery = useQuery<RoomSessionShellSnapshot>({
         queryKey,
         queryFn: () =>
-            getRoomExecutionServer({
+            getRoomSessionShellServer({
                 data: {
                     roomId,
-                    selectedThreadKey: sessionKey,
-                    messageLimit: 0,
+                    sessionKey,
                 },
             }),
-        placeholderData: () =>
-            queryClient.getQueryData<RoomExecutionSnapshot>(['room-execution', roomId]) ??
-            queryClient.getQueryData<RoomExecutionSnapshot>(['room-execution', roomId, 'sidebar']),
-        staleTime: 10_000,
+        placeholderData: () => {
+            const sidebar = queryClient.getQueryData<RoomSidebarSnapshot>(
+                roomQueryKey.roomSidebar(roomId),
+            )
+            const selectedThread =
+                sidebar?.threads.find((thread) => thread.key === sessionKey) ?? null
+            if (!sidebar || !selectedThread) return undefined
+            return {
+                room: sidebar.room,
+                executionState: sidebar.executionState,
+                executionMessage: sidebar.executionMessage,
+                capabilities: {
+                    canStreamTokens: true,
+                    canStreamToolEvents: true,
+                    canAbortGeneration: true,
+                    canEditMessages: false,
+                    editMessageUnsupportedReason: 'Session details are still loading',
+                },
+                roomAgent: null,
+                threads: sidebar.threads,
+                selectedThreadKey: sessionKey,
+                selectedThread,
+                selectedThreadModel: null,
+                recentActivity: sidebar.recentActivity,
+            }
+        },
+        staleTime: roomQueryPolicy.hotStaleMs,
+        gcTime: roomQueryPolicy.retainedSessionMs,
     })
     const windowQuery = useInfiniteQuery({
         queryKey: windowQueryKey,
@@ -104,7 +148,8 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 },
             }),
         getNextPageParam: (lastPage) => lastPage.beforeCursor ?? undefined,
-        staleTime: 30_000,
+        staleTime: roomQueryPolicy.warmStaleMs,
+        gcTime: roomQueryPolicy.retainedSessionMs,
     })
 
     const snapshot = executionQuery.data
@@ -117,9 +162,24 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const artifacts = windowQuery.data?.pages[0]?.artifacts ?? []
     const totalRows = windowQuery.data?.pages[0]?.totalRows ?? rows.length
     const showArtifacts = room?.roomMode !== 'programmer'
-    const selectedThread = useMemo(
-        () => snapshot?.threads.find((thread) => thread.key === sessionKey) ?? null,
-        [snapshot?.threads, sessionKey],
+    const selectedThread = snapshot?.selectedThread ?? null
+    const artifactState =
+        artifactStateBySession.get(artifactStateKey) ?? defaultArtifactPanelState()
+    const artifactsOpen = showArtifacts && artifactState.open
+    const updateArtifactState = useCallback(
+        (targetKey: string, patch: Partial<SessionArtifactPanelState>) => {
+            setArtifactStateBySession((current) => {
+                const next = new Map(current)
+                next.set(targetKey, {
+                    ...defaultArtifactPanelState(),
+                    ...next.get(targetKey),
+                    ...patch,
+                })
+                artifactPanelStateCache.set(targetKey, next.get(targetKey)!)
+                return next
+            })
+        },
+        [],
     )
     const sessionTone = describeSessionState(selectedThread?.status ?? null)
     const streamActive =
@@ -133,32 +193,74 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const activeRunId = streamTurn.runId
     const streamPersisted = streamTurnPersisted(streamTurn, messages)
     const visibleStreamTurn = streamPersisted ? emptyStreamTurnState : streamTurn
+    const loadingInitialRows = windowQuery.isLoading && rows.length === 0
 
     useEffect(() => {
         setStreamTurn(emptyStreamTurnState)
         setAttachments([])
         setEditingMessage(null)
-        setArtifactsOpen(false)
-        setAutoOpenedArtifactsSession(null)
+        shellPaintLoggedRef.current = null
+        latestPaintLoggedRef.current = null
     }, [sessionKey])
 
     useEffect(() => {
         if (!showArtifacts) return
         if (artifacts.length === 0) return
-        if (autoOpenedArtifactsSession === sessionKey) return
+        if (artifactState.autoOpened) return
         let cancelled = false
         const timeout = window.setTimeout(() => {
             void loadSessionArtifactsPanel().finally(() => {
                 if (cancelled) return
-                setArtifactsOpen(true)
-                setAutoOpenedArtifactsSession(sessionKey)
+                updateArtifactState(artifactStateKey, {
+                    open: true,
+                    loaded: true,
+                    autoOpened: true,
+                })
             })
         }, artifactsAutoOpenDelayMs)
         return () => {
             cancelled = true
             window.clearTimeout(timeout)
         }
-    }, [artifacts.length, autoOpenedArtifactsSession, sessionKey, showArtifacts])
+    }, [
+        artifactState.autoOpened,
+        artifactStateKey,
+        artifacts.length,
+        showArtifacts,
+        updateArtifactState,
+    ])
+
+    useEffect(() => {
+        if (!room || !selectedThread) return
+        if (shellPaintLoggedRef.current === sessionKey) return
+        shellPaintLoggedRef.current = sessionKey
+        const startedAt = peekChatSelection(roomId, sessionKey) ?? performance.now()
+        return afterNextPaint(() => {
+            recordClientPerformance({
+                name: 'chat.selection.shell_paint',
+                roomId,
+                sessionKey,
+                durationMs: performance.now() - startedAt,
+            })
+        })
+    }, [room, roomId, selectedThread, sessionKey])
+
+    useEffect(() => {
+        if (latestPaintLoggedRef.current === sessionKey) return
+        if (loadingInitialRows || rows.length === 0) return
+        latestPaintLoggedRef.current = sessionKey
+        const startedAt = consumeChatSelection(roomId, sessionKey) ?? performance.now()
+        return afterNextPaint(() => {
+            recordClientPerformance({
+                name: 'chat.selection.latest_message_paint',
+                roomId,
+                sessionKey,
+                rowCount: rows.length,
+                totalRows,
+                durationMs: performance.now() - startedAt,
+            })
+        })
+    }, [loadingInitialRows, roomId, rows.length, sessionKey, totalRows])
 
     useEffect(() => {
         if (windowQuery.isLoading) return
@@ -202,16 +304,15 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             if (
                 event.event === 'thread.renamed' ||
                 event.event === 'thread.title_generated' ||
-                event.event === 'run.accepted' ||
+                event.event === 'thread.model_changed' ||
+                event.event === 'room.files.changed' ||
                 event.event === 'run.finished' ||
                 event.event === 'agent_end'
             ) {
                 void queryClient.invalidateQueries({ queryKey })
-                queryClient.removeQueries({ queryKey: windowQueryKey })
-                void queryClient.invalidateQueries({ queryKey: ['room-execution', roomId] })
-                void queryClient.invalidateQueries({
-                    queryKey: ['room-execution', roomId, 'sidebar'],
-                })
+                void queryClient.invalidateQueries({ queryKey: windowQueryKey })
+                void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) })
+                void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
             }
         },
         [queryClient, queryKey, roomId, windowQueryKey],
@@ -230,13 +331,30 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const sendMutation = useMutation({
         mutationFn: (message: string) =>
             sendMessageServer({ data: { roomId, sessionKey, message } }),
+        onMutate: async (message): Promise<OptimisticWindowRollback> => {
+            return addOptimisticUserMessage({
+                queryClient,
+                roomId,
+                sessionKey,
+                message,
+                timestamp: Date.now(),
+            })
+        },
         onSuccess: () => {
             setDraft('')
             setAttachments([])
             void queryClient.invalidateQueries({ queryKey })
-            queryClient.removeQueries({ queryKey: windowQueryKey })
+            void queryClient.invalidateQueries({ queryKey: windowQueryKey })
+            void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) })
         },
-        onError: (error) => {
+        onError: (error, message, rollback) => {
+            rollbackOptimisticWindow({
+                queryClient,
+                roomId,
+                sessionKey,
+                rollback,
+            })
+            setDraft(message)
             toast.error(error instanceof Error ? error.message : 'Message could not be sent')
         },
     })
@@ -251,12 +369,28 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     message: input.message,
                 },
             }),
+        onMutate: async (input): Promise<OptimisticWindowRollback> => {
+            return editOptimisticUserMessage({
+                queryClient,
+                roomId,
+                sessionKey,
+                messageId: input.messageId,
+                message: input.message,
+            })
+        },
         onSuccess: () => {
             setEditingMessage(null)
             void queryClient.invalidateQueries({ queryKey })
-            queryClient.removeQueries({ queryKey: windowQueryKey })
+            void queryClient.invalidateQueries({ queryKey: windowQueryKey })
+            void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) })
         },
-        onError: (error) => {
+        onError: (error, _input, rollback) => {
+            rollbackOptimisticWindow({
+                queryClient,
+                roomId,
+                sessionKey,
+                rollback,
+            })
             toast.error(error instanceof Error ? error.message : 'Message could not be edited')
         },
     })
@@ -274,6 +408,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             }),
         onSuccess: async () => {
             await queryClient.invalidateQueries({ queryKey })
+            await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) })
         },
         onError: (error) => {
             toast.error(error instanceof Error ? error.message : 'Model could not be changed')
@@ -299,8 +434,8 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     sizeLabel: null,
                 })),
             ])
-            void queryClient.invalidateQueries({ queryKey: ['room-files', roomId] })
-            void queryClient.invalidateQueries({ queryKey: ['room-file-tree', roomId] })
+            void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomFiles(roomId) })
+            void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomFileTree(roomId) })
             toast.success(
                 result.files.length === 1
                     ? `Attached ${result.files[0]!.name}`
@@ -324,6 +459,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 toast.message('No active run to stop')
             }
             void queryClient.invalidateQueries({ queryKey })
+            void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) })
         },
         onError: (error) => {
             toast.error(error instanceof Error ? error.message : 'Stop request failed')
@@ -335,8 +471,8 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         onSuccess: async () => {
             await Promise.all([
                 queryClient.invalidateQueries({ queryKey }),
-                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId] }),
-                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId, 'sidebar'] }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList }),
             ])
             toast.success('Session renamed')
         },
@@ -398,8 +534,6 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         }
     }
 
-    const loadingInitialRows = windowQuery.isLoading && rows.length === 0
-
     if (executionQuery.isLoading && !snapshot) {
         return <ChatSkeleton />
     }
@@ -436,7 +570,12 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 showArtifacts={showArtifacts}
                 artifactsCount={artifacts.length}
                 artifactsOpen={artifactsOpen}
-                onToggleArtifacts={() => setArtifactsOpen((open) => !open)}
+                onToggleArtifacts={() =>
+                    updateArtifactState(artifactStateKey, {
+                        open: !artifactState.open,
+                        loaded: true,
+                    })
+                }
                 onBack={() => {
                     void navigate({ to: '/rooms/$roomId', params: { roomId } })
                 }}
@@ -511,22 +650,15 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     onSubmitEditingMessage={submitEditedMessage}
                     onCancelEditingMessage={cancelEditingMessage}
                 />
-                {showArtifacts && artifactsOpen ? (
-                    <Suspense fallback={null}>
-                        <SessionArtifactsPanel
-                            roomId={roomId}
-                            artifacts={artifacts}
-                            onClose={() => setArtifactsOpen(false)}
-                            className="hidden w-[24rem] shrink-0 border-l border-border/60 xl:flex"
-                        />
-                        <div className="absolute inset-y-0 right-0 z-20 w-full max-w-md border-l border-border/60 shadow-xl xl:hidden">
-                            <SessionArtifactsPanel
-                                roomId={roomId}
-                                artifacts={artifacts}
-                                onClose={() => setArtifactsOpen(false)}
-                            />
-                        </div>
-                    </Suspense>
+                {showArtifacts ? (
+                    <SessionArtifactsShell
+                        roomId={roomId}
+                        sessionKey={sessionKey}
+                        artifacts={artifacts}
+                        state={artifactState}
+                        open={artifactsOpen}
+                        onChangeState={(patch) => updateArtifactState(artifactStateKey, patch)}
+                    />
                 ) : null}
             </div>
             <Composer
@@ -573,6 +705,148 @@ function streamTurnPersisted(
 
     return assistantTexts.every((text) =>
         persistedTexts.some((persisted) => persisted === text || persisted.endsWith(text)),
+    )
+}
+
+interface SessionArtifactPanelState {
+    open: boolean
+    loaded: boolean
+    autoOpened: boolean
+    selectedArtifactId: string | null
+    width: number
+}
+
+function defaultArtifactPanelState(): SessionArtifactPanelState {
+    return {
+        open: false,
+        loaded: false,
+        autoOpened: false,
+        selectedArtifactId: null,
+        width: 384,
+    }
+}
+
+function sessionArtifactStateKey(roomId: string, sessionKey: string): string {
+    return `${roomId}:${sessionKey}`
+}
+
+function SessionArtifactsShell({
+    roomId,
+    sessionKey,
+    artifacts,
+    state,
+    open,
+    onChangeState,
+}: {
+    roomId: string
+    sessionKey: string
+    artifacts: RoomSessionArtifact[]
+    state: SessionArtifactPanelState
+    open: boolean
+    onChangeState: (patch: Partial<SessionArtifactPanelState>) => void
+}) {
+    const mountedLoggedRef = useRef(false)
+    const openStartedAtRef = useRef<number | null>(null)
+    const shouldLoad = state.loaded || open || artifacts.length > 0
+
+    useEffect(() => {
+        if (!shouldLoad || mountedLoggedRef.current) return
+        mountedLoggedRef.current = true
+        recordClientPerformance({
+            name: 'artifact.panel.mount',
+            roomId,
+            sessionKey,
+            rowCount: artifacts.length,
+        })
+    }, [artifacts.length, roomId, sessionKey, shouldLoad])
+
+    useEffect(() => {
+        if (!open) {
+            openStartedAtRef.current = null
+            return
+        }
+        openStartedAtRef.current = performance.now()
+        return afterNextPaint(() => {
+            recordClientPerformance({
+                name: 'artifact.panel.open',
+                roomId,
+                sessionKey,
+                rowCount: artifacts.length,
+                durationMs: openStartedAtRef.current
+                    ? performance.now() - openStartedAtRef.current
+                    : null,
+            })
+        })
+    }, [artifacts.length, open, roomId, sessionKey])
+
+    const onDesktopResizeStart = (event: ReactMouseEvent<HTMLButtonElement>) => {
+        event.preventDefault()
+        const startX = event.clientX
+        const startWidth = state.width
+        const onMove = (moveEvent: MouseEvent) => {
+            const nextWidth = Math.min(
+                560,
+                Math.max(320, startWidth - (moveEvent.clientX - startX)),
+            )
+            onChangeState({ width: nextWidth })
+        }
+        const onUp = () => {
+            window.removeEventListener('mousemove', onMove)
+            window.removeEventListener('mouseup', onUp)
+        }
+        window.addEventListener('mousemove', onMove)
+        window.addEventListener('mouseup', onUp, { once: true })
+    }
+
+    return (
+        <>
+            <div
+                className="hidden shrink-0 overflow-hidden border-l border-border/60 transition-[width] duration-200 ease-out xl:block"
+                style={{ width: open ? state.width : 0 }}
+                aria-hidden={!open}
+            >
+                <div className="relative h-full" style={{ width: state.width }}>
+                    <button
+                        type="button"
+                        className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize bg-transparent hover:bg-border"
+                        aria-label="Resize artifacts"
+                        onMouseDown={onDesktopResizeStart}
+                    />
+                    {shouldLoad ? (
+                        <Suspense fallback={null}>
+                            <SessionArtifactsPanel
+                                roomId={roomId}
+                                artifacts={artifacts}
+                                selectedArtifactId={state.selectedArtifactId}
+                                onSelectArtifact={(selectedArtifactId) =>
+                                    onChangeState({ selectedArtifactId })
+                                }
+                                onClose={() => onChangeState({ open: false })}
+                                className="h-full pl-1"
+                            />
+                        </Suspense>
+                    ) : null}
+                </div>
+            </div>
+            <div
+                className={`absolute inset-y-0 right-0 z-20 w-full max-w-md transform border-l border-border/60 shadow-xl transition-transform duration-200 ease-out xl:hidden ${open ? 'translate-x-0' : 'translate-x-full'}`}
+                aria-hidden={!open}
+            >
+                {shouldLoad ? (
+                    <Suspense fallback={null}>
+                        <SessionArtifactsPanel
+                            roomId={roomId}
+                            artifacts={artifacts}
+                            selectedArtifactId={state.selectedArtifactId}
+                            onSelectArtifact={(selectedArtifactId) =>
+                                onChangeState({ selectedArtifactId })
+                            }
+                            onClose={() => onChangeState({ open: false })}
+                        />
+                    </Suspense>
+                ) : null}
+            </div>
+        </>
     )
 }
 

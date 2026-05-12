@@ -21,6 +21,7 @@ import {
 } from '#/components/ui/select'
 import { Switch } from '#/components/ui/switch'
 import { describeProviderStatus } from '#/lib/state'
+import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import {
     listGitHubInstallationRepositoriesServer,
     refreshGitHubInstallationsServer,
@@ -54,12 +55,11 @@ export function GitHubSection({
             (installation) => installation.installationId === draft.githubInstallationId,
         ) ?? null
     const repositoriesQuery = useQuery({
-        queryKey: [
-            'github-installation-repositories',
+        queryKey: roomQueryKey.githubInstallationRepositories(
             draft.githubInstallationId,
             repositorySearch,
             repositoryPage,
-        ],
+        ),
         queryFn: () =>
             listGitHubInstallationRepositoriesServer({
                 data: {
@@ -70,7 +70,7 @@ export function GitHubSection({
                 },
             }),
         enabled: draft.githubEnabled && Boolean(draft.githubInstallationId),
-        staleTime: 30_000,
+        staleTime: roomQueryPolicy.warmStaleMs,
     })
     useEffect(() => {
         setRepositoryPage(1)
@@ -79,7 +79,10 @@ export function GitHubSection({
         mutationFn: () => refreshGitHubInstallationsServer(),
         onSuccess: async () => {
             toast.success('GitHub installations refreshed')
-            await queryClient.invalidateQueries({ queryKey: ['operator-config'], exact: false })
+            await queryClient.invalidateQueries({
+                queryKey: roomQueryKey.operatorConfig,
+                exact: false,
+            })
         },
         onError: (error) =>
             toast.error(error instanceof Error ? error.message : 'GitHub refresh failed'),

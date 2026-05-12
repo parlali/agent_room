@@ -8,6 +8,7 @@ import { Button } from '#/components/ui/button'
 import { Textarea } from '#/components/ui/textarea'
 import { RoomDashboardLayout } from '#/components/room-dashboard'
 import { EmptyState, LoadingRows, Section } from '#/components/agent-room'
+import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import { getRoomMemoryServer, updateRoomMemoryServer } from '#/routes/-room-runtime-server'
 
 type MemoryItem = {
@@ -319,9 +320,9 @@ function deleteItem(memory: RoomMemory, key: MemorySectionKey, itemId: string): 
 function MemoryContent({ roomId }: { roomId: string }) {
     const queryClient = useQueryClient()
     const memoryQuery = useQuery({
-        queryKey: ['room-memory', roomId],
+        queryKey: roomQueryKey.roomMemory(roomId),
         queryFn: () => getRoomMemoryServer({ data: { roomId } }),
-        staleTime: 5_000,
+        staleTime: roomQueryPolicy.hotStaleMs,
     })
     const memory = memoryQuery.data?.memory as RoomMemory | undefined
     const memoryHash = typeof memoryQuery.data?.hash === 'string' ? memoryQuery.data.hash : null
@@ -355,7 +356,7 @@ function MemoryContent({ roomId }: { roomId: string }) {
             })
         },
         onSuccess: async () => {
-            await queryClient.invalidateQueries({ queryKey: ['room-memory', roomId] })
+            await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomMemory(roomId) })
             toast.success('Memory updated')
         },
         onError: (error: unknown) => {

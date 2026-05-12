@@ -4,6 +4,7 @@ import { BarChart3Icon } from 'lucide-react'
 
 import { RoomDashboardLayout } from '#/components/room-dashboard'
 import { EmptyState, LoadingRows, Section } from '#/components/agent-room'
+import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import { listRoomUsageServer } from '#/routes/-room-runtime-server'
 import { UsageTimeline, UsageTotalsGrid, usageTimelineCount } from './-usage/usage-components'
 
@@ -35,9 +36,9 @@ function RoomUsagePage() {
 
 function UsageContent({ roomId }: { roomId: string }) {
     const usageQuery = useQuery({
-        queryKey: ['room-usage', roomId],
+        queryKey: roomQueryKey.roomUsage(roomId),
         queryFn: () => listRoomUsageServer({ data: { roomId, limit: 100 } }),
-        staleTime: 5_000,
+        staleTime: roomQueryPolicy.hotStaleMs,
     })
     const events = (usageQuery.data?.events ?? []) as UsageEvent[]
     const totals = usageQuery.data?.totals

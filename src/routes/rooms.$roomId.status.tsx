@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 
 import { AttentionBanner, LoadingPage } from '#/components/agent-room'
 import { RoomDashboardLayout } from '#/components/room-dashboard'
+import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import type { RoomRunHistoryEntry } from '#/lib/room-execution-types'
 
 import {
@@ -29,29 +30,29 @@ export const Route = createFileRoute('/rooms/$roomId/status')({
 function RoomStatusPage() {
     const { roomId } = Route.useParams()
     const executionQuery = useQuery({
-        queryKey: ['room-execution', roomId],
+        queryKey: roomQueryKey.roomExecution(roomId),
         queryFn: () => getRoomExecutionServer({ data: { roomId, messageLimit: 0 } }),
-        staleTime: 5_000,
+        staleTime: roomQueryPolicy.hotStaleMs,
     })
     const configQuery = useQuery({
-        queryKey: ['room-config', roomId],
+        queryKey: roomQueryKey.roomConfig(roomId),
         queryFn: () => getRoomConfigServer({ data: { roomId } }),
-        staleTime: 30_000,
+        staleTime: roomQueryPolicy.warmStaleMs,
     })
     const readinessQuery = useQuery({
-        queryKey: ['room-setup-readiness'],
+        queryKey: roomQueryKey.setupReadiness,
         queryFn: () => getRoomSetupReadinessServer(),
-        staleTime: 10_000,
+        staleTime: roomQueryPolicy.warmStaleMs,
     })
     const historyQuery = useQuery({
-        queryKey: ['room-run-history', roomId],
+        queryKey: roomQueryKey.roomRunHistory(roomId),
         queryFn: () => listRoomRunHistoryServer({ data: { roomId, limit: 20 } }),
-        staleTime: 5_000,
+        staleTime: roomQueryPolicy.hotStaleMs,
     })
     const jobsQuery = useQuery({
-        queryKey: ['room-cron-jobs', roomId],
+        queryKey: roomQueryKey.roomCronJobs(roomId),
         queryFn: () => listCronJobsServer({ data: { roomId } }),
-        staleTime: 5_000,
+        staleTime: roomQueryPolicy.hotStaleMs,
     })
 
     const [selectedRun, setSelectedRun] = useState<RoomRunHistoryEntry | null>(null)

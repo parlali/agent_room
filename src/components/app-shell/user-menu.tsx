@@ -23,6 +23,7 @@ import { ToggleGroup, ToggleGroupItem } from '#/components/ui/toggle-group'
 import { logoutServer } from '#/routes/-auth-server'
 import type { AuthUserSnapshot } from '#/routes/-auth-server'
 import { initialsFromName } from '#/lib/format'
+import { roomQueryKey } from '#/lib/room-query-keys'
 import { useThemeMode } from './theme-toggle'
 
 export function UserMenu({ user }: { user: AuthUserSnapshot | null }) {
@@ -33,7 +34,7 @@ export function UserMenu({ user }: { user: AuthUserSnapshot | null }) {
     const logout = useMutation({
         mutationFn: () => logoutServer(),
         onSuccess: async () => {
-            await queryClient.invalidateQueries({ queryKey: ['auth-current-user'] })
+            await queryClient.invalidateQueries({ queryKey: roomQueryKey.authUser })
             navigate({ to: '/login' })
         },
     })

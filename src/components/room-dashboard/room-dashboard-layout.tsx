@@ -30,11 +30,11 @@ import {
 } from '#/components/ui/dropdown-menu'
 import { Skeleton } from '#/components/ui/skeleton'
 import { ScrollArea } from '#/components/ui/scroll-area'
-import { AppShell } from '#/components/app-shell'
 import { RoomGlyph, StateBadge } from '#/components/agent-room'
 import { listRoomsServer, setRoomDesiredStateServer } from '#/routes/-room-runtime-server'
 import type { RoomRuntimeOverview } from '#/lib/room-execution-types'
 import { preloadRoomDashboardRoutes, scheduleRoomDashboardRoutePreload } from './preload'
+import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 
 export type RoomDashboardTab =
     | 'home'
@@ -158,15 +158,13 @@ export function RoomDashboardLayout({
     usePreloadRoomDashboardRoutes()
 
     return (
-        <AppShell>
-            <div className="flex min-h-full flex-col">
-                <RoomHeader roomId={roomId} headerActions={headerActions} />
-                <RoomTabs roomId={roomId} activeTab={activeTab} />
-                <ScrollArea className="flex-1">
-                    <div className="px-4 py-6 sm:px-6">{children}</div>
-                </ScrollArea>
-            </div>
-        </AppShell>
+        <div className="flex min-h-full flex-col">
+            <RoomHeader roomId={roomId} headerActions={headerActions} />
+            <RoomTabs roomId={roomId} activeTab={activeTab} />
+            <ScrollArea className="flex-1">
+                <div className="px-4 py-6 sm:px-6">{children}</div>
+            </ScrollArea>
+        </div>
     )
 }
 
@@ -179,9 +177,9 @@ function usePreloadRoomDashboardRoutes(): void {
 function RoomHeader({ roomId, headerActions }: { roomId: string; headerActions?: ReactNode }) {
     const queryClient = useQueryClient()
     const roomsQuery = useQuery({
-        queryKey: ['rooms-list'],
+        queryKey: roomQueryKey.roomsList,
         queryFn: () => listRoomsServer(),
-        staleTime: 10_000,
+        staleTime: roomQueryPolicy.warmStaleMs,
     })
     const room = roomsQuery.data?.find((r) => r.roomId === roomId) ?? null
 
@@ -189,8 +187,9 @@ function RoomHeader({ roomId, headerActions }: { roomId: string; headerActions?:
         mutationFn: (desiredState: 'running' | 'stopped') =>
             setRoomDesiredStateServer({ data: { roomId, desiredState } }),
         onSuccess: async (_data, desiredState) => {
-            await queryClient.invalidateQueries({ queryKey: ['rooms-list'] })
-            await queryClient.invalidateQueries({ queryKey: ['room-execution', roomId] })
+            await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
+            await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomExecution(roomId) })
+            await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) })
             toast.success(desiredState === 'running' ? 'Room resumed' : 'Room paused')
         },
         onError: (e: unknown) =>

@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { RoomDashboardLayout } from '#/components/room-dashboard'
 import { AttentionBanner } from '#/components/agent-room'
 import { TooltipProvider } from '#/components/ui/tooltip'
+import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import { getRoomConfigServer } from '#/routes/-operator-config-server'
 import { listRoomsServer } from '#/routes/-room-runtime-server'
 import {
@@ -22,15 +23,15 @@ function RoomSettingsPage() {
     const queryClient = useQueryClient()
 
     const roomConfigQuery = useQuery({
-        queryKey: ['room-config', roomId],
+        queryKey: roomQueryKey.roomConfig(roomId),
         queryFn: () => getRoomConfigServer({ data: { roomId } }),
-        staleTime: 5_000,
+        staleTime: roomQueryPolicy.hotStaleMs,
     })
 
     const roomsQuery = useQuery({
-        queryKey: ['rooms-list'],
+        queryKey: roomQueryKey.roomsList,
         queryFn: () => listRoomsServer(),
-        staleTime: 10_000,
+        staleTime: roomQueryPolicy.warmStaleMs,
     })
 
     const room = roomsQuery.data?.find((r) => r.roomId === roomId) ?? null
@@ -67,9 +68,9 @@ function RoomSettingsPage() {
                         defaultSlug={room?.slug ?? ''}
                         onSaved={async () => {
                             await Promise.all([
-                                queryClient.invalidateQueries({ queryKey: ['rooms-list'] }),
+                                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList }),
                                 queryClient.invalidateQueries({
-                                    queryKey: ['room-config', roomId],
+                                    queryKey: roomQueryKey.roomConfig(roomId),
                                 }),
                             ])
                         }}
@@ -81,7 +82,7 @@ function RoomSettingsPage() {
                         loading={roomConfigQuery.isLoading}
                         onSaved={async () => {
                             await queryClient.invalidateQueries({
-                                queryKey: ['room-config', roomId],
+                                queryKey: roomQueryKey.roomConfig(roomId),
                             })
                         }}
                     />
@@ -92,7 +93,7 @@ function RoomSettingsPage() {
                         secrets={snapshot?.roomSecrets ?? []}
                         onSaved={async () => {
                             await queryClient.invalidateQueries({
-                                queryKey: ['room-config', roomId],
+                                queryKey: roomQueryKey.roomConfig(roomId),
                             })
                         }}
                     />

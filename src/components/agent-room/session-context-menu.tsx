@@ -23,6 +23,7 @@ import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import { copyText } from '#/lib/clipboard'
 import { cn } from '#/lib/utils'
+import { roomQueryKey } from '#/lib/room-query-keys'
 import { deleteSessionServer, renameSessionServer } from '#/routes/-room-runtime-server'
 
 type DialogState = { type: 'closed' } | { type: 'rename'; title: string } | { type: 'delete' }
@@ -47,9 +48,11 @@ export function SessionContextMenu({
         mutationFn: (title: string) => renameSessionServer({ data: { roomId, sessionKey, title } }),
         onSuccess: async () => {
             await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId] }),
-                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId, 'sidebar'] }),
-                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId, sessionKey] }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomExecution(roomId) }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) }),
+                queryClient.invalidateQueries({
+                    queryKey: roomQueryKey.sessionShell(roomId, sessionKey),
+                }),
             ])
             toast.success('Session renamed')
             setDialog({ type: 'closed' })
@@ -64,9 +67,14 @@ export function SessionContextMenu({
         mutationFn: () => deleteSessionServer({ data: { roomId, sessionKey } }),
         onSuccess: async () => {
             await Promise.all([
-                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId] }),
-                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId, 'sidebar'] }),
-                queryClient.invalidateQueries({ queryKey: ['room-execution', roomId, sessionKey] }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomExecution(roomId) }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) }),
+                queryClient.invalidateQueries({
+                    queryKey: roomQueryKey.sessionShell(roomId, sessionKey),
+                }),
+                queryClient.invalidateQueries({
+                    queryKey: roomQueryKey.sessionWindow(roomId, sessionKey),
+                }),
             ])
             toast.success('Session deleted')
             setDialog({ type: 'closed' })

@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 import { toast } from 'sonner'
-import { AppShell } from '#/components/app-shell'
 import { PageHeader } from '#/components/agent-room'
 import { imageModelOptionsForProvider } from '#/lib/model-options'
+import { roomQueryKey } from '#/lib/room-query-keys'
 import { requireRouteUser } from './-route-auth'
 import {
     deleteMcpConnectionServer,
@@ -57,7 +57,7 @@ function SettingsPage() {
     const queryClient = useQueryClient()
 
     const configQuery = useQuery<OperatorConfigSnapshot>({
-        queryKey: ['operator-config'],
+        queryKey: roomQueryKey.operatorConfig,
         queryFn: () => getOperatorConfigServer(),
     })
     const config = configQuery.data
@@ -103,8 +103,8 @@ function SettingsPage() {
         setProviderForm((c) => ({ ...c, ...patch }))
     const updateMcpForm = (patch: Partial<McpFormState>) => setMcpForm((c) => ({ ...c, ...patch }))
     const invalidateConfig = async () => {
-        await queryClient.invalidateQueries({ queryKey: ['operator-config'], exact: false })
-        await queryClient.invalidateQueries({ queryKey: ['room-config'], exact: false })
+        await queryClient.invalidateQueries({ queryKey: roomQueryKey.operatorConfig, exact: false })
+        await queryClient.invalidateQueries({ queryKey: ['rooms'], exact: false })
     }
 
     const openNewProvider = () => {
@@ -266,7 +266,10 @@ function SettingsPage() {
             }),
         onSuccess: async () => {
             toast.success('App defaults saved')
-            await queryClient.invalidateQueries({ queryKey: ['operator-config'], exact: false })
+            await queryClient.invalidateQueries({
+                queryKey: roomQueryKey.operatorConfig,
+                exact: false,
+            })
         },
         onError: (error) =>
             toast.error(error instanceof Error ? error.message : 'Defaults save failed'),
@@ -448,7 +451,7 @@ function SettingsPage() {
         providers.find((entry) => entry.id === defaultProviderId) ?? null
 
     return (
-        <AppShell>
+        <>
             <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6">
                 <PageHeader
                     title="Settings"
@@ -571,6 +574,6 @@ function SettingsPage() {
                     pending={saveMcpMutation.isPending}
                 />
             </EditSheet>
-        </AppShell>
+        </>
     )
 }

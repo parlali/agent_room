@@ -27,6 +27,7 @@ import {
 import { createRoomServer } from '#/routes/-room-runtime-server'
 import type { RoomMode } from '#/lib/domain-types'
 import { ROOM_MODE_OPTIONS } from '#/lib/room-modes'
+import { roomQueryKey } from '#/lib/room-query-keys'
 
 type CreateRoomButtonProps = {
     children?: ReactNode
@@ -60,7 +61,7 @@ export function CreateRoomButton({
                 },
             }),
         onSuccess: async (room) => {
-            await queryClient.invalidateQueries({ queryKey: ['rooms-list'] })
+            await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
             setOpen(false)
             toast.success('Room created', {
                 description:

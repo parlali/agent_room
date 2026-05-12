@@ -8,6 +8,7 @@ import { RoomDashboardLayout } from '#/components/room-dashboard'
 import { EmptyState, LoadingRows, Section } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
 import { TooltipProvider } from '#/components/ui/tooltip'
+import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import {
     createCronJobServer,
     listCronJobsServer,
@@ -34,10 +35,10 @@ function RoomJobsPage() {
     const queryClient = useQueryClient()
 
     const jobsQuery = useQuery<RoomCronJob[]>({
-        queryKey: ['room-cron-jobs', roomId],
+        queryKey: roomQueryKey.roomCronJobs(roomId),
         queryFn: () => listCronJobsServer({ data: { roomId } }),
-        staleTime: 5_000,
-        refetchInterval: 15_000,
+        staleTime: roomQueryPolicy.hotStaleMs,
+        refetchInterval: roomQueryPolicy.sidebarPollMs,
     })
 
     const [createOpen, setCreateOpen] = useState(false)
@@ -46,7 +47,8 @@ function RoomJobsPage() {
     const [detailJob, setDetailJob] = useState<RoomCronJob | null>(null)
     const [pendingJobId, setPendingJobId] = useState<string | null>(null)
 
-    const invalidate = () => queryClient.invalidateQueries({ queryKey: ['room-cron-jobs', roomId] })
+    const invalidate = () =>
+        queryClient.invalidateQueries({ queryKey: roomQueryKey.roomCronJobs(roomId) })
 
     const createMutation = useMutation({
         mutationFn: (form: JobFormState) => createCronJobServer({ data: { roomId, ...form } }),
@@ -120,10 +122,10 @@ function RoomJobsPage() {
 
     const jobs = jobsQuery.data ?? []
     const usageQuery = useQuery({
-        queryKey: ['room-usage', roomId, 'jobs'],
+        queryKey: roomQueryKey.roomUsage(roomId, 'jobs'),
         queryFn: () => listRoomUsageServer({ data: { roomId, limit: 200 } }),
         enabled: detailJob !== null,
-        staleTime: 5_000,
+        staleTime: roomQueryPolicy.hotStaleMs,
     })
     const isLoading = jobsQuery.isLoading
     const isEmpty = !isLoading && jobs.length === 0
