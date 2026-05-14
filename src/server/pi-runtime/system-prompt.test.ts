@@ -1,13 +1,9 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
-import {
-    buildAgentRoomSystemPrompt,
-    contextBudgetForProvider,
-    loadInstructionFiles,
-} from './system-prompt'
+import { buildAgentRoomSystemPrompt, contextBudgetForProvider } from './system-prompt'
 import { createTestPiRuntimeConfig, ensureTestPiRuntimeDirectories } from './test-runtime-defaults'
 
 function testConfig(root: string): PiRuntimeConfig {
@@ -64,27 +60,50 @@ describe('Agent Room Pi system prompt', () => {
             const prompt = await buildAgentRoomSystemPrompt(config)
 
             expect(prompt).toContain('persistent room-local coworker')
+            expect(prompt).toContain('reads the request, investigates what matters')
+            expect(prompt).toContain('comes back with useful work done')
             expect(prompt).toContain('Mode: coworker')
             expect(prompt).toContain('Provider: ollama')
             expect(prompt).toContain('Model: ollama/llama3.2')
             expect(prompt).toContain('Enabled built-in tools: agent_room_memory_read')
             expect(prompt).toContain('agent_room_memory_read')
+            expect(prompt).toContain(
+                'Main-thread orchestration tools: agent_room_subagent, agent_room_deep_work',
+            )
             expect(prompt).toContain('Enabled MCP servers: docs: search')
+            expect(prompt).toContain('Lead final responses with the conclusion')
+            expect(prompt).toContain('1-3 grounded findings')
+            expect(prompt).toContain('avoid headings, taxonomies, primers, and menus')
+            expect(prompt).toContain('Execution protocol')
+            expect(prompt).toContain('Current-world, source-dependent, provider, runtime')
+            expect(prompt).toContain('agent_room_deep_work from main threads')
+            expect(prompt).toContain('If a required tool or source fails')
+            expect(prompt).not.toContain('Execution bias')
+            expect(prompt).not.toContain('Work contract')
+            expect(prompt).not.toContain('Work-shaped requests are tasks, not prompts')
+            expect(prompt).toContain(
+                'Room instructions and canonical room memory are standing context',
+            )
             expect(prompt).toContain('Scheduled work is autonomous')
             expect(prompt).toContain('Keep the workspace reviewable for non-developers')
             expect(prompt).toContain('omitted previews are temporary internal verification only')
+            expect(prompt).toContain('Attached images are provided as direct visual input')
+            expect(prompt).toContain('Attached non-image files are room-local file references')
+            expect(prompt).not.toContain('Do not use shell commands, document tools')
             expect(prompt).toContain('Room memory harness')
             expect(prompt).not.toContain('memory.md')
             expect(prompt).not.toContain('Room id')
             expect(prompt).toContain('Operator-owned instruction')
-            expect(prompt).toContain('Workspace policy')
+            expect(prompt).not.toContain('Workspace policy')
+            expect(prompt).not.toContain('Instruction file AGENTS.md')
+            expect(prompt.length).toBeLessThan(9000)
             expect(prompt.length).toBeLessThanOrEqual(
                 contextBudgetForProvider(config).systemPromptMaxChars,
             )
         })
     })
 
-    it('builds a lean programmer prompt without room memory or coworker artifact policy', async () => {
+    it('builds a programmer prompt with memory and without coworker artifact policy', async () => {
         await withConfig(async (config) => {
             config.roomMode = 'programmer'
             config.capabilities.documents = false
@@ -95,12 +114,25 @@ describe('Agent Room Pi system prompt', () => {
 
             const prompt = await buildAgentRoomSystemPrompt(config)
 
-            expect(prompt).toContain('programmer agent working in a room-local workspace')
+            expect(prompt).toContain('programmer coworker in a room-local workspace')
             expect(prompt).toContain('Mode: programmer')
             expect(prompt).toContain('Use shell, git, package managers, test runners')
-            expect(prompt).not.toContain('Room memory harness')
+            expect(prompt).toContain('Lead final responses with the conclusion')
+            expect(prompt).toContain(
+                'Room instructions and canonical room memory are standing context',
+            )
+            expect(prompt).toContain('Room memory harness')
+            expect(prompt).toContain('agent_room_memory_read')
+            expect(prompt).toContain('agent_room_memory_patch')
+            expect(prompt).toContain('agent_room_deep_work')
+            expect(prompt).not.toContain('explicitly asks you to remember')
+            expect(prompt).toContain('Use memory as an internal habit after substantive work')
+            expect(prompt).toContain('durable coding preferences')
+            expect(prompt).toContain('workspace notes file')
+            expect(prompt).not.toContain('persistent room-local coworker')
             expect(prompt).not.toContain('Scheduled work is autonomous')
             expect(prompt).not.toContain('Keep the workspace reviewable for non-developers')
+            expect(prompt.length).toBeLessThan(9000)
         })
     })
 
@@ -123,14 +155,27 @@ describe('Agent Room Pi system prompt', () => {
 
             expect(prompt).toContain('GitHub repository access')
             expect(prompt).toContain('GitHub is connected for agent-room/example')
+            expect(prompt).toContain(
+                'Available HTTPS remotes: https://github.com/agent-room/example.git',
+            )
+            expect(prompt).toContain(
+                'The workspace may be empty until you clone a selected repository',
+            )
+            expect(prompt).toContain(
+                'Do not treat an empty workspace or "fatal: not a git repository" as missing GitHub access',
+            )
+            expect(prompt).toContain('To verify access, run git ls-remote')
+            expect(prompt).toContain(
+                'Use git with the room HOME credentials; use gh only if it is installed',
+            )
         })
     })
 
-    it('loads only explicit workspace instruction files and skips legacy duplicated room instructions', async () => {
+    it('does not inject workspace AGENTS files into room prompts', async () => {
         await withConfig(async (config) => {
             await writeFile(
                 join(config.paths.workspaceDir, 'AGENTS.md'),
-                'Operator-owned instruction',
+                'Workspace policy',
                 'utf8',
             )
             await mkdir(join(config.paths.workspaceDir, '.agents'), {
@@ -142,25 +187,16 @@ describe('Agent Room Pi system prompt', () => {
                 'utf8',
             )
 
-            await expect(loadInstructionFiles(config)).resolves.toEqual([
-                {
-                    path: '.agents/AGENTS.md',
-                    text: 'Nested policy',
-                    truncated: false,
-                },
-            ])
-        })
-    })
+            const coworkerPrompt = await buildAgentRoomSystemPrompt(config)
+            config.roomMode = 'programmer'
+            const programmerPrompt = await buildAgentRoomSystemPrompt(config)
 
-    it('does not follow instruction-file symlinks outside the workspace', async () => {
-        await withConfig(async (config) => {
-            await writeFile(join(config.paths.roomRootDir, 'outside.md'), 'outside policy', 'utf8')
-            await symlink(
-                join(config.paths.roomRootDir, 'outside.md'),
-                join(config.paths.workspaceDir, 'AGENTS.md'),
-            )
-
-            await expect(loadInstructionFiles(config)).resolves.toEqual([])
+            for (const prompt of [coworkerPrompt, programmerPrompt]) {
+                expect(prompt).not.toContain('Workspace policy')
+                expect(prompt).not.toContain('Nested policy')
+                expect(prompt).not.toContain('Instruction file AGENTS.md')
+                expect(prompt).not.toContain('Instruction file .agents/AGENTS.md')
+            }
         })
     })
 })

@@ -2,7 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { defineTool, type ToolDefinition } from '@mariozechner/pi-coding-agent'
 import { Type } from '@mariozechner/pi-ai'
 import type { RoomExecutionMessage } from '../rooms/execution-types'
-import type { ThreadRecord } from './thread-records'
+import type { ThreadKind, ThreadRecord } from './thread-records'
+import type { RunKind } from './run-budget'
+import { finalAssistantText } from './thread-results'
 
 export interface CreateSubagentToolInput {
     parentRecord: ThreadRecord
@@ -13,12 +15,14 @@ export interface CreateSubagentToolInput {
     redactString: (value: string) => string
     createThread: (input: {
         title?: string | null
-        kind?: 'main' | 'subagent'
+        kind?: ThreadKind
         parentThreadKey?: string | null
         parentRunId?: string | null
         subagentRunId?: string | null
         subagentName?: string | null
         subagentTask?: string | null
+        deepWorkRunId?: string | null
+        deepWorkObjective?: string | null
     }) => Promise<{ key: string }>
     findThread: (key: string) => ThreadRecord | null
     runPrompt: (input: {
@@ -26,19 +30,10 @@ export interface CreateSubagentToolInput {
         message: string
         runId: string
         awaitCompletion: boolean
-        runKind?: 'manual' | 'scheduled' | 'subagent' | 'maintenance'
+        runKind?: RunKind
     }) => Promise<string>
     readThreadMessages: (record: ThreadRecord, limit: number) => RoomExecutionMessage[]
     audit: (event: string, payload: unknown) => Promise<void>
-}
-
-function finalAssistantText(messages: RoomExecutionMessage[]): string {
-    return (
-        [...messages]
-            .reverse()
-            .find((message) => message.role === 'assistant' && message.text.trim())
-            ?.text.trim() ?? ''
-    )
 }
 
 export function createSubagentTool(input: CreateSubagentToolInput): ToolDefinition {

@@ -1,5 +1,6 @@
 import { BriefcaseBusinessIcon, Code2Icon } from 'lucide-react'
 import { Section } from '#/components/agent-room'
+import { CardButton } from '#/components/ui/card'
 import type { RoomMode } from '#/lib/domain-types'
 import { ROOM_MODES, type ConfigDraft } from './model'
 import { SaveBar } from './shared'
@@ -28,9 +29,8 @@ export function RoomModeSection({
                     const selected = draft.roomMode === mode.value
                     const Icon = mode.value === 'programmer' ? Code2Icon : BriefcaseBusinessIcon
                     return (
-                        <button
+                        <CardButton
                             key={mode.value}
-                            type="button"
                             onClick={() => onChange(mode.value)}
                             className={[
                                 'flex min-h-28 items-start gap-3 rounded-md border p-4 text-left transition-colors',
@@ -61,7 +61,7 @@ export function RoomModeSection({
                                         : 'Optimized for broad autonomous work with durable memory and rich artifacts.'}
                                 </span>
                             </span>
-                        </button>
+                        </CardButton>
                     )
                 })}
             </div>

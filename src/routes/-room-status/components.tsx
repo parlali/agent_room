@@ -10,6 +10,7 @@ import type { LucideIcon } from 'lucide-react'
 
 import { EmptyState, Section, StateBadge, StatusDot } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
+import { CardButton } from '#/components/ui/card'
 import { ScrollArea } from '#/components/ui/scroll-area'
 import {
     Sheet,
@@ -130,10 +131,10 @@ export function RecentRunsSection({
                     const subtitle = entry.summary ?? entry.error ?? null
                     return (
                         <li key={entry.id}>
-                            <button
-                                type="button"
+                            <CardButton
                                 onClick={() => onSelect(entry)}
-                                className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50"
+                                size="sm"
+                                className="items-start gap-3 rounded-none border-0 bg-transparent px-4 py-3 hover:bg-muted/50"
                             >
                                 <span className="mt-1.5">
                                     <StatusDot tone={outcome.tone} />
@@ -154,7 +155,7 @@ export function RecentRunsSection({
                                 <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
                                     {formatRelativeTime(entry.ts)}
                                 </span>
-                            </button>
+                            </CardButton>
                         </li>
                     )
                 })}

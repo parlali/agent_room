@@ -62,6 +62,7 @@ function runTitle(event: UsageEventLike): string {
     const metadata = metadataRecord(event)
     const runKind = typeof metadata.runKind === 'string' ? metadata.runKind : null
     if (event.kind === 'job' || runKind === 'scheduled') return 'Scheduled job ran'
+    if (runKind === 'deep_work') return 'Deep work ran'
     if (runKind === 'subagent') return 'Subagent worked'
     if (runKind === 'maintenance') return 'Maintenance ran'
     return 'Room answered a message'

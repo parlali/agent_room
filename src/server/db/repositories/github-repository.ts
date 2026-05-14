@@ -2,6 +2,8 @@ import type {
     AppGitHubAppRecord,
     AppGitHubInstallationRecord,
     AppGitHubManifestSessionRecord,
+    AppGitHubUserAuthSessionRecord,
+    AppGitHubUserConnectionRecord,
     ConnectionStatus,
     JsonValue,
     RoomGitHubBindingRecord,
@@ -11,6 +13,8 @@ import {
     mapAppGitHubApp,
     mapAppGitHubInstallation,
     mapAppGitHubManifestSession,
+    mapAppGitHubUserAuthSession,
+    mapAppGitHubUserConnection,
     mapRoomGitHubBinding,
 } from './row-mappers'
 
@@ -72,6 +76,23 @@ export const appGitHubManifestSessionRepository = {
                 updated_at = now()
             WHERE state_hash = ${stateHash}
         `
+    },
+
+    async updateStatusIfCurrent(input: {
+        stateHash: string
+        currentStatus: AppGitHubManifestSessionRecord['status']
+        nextStatus: AppGitHubManifestSessionRecord['status']
+    }): Promise<boolean> {
+        const rows = await sql`
+            UPDATE app_github_manifest_sessions
+            SET
+                status = ${input.nextStatus},
+                updated_at = now()
+            WHERE state_hash = ${input.stateHash}
+            AND status = ${input.currentStatus}
+            RETURNING state_hash
+        `
+        return rows.length > 0
     },
 }
 
@@ -160,6 +181,174 @@ export const appGitHubAppRepository = {
     async delete(): Promise<void> {
         await sql`
             DELETE FROM app_github_apps
+            WHERE id = true
+        `
+    },
+}
+
+export const appGitHubUserAuthSessionRepository = {
+    async create(input: {
+        stateHash: string
+        actorUserId: string
+        publicOrigin: string
+        codeVerifier: string
+        expiresAt: Date
+    }): Promise<AppGitHubUserAuthSessionRecord> {
+        const rows = await sql`
+            INSERT INTO app_github_user_auth_sessions (
+                state_hash,
+                actor_user_id,
+                public_origin,
+                code_verifier,
+                status,
+                expires_at,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                ${input.stateHash},
+                ${input.actorUserId},
+                ${input.publicOrigin},
+                ${input.codeVerifier},
+                'pending',
+                ${input.expiresAt},
+                now(),
+                now()
+            )
+            RETURNING *
+        `
+        return mapAppGitHubUserAuthSession(rows[0] as Record<string, unknown>)
+    },
+
+    async findByStateHash(stateHash: string): Promise<AppGitHubUserAuthSessionRecord | null> {
+        const rows = await sql`
+            SELECT *
+            FROM app_github_user_auth_sessions
+            WHERE state_hash = ${stateHash}
+            LIMIT 1
+        `
+        if (rows.length === 0) {
+            return null
+        }
+        return mapAppGitHubUserAuthSession(rows[0] as Record<string, unknown>)
+    },
+
+    async updateStatus(
+        stateHash: string,
+        status: AppGitHubUserAuthSessionRecord['status'],
+    ): Promise<void> {
+        await sql`
+            UPDATE app_github_user_auth_sessions
+            SET
+                status = ${status},
+                updated_at = now()
+            WHERE state_hash = ${stateHash}
+        `
+    },
+
+    async updateStatusIfCurrent(input: {
+        stateHash: string
+        currentStatus: AppGitHubUserAuthSessionRecord['status']
+        nextStatus: AppGitHubUserAuthSessionRecord['status']
+    }): Promise<boolean> {
+        const rows = await sql`
+            UPDATE app_github_user_auth_sessions
+            SET
+                status = ${input.nextStatus},
+                updated_at = now()
+            WHERE state_hash = ${input.stateHash}
+            AND status = ${input.currentStatus}
+            RETURNING state_hash
+        `
+        return rows.length > 0
+    },
+}
+
+export const appGitHubUserConnectionRepository = {
+    async get(): Promise<AppGitHubUserConnectionRecord | null> {
+        const rows = await sql`
+            SELECT *
+            FROM app_github_user_connections
+            WHERE id = true
+            LIMIT 1
+        `
+        if (rows.length === 0) {
+            return null
+        }
+        return mapAppGitHubUserConnection(rows[0] as Record<string, unknown>)
+    },
+
+    async upsert(input: {
+        githubUserId: string
+        login: string
+        name: string | null
+        avatarUrl: string | null
+        htmlUrl: string | null
+        tokenType: string
+        accessTokenSecretId: string
+        accessTokenExpiresAt: Date | null
+        refreshTokenSecretId: string | null
+        refreshTokenExpiresAt: Date | null
+        createdByUserId: string | null
+        lastAuthorizedAt: Date
+    }): Promise<AppGitHubUserConnectionRecord> {
+        const rows = await sql`
+            INSERT INTO app_github_user_connections (
+                id,
+                github_user_id,
+                login,
+                name,
+                avatar_url,
+                html_url,
+                token_type,
+                access_token_secret_id,
+                access_token_expires_at,
+                refresh_token_secret_id,
+                refresh_token_expires_at,
+                created_by_user_id,
+                last_authorized_at,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                true,
+                ${input.githubUserId},
+                ${input.login},
+                ${input.name},
+                ${input.avatarUrl},
+                ${input.htmlUrl},
+                ${input.tokenType},
+                ${input.accessTokenSecretId},
+                ${input.accessTokenExpiresAt},
+                ${input.refreshTokenSecretId},
+                ${input.refreshTokenExpiresAt},
+                ${input.createdByUserId},
+                ${input.lastAuthorizedAt},
+                now(),
+                now()
+            )
+            ON CONFLICT (id)
+            DO UPDATE SET
+                github_user_id = excluded.github_user_id,
+                login = excluded.login,
+                name = excluded.name,
+                avatar_url = excluded.avatar_url,
+                html_url = excluded.html_url,
+                token_type = excluded.token_type,
+                access_token_secret_id = excluded.access_token_secret_id,
+                access_token_expires_at = excluded.access_token_expires_at,
+                refresh_token_secret_id = excluded.refresh_token_secret_id,
+                refresh_token_expires_at = excluded.refresh_token_expires_at,
+                last_authorized_at = excluded.last_authorized_at,
+                updated_at = now()
+            RETURNING *
+        `
+        return mapAppGitHubUserConnection(rows[0] as Record<string, unknown>)
+    },
+
+    async delete(): Promise<void> {
+        await sql`
+            DELETE FROM app_github_user_connections
             WHERE id = true
         `
     },

@@ -17,11 +17,15 @@ export type {
     RoomSecretSummary,
 } from './operator-configuration/contracts'
 export {
+    completeGitHubCallback,
     completeGitHubAppManifest,
+    completeGitHubUserAuthorization,
+    disconnectGitHubUserAuthorization,
     listGitHubInstallationRepositories,
     refreshGitHubInstallations,
     resetGitHubAppConfiguration,
     startGitHubAppManifest,
+    startGitHubUserAuthorization,
 } from './github-app'
 export {
     deleteMcpConnection,

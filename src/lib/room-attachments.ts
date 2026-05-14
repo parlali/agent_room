@@ -1,4 +1,4 @@
-import { formatBytes } from '#/lib/format'
+import { formatBytes, parseFormattedBytes } from '#/lib/format'
 import type { RoomFileSurface } from '#/lib/room-file-types'
 
 export interface RoomAttachment {
@@ -94,7 +94,7 @@ function parseAttachmentLine(line: string): RoomAttachment | null {
         name,
         surface,
         relativePath,
-        byteLength: null,
+        byteLength: parseFormattedBytes(sizeLabel),
         sizeLabel,
     }
 }

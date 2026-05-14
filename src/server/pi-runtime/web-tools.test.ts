@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
     assertSafeUrl,
     isBlockedNetworkAddress,
@@ -6,8 +6,16 @@ import {
     parseSearxngResults,
     sanitizeUrlForAudit,
 } from './web-tools'
+import { parseSearxngHtmlResults, searxngSearch } from './web-search'
+import { createTestPiRuntimeConfig } from './test-runtime-defaults'
+
+const originalFetch = globalThis.fetch
 
 describe('web tools', () => {
+    afterEach(() => {
+        globalThis.fetch = originalFetch
+    })
+
     it('parses bounded SearXNG results into canonical search results', () => {
         const results = parseSearxngResults(
             {
@@ -35,6 +43,80 @@ describe('web tools', () => {
                 snippet: 'A short result snippet.',
                 engine: 'duckduckgo, brave',
                 fetchedAt: '2026-05-03T10:00:00.000Z',
+                rank: 1,
+            },
+        ])
+    })
+
+    it('parses SearXNG HTML results when JSON is unavailable', async () => {
+        const results = await parseSearxngHtmlResults(
+            `
+            <article class="result result-default category-general">
+                <h3><a href="https://openai.com/"><span>OpenAI</span> | Research</a></h3>
+                <p class="content">OpenAI research and product updates.</p>
+                <div class="engines"><span>duckduckgo</span><span>brave</span></div>
+            </article>
+            `,
+            '2026-05-03T10:00:00.000Z',
+        )
+
+        expect(results).toEqual([
+            {
+                title: 'OpenAI | Research',
+                url: 'https://openai.com/',
+                snippet: 'OpenAI research and product updates.',
+                engine: 'duckduckgo, brave',
+                fetchedAt: '2026-05-03T10:00:00.000Z',
+                rank: 1,
+            },
+        ])
+    })
+
+    it('falls back to bounded HTML parsing when SearXNG rejects JSON format', async () => {
+        const calls: string[] = []
+        globalThis.fetch = (async (input) => {
+            const url = String(input)
+            calls.push(url)
+            if (url.includes('format=json')) {
+                return new Response('Forbidden', {
+                    status: 403,
+                })
+            }
+            return new Response(
+                `
+                <article class="result result-default category-general">
+                    <h3><a href="https://example.com/page">Example Result</a></h3>
+                    <p class="content">A result from HTML fallback.</p>
+                    <div class="engines"><span>startpage</span></div>
+                </article>
+                `,
+                {
+                    status: 200,
+                    headers: {
+                        'content-type': 'text/html',
+                    },
+                },
+            )
+        }) as typeof fetch
+
+        const response = await searxngSearch({
+            config: createTestPiRuntimeConfig(),
+            query: 'example query',
+            count: 5,
+        })
+
+        expect(calls).toHaveLength(2)
+        expect(new URL(calls[0]).searchParams.get('format')).toBe('json')
+        expect(new URL(calls[1]).searchParams.has('format')).toBe(false)
+        expect(response.backendFormat).toBe('html')
+        expect(response.fallbackReason).toContain('Search backend returned 403')
+        expect(response.results).toEqual([
+            {
+                title: 'Example Result',
+                url: 'https://example.com/page',
+                snippet: 'A result from HTML fallback.',
+                engine: 'startpage',
+                fetchedAt: expect.any(String),
                 rank: 1,
             },
         ])

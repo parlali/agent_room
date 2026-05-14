@@ -1,5 +1,5 @@
 import { mkdtemp, rm } from 'node:fs/promises'
-import { join, relative } from 'node:path'
+import { basename, join, relative } from 'node:path'
 import type { AgentToolResult } from '@mariozechner/pi-coding-agent'
 import { textToolResult } from '../tool-helpers'
 import { promoteArtifact } from './artifacts'
@@ -10,6 +10,7 @@ import type {
     OfficeExportFormat,
     OfficeExportOperation,
 } from './types'
+import type { ToolRoot } from '../room-tools/shared'
 import { officeExportFormats } from './types'
 import { exportOfficeToPdf, renderPdfPreview } from './worker'
 
@@ -21,6 +22,7 @@ export async function completeOperation(
         operation: string
         startedAt: number
         message: string
+        root?: ToolRoot
         mediaPath?: string
         auditPath?: string
         displayPath?: string
@@ -38,6 +40,7 @@ export async function completeOperation(
     })
     return textToolResult<DocumentToolDetails>(input.message, {
         path: input.displayPath ?? input.path,
+        root: input.root ?? 'workspace',
         format: input.format,
         operation: input.operation,
         artifactId: artifact?.artifactId,
@@ -53,6 +56,7 @@ export async function completeOfficeExportOrPreview(
     input: {
         sourcePath: string
         requestedPath: string
+        sourceRoot?: ToolRoot
         outputPath?: string
         format: OfficeExportFormat
         operation: OfficeExportOperation
@@ -98,9 +102,13 @@ export async function completeOfficeExportOrPreview(
             }
         }
     }
+    const defaultOutputPath =
+        input.sourceRoot === 'store'
+            ? `${basename(input.requestedPath).replace(format.extensionPattern, '')}.pdf`
+            : `${input.requestedPath.replace(format.extensionPattern, '')}.pdf`
     const outputPath = await writableWorkspacePath(
         ctx.config,
-        input.outputPath ?? `${input.requestedPath.replace(format.extensionPattern, '')}.pdf`,
+        input.outputPath ?? defaultOutputPath,
     )
     await exportOfficeToPdf(ctx, input.sourcePath, outputPath, input.signal)
     return completeOperation(ctx, {

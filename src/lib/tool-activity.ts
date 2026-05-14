@@ -152,6 +152,14 @@ const TOOL_COPY: Array<[RegExp, ToolCopy]> = [
         },
     ],
     [
+        /^agent_room_deep_work$/,
+        {
+            title: 'Started deep work',
+            action: 'delegated',
+            completeResult: 'Deep work returned its result',
+        },
+    ],
+    [
         /^mcp_/,
         {
             title: 'Used a connected tool',
@@ -162,6 +170,9 @@ const TOOL_COPY: Array<[RegExp, ToolCopy]> = [
 ]
 
 const SENSITIVE_KEY_PATTERN = /(secret|token|password|credential|authorization|api.?key|hash)/i
+const workingResultLabel = 'Working'
+const waitingResultLabel = 'Waiting'
+const stoppedResultLabel = 'Stopped'
 
 export function toolTasksFromParts(parts: RoomExecutionMessagePart[]): ToolActivityTask[] {
     return groupToolSteps(parts).map((step, index) =>
@@ -210,14 +221,112 @@ export function summarizeToolTasks(tasks: ToolActivityTask[]): string {
     if (tasks.length === 0) return 'Working'
     if (tasks.length === 1) return tasks[0]!.title
 
-    const counts = new Map<string, number>()
+    const exploredCounts = new Map<string, number>()
+    const actionCounts = new Map<string, number>()
     for (const task of tasks) {
-        counts.set(task.action, (counts.get(task.action) ?? 0) + 1)
+        const summary = toolTaskSummary(task)
+        if (summary.kind === 'explored') {
+            exploredCounts.set(summary.noun, (exploredCounts.get(summary.noun) ?? 0) + 1)
+        } else {
+            const key = `${summary.verb}:${summary.noun}`
+            actionCounts.set(key, (actionCounts.get(key) ?? 0) + 1)
+        }
     }
 
-    return [...counts.entries()]
-        .map(([action, count]) => `${action} ${count} ${count === 1 ? 'step' : 'steps'}`)
-        .join(', ')
+    const parts: string[] = []
+    if (exploredCounts.size > 0) {
+        parts.push(`Explored ${formatSummaryCounts(exploredCounts).join(', ')}`)
+    }
+
+    for (const [key, count] of actionCounts.entries()) {
+        const [verb = 'used', noun = 'tool'] = key.split(':')
+        parts.push(`${parts.length === 0 ? capitalize(verb) : verb} ${formatCount(count, noun)}`)
+    }
+
+    return parts.join(', ')
+}
+
+function toolTaskSummary(task: ToolActivityTask):
+    | {
+          kind: 'explored'
+          noun: string
+      }
+    | {
+          kind: 'action'
+          verb: string
+          noun: string
+      } {
+    if (task.action === 'read') {
+        return {
+            kind: 'explored',
+            noun: detailNoun(task.detail, 'file'),
+        }
+    }
+    if (task.action === 'searched') {
+        return {
+            kind: 'explored',
+            noun: 'search',
+        }
+    }
+    if (task.action === 'ran') {
+        return {
+            kind: 'action',
+            verb: 'ran',
+            noun: 'command',
+        }
+    }
+    if (task.action === 'edited') {
+        return {
+            kind: 'action',
+            verb: 'edited',
+            noun: detailNoun(task.detail, 'file'),
+        }
+    }
+    if (task.action === 'created') {
+        return {
+            kind: 'action',
+            verb: 'created',
+            noun: 'item',
+        }
+    }
+    if (task.action === 'delegated') {
+        return {
+            kind: 'action',
+            verb: 'asked',
+            noun: 'agent',
+        }
+    }
+    return {
+        kind: 'action',
+        verb: task.action || 'used',
+        noun: 'tool',
+    }
+}
+
+function detailNoun(detail: string | null, fallback: string): string {
+    if (!detail) return fallback
+    if (detail.startsWith('Folder:')) return 'folder'
+    if (detail.startsWith('Site:')) return 'page'
+    if (detail.startsWith('Query:') || detail.startsWith('Reference:')) return 'search'
+    return fallback
+}
+
+function formatSummaryCounts(counts: Map<string, number>): string[] {
+    return [...counts.entries()].map(([noun, count]) => formatCount(count, noun))
+}
+
+function formatCount(count: number, noun: string): string {
+    return `${count} ${count === 1 ? noun : pluralize(noun)}`
+}
+
+function pluralize(noun: string): string {
+    if (noun.endsWith('s')) return noun
+    if (noun.endsWith('ch') || noun.endsWith('sh')) return `${noun}es`
+    return `${noun}s`
+}
+
+function capitalize(value: string): string {
+    return value.length === 0 ? value : `${value[0]!.toUpperCase()}${value.slice(1)}`
 }
 
 function groupToolSteps(parts: RoomExecutionMessagePart[]): ToolStepParts[] {
@@ -287,11 +396,56 @@ function toolCopy(name: string | null): ToolCopy {
     }
 }
 
+export function isTerminalToolStatus(
+    status: ToolTaskStatus,
+): status is 'stopped' | 'complete' | 'error' {
+    return status === 'stopped' || status === 'complete' || status === 'error'
+}
+
+export function settleToolTaskForDisplay(
+    task: ToolActivityTask,
+    status: 'stopped' | 'complete' | 'error',
+): ToolActivityTask {
+    return {
+        ...task,
+        status,
+        result: terminalToolResult(task, status),
+    }
+}
+
 function safeResultText(status: ToolTaskStatus, copy: ToolCopy): string | null {
     if (status === 'complete') return copy.completeResult
-    if (status === 'in_progress') return 'Working'
-    if (status === 'pending') return 'Waiting'
+    if (status === 'in_progress') return workingResultLabel
+    if (status === 'pending') return waitingResultLabel
+    if (status === 'stopped') return stoppedResultLabel
     return null
+}
+
+function terminalToolResult(
+    task: ToolActivityTask,
+    status: 'stopped' | 'complete' | 'error',
+): string {
+    const current = task.result && !isNonTerminalResult(task.result) ? task.result : null
+    if (status === 'error') return current ?? 'The tool did not finish'
+    if (status === 'stopped') return current ?? 'The tool was stopped'
+    return current ?? completeResultForProjectedTask(task)
+}
+
+function completeResultForProjectedTask(task: ToolActivityTask): string {
+    const copy = TOOL_COPY.find(([, candidate]) => {
+        return candidate.title === task.title && candidate.action === task.action
+    })?.[1]
+    return copy?.completeResult ?? 'The tool finished'
+}
+
+function isNonTerminalResult(value: string): boolean {
+    return (
+        value === workingResultLabel || value === waitingResultLabel || value === stoppedResultLabel
+    )
+}
+
+export function isNonTerminalToolResult(value: string | null): boolean {
+    return value !== null && isNonTerminalResult(value)
 }
 
 function safeInputDetail(name: string | null, input: unknown): string | null {

@@ -1,6 +1,6 @@
 import type { RunBudgetConfig } from '../domain/types'
 
-export type RunKind = 'manual' | 'scheduled' | 'subagent' | 'maintenance'
+export type RunKind = 'manual' | 'scheduled' | 'deep_work' | 'subagent' | 'maintenance'
 export type TimeoutReason =
     | 'idle_timeout'
     | 'total_run_budget'
@@ -29,11 +29,13 @@ export function budgetForRunKind(config: RunBudgetConfig, kind: RunKind): RunBud
     const runBudgetMs =
         kind === 'scheduled'
             ? config.scheduledTurnMs
-            : kind === 'subagent'
-              ? config.subagentTurnMs
-              : kind === 'maintenance'
-                ? config.maintenanceTurnMs
-                : config.manualTurnMs
+            : kind === 'deep_work'
+              ? config.deepWorkTurnMs
+              : kind === 'subagent'
+                ? config.subagentTurnMs
+                : kind === 'maintenance'
+                  ? config.maintenanceTurnMs
+                  : config.manualTurnMs
     return {
         runBudgetMs,
         idleTimeoutMs: config.idleTimeoutMs,

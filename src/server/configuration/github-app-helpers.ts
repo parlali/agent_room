@@ -17,6 +17,10 @@ export function stateHash(state: string): string {
     return createHash('sha256').update(state).digest('hex')
 }
 
+export function pkceChallenge(verifier: string): string {
+    return createHash('sha256').update(verifier).digest('base64url')
+}
+
 function base64UrlJson(value: unknown): string {
     return Buffer.from(JSON.stringify(value)).toString('base64url')
 }

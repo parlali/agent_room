@@ -22,7 +22,12 @@ import type {
 } from './protocol'
 import { closeMcpConnections, createMcpTools } from './mcp-bridge'
 import { buildAgentRoomSystemPrompt } from './system-prompt'
-import { normalizeThreadIndexFile, type ThreadIndexFile, type ThreadRecord } from './thread-records'
+import {
+    normalizeThreadIndexFile,
+    type ThreadIndexFile,
+    type ThreadKind,
+    type ThreadRecord,
+} from './thread-records'
 import { timeoutMessage, RunWatchdog } from './run-budget'
 import { cleanupBackgroundCommands } from './background-commands'
 import { createRuntimeRedactor } from './runtime-redaction'
@@ -37,6 +42,7 @@ import {
     shortText,
 } from './session-entry-mapper'
 import { extractSessionArtifacts } from './session-artifacts'
+import { readMemory } from './memory'
 import {
     estimateSessionBranchContextBytes,
     proactiveCompactionContextBytes,
@@ -50,6 +56,8 @@ import { createRuntimeEventAppender } from './runtime-event-log'
 import { createRuntimeRunPrompt, type ActiveThread } from './runtime-runner'
 import { createRuntimeModelState } from './runtime-model-state'
 import { cleanManualThreadTitle, createThreadTitleGenerator } from './runtime-title-generator'
+import { promptAttachmentMetadataByEntryId } from './prompt-attachments'
+import { createSessionEventQueue } from './session-event-queue'
 
 const configPath = process.env.AGENT_ROOM_PI_RUNTIME_CONFIG_PATH
 if (!configPath) {
@@ -57,9 +65,15 @@ if (!configPath) {
 }
 
 const config = JSON.parse(await readFile(configPath, 'utf8')) as PiRuntimeConfig
-const { redactPayload, redactUnboundedPayload, redactString, redactUnboundedString, errorMessage } =
+const { redactPayload, redactString, redactUnboundedString, errorMessage } =
     createRuntimeRedactor(config)
 const activeThreads = new Map<string, ActiveThread>()
+const maxSubagentTaskChars = 24000
+const maxActiveSubagents = 5
+const maxDeepWorkObjectiveChars = 48000
+const maxDeepWorkResultChars = 60000
+const maxActiveDeepWork = 2
+let activeDeepWorkReservations = 0
 const threadIndex = await readJsonFile<ThreadIndexFile>(config.paths.threadIndexPath, {
     version: 1,
     threads: [],
@@ -75,7 +89,7 @@ const mcpTools = await createMcpTools({
 let systemPrompt = await buildAgentRoomSystemPrompt(config)
 const { broadcast, createEventStream, createRoomEventStream } = createRuntimeEventBus({
     roomId: config.runtime.roomId,
-    redactPayload: redactUnboundedPayload,
+    redactPayload,
     stateVersionForThread: (sessionKey) =>
         threadIndex.threads.find((thread) => thread.key === sessionKey)?.updatedAt,
 })
@@ -169,8 +183,9 @@ function readThreadMessages(record: ThreadRecord, limit: number): RoomExecutionM
     try {
         const entries = readThreadEntries(record)
         const completed = completedToolCallIds(entries)
+        const attachmentMetadata = promptAttachmentMetadataByEntryId(entries)
         return entries
-            .map((entry, index) => mapSessionEntry(entry, index, completed))
+            .map((entry, index) => mapSessionEntry(entry, index, completed, attachmentMetadata))
             .filter((entry): entry is RoomExecutionMessage => entry !== null)
             .slice(-limit)
     } catch {
@@ -312,7 +327,7 @@ async function deleteThread(record: ThreadRecord): Promise<void> {
 }
 
 async function createPiSession(record: ThreadRecord): Promise<AgentSession> {
-    return createPiRuntimeSession({
+    const session = await createPiRuntimeSession({
         config,
         record,
         systemPrompt: () => systemPrompt,
@@ -321,17 +336,47 @@ async function createPiSession(record: ThreadRecord): Promise<AgentSession> {
         shortText,
         redactString,
         redactCommandOutput: redactUnboundedString,
-        maxSubagentTaskChars: 24000,
-        maxActiveSubagents: 5,
+        maxSubagentTaskChars,
+        maxActiveSubagents,
         activeSubagentCount: () =>
             threadIndex.threads.filter(
                 (thread) => thread.kind === 'subagent' && thread.status === 'running',
             ).length,
+        maxDeepWorkObjectiveChars,
+        maxDeepWorkResultChars,
+        maxActiveDeepWork,
+        activeDeepWorkCount: () =>
+            activeDeepWorkReservations +
+            threadIndex.threads.filter(
+                (thread) => thread.kind === 'deep_work' && thread.status === 'running',
+            ).length,
+        reserveDeepWorkSlot: () => {
+            activeDeepWorkReservations += 1
+            let released = false
+            return () => {
+                if (released) {
+                    return
+                }
+                released = true
+                activeDeepWorkReservations = Math.max(0, activeDeepWorkReservations - 1)
+            }
+        },
+        readMemoryBrief: async () => (await readMemory(config)).brief,
         createThread,
         findThread,
         runPrompt,
         readThreadMessages,
+        persistThreadIndex,
     })
+    if (record.kind === 'main') {
+        await appendRuntimeEvent('deep_work.available', {
+            threadKey: record.key,
+            maxObjectiveChars: maxDeepWorkObjectiveChars,
+            maxResultChars: maxDeepWorkResultChars,
+            maxActive: maxActiveDeepWork,
+        })
+    }
+    return session
 }
 
 async function getActiveThread(record: ThreadRecord): Promise<ActiveThread> {
@@ -348,11 +393,19 @@ async function getActiveThread(record: ThreadRecord): Promise<ActiveThread> {
         abortController: null,
         touchRunHeartbeat: null,
     }
+    const sessionEventQueue = createSessionEventQueue<AgentSessionEvent>({
+        handle: (event) => handleSessionEvent(record, event),
+        onError: logSessionEventError,
+    })
     active.unsubscribe = session.subscribe((event) => {
-        void handleSessionEvent(record, event)
+        sessionEventQueue.enqueue(event)
     })
     activeThreads.set(record.key, active)
     return active
+}
+
+function logSessionEventError(error: unknown, event: AgentSessionEvent): void {
+    console.error(`Session event handler failed for ${event.type}`, error)
 }
 
 async function handleSessionEvent(record: ThreadRecord, event: AgentSessionEvent): Promise<void> {
@@ -398,12 +451,14 @@ async function createThread(
     input: {
         firstMessage?: string | null
         title?: string | null
-        kind?: 'main' | 'subagent'
+        kind?: ThreadKind
         parentThreadKey?: string | null
         parentRunId?: string | null
         subagentRunId?: string | null
         subagentName?: string | null
         subagentTask?: string | null
+        deepWorkRunId?: string | null
+        deepWorkObjective?: string | null
     } = {},
 ): Promise<PiRuntimeThreadCreatePayload> {
     const key = randomUUID()
@@ -440,6 +495,8 @@ async function createThread(
         subagentRunId: input.subagentRunId ?? null,
         subagentName: input.subagentName ?? null,
         subagentTask: input.subagentTask ?? null,
+        deepWorkRunId: input.deepWorkRunId ?? null,
+        deepWorkObjective: input.deepWorkObjective ?? null,
         completedAt: null,
     }
     threadIndex.threads.unshift(record)
@@ -622,6 +679,8 @@ async function forkThread(input: {
         subagentRunId: input.record.subagentRunId,
         subagentName: input.record.subagentName,
         subagentTask: input.record.subagentTask,
+        deepWorkRunId: input.record.deepWorkRunId,
+        deepWorkObjective: input.record.deepWorkObjective,
         completedAt: null,
     }
     threadIndex.threads.unshift(record)

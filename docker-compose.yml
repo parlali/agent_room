@@ -17,6 +17,7 @@ services:
     searxng:
         image: searxng/searxng:${AGENT_ROOM_SEARXNG_TAG:-2026.5.2-aefc3c316}
         container_name: agent-room-searxng
+        entrypoint: ['/bin/sh', '/usr/local/bin/agent-room-searxng-entrypoint.sh']
         environment:
             SEARXNG_BASE_URL: http://searxng:8080/
             SEARXNG_LIMITER: 'false'
@@ -24,7 +25,8 @@ services:
         expose:
             - '8080'
         volumes:
-            - ./searxng:/etc/searxng
+            - searxng-config:/etc/searxng
+            - ./searxng/entrypoint.sh:/usr/local/bin/agent-room-searxng-entrypoint.sh:ro
         restart: unless-stopped
 
     app:
@@ -57,3 +59,4 @@ services:
 volumes:
     postgres-data:
     agent-room-data:
+    searxng-config:

@@ -68,7 +68,16 @@ export function UserMenu({ user }: { user: AuthUserSnapshot | null }) {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                     className="h-8 px-2 text-sm"
-                    onSelect={() => navigate({ to: '/settings' })}
+                    onSelect={() =>
+                        navigate({
+                            to: '/settings',
+                            search: {
+                                installationId: '',
+                                setupAction: '',
+                                githubState: '',
+                            },
+                        })
+                    }
                 >
                     <SettingsIcon className="size-4" />
                     Settings

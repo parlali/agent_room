@@ -31,6 +31,8 @@ function thread(overrides: Partial<ThreadRecord> = {}): ThreadRecord {
         subagentRunId: null,
         subagentName: null,
         subagentTask: null,
+        deepWorkRunId: null,
+        deepWorkObjective: null,
         completedAt: null,
         ...overrides,
     }

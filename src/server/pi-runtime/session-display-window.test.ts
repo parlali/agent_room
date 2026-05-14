@@ -66,7 +66,11 @@ describe('createSessionWindowStore', () => {
             limitRows: 10,
         })
 
-        expect(window.rows.map((row) => row.type)).toEqual(['message', 'tools', 'message'])
+        expect(window.rows.map((row) => row.type)).toEqual([
+            'user_message',
+            'run_transcript',
+            'assistant_final',
+        ])
         expect(JSON.stringify(window)).not.toContain('secret-value-that-must-not-leak')
         expect(JSON.stringify(window)).not.toContain('very large file body')
     })
@@ -177,25 +181,27 @@ describe('createSessionWindowStore', () => {
         })
 
         expect(window.rows.map((row) => row.type)).toEqual([
-            'message',
-            'message',
-            'tools',
-            'message',
+            'user_message',
+            'run_transcript',
+            'assistant_final',
         ])
         expect(window.rows[1]).toMatchObject({
-            type: 'message',
-            message: {
-                text: 'Checking the failing path',
-                parts: [
-                    {
-                        textPhase: 'commentary',
-                        contentIndex: 0,
-                    },
-                ],
-            },
+            type: 'run_transcript',
+            items: [
+                {
+                    type: 'model_text',
+                    markdown: 'Checking the failing path',
+                    phase: 'commentary',
+                    contentIndex: 0,
+                },
+                {
+                    type: 'tool_activity',
+                    toolCallId: 'call-1',
+                },
+            ],
         })
-        expect(window.rows[3]).toMatchObject({
-            type: 'message',
+        expect(window.rows[2]).toMatchObject({
+            type: 'assistant_final',
             message: {
                 text: 'Fixed and verified',
                 parts: [
@@ -255,6 +261,8 @@ function threadRecord(key: string): ThreadRecord {
         subagentRunId: null,
         subagentName: null,
         subagentTask: null,
+        deepWorkRunId: null,
+        deepWorkObjective: null,
         completedAt: null,
     }
 }

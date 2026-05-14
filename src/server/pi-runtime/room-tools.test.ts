@@ -1,4 +1,14 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import {
+    copyFile,
+    mkdir,
+    mkdtemp,
+    readFile,
+    realpath,
+    rm,
+    stat,
+    symlink,
+    writeFile,
+} from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
@@ -393,6 +403,67 @@ describe('room Pi tools', () => {
             expect(previewPath.startsWith(join(tmpRoot, 'previews'))).toBe(true)
             expect(previewPath.startsWith(config.paths.workspaceDir)).toBe(false)
             expect(previewPath.startsWith(config.paths.storeDir)).toBe(false)
+        })
+    })
+
+    it('lets document tools inspect store-backed uploaded files without mutating them', async () => {
+        await withRoom(async (config) => {
+            await mkdir(join(config.paths.storeDir, 'attachments/session'), {
+                recursive: true,
+            })
+            await executeDocumentTool(config, 'agent_room_docx', {
+                operation: 'create',
+                path: 'source.docx',
+                paragraphs: ['Uploaded contract text'],
+            })
+            await copyFile(
+                join(config.paths.workspaceDir, 'source.docx'),
+                join(config.paths.storeDir, 'attachments/session/source.docx'),
+            )
+            const inspectedDocx = await executeDocumentTool(config, 'agent_room_docx', {
+                operation: 'inspect',
+                root: 'store',
+                path: 'attachments/session/source.docx',
+            })
+
+            await executeDocumentTool(config, 'agent_room_pdf', {
+                operation: 'create',
+                path: 'source.pdf',
+                paragraphs: ['Uploaded PDF text'],
+            })
+            await copyFile(
+                join(config.paths.workspaceDir, 'source.pdf'),
+                join(config.paths.storeDir, 'attachments/session/source.pdf'),
+            )
+            const inspectedPdf = await executeDocumentTool(config, 'agent_room_pdf', {
+                operation: 'inspect',
+                root: 'store',
+                path: 'attachments/session/source.pdf',
+            })
+
+            expect(resultText(inspectedDocx.result)).toContain('Uploaded contract text')
+            expect(resultDetails(inspectedDocx.result)).toMatchObject({
+                root: 'store',
+                format: 'docx',
+            })
+            expect(resultText(inspectedPdf.result)).toContain('PDF file')
+            expect(resultDetails(inspectedPdf.result)).toMatchObject({
+                root: 'store',
+                format: 'pdf',
+            })
+            await expect(
+                executeDocumentTool(config, 'agent_room_docx', {
+                    operation: 'edit',
+                    root: 'store',
+                    path: 'attachments/session/source.docx',
+                    replacementsJson: JSON.stringify([
+                        {
+                            oldText: 'Uploaded',
+                            newText: 'Edited',
+                        },
+                    ]),
+                }),
+            ).rejects.toThrow(/workspace/)
         })
     })
 

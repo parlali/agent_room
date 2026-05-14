@@ -1,3 +1,5 @@
+import { runtimeBroadcastPayload } from './runtime-event-payload'
+
 interface RuntimeEventBusInput {
     roomId: string
     redactPayload: (payload: unknown) => unknown
@@ -9,6 +11,8 @@ export interface RuntimeEventBus {
     createEventStream: (sessionKey: string) => ReadableStream<Uint8Array>
     createRoomEventStream: () => ReadableStream<Uint8Array>
 }
+
+export const RUNTIME_EVENT_STREAM_HEARTBEAT_MS = 5000
 
 function encodeSse(event: string, payload: unknown): Uint8Array {
     return new TextEncoder().encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`)
@@ -24,7 +28,7 @@ export function createRuntimeEventBus(input: RuntimeEventBusInput): RuntimeEvent
         if ((!sessionTargets || sessionTargets.size === 0) && roomSubscribers.size === 0) {
             return
         }
-        const redactedPayload = input.redactPayload(payload)
+        const redactedPayload = input.redactPayload(runtimeBroadcastPayload(event, payload))
         const frame = encodeSse('room-event', {
             event,
             payload: redactedPayload,
@@ -80,7 +84,7 @@ export function createRuntimeEventBus(input: RuntimeEventBusInput): RuntimeEvent
                     } catch {
                         removeController()
                     }
-                }, 15000)
+                }, RUNTIME_EVENT_STREAM_HEARTBEAT_MS)
                 timer.unref?.()
             },
             cancel() {

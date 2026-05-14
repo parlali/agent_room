@@ -1,6 +1,6 @@
 import { existsSync, statSync } from 'node:fs'
 import type { SessionEntry } from '@mariozechner/pi-coding-agent'
-import { buildDisplayItems } from '#/lib/message-list-model'
+import { buildChatTimelineRows } from '#/lib/message-list-model'
 import type {
     RoomExecutionMessage,
     RoomExecutionThread,
@@ -17,6 +17,7 @@ import {
 } from '../telemetry/performance'
 import { extractSessionArtifacts } from './session-artifacts'
 import { completedToolCallIds, mapSessionEntry } from './session-entry-mapper'
+import { promptAttachmentMetadataByEntryId } from './prompt-attachments'
 import type { ThreadRecord } from './thread-records'
 
 interface SessionDisplayIndex {
@@ -132,43 +133,32 @@ function buildSessionDisplayIndex(input: {
     entries: SessionEntry[]
 }): SessionDisplayIndex {
     const completed = completedToolCallIds(input.entries)
+    const attachmentMetadata = promptAttachmentMetadataByEntryId(input.entries)
     const messages = input.entries
-        .map((entry, index) => mapSessionEntry(entry, index, completed))
+        .map((entry, index) => mapSessionEntry(entry, index, completed, attachmentMetadata))
         .filter((message): message is RoomExecutionMessage => message !== null)
-    const items = buildDisplayItems(
+    const rows = buildChatTimelineRows(
         messages,
         workingStatuses.has(input.record.status),
         input.thread,
-    )
-    const rows: RoomSessionDisplayRow[] = items.map((item, seq) => {
-        if (item.type === 'message') {
-            return {
-                type: 'message',
-                id: item.message.id,
-                seq,
-                message: sanitizeDisplayMessage(item.message),
-                timestamp: item.message.timestamp,
-            }
-        }
-        if (item.type === 'tools') {
-            return {
-                type: 'tools',
-                id: item.id,
-                seq,
-                tasks: item.tasks,
-                timestamp: item.timestamp,
-            }
-        }
-        return {
-            type: 'run-status',
-            id: item.id,
-            seq,
-            thread: item.thread,
-        }
-    })
+    ).map((row, seq) => sanitizeDisplayRow(row, seq))
     return {
         rows,
         artifacts: extractSessionArtifacts(input.config, input.entries),
+    }
+}
+
+function sanitizeDisplayRow(row: RoomSessionDisplayRow, seq: number): RoomSessionDisplayRow {
+    if (row.type === 'user_message' || row.type === 'assistant_final' || row.type === 'system') {
+        return {
+            ...row,
+            seq,
+            message: sanitizeDisplayMessage(row.message),
+        }
+    }
+    return {
+        ...row,
+        seq,
     }
 }
 

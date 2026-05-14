@@ -11,6 +11,7 @@ import type { RunBudgetConfig } from '../domain/types'
 const budgets: RunBudgetConfig = {
     manualTurnMs: 8 * 60 * 60 * 1000,
     scheduledTurnMs: 6 * 60 * 60 * 1000,
+    deepWorkTurnMs: 4 * 60 * 60 * 1000,
     subagentTurnMs: 2 * 60 * 60 * 1000,
     maintenanceTurnMs: 30 * 60 * 1000,
     idleTimeoutMs: 5 * 60 * 1000,
@@ -31,6 +32,7 @@ describe('run budgets', () => {
             providerIdleTimeoutMs: budgets.providerIdleTimeoutMs,
         })
         expect(budgetForRunKind(budgets, 'scheduled').runBudgetMs).toBe(budgets.scheduledTurnMs)
+        expect(budgetForRunKind(budgets, 'deep_work').runBudgetMs).toBe(budgets.deepWorkTurnMs)
         expect(budgetForRunKind(budgets, 'subagent').runBudgetMs).toBe(budgets.subagentTurnMs)
     })
 

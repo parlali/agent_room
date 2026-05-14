@@ -43,7 +43,7 @@ export interface RoomExecutionThread {
     key: string
     sessionId: string | null
     agentId: string
-    kind: 'main' | 'subagent'
+    kind: 'main' | 'subagent' | 'deep_work'
     parentThreadKey: string | null
     title: string
     lastMessagePreview: string | null
@@ -96,10 +96,12 @@ export interface RoomExecutionMessage {
     text: string
     parts: RoomExecutionMessagePart[]
     timestamp: number | null
+    provider?: string | null
+    model?: string | null
 }
 
 export interface RoomExecutionMessagePart {
-    type: 'text' | 'tool_call' | 'tool_result' | 'raw'
+    type: 'text' | 'thinking' | 'tool_call' | 'tool_result' | 'raw'
     text: string
     toolName: string | null
     toolCallId: string | null
@@ -111,7 +113,7 @@ export interface RoomExecutionMessagePart {
     textPhase: 'commentary' | 'final_answer' | null
 }
 
-export type RoomToolActivityStatus = 'pending' | 'in_progress' | 'complete' | 'error'
+export type RoomToolActivityStatus = 'pending' | 'in_progress' | 'stopped' | 'complete' | 'error'
 
 export interface RoomToolActivityTask {
     id: string
@@ -122,27 +124,75 @@ export interface RoomToolActivityTask {
     result: string | null
 }
 
-export type RoomSessionDisplayRow =
+export type RunTranscriptStatus =
+    | 'queued'
+    | 'thinking'
+    | 'working'
+    | 'responding'
+    | 'stopped'
+    | 'complete'
+    | 'error'
+
+export type WorkTranscriptItem =
     | {
-          type: 'message'
+          type: 'model_text'
+          id: string
+          turnIndex: number
+          contentIndex: number | null
+          markdown: string
+          complete: boolean
+          phase: 'thinking' | 'commentary' | 'unknown'
+          timestamp: number | null
+      }
+    | {
+          type: 'tool_activity'
+          id: string
+          turnIndex: number
+          contentIndex: number | null
+          toolCallId: string
+          task: RoomToolActivityTask
+          timestamp: number | null
+      }
+
+export interface RunTranscriptRow {
+    type: 'run_transcript'
+    id: string
+    seq: number
+    runId: string
+    status: RunTranscriptStatus
+    startedAt: number | null
+    runtimeMs: number | null
+    collapsed: boolean
+    items: WorkTranscriptItem[]
+    timestamp: number | null
+}
+
+export type ChatTimelineRow =
+    | {
+          type: 'user_message'
           id: string
           seq: number
           message: RoomExecutionMessage
           timestamp: number | null
       }
     | {
-          type: 'tools'
+          type: 'assistant_final'
           id: string
           seq: number
-          tasks: RoomToolActivityTask[]
+          message: RoomExecutionMessage
+          streaming: boolean
           timestamp: number | null
       }
     | {
-          type: 'run-status'
+          type: 'system'
           id: string
           seq: number
-          thread: RoomExecutionThread | null
+          message: RoomExecutionMessage
+          timestamp: number | null
       }
+    | RunTranscriptRow
+
+export type RoomSessionDisplayRow = ChatTimelineRow
 
 export interface RoomSessionWindow {
     sessionKey: string

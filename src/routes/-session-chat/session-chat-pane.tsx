@@ -27,7 +27,10 @@ import {
     updateThreadModelServer,
 } from '#/routes/-room-runtime-server'
 import type {
+    ChatTimelineRow,
+    RoomExecutionActivity,
     RoomExecutionMessage,
+    RoomExecutionThread,
     RoomRealtimeEvent,
     RoomSidebarSnapshot,
     RoomSessionDisplayRow,
@@ -44,6 +47,7 @@ import {
     emptyStreamTurnState,
     reduceRoomStreamEvent,
     shouldRefetchForRoomEvent,
+    stopStreamTurn,
     streamTurnHasContent,
     type StreamTurnState,
 } from './stream-state'
@@ -56,6 +60,7 @@ import {
     rollbackOptimisticWindow,
     type OptimisticWindowRollback,
 } from './chat-projection-store'
+import { rowContainsMessage } from '#/lib/message-list-model'
 
 const loadSessionArtifactsPanel = () => import('./session-artifacts-panel')
 
@@ -190,10 +195,25 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             streamTurn.status === 'responding')
     const isWorking =
         streamActive || sessionTone.tone === 'working' || isLastMessageInProgress(messages)
-    const activeRunId = streamTurn.runId
-    const streamPersisted = streamTurnPersisted(streamTurn, messages)
+    const activeRunId = streamActive ? streamTurn.runId : null
+    const streamPersisted = streamTurnPersisted(streamTurn, rows)
     const visibleStreamTurn = streamPersisted ? emptyStreamTurnState : streamTurn
     const loadingInitialRows = windowQuery.isLoading && rows.length === 0
+
+    const settleStoppedRun = useCallback(
+        (stoppedAt: number) => {
+            setStreamTurn((current) => stopStreamTurn(current, stoppedAt))
+            queryClient.setQueryData<RoomSessionShellSnapshot>(queryKey, (current) =>
+                current ? stopSessionInShell(current, sessionKey, stoppedAt) : current,
+            )
+            queryClient.setQueryData<RoomSidebarSnapshot>(
+                roomQueryKey.roomSidebar(roomId),
+                (current) =>
+                    current ? stopSessionInSidebar(current, sessionKey, stoppedAt) : current,
+            )
+        },
+        [queryClient, queryKey, roomId, sessionKey],
+    )
 
     useEffect(() => {
         setStreamTurn(emptyStreamTurnState)
@@ -285,16 +305,13 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             setStreamTurn(emptyStreamTurnState)
             return
         }
-        if (
-            !streamTurn.finished ||
-            executionQuery.isFetching ||
-            !streamTurnHasContent(streamTurn)
-        ) {
+        if (!streamTurn.finished || executionQuery.isFetching || streamTurn.rows.length === 0) {
             return
         }
+        const clearDelayMs = streamTurnHasContent(streamTurn) ? 1500 : 0
         const timer = setTimeout(() => {
             setStreamTurn(emptyStreamTurnState)
-        }, 1500)
+        }, clearDelayMs)
         return () => clearTimeout(timer)
     }, [streamTurn, streamPersisted, executionQuery.isFetching])
 
@@ -305,7 +322,10 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 event.event === 'thread.renamed' ||
                 event.event === 'thread.title_generated' ||
                 event.event === 'thread.model_changed' ||
+                event.event === 'thread.message_edited' ||
                 event.event === 'room.files.changed' ||
+                event.event === 'run.accepted' ||
+                event.event === 'run.error' ||
                 event.event === 'run.finished' ||
                 event.event === 'agent_end'
             ) {
@@ -453,13 +473,21 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 data: { roomId, sessionKey, runId: activeRunId ?? null },
             }),
         onSuccess: (result) => {
-            if (result.abortedRunId) {
+            const stoppedAt = Date.now()
+            if (result.status === 'aborted' || result.status === 'no-active-run') {
+                settleStoppedRun(stoppedAt)
+            }
+            if (result.status === 'aborted' || result.abortedRunId) {
                 toast.success('Stopped this run')
+            } else if (result.status === 'run-mismatch') {
+                toast.message('Active run changed; refreshing')
             } else {
                 toast.message('No active run to stop')
             }
             void queryClient.invalidateQueries({ queryKey })
+            void queryClient.invalidateQueries({ queryKey: windowQueryKey })
             void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) })
+            void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
         },
         onError: (error) => {
             toast.error(error instanceof Error ? error.message : 'Stop request failed')
@@ -688,24 +716,22 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     )
 }
 
-function streamTurnPersisted(
-    streamTurn: StreamTurnState,
-    messages: RoomExecutionMessage[],
-): boolean {
-    const assistantTexts = streamTurn.items
-        .filter((item) => item.type === 'assistant')
-        .map((item) => item.markdown.trim())
-        .filter((text) => text.length > 0)
-    if (assistantTexts.length === 0) return false
+function streamTurnPersisted(streamTurn: StreamTurnState, rows: ChatTimelineRow[]): boolean {
+    if (!streamTurn.finished) return false
+    if (streamTurn.rows.length === 0) return false
 
-    const persistedTexts = messages
-        .filter((message) => message.role === 'assistant')
-        .map((message) => message.text.trim())
-        .filter((text) => text.length > 0)
-
-    return assistantTexts.every((text) =>
-        persistedTexts.some((persisted) => persisted === text || persisted.endsWith(text)),
-    )
+    const streamSignature = timelineSignature(streamTurn.rows)
+    if (streamSignature.toolCallIds.length === 0 && streamSignature.finalCount === 0) {
+        return false
+    }
+    const persistedSignature = timelineSignature(rows, streamTurn.startedAt)
+    const persistedToolIds = new Set(persistedSignature.toolCallIds)
+    const toolsPersisted = streamSignature.toolCallIds.every((id) => persistedToolIds.has(id))
+    const finalsPersisted = persistedSignature.finalCount >= streamSignature.finalCount
+    if (streamSignature.toolCallIds.length > 0) {
+        return toolsPersisted && finalsPersisted
+    }
+    return finalsPersisted
 }
 
 interface SessionArtifactPanelState {
@@ -851,10 +877,105 @@ function SessionArtifactsShell({
 }
 
 function messagesFromRows(rows: RoomSessionDisplayRow[]): RoomExecutionMessage[] {
-    return rows
-        .filter(
-            (row): row is Extract<RoomSessionDisplayRow, { type: 'message' }> =>
-                row.type === 'message',
-        )
-        .map((row) => row.message)
+    return rows.filter(rowContainsMessage).map((row) => row.message)
+}
+
+function stopSessionInShell(
+    snapshot: RoomSessionShellSnapshot,
+    sessionKey: string,
+    stoppedAt: number,
+): RoomSessionShellSnapshot {
+    return {
+        ...snapshot,
+        threads: stopThreads(snapshot.threads, sessionKey, stoppedAt),
+        selectedThread:
+            snapshot.selectedThread?.key === sessionKey
+                ? stopThread(snapshot.selectedThread, stoppedAt)
+                : snapshot.selectedThread,
+        recentActivity: stopActivities(snapshot.recentActivity, sessionKey, stoppedAt),
+    }
+}
+
+function stopSessionInSidebar(
+    snapshot: RoomSidebarSnapshot,
+    sessionKey: string,
+    stoppedAt: number,
+): RoomSidebarSnapshot {
+    return {
+        ...snapshot,
+        threads: stopThreads(snapshot.threads, sessionKey, stoppedAt),
+        recentActivity: stopActivities(snapshot.recentActivity, sessionKey, stoppedAt),
+    }
+}
+
+function stopThreads(
+    threads: RoomExecutionThread[],
+    sessionKey: string,
+    stoppedAt: number,
+): RoomExecutionThread[] {
+    return threads.map((thread) =>
+        thread.key === sessionKey ? stopThread(thread, stoppedAt) : thread,
+    )
+}
+
+function stopThread(thread: RoomExecutionThread, stoppedAt: number): RoomExecutionThread {
+    const runtimeMs =
+        thread.runStartedAt !== null
+            ? Math.max(0, stoppedAt - thread.runStartedAt)
+            : thread.runtimeMs
+    return {
+        ...thread,
+        status: 'idle',
+        updatedAt: stoppedAt,
+        runStartedAt: null,
+        runtimeMs,
+    }
+}
+
+function stopActivities(
+    activities: RoomExecutionActivity[],
+    sessionKey: string,
+    stoppedAt: number,
+): RoomExecutionActivity[] {
+    return activities.map((activity) =>
+        activity.key === sessionKey ? stopActivity(activity, stoppedAt) : activity,
+    )
+}
+
+function stopActivity(activity: RoomExecutionActivity, stoppedAt: number): RoomExecutionActivity {
+    return {
+        ...activity,
+        status: 'idle',
+        updatedAt: stoppedAt,
+    }
+}
+
+function timelineSignature(
+    rows: ChatTimelineRow[],
+    afterTimestamp: number | null = null,
+): {
+    toolCallIds: string[]
+    finalCount: number
+} {
+    const toolCallIds: string[] = []
+    let finalCount = 0
+    for (const row of rows) {
+        if (afterTimestamp !== null && row.timestamp !== null && row.timestamp < afterTimestamp) {
+            continue
+        }
+        if (row.type === 'assistant_final' && row.message.text.trim()) {
+            finalCount += 1
+            continue
+        }
+        if (row.type !== 'run_transcript') continue
+        for (const item of row.items) {
+            if (item.type === 'tool_activity') {
+                toolCallIds.push(item.toolCallId)
+            }
+        }
+    }
+    return {
+        toolCallIds,
+        finalCount,
+    }
 }

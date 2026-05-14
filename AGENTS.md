@@ -22,6 +22,8 @@ Plan items describe intended behavior to achieve, not specific changes to follow
 
 Do not commit local runtime data, generated credentials, real provider keys, OAuth tokens, personal paths, machine-specific settings, `.env`, `.agent-room`, logs, databases, or Docker volumes.
 
+Do not commit private user/chat evidence, real room IDs, session IDs, local deployment names, personal project names, private prompts, personal account fixtures, host paths, or chat-derived observations to public-facing docs, tests, examples, fixtures, or git history. When evidence is needed, write a sanitized summary that preserves the product lesson without identifying the user, deployment, room, session, account, project, or conversation.
+
 Planning, context, architecture, and related project Markdown docs live under the `plan/` directory.
 
 When working on `plan/plan.md` tasks:

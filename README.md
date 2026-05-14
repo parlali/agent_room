@@ -75,7 +75,7 @@ The default Compose stack is intentionally local-first:
 - Postgres is not published to the host
 - SearXNG is not published to the host
 - Runtime data is stored in Docker volumes
-- Root login credentials and encryption keys are generated on first boot unless you provide them
+- Root login credentials, encryption keys, and SearXNG secret keys are generated on first boot unless you provide them
 
 To change the local app port:
 
@@ -116,12 +116,13 @@ Database migrations run automatically when the app container starts.
 
 ## Backups
 
-Back up both Docker volumes:
+Back up the Docker volumes:
 
 - `agent_room_agent-room-data`
 - `agent_room_postgres-data`
+- `agent_room_searxng-config`
 
-The app data volume contains room runtime state, generated bootstrap credentials, provider runtime auth state, files, artifacts, logs, and room-local state. The Postgres volume contains application records and encrypted secret rows.
+The app data volume contains room runtime state, generated bootstrap credentials, provider runtime auth state, files, artifacts, logs, and room-local state. The Postgres volume contains application records and encrypted secret rows. The SearXNG config volume contains the generated private search configuration and secret key.
 
 Before restoring to a new machine, make sure you also restore any deployment-owned environment values that were set before first boot, especially `AGENT_ROOM_ENCRYPTION_KEY_B64` if you provided one.
 

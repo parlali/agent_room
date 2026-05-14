@@ -5,6 +5,7 @@ import type { RoomFileSurface } from '../rooms/file-store'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { currentToolRunContext } from './tool-run-context'
 import { isRecord } from './runtime-redaction'
+import { runtimeEventLogPayload } from './runtime-event-payload'
 
 type RuntimeEventAppenderInput = {
     config: PiRuntimeConfig
@@ -29,7 +30,7 @@ export function createRuntimeEventAppender(input: RuntimeEventAppenderInput) {
         const runId =
             runContext?.runId ??
             (typeof payloadObject.runId === 'string' ? payloadObject.runId : null)
-        const redactedPayload = boundedRuntimeEventPayload(event, input.redactPayload(payload))
+        const redactedPayload = runtimeEventLogPayload(event, input.redactPayload(payload))
         rotationQueue = rotationQueue.then(() =>
             rotateRuntimeEventLog(input.config.paths.runtimeEventsPath),
         )
@@ -87,40 +88,6 @@ async function renameIfExists(from: string, to: string): Promise<void> {
             return
         }
         throw error
-    }
-}
-
-function boundedRuntimeEventPayload(event: string, payload: unknown): unknown {
-    const payloadRecord = isRecord(payload) ? payload : null
-    const innerEvent = isRecord(payloadRecord?.event) ? payloadRecord.event : null
-    const innerType = typeof innerEvent?.type === 'string' ? innerEvent.type : event
-    if (innerType !== 'message_update') {
-        return payload
-    }
-
-    const assistantEvent = isRecord(innerEvent?.assistantMessageEvent)
-        ? innerEvent.assistantMessageEvent
-        : null
-    const assistantType = typeof assistantEvent?.type === 'string' ? assistantEvent.type : 'unknown'
-    const textDelta =
-        typeof assistantEvent?.delta === 'string'
-            ? assistantEvent.delta
-            : typeof assistantEvent?.content === 'string'
-              ? assistantEvent.content
-              : ''
-    return {
-        ...(payloadRecord ?? {}),
-        event: {
-            type: innerType,
-            assistantMessageEvent: {
-                type: assistantType,
-                contentIndex:
-                    typeof assistantEvent?.contentIndex === 'number'
-                        ? assistantEvent.contentIndex
-                        : null,
-                textLength: textDelta.length,
-            },
-        },
     }
 }
 

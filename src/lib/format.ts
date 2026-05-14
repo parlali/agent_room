@@ -78,6 +78,26 @@ export function formatBytes(bytes: number | null | undefined): string {
     return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`
 }
 
+const byteUnitMultipliers: Record<string, number> = {
+    B: 1,
+    KB: 1024,
+    MB: 1024 ** 2,
+    GB: 1024 ** 3,
+    TB: 1024 ** 4,
+}
+
+export function parseFormattedBytes(label: string | null | undefined): number | null {
+    const value = label?.trim()
+    if (!value || value === '-') return null
+    const match = /^(\d+(?:\.\d+)?)\s*(B|KB|MB|GB|TB)$/i.exec(value)
+    if (!match) return null
+    const amount = Number(match[1])
+    const unit = match[2]?.toUpperCase()
+    const multiplier = unit ? byteUnitMultipliers[unit] : undefined
+    if (!Number.isFinite(amount) || !multiplier) return null
+    return Math.round(amount * multiplier)
+}
+
 export function formatDurationMs(ms: number | null | undefined): string {
     if (ms === null || ms === undefined || !Number.isFinite(ms)) return '-'
     if (ms < 1000) return `${Math.round(ms)} ms`

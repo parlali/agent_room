@@ -1,15 +1,22 @@
-import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { MessageSquareIcon } from 'lucide-react'
 
-import { EmptyState, LoadingRows, StatusDot } from '#/components/agent-room'
-import type { RoomSessionDisplayRow, RoomRuntimeOverview } from '#/lib/room-execution-types'
+import { EmptyState, LoadingRows } from '#/components/agent-room'
+import type {
+    ChatTimelineRow,
+    RoomSessionDisplayRow,
+    RoomRuntimeOverview,
+    RunTranscriptRow,
+} from '#/lib/room-execution-types'
 
 import type { EditingMessageDraft } from '#/lib/message-list-model'
-import { DisplayRow, StreamRow } from './message-rows'
+import { createRunTranscriptRow } from '#/lib/message-list-model'
+import { DisplayRow } from './message-rows'
 import { recordClientPerformance } from '#/lib/browser-performance'
 import type { StreamTurnState } from './stream-state'
 import { streamTurnHasContent } from './stream-state'
+import { cn } from '#/lib/utils'
 
 export function MessageList({
     sessionKey,
@@ -53,11 +60,21 @@ export function MessageList({
     const mountedAtRef = useRef(performance.now())
     const renderLoggedSessionRef = useRef<string | null>(null)
     const pendingPrependRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null)
+    const [collapsedByRunId, setCollapsedByRunId] = useState<Map<string, boolean>>(() => new Map())
+    const timelineRows = useMemo(
+        () => buildTimelineRows(rows, stream, isWorking, sessionKey),
+        [isWorking, rows, sessionKey, stream],
+    )
+    const editingMeasurementKey = editingMessage
+        ? `${editingMessage.id}:${editingMessage.text}:${editingMessage.attachments.length}`
+        : null
     const rowVirtualizer = useVirtualizer({
-        count: rows.length,
+        count: timelineRows.length,
         getScrollElement: () => containerRef.current,
-        estimateSize: () => 112,
-        overscan: 8,
+        getItemKey: (index) => timelineRows[index]?.id ?? index,
+        estimateSize: (index) => estimateTimelineRowSize(timelineRows[index]),
+        overscan: 5,
+        useAnimationFrameWithResizeObserver: true,
     })
 
     const handleScroll = useCallback(() => {
@@ -89,7 +106,31 @@ export function MessageList({
 
     useEffect(() => {
         if (stickToBottomRef.current) scrollToBottom()
-    }, [rows, stream, isWorking, scrollToBottom])
+    }, [timelineRows, stream.updatedAt, isWorking, scrollToBottom])
+
+    const measureVisibleRows = useCallback(() => {
+        const measure = () => {
+            const node = containerRef.current
+            if (!node) return
+            for (const element of node.querySelectorAll<HTMLElement>('[data-virtual-row]')) {
+                rowVirtualizer.measureElement(element)
+            }
+        }
+        window.requestAnimationFrame(() => {
+            measure()
+            window.requestAnimationFrame(measure)
+        })
+    }, [rowVirtualizer])
+
+    useLayoutEffect(() => {
+        measureVisibleRows()
+    }, [
+        collapsedByRunId,
+        editingMeasurementKey,
+        measureVisibleRows,
+        stream.updatedAt,
+        timelineRows,
+    ])
 
     useLayoutEffect(() => {
         const pending = pendingPrependRef.current
@@ -99,23 +140,35 @@ export function MessageList({
         node.scrollTop = node.scrollHeight - pending.scrollHeight + pending.scrollTop
     }, [rows.length])
 
-    const hasStreamContent = streamTurnHasContent(stream)
+    const hasStreamContent = streamTurnHasContent(stream) || stream.rows.length > 0
     const virtualRows = rowVirtualizer.getVirtualItems()
 
     useEffect(() => {
         if (renderLoggedSessionRef.current === sessionKey) return
-        if (rows.length === 0 || virtualRows.length === 0) return
+        if (timelineRows.length === 0 || virtualRows.length === 0) return
         renderLoggedSessionRef.current = sessionKey
         recordClientPerformance({
             name: 'chat.window.render',
             roomId: room.roomId,
             sessionKey,
-            rowCount: rows.length,
+            rowCount: timelineRows.length,
             virtualRowCount: virtualRows.length,
             totalRows,
             durationMs: performance.now() - mountedAtRef.current,
         })
-    }, [room.roomId, rows.length, sessionKey, totalRows, virtualRows.length])
+    }, [room.roomId, sessionKey, timelineRows.length, totalRows, virtualRows.length])
+
+    const toggleTranscript = useCallback((row: RunTranscriptRow) => {
+        setCollapsedByRunId((current) => {
+            const next = new Map(current)
+            next.set(row.runId, !(next.get(row.runId) ?? row.collapsed))
+            return next
+        })
+    }, [])
+
+    const measureRows = useCallback(() => {
+        measureVisibleRows()
+    }, [measureVisibleRows])
 
     return (
         <div
@@ -126,7 +179,7 @@ export function MessageList({
         >
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6 sm:px-6">
                 {loadingInitialRows ? <LoadingRows count={4} /> : null}
-                {rows.length === 0 && !hasStreamContent && !loadingInitialRows ? (
+                {timelineRows.length === 0 && !hasStreamContent && !loadingInitialRows ? (
                     <EmptyState
                         icon={MessageSquareIcon}
                         title="Start the conversation"
@@ -147,13 +200,19 @@ export function MessageList({
                     }}
                 >
                     {virtualRows.map((virtualRow) => {
-                        const item = rows[virtualRow.index]!
+                        const item = timelineRows[virtualRow.index]!
+                        const isEditingRow =
+                            item.type === 'user_message' && editingMessage?.id === item.message.id
                         return (
                             <div
                                 key={item.id}
                                 ref={rowVirtualizer.measureElement}
+                                data-virtual-row
                                 data-index={virtualRow.index}
-                                className="absolute left-0 top-0 w-full pb-4"
+                                className={cn(
+                                    'absolute left-0 top-0 w-full pb-4 [contain:layout_paint_style]',
+                                    isEditingRow ? 'z-10' : 'z-0',
+                                )}
                                 style={{
                                     transform: `translateY(${virtualRow.start}px)`,
                                 }}
@@ -168,21 +227,131 @@ export function MessageList({
                                     onChangeEditingMessageText={onChangeEditingMessageText}
                                     onSubmitEditingMessage={onSubmitEditingMessage}
                                     onCancelEditingMessage={onCancelEditingMessage}
+                                    assistantContinuesPrevious={assistantContinuesPreviousWork(
+                                        timelineRows,
+                                        virtualRow.index,
+                                    )}
+                                    transcriptCollapsed={
+                                        item.type === 'run_transcript'
+                                            ? (collapsedByRunId.get(item.runId) ?? item.collapsed)
+                                            : undefined
+                                    }
+                                    onToggleTranscript={toggleTranscript}
+                                    onRowLayoutChange={measureRows}
                                 />
                             </div>
                         )
                     })}
                 </div>
-                {stream.items.map((item) => (
-                    <StreamRow key={item.id} room={room} item={item} timestamp={stream.updatedAt} />
-                ))}
-                {isWorking && !hasStreamContent ? (
-                    <div className="flex items-center gap-2 px-2 text-xs text-muted-foreground">
-                        <StatusDot tone="working" pulse />
-                        <span>{room.displayName} is working...</span>
-                    </div>
-                ) : null}
             </div>
         </div>
     )
+}
+
+export function buildTimelineRows(
+    rows: RoomSessionDisplayRow[],
+    stream: StreamTurnState,
+    isWorking: boolean,
+    sessionKey: string,
+): ChatTimelineRow[] {
+    const streamRows = stream.rows
+    const persistentRows =
+        streamRows.length > 0 ? persistedRowsBeforeLiveRun(rows, stream.startedAt) : rows
+    const fallback =
+        isWorking && streamRows.length === 0 && !persistentRows.some(hasActiveTranscript)
+            ? [
+                  createRunTranscriptRow({
+                      id: `run-transcript-pending-${sessionKey}`,
+                      seq: persistentRows.length,
+                      runId: `pending-${sessionKey}`,
+                      status: 'working',
+                      startedAt: null,
+                      runtimeMs: null,
+                      collapsed: false,
+                      timestamp: null,
+                  }),
+              ]
+            : []
+    return [...persistentRows, ...streamRows, ...fallback].map((row, seq) => ({
+        ...row,
+        seq,
+    }))
+}
+
+function persistedRowsBeforeLiveRun(
+    rows: RoomSessionDisplayRow[],
+    streamStartedAt: number | null,
+): RoomSessionDisplayRow[] {
+    const latestUserIndex = findLatestUserRowIndex(rows, streamStartedAt)
+    if (latestUserIndex < 0) {
+        return rows.filter((row) => {
+            if (row.type === 'run_transcript') return !isActiveRunStatus(row.status)
+            return !isCurrentStreamFinalRow(row, streamStartedAt)
+        })
+    }
+    return rows.slice(0, latestUserIndex + 1)
+}
+
+function isCurrentStreamFinalRow(
+    row: RoomSessionDisplayRow,
+    streamStartedAt: number | null,
+): boolean {
+    return (
+        streamStartedAt !== null &&
+        row.type === 'assistant_final' &&
+        row.timestamp !== null &&
+        row.timestamp >= streamStartedAt
+    )
+}
+
+function findLatestUserRowIndex(
+    rows: RoomSessionDisplayRow[],
+    streamStartedAt: number | null,
+): number {
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+        const row = rows[index]
+        if (!row || row.type !== 'user_message') continue
+        if (streamStartedAt !== null && row.timestamp !== null && row.timestamp > streamStartedAt) {
+            continue
+        }
+        return index
+    }
+    return -1
+}
+
+function hasActiveTranscript(row: ChatTimelineRow): boolean {
+    return row.type === 'run_transcript' && isActiveRunStatus(row.status)
+}
+
+function isActiveRunStatus(status: RunTranscriptRow['status']): boolean {
+    return (
+        status === 'queued' ||
+        status === 'thinking' ||
+        status === 'working' ||
+        status === 'responding'
+    )
+}
+
+function estimateTimelineRowSize(row: ChatTimelineRow | undefined): number {
+    if (!row) return 112
+    if (row.type === 'run_transcript') {
+        return row.collapsed ? 44 : Math.min(520, 56 + row.items.length * 36)
+    }
+    if (row.type === 'assistant_final' || row.type === 'user_message') {
+        const text = row.message.text
+        const estimatedLines = Math.max(1, Math.ceil(text.length / 84))
+        return Math.min(900, 64 + estimatedLines * 24)
+    }
+    return 48
+}
+
+function assistantContinuesPreviousWork(rows: ChatTimelineRow[], index: number): boolean {
+    if (rows[index]?.type !== 'assistant_final') return false
+    for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+        const row = rows[cursor]
+        if (!row) return false
+        if (row.type === 'run_transcript' || row.type === 'assistant_final') return true
+        if (row.type === 'user_message' || row.type === 'system') return false
+    }
+    return false
 }

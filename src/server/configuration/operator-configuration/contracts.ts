@@ -166,9 +166,37 @@ export interface GitHubInstallationSummary {
     updatedAt: string
 }
 
+export interface GitHubUserConnectionSummary {
+    connected: boolean
+    login: string | null
+    name: string | null
+    avatarUrl: string | null
+    htmlUrl: string | null
+    status: ConnectionStatus | null
+    validationMessage: string | null
+    lastAuthorizedAt: string | null
+    updatedAt: string | null
+}
+
+export interface GitHubAccountSummary {
+    login: string
+    accountType: string
+    avatarUrl: string | null
+    htmlUrl: string | null
+    installed: boolean
+    installationId: string | null
+    installationStatus: ConnectionStatus | null
+    repositorySelection: string | null
+    installUrl: string | null
+    manageUrl: string | null
+    updatedAt: string | null
+}
+
 export interface GitHubIntegrationSummary {
     app: GitHubAppSummary
+    user: GitHubUserConnectionSummary
     installations: GitHubInstallationSummary[]
+    accounts: GitHubAccountSummary[]
 }
 
 export interface GitHubRoomBindingSummary {

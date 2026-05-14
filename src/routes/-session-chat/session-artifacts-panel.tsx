@@ -20,6 +20,7 @@ import {
 } from '#/components/room-files/file-preview'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
+import { CardButton } from '#/components/ui/card'
 import {
     Dialog,
     DialogContent,
@@ -294,10 +295,10 @@ function ArtifactRow({
 }) {
     const Icon = iconForArtifact(artifact)
     return (
-        <button
-            type="button"
+        <CardButton
+            size="sm"
             className={cn(
-                'flex w-full min-w-0 items-start gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted/60',
+                'min-w-0 items-start gap-2 border-0 bg-transparent px-2 py-2 hover:bg-muted/60',
                 selected ? 'bg-muted text-foreground' : 'text-muted-foreground',
             )}
             onClick={onSelect}
@@ -316,7 +317,7 @@ function ArtifactRow({
                 </span>
             </span>
             <span className="shrink-0 text-[0.6875rem]">{formatBytes(artifact.byteLength)}</span>
-        </button>
+        </CardButton>
     )
 }
 

@@ -20,7 +20,7 @@ describe('room attachments', () => {
                 name: 'product-spec.docx',
                 surface: 'store',
                 relativePath: 'attachments/session/product-spec.docx',
-                byteLength: null,
+                byteLength: 9933,
                 sizeLabel: '9.7 KB',
             },
             {
@@ -28,7 +28,7 @@ describe('room attachments', () => {
                 name: 'map.png',
                 surface: 'workspace',
                 relativePath: 'screens/map.png',
-                byteLength: null,
+                byteLength: 12288,
                 sizeLabel: '12 KB',
             },
         ])

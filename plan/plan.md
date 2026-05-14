@@ -1,119 +1,227 @@
 # Agent Room Active Plan
 
-Status: first-pass performance work landed; usability architecture phase open
+Status: agent behavior rewrite -- system prompt, memory, deep-work framework
 
-Last updated: 2026-05-12
+Last updated: 2026-05-14
 
-## Current Work
+## Problem
 
-- [x] Inspect the current planning surface and identify superseded artifacts.
-- [x] Remove completed one-off spike notes and generated UI mockup images from active `plan/`.
-- [x] Run structural quality probes against the current codebase.
-- [x] Capture a repeatable code quality scoring process.
-- [x] Record the current code quality score and the main follow-up risks.
-- [x] Reduce the initial spaghetti score by splitting oversized runtime, route, GitHub, room-tool, and cron-test modules.
-- [x] Verify the refactor with `bun run typecheck`, targeted Vitest suites, formatting, and the local quality score script.
-- [x] Reduce the second-pass spaghetti score by splitting runtime run lifecycle, model state, title generation, file preview storage, and shared client-safe contracts. (Also corrected scoring false positives for trailing newlines and TanStack route server-function API imports.)
-- [x] Continue structure-first refinement by separating web search/fetch safety, provider versus MCP connection validation, and XLSX chart packaging from their caller-facing modules.
-- [x] Complete the listed spaghetti-reduction pass by splitting room/app configuration workflows, memory, image tooling, status UI, and session chat display modules. (Also removed the remaining hard line-count cap from the score; file size remains a diagnostic signal.)
+The agent produces ChatGPT-style output: heading-heavy, bullet-point taxonomies, exhaustive educational summaries, and generic menus of next steps. It does not behave like a coworker. A coworker reads the question, goes away, thinks, does the work, and comes back with a useful direct answer.
 
-## Performance Refactor Track
+Private production replays of a representative source-dependent question were tested against several system prompt revisions. Each attempt was a clean branch from the same parent node, not accumulated history. Every attempt produced the same structural failure:
 
-Status: first-pass production fixes landed; superseded by the Chat Usability Architecture Phase for remaining work
+1. Agent runs web search, including retries after backend failures.
+2. Agent produces a heading-heavy taxonomy instead of a synthesized answer.
+3. Agent never updates room memory despite doing substantial research across 10+ web searches.
+4. No background memory consolidation ran (run-ledger directory is empty).
 
-This is a multi-pass refactor, not a safe one-pass change. The slow experience comes from app-side request, payload, streaming, cache, route remount, and rendering design, with Tailscale DERP latency amplifying every extra round trip. The refactor must preserve runtime/provider truth, auditability, room isolation, and credential safety.
+The system prompt already contains negative constraints against this behavior ("never use exhaustive bullet lists as a substitute for synthesis", "do not turn a specific request into a primer, taxonomy, menu"). The model ignores them because:
 
-Progress made so far:
+- The prompt is ~2800 chars of competing behavioral policy spread across `executionBiasSection` (~10 lines of "do not") and `workContractSection` (~8 lines of "do not").
+- Negative constraints do not override RLHF-trained defaults to produce structured educational content.
+- There is no positive output format prescription (what shape should the answer take).
+- The identity framing is weak: "You are ${displayName}, a persistent room-local coworker" tells the model what it is called, not how it thinks.
 
-- Production performance logs now attribute server edge, runtime proxy, snapshot, usage sync, and SSE timing without logging secrets or message bodies.
-- Runtime usage sync no longer blocks snapshot, send, edit, or normal navigation hot paths.
-- Selected-session snapshots can load a bounded recent message window, with older history loaded on demand.
-- Runtime display projection now strips raw tool payloads from the UI contract and pre-groups tool activity for persisted rows.
-- Production asset serving now uses immutable cache headers and gzip for hashed client assets while keeping HTML and authenticated responses uncached.
-- Markdown internal app links now use TanStack navigation where safe, and route chunks for dashboard tabs are preloaded to reduce blank first visits.
+Reference systems that achieve better output:
 
-Latest user-visible findings:
+- **Claude Code**: ~3 lines of output style: "Lead with the answer or action, not the reasoning. Skip filler. If you can say it in one sentence, don't use three."
+- **Hermes Agent**: Sharp identity document (SOUL.md) defining who the agent is, not what it should avoid. Bounded MEMORY.md/USER.md injected as frozen snapshots. Proactive memory writes.
+- **Codex /goal**: Durable goal persistence with budget, continuation, and evidence-based completion. Goals are opt-in, normal chat stays normal.
+- **Ralph loops**: External state (files, git, progress.md) rather than context-window memory. Context rotation when pollution builds. Gutter detection.
 
-- First-loads improved, but the app still does not feel smooth enough for daily use.
-- Chat switching can still feel unresponsive because the click is not always acknowledged immediately with a selected-thread shell and cached latest messages.
-- Memory/settings navigation can still cause hard page remounts or blank-screen pauses, even after client caching.
-- Markdown still stutters because the current first-pass behavior can render plain text and then hydrate into formatted markdown, causing layout shift.
-- Artifact/sidebar behavior is still wrong: in some back-navigation cases the panel lazy loads despite prior state, and when it appears it opens abruptly instead of sliding from persistent state.
-- Server logs are now useful for backend attribution, but they cannot fully explain main-thread stalls, React render work, route remounts, markdown hydration, or browser document navigations. Browser-side interaction marks are needed for the remaining work.
+## Diagnosis
 
-Reference study: external Vite chat app
+### System prompt
 
-- The Vite chat app keeps the application shell and sidebar mounted above chat routes, so selecting a chat is mostly a client-state pointer change instead of a page-level remount.
-- Chat state is WebSocket-fed into a normalized client store. Sidebar summaries, thread shell state, and thread detail state are separate slices so sidebar updates do not churn message arrays.
-- Active, recent, and sidebar-visible thread detail subscriptions are retained with a bounded TTL/LRU cache, and visible sidebar chats are prewarmed after idle time.
-- Long chat history is handled with a virtualized timeline, stable row identity, structural sharing, grouped/collapsed work/tool rows, and bottom-scroll preservation.
-- Markdown is rendered as markdown from the start for visible rows. Expensive code highlighting is cached/deferred behind a narrow boundary; the whole message is not intentionally rendered as plain text first.
-- Right-side workbench/panel shells are persistent or keep-mounted, with open state separate from lazy content loading. Chunk loading does not decide whether the panel should open.
-- React Compiler and memoization help, but the main smoothness comes from data ownership, retained detail subscriptions, stable rows, and persistent layout.
+The current prompt in `src/server/pi-runtime/system-prompt.ts` assembles these sections:
 
-Closed first-pass checklist:
+1. Identity (1 line, weak)
+2. Runtime context (datetime, provider, model, mode, budget)
+3. Execution bias (~10 lines, mostly negative: "do not answer with...", "do not fill...", "do not end with...")
+4. Work contract (~8 lines, mostly negative: "do not stop after...", "do not turn a specific request into...")
+5. Shared policy (~8 lines, mixed)
+6. Mode instructions (programmer or coworker, ~6 lines)
+7. Agent harness / memory brief
+8. Capability and tool lists
+9. Operator instructions
 
-- [x] Add lightweight request, runtime proxy, snapshot, usage sync, and SSE timing instrumentation so production latency can be attributed per route without logging secrets or message bodies. (Implemented as opt-in `AGENT_ROOM_PERF_LOGS` structured JSON logs for the production server edge, app-to-runtime proxy, snapshot assembly, usage sync, and browser/runtime SSE streams.)
-- [x] Move runtime usage sync out of chat/session/navigation hot paths. Usage ingestion must be incremental by durable byte offset or equivalent cursor, bounded, logged on failure, and safe to resume after restarts. (Snapshot and manual send/edit paths no longer wait on usage sync; usage ingestion now persists a byte offset and line cursor, with line-only state migrated by streaming the log once.)
-- [x] Add message paging and/or virtualization for long sessions. Opening a chat should load a recent window first, preserve scroll behavior, and fetch older history on demand without reparsing every prior markdown block. (Implemented a selected-session display-window endpoint with cursor paging, cached runtime projection, older-history loading, and virtualized persistent rows.)
-- [x] Memoize or precompute expensive message display work, especially markdown parsing and tool activity grouping, so streaming a new token does not re-render the whole visible transcript unnecessarily. (First-pass implementation moved tool grouping into the runtime display projection, stripped raw tool payloads from the UI contract, and memoized mounted markdown rows. UX verification found that plain-text-first markdown hydration is not acceptable and is superseded by the next phase.)
-- [x] Fix internal hard reload sources. Markdown-rendered internal app links should route through TanStack where safe, and normal app controls should never document-navigate except for downloads, external OAuth/provider flows, or intentional exports. (Markdown app-route links now use TanStack `Link`; API/assets/external links remain normal anchors; room dashboard route chunks are preloaded from the shell and tab menu to reduce blank first visits.)
-- [x] Add immutable cache headers and compression for hashed production assets served by `scripts/start-server.ts`, while keeping HTML and authenticated server responses correctly uncached. (Hashed `/assets/` files now get immutable cache headers, and compressible client assets are served with gzip when accepted.)
+The signal-to-noise ratio is low. The most important behavioral guidance is buried in the middle where models retain it least. The prompt tells the model 20 things NOT to do but never says what shape a good answer takes.
 
-Outstanding items from this first pass are intentionally folded into the next phase below. Do not implement this section as a second checklist.
+### Memory
 
-## Chat Usability Architecture Phase
+The agent harness in `src/server/pi-runtime/agent-harness.ts` says:
 
-Status: complete
+> "When the operator **explicitly asks** you to remember, record, keep track of, always do, or never do something, update memory before the final response."
 
-Goal: make the app feel immediately interactive on production builds, even for cold chats, long histories, heavy tool calls, artifacts, settings, and memory pages.
+The word "explicitly" makes memory opt-in. The agent only writes memory when the user says "remember this." Private replay evidence showed memory capture happening in sustained collaborative work but not in a one-turn research session with substantial tool use.
 
-Fresh-session handoff:
+The structured memory model itself (`src/server/pi-runtime/memory-model.ts`) is sound: typed sections (identity, operator, behavior, currentWork, schedule, decisions, doNotForget), bounded items, priority-based trimming, optimistic concurrency. The problem is purely the behavioral trigger.
 
-- Start here. This is the canonical outstanding checklist for performance and usability work.
-- Implement the smallest coherent design that satisfies the behavior; do not blindly recreate the reference app.
-- Keep room/session ownership, credential safety, runtime/provider truth, and auditability intact.
-- Use production Docker builds and `AGENT_ROOM_PERF_LOGS` when validating user-visible performance.
-- Add browser-side marks before guessing at React/render causes; server logs alone cannot see markdown/layout/main-thread stalls.
+The run-ledger directory at `/app/.agent-room/rooms/.../pi-state/internal-state/run-ledger/` is empty. No background maintenance runs have occurred.
 
-- [x] Add browser-side interaction tracing for the remaining defects: chat row click to selected-shell paint, selected-shell paint to latest-message paint, markdown render cost, artifact panel mount/open timing, route remounts, document navigations, and long main-thread tasks. Logs must avoid message bodies, tool payloads, secrets, and personal paths. (Implemented client performance events for navigation paint, authenticated document navigation, route remounts, chat shell/latest-message paint, markdown render cost, chat window render, artifact panel mount/open, and long-task observation; payloads stay bounded to ids, counts, durations, route shapes, and text length.)
-- [x] Make the app shell persistent across room chat, memory, settings, files, jobs, usage, and status routes. Normal internal navigation should not remount the whole page or leave a blank document-level surface. (Moved the authenticated app shell to the root provider and removed nested route shells.)
-- [x] Create a canonical client chat projection store that separates sidebar summaries, selected-session shell state, message windows, activities, artifacts, model/composer state, and live stream deltas. Avoid duplicate query-owned sources of truth. (React Query remains the canonical cache, with shared key builders and projection helpers for sidebar, session shell, windows, artifacts, and optimistic rows.)
-- [x] Make chat selection synchronous. Clicking a sidebar row must immediately update selected visual state, route state, chat header, composer context, and any cached latest messages before cold detail loading continues. (Sidebar clicks mark the selection, prewarm/seed session detail where cached, and use placeholder shell data from the sidebar while cold payloads load.)
-- [x] Retain and prewarm session detail for active, recent, and visible sidebar sessions with bounded TTL/LRU behavior, explicit invalidation, and room/session ownership checks. Fallbacks must be logged, bounded, and fail closed. (Implemented bounded visible/recent/active prewarm through React Query stale/gc policy instead of a separate LRU store.)
-- [x] Split runtime snapshot contracts into canonical summary, sidebar, selected-session, activity/read-model, and artifact payloads. Each endpoint should return only the data its caller renders, with explicit cache and invalidation behavior. (Added sidebar and selected-session shell endpoints; retained full execution snapshot for status/backcompat surfaces.)
-- [x] Rework live chat streaming to rely on bounded SSE deltas for visible progress and avoid invalidating full session snapshots on routine token/tool updates. Refetches should be reserved for run completion, title changes, artifacts, and explicit recovery. (Routine message/tool deltas update local stream state; full invalidation is reserved for completion, title/model/file events, and recovery.)
-- [x] Add optimistic chat state for user sends and edits. The user message should appear immediately, pending state should reconcile with the runtime ack, and failed sends must roll back or clearly surface a retry path. (Optimistic query-window rows are inserted for sends/edits, reconciled by runtime invalidation, and rolled back with draft restoration on failure.)
-- [x] Replace plain-text-first markdown hydration with markdown-first rendering for visible rows. Preload the markdown renderer, preserve row dimensions, cache completed message render work where safe, and defer only expensive subparts such as syntax highlighting. (Visible rows render markdown first with cached render work and no plaintext hydration pass.)
-- [x] Rework the message timeline around stable virtual rows: bottom-first opening, visible-row-only rendering, structural sharing, grouped/collapsed tool and work rows, cursor loading for older history, and no full-list rerender on routine stream deltas. (Preserved the existing virtualized row model and connected it to markdown-first rendering, structural sharing, cursor windows, and bounded stream deltas.)
-- [x] Keep artifact/sidebar panel shells mounted and animate open/close from state. Cache open, loaded, selected artifact, and width state per session so returning to a chat does not lazy-load the panel as if it were new. (Added a persistent artifact shell with per-session open/loaded/selected/width state and width/slide animation.)
-- [x] Consolidate navigation query keys and invalidation for room header, sidebar, tabs, settings, memory, files, jobs, usage, and status. Route changes should reuse canonical cached data and only fetch the payload the destination renders. (Added canonical `roomQueryKey` and query policy helpers across the app shell, room tabs, settings, memory, files, jobs, usage, status, and chat.)
-- [x] Cache authenticated user/session state in the client and throttle session `last_seen_at` writes. Route guards should not force a database write on every internal navigation. (Client auth uses the canonical auth query key; server session touch is throttled per token hash.)
-- [x] Tune React Query stale times, polling, and event-driven invalidation. Polling should be sparse and bounded, with room/SSE events updating cached summaries when available. (Centralized warm/hot/retained query policy, reduced routine refetch churn, and added room-event cache sync for summaries and room surfaces.)
-- [x] Bound and rotate runtime event logs. High-frequency streaming events must not persist full repeated payloads, and retained audit events must remain useful without becoming a second unbounded transcript store. (Runtime event logs rotate at a bounded size and summarize streaming message updates without persisting repeated text bodies.)
-- [x] Add production probes for browser-visible behavior: chat switch responsiveness, markdown stability with long messages, artifact panel back-navigation, memory/settings navigation without hard reload, long-session scroll responsiveness, and stream continuity. (Added client probes and verified production browser-visible chat, markdown, artifact, route navigation, SSE, and runtime-provider paths with a local OpenAI-compatible provider.)
-- [x] Verify the phase in the Docker production build with the performance flag enabled, then replay the same user flows against logs and browser traces before checking items off. (Verified `AGENT_ROOM_PERF_LOGS=1` in Docker production build using authenticated onboarding, provider validation/materialization, room/session creation, chat send, artifact toggle, and room memory/settings/files/jobs/usage/status navigation; captured 270 performance events.)
+### Deep work / goal framework
 
-Suggested implementation order:
+The system has subagent infrastructure (`src/server/pi-runtime/subagent-tool.ts`) that creates a bounded child thread, runs a task to completion, and returns the final text. Run budgets (`src/server/pi-runtime/run-budget.ts`) already support `manual`, `scheduled`, `subagent`, and `maintenance` run kinds.
 
-1. Add browser-side interaction tracing so remaining lag is attributed before larger rewrites.
-2. Build the persistent app shell and canonical client projection store.
-3. Add retained/prewarmed session detail and synchronous chat selection.
-4. Split payload contracts and rework streaming invalidation around bounded deltas.
-5. Replace markdown hydration and timeline rendering with markdown-first stable virtual rows.
-6. Make artifact/sidebar shells persistent, stateful, and animated.
-7. Consolidate navigation data flow, auth/session caching, stale times, and event-driven invalidation.
-8. Add optimistic send/edit reconciliation.
-9. Bound runtime event logs.
-10. Verify in Docker production with browser traces and probes, then check off completed items.
+What is missing is an agent-initiated complexity gate: a way for the model to decide "this task needs structured investigation, not a single-turn answer" and dispatch itself into a deeper execution mode. This should not be a user-controlled `/goal` command. It should be a tool the agent calls when it assesses the task warrants it.
 
-## Active Planning Docs
+## Design
+
+### 1. System prompt rewrite
+
+Replace the current negative-constraint approach with three concise layers:
+
+**Identity (2-3 lines)**: Define who this agent is and how it thinks. Not "persistent room-local coworker" but a framing that encodes the coworker behavior pattern: read, investigate, synthesize, respond directly.
+
+**Output contract (3-4 lines, positive)**: Prescribe the shape of a good answer. Lead with the conclusion or judgment. Support with 1-3 evidence-backed findings. Name sources when research was done. State what is missing or uncertain. Do not produce headings, taxonomies, or bullet-point menus.
+
+**Execution protocol (~5 lines)**: When to use tools, when to scale effort. Simple factual questions get direct answers. Research questions get search, source reading, and synthesis. Complex work gets planning, execution, and verification. Effort is proportional to complexity -- the model judges this naturally from the request.
+
+Everything else (runtime context, capabilities, tool lists, mode instructions, memory harness, operator instructions) stays but gets trimmed. The total system prompt should be shorter than today, not longer.
+
+The current helper functions `executionBiasSection()` and `workContractSection()` in `system-prompt.ts` get replaced by a single `behaviorSection()` that combines the positive output contract and execution protocol.
+
+### 2. Memory trigger fix
+
+Change the agent harness prompt in `src/server/pi-runtime/agent-harness.ts`:
+
+- Drop "When the operator explicitly asks you to remember." Replace with guidance that treats memory as an internal habit: after completing substantive work (research, analysis, document creation, investigation), capture key findings, decisions, and observed preferences as concise memory items without being asked.
+- Keep the existing safety constraints: no secrets, no raw chat history, no bulky tool output.
+- Keep the instruction to use optimistic concurrency hashes.
+
+Add post-run memory maintenance in `src/server/pi-runtime/runtime-runner.ts`:
+
+- In the `finally` block of `runPrompt`, after the run finishes, call `maintainMemory()` on the current room memory.
+- This is synchronous cleanup (trim stale items, normalize, deduplicate), not a model call. The function already exists in `memory-maintenance.ts`.
+- This replaces the need for a separate background worker for basic maintenance.
+
+### 3. Deep-work tool
+
+Build a new tool that lets the agent dispatch complex tasks to a fresh thread with a structured execution protocol. Reuse existing infrastructure:
+
+- Thread creation from `subagent-tool.ts` pattern
+- Run budgets from `run-budget.ts` (new `deep_work` kind with a budget between subagent and manual)
+- Result extraction from the subagent's `finalAssistantText` pattern
+
+The tool (working name `agent_room_deep_work`) is called by the agent when it assesses a task needs multi-step investigation, planning, or sustained tool use. The model decides this -- there is no user-facing mode switch. Simple questions ("how's the weather") never trigger it.
+
+Deep-work should be treated as a bounded capability, not a new default path. If the main model is already failing to judge that its own answer is generic, it may also fail to call the tool reliably. The first version should therefore ship with telemetry and conservative runtime guardrails:
+
+- only expose or encourage the tool for task shapes that plausibly need multi-step investigation, coding, artifact work, or sustained analysis
+- never let it recursively call itself
+- keep budget, timeout, tool, and result-size limits explicit
+- log when it was available, called, skipped, completed, failed, or timed out
+- preserve enough child-thread evidence for auditability instead of returning an opaque summary blob
+
+When invoked:
+
+- Runtime creates a fresh thread (kind: `deep_work`)
+- The fresh thread gets an augmented system prompt: the original user request framed as an objective, a planning/execution protocol, and the full room memory brief
+- The thread runs to completion with its own budget and watchdog
+- The result comes back to the parent thread as a synthesized answer
+- The parent thread presents the result to the user
+
+The parent answer must still carry the useful evidence. If the deep-work thread performs searches, reads files, runs commands, or creates artifacts, the parent-visible response should name the important findings, sources, verification, changed files, artifacts, or blockers. Deep-work is an execution helper, not a place to hide the work.
+
+Key difference from the current subagent tool:
+
+- Subagent is for delegation of narrow tasks. Deep-work is for "this needs more thinking than a single turn."
+- Deep-work thread gets the full memory brief and room identity.
+- Deep-work has a larger budget than subagent.
+- The prompt for the deep-work thread emphasizes investigation, evidence gathering, synthesis, and a concise final report -- not just "do this task."
+
+The system prompt tells the model about this tool the same way it learns about other tools: through the tool description and a brief prompt snippet. The prompt should not explain "goal mode" as a concept. The tool description says something like: "Dispatch a complex task to a dedicated work thread for structured investigation with planning, tool use, and synthesis. Use when the task needs multi-step research, sustained analysis, or a deliverable that benefits from focused execution."
+
+### 4. Post-run memory maintenance
+
+In `runtime-runner.ts`, the `finally` block of `runPrompt` already handles run cleanup (heartbeat, status, usage, broadcast). Add a call to read and maintain memory after the run finishes:
+
+```
+const maintained = maintainMemory(snapshot.memory)
+if (maintained.changed) {
+    await writeJsonAtomically(memoryPath(config), maintained.memory)
+}
+```
+
+This trims expired items, normalizes duplicates, enforces section caps, and tags overdue items as stale. It runs after every completed run, keeping memory bounded without a separate background process.
+
+This is cleanup, not consolidation. `maintainMemory()` cannot decide what newly learned information matters. New memory capture still depends on the model using the memory tools during or near the end of substantive work.
+
+### 5. Proactive memory capture guardrails
+
+Memory should become proactive, but not indiscriminate.
+
+The agent should capture durable value:
+
+- operator preferences that should affect future behavior in this room
+- durable decisions
+- current project context that will matter across sessions
+- active goals, blockers, deadlines, or reminders
+- reusable findings from substantive research
+- concise pointers to important workspace artifacts or notes
+
+The agent should not store:
+
+- raw chat history
+- secrets, tokens, credentials, or private provider/auth details
+- bulky tool output
+- transient facts that were only needed for one answer
+- large lists of sources, vendors, commands, or search results
+- speculative conclusions that were not grounded in evidence
+
+When in doubt, leave memory untouched and mention any durable artifact or source in the final answer instead.
+
+## Files to change
+
+### System prompt rewrite
+
+- `src/server/pi-runtime/system-prompt.ts` -- replace `executionBiasSection()` and `workContractSection()` with a single concise `behaviorSection()`. Rewrite the identity line. Trim `sharedPolicySection()` and `modeInstructions()`.
+- `src/server/pi-runtime/system-prompt.test.ts` -- update assertions to match the new prompt structure.
+- `src/server/pi-runtime/agent-harness.ts` -- rewrite memory harness prompt to make memory proactive.
+
+### Memory trigger
+
+- `src/server/pi-runtime/agent-harness.ts` -- change "explicitly asks" to proactive capture guidance.
+- `src/server/pi-runtime/runtime-runner.ts` -- add post-run `maintainMemory` call in the finally block.
+
+### Deep-work tool
+
+- `src/server/pi-runtime/deep-work-tool.ts` -- new file, modeled on `subagent-tool.ts` with a larger budget, full memory injection, and an investigation-oriented prompt.
+- `src/server/pi-runtime/deep-work-tool.test.ts` -- new file.
+- `src/server/pi-runtime/run-budget.ts` -- add `deep_work` to `RunKind` union if needed, or reuse `subagent` with a config override.
+- `src/server/pi-runtime/main.ts` -- register the deep-work tool alongside the subagent tool.
+- `src/server/pi-runtime/system-prompt.ts` -- include `agent_room_deep_work` in the tool list.
+
+### Tests
+
+- `src/server/pi-runtime/system-prompt.test.ts` -- verify new prompt shape: positive output contract, no negative walls, identity framing, memory proactivity language.
+- `src/server/pi-runtime/runtime-event-bus.test.ts` -- existing, verify no regressions.
+- `src/server/pi-runtime/session-display-window.test.ts` -- existing, verify no regressions.
+
+## Implementation order
+
+- [x] Rewrite the system prompt identity, output contract, and execution protocol in `system-prompt.ts`. Delete `executionBiasSection()` and `workContractSection()`, replace with `behaviorSection()`.
+- [x] Rewrite the memory harness prompt in `agent-harness.ts` to make memory proactive instead of explicit-ask-only.
+- [x] Add post-run `maintainMemory` call in `runtime-runner.ts` finally block. (Implemented through `readMemory(config)`, which runs existing synchronous maintenance and writes changed memory.)
+- [x] Update system prompt tests in `system-prompt.test.ts`.
+- [ ] Test a representative source-dependent question against the prompt and memory changes before adding deep-work. Record whether the single-turn behavior is now good enough or still hits a ceiling. (Runtime/model test deferred per current instruction exception.)
+- [x] Build the deep-work tool in `deep-work-tool.ts`, register it in `main.ts`, and add to the tool list in `system-prompt.ts`.
+- [x] Add deep-work tool tests.
+- [x] Verify typecheck with `bun run typecheck`.
+- [x] Verify all targeted test suites with `bun run test`. (Ran full `bun run test`, 61 files / 220 tests after review fixes.)
+- [ ] Deploy to a private production instance and test a representative source-dependent question against the new prompt. (Runtime/deployment test deferred per current instruction exception.)
+
+## Non-goals
+
+- Do not build a user-facing `/goal` command or goal persistence UI. The deep-work tool is agent-initiated and invisible to the user beyond seeing the work happen.
+- Do not build Ralph-style context rotation. Rooms already use fresh threads; context pollution is not the current failure mode.
+- Do not build a self-review subagent. If the prompt is right, the output is right. A reviewer is a tax on every response.
+- Do not change the memory schema or storage format. The typed JSON model is sound; only the behavioral trigger needs fixing.
+- Do not add a separate background worker process for memory maintenance. Post-run synchronous maintenance is sufficient.
+- Do not use deep-work as a hidden reviewer or quality gate for every answer. It is for genuinely complex work.
+- Do not rely on deep-work to compensate for a weak base prompt. Single-turn coworker behavior must improve first.
+
+## Active planning docs
 
 - `plan/context.md`: product direction and scope.
-- `plan/code-quality-scoring.md`: repeatable quality audit process, score rubric, current baseline, and improvement targets.
-
-## Cleanup Notes
-
-Removed the old `plan/spikes/` notes and `plan/uiux-mockups/` generated images from the active planning tree because they were historical implementation aids rather than current sources of truth.
-
-The active planning surface should stay small. New research belongs in `plan/` only when it is still guiding current implementation, and completed one-off artifacts should be removed or folded into the canonical docs above.
+- `plan/code-quality-scoring.md`: repeatable quality audit process.

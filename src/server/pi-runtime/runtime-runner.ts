@@ -1,6 +1,12 @@
 import type { AgentSession } from '@mariozechner/pi-coding-agent'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import {
+    preparePromptWithAttachments,
+    promptAttachmentMetadataType,
+    type PreparedPrompt,
+} from './prompt-attachments'
 import type { ThreadRecord } from './thread-records'
+import { readMemory } from './memory'
 import { withToolRunContext } from './tool-run-context'
 import {
     budgetForRunKind,
@@ -49,11 +55,26 @@ interface RuntimeRunnerDependencies {
     errorMessage: (error: unknown) => string
 }
 
+function assertPromptMetadataCanBePersisted(active: ActiveThread): void {
+    const model = active.session.model
+    if (!model) {
+        throw new Error('No model is selected')
+    }
+    if (!active.session.modelRegistry.hasConfiguredAuth(model)) {
+        throw new Error(`Model ${model.provider}/${model.id} is not authenticated`)
+    }
+}
+
 export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) {
     return async function runPrompt(input: RunPromptInput): Promise<string> {
         const execute = async () => {
             const runKind =
-                input.runKind ?? (input.record.kind === 'subagent' ? 'subagent' : 'manual')
+                input.runKind ??
+                (input.record.kind === 'subagent'
+                    ? 'subagent'
+                    : input.record.kind === 'deep_work'
+                      ? 'deep_work'
+                      : 'manual')
             const budget = budgetForRunKind(dependencies.config.budgets, runKind)
             let heartbeat: RunHeartbeatRecord = createRunHeartbeat({
                 runId: input.runId,
@@ -62,6 +83,9 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
             })
             let watchdogError: RunWatchdog | null = null
             let watchdog: ReturnType<typeof setInterval> | null = null
+            let preparedPrompt: PreparedPrompt = {
+                text: input.message,
+            }
             await dependencies.refreshSystemPrompt(dependencies.activeThreads.get(input.record.key))
             const active = await dependencies.getActiveThread(input.record)
             try {
@@ -81,11 +105,32 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                     }
                     dependencies.updateThreadFromMessages(input.record)
                     await dependencies.persistThreadIndex()
+                    await dependencies.appendRuntimeEvent('thread.message_edited', {
+                        sessionKey: input.record.key,
+                        runId: input.runId,
+                        messageId: input.editMessageId,
+                    })
+                    dependencies.broadcast(input.record.key, 'thread.message_edited', {
+                        sessionKey: input.record.key,
+                        runId: input.runId,
+                        messageId: input.editMessageId,
+                    })
                 }
                 await dependencies.compactOversizedThreadContext({
                     record: input.record,
                     active,
                 })
+                preparedPrompt = await preparePromptWithAttachments({
+                    config: dependencies.config,
+                    model: active.session.model,
+                    message: input.message,
+                })
+                if (preparedPrompt.metadata && active.session.isStreaming) {
+                    throw new Error('Attached files cannot be queued while a run is active')
+                }
+                if (preparedPrompt.metadata) {
+                    assertPromptMetadataCanBePersisted(active)
+                }
             } catch (error) {
                 input.record.status = 'error'
                 input.record.lastError = dependencies.errorMessage(error)
@@ -171,18 +216,27 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                         runId: input.runId,
                         signal: abortController.signal,
                     },
-                    () =>
-                        active.session.prompt(
-                            input.message,
+                    () => {
+                        if (preparedPrompt.metadata) {
+                            active.session.sessionManager.appendCustomEntry(
+                                promptAttachmentMetadataType,
+                                preparedPrompt.metadata,
+                            )
+                        }
+                        return active.session.prompt(
+                            preparedPrompt.text,
                             active.session.isStreaming
                                 ? {
                                       streamingBehavior: 'followUp',
                                       source: 'rpc',
+                                      images: preparedPrompt.images,
                                   }
                                 : {
                                       source: 'rpc',
+                                      images: preparedPrompt.images,
                                   },
-                        ),
+                        )
+                    },
                 )
                 if (watchdogError) {
                     throw watchdogError
@@ -258,7 +312,21 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                     runId: input.runId,
                     status: input.record.status,
                     error: input.record.lastError,
+                    durationMs,
+                    activeDurationMs,
+                    idleDurationMs,
+                    startedAt: new Date(runStartedAt).toISOString(),
+                    finishedAt: new Date(finishedAt).toISOString(),
                 })
+                try {
+                    await readMemory(dependencies.config)
+                } catch (error) {
+                    await dependencies.appendRuntimeEvent('memory.maintenance_failed', {
+                        sessionKey: input.record.key,
+                        runId: input.runId,
+                        message: dependencies.errorMessage(error),
+                    })
+                }
                 void dependencies.maybeGenerateThreadTitle(input.record)
             }
         }

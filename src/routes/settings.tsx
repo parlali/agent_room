@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 import { toast } from 'sonner'
@@ -9,12 +9,14 @@ import { requireRouteUser } from './-route-auth'
 import {
     deleteMcpConnectionServer,
     deleteProviderConnectionServer,
+    disconnectGitHubUserAuthorizationServer,
     getOperatorConfigServer,
     refreshGitHubInstallationsServer,
     resetGitHubAppConfigurationServer,
     saveMcpConnectionServer,
     saveProviderConnectionServer,
     startGitHubAppManifestServer,
+    startGitHubUserAuthorizationServer,
     updateAppCapabilitySettingsServer,
     updateAppDefaultsServer,
 } from './-operator-config-server'
@@ -50,11 +52,17 @@ import {
 
 export const Route = createFileRoute('/settings')({
     beforeLoad: requireRouteUser,
+    validateSearch: (search: Record<string, unknown>) => ({
+        installationId: typeof search.installation_id === 'string' ? search.installation_id : '',
+        setupAction: typeof search.setup_action === 'string' ? search.setup_action : '',
+        githubState: typeof search.state === 'string' ? search.state : '',
+    }),
     component: SettingsPage,
 })
 
 function SettingsPage() {
     const queryClient = useQueryClient()
+    const search = Route.useSearch()
 
     const configQuery = useQuery<OperatorConfigSnapshot>({
         queryKey: roomQueryKey.operatorConfig,
@@ -79,6 +87,7 @@ function SettingsPage() {
     const [appImageHasCredential, setAppImageHasCredential] = useState(false)
     const [githubPublicOrigin, setGithubPublicOrigin] = useState('')
     const [githubTargetOwner, setGithubTargetOwner] = useState('')
+    const autoGitHubRefreshKeyRef = useRef<string | null>(null)
 
     useEffect(() => {
         if (!config) return
@@ -328,15 +337,47 @@ function SettingsPage() {
             toast.error(error instanceof Error ? error.message : 'GitHub App setup failed'),
     })
 
+    const startGitHubUserAuthorizationMutation = useMutation({
+        mutationFn: async () =>
+            startGitHubUserAuthorizationServer({
+                data: {
+                    publicOrigin:
+                        githubPublicOrigin.trim() ||
+                        (typeof window === 'undefined' ? '' : window.location.origin),
+                },
+            }),
+        onSuccess: (flow) => {
+            window.location.assign(flow.authorizeUrl)
+        },
+        onError: (error) =>
+            toast.error(
+                error instanceof Error ? error.message : 'GitHub account connection failed',
+            ),
+    })
+
     const refreshGitHubMutation = useMutation({
-        mutationFn: async () => refreshGitHubInstallationsServer(),
-        onSuccess: async () => {
-            toast.success('GitHub installations refreshed')
+        mutationFn: async (_input?: { silent?: boolean }) => refreshGitHubInstallationsServer(),
+        onSuccess: async (_result, input) => {
+            if (!input?.silent) {
+                toast.success('GitHub installations refreshed')
+            }
             await invalidateConfig()
         },
         onError: (error) =>
             toast.error(
                 error instanceof Error ? error.message : 'GitHub installation refresh failed',
+            ),
+    })
+
+    const disconnectGitHubUserMutation = useMutation({
+        mutationFn: async () => disconnectGitHubUserAuthorizationServer(),
+        onSuccess: async () => {
+            toast.success('GitHub account disconnected')
+            await invalidateConfig()
+        },
+        onError: (error) =>
+            toast.error(
+                error instanceof Error ? error.message : 'GitHub account disconnect failed',
             ),
     })
 
@@ -349,6 +390,28 @@ function SettingsPage() {
         onError: (error) =>
             toast.error(error instanceof Error ? error.message : 'GitHub App reset failed'),
     })
+    const refreshGitHubMutate = refreshGitHubMutation.mutate
+    const refreshGitHubPending = refreshGitHubMutation.isPending
+
+    useEffect(() => {
+        if (!config?.github.app.configured) return
+        const redirectKey =
+            search.installationId || search.setupAction || search.githubState
+                ? `redirect:${search.installationId}:${search.setupAction}:${search.githubState}`
+                : 'settings-load'
+        if (autoGitHubRefreshKeyRef.current === redirectKey || refreshGitHubPending) return
+        autoGitHubRefreshKeyRef.current = redirectKey
+        refreshGitHubMutate({
+            silent: redirectKey === 'settings-load',
+        })
+    }, [
+        config?.github.app.configured,
+        refreshGitHubMutate,
+        refreshGitHubPending,
+        search.githubState,
+        search.installationId,
+        search.setupAction,
+    ])
 
     const onSubmitProvider = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
@@ -492,12 +555,16 @@ function SettingsPage() {
                         publicOrigin={githubPublicOrigin}
                         targetOwner={githubTargetOwner}
                         setupPending={startGitHubManifestMutation.isPending}
+                        accountConnectPending={startGitHubUserAuthorizationMutation.isPending}
                         refreshPending={refreshGitHubMutation.isPending}
+                        disconnectAccountPending={disconnectGitHubUserMutation.isPending}
                         resetPending={resetGitHubMutation.isPending}
                         onChangePublicOrigin={setGithubPublicOrigin}
                         onChangeTargetOwner={setGithubTargetOwner}
                         onStartSetup={() => startGitHubManifestMutation.mutate()}
-                        onRefresh={() => refreshGitHubMutation.mutate()}
+                        onConnectAccount={() => startGitHubUserAuthorizationMutation.mutate()}
+                        onRefresh={() => refreshGitHubMutation.mutate({})}
+                        onDisconnectAccount={() => disconnectGitHubUserMutation.mutate()}
                         onReset={() => resetGitHubMutation.mutate()}
                     />
 

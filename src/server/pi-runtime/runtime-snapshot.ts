@@ -9,7 +9,7 @@ import type {
 } from '../rooms/execution-types'
 import type { PiRuntimeSnapshotPayload } from './protocol'
 import { selectSnapshotThreadKey } from './snapshot-selection'
-import { subagentAgentId, type ThreadRecord } from './thread-records'
+import { threadAgentId, type ThreadRecord } from './thread-records'
 
 interface RuntimeSnapshotInput {
     config: PiRuntimeConfig
@@ -27,7 +27,7 @@ export function mapThread(
     record: ThreadRecord,
     compactionStats: RuntimeSnapshotInput['compactionStats'],
 ): RoomExecutionThread {
-    const agentId = record.kind === 'subagent' ? subagentAgentId(record) : 'main'
+    const agentId = threadAgentId(record)
     return {
         key: record.key,
         sessionId: record.sessionId,
@@ -86,8 +86,8 @@ export function buildRuntimeSnapshot(input: RuntimeSnapshotInput): PiRuntimeSnap
     )
     const threads = orderedRecords.map((record) => mapThread(record, input.compactionStats))
     const extraAgentIds = orderedRecords
-        .filter((record) => record.kind === 'subagent')
-        .map(subagentAgentId)
+        .filter((record) => record.kind !== 'main')
+        .map(threadAgentId)
     const selectedThreadKey = selectSnapshotThreadKey({
         requestedThreadKey: input.selectedThreadKey,
         orderedThreadKeys: threads.map((thread) => thread.key),

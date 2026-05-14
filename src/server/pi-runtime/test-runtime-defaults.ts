@@ -38,7 +38,8 @@ export const testImage: ImageRuntimeConfig = {
 export const testBudgets: RunBudgetConfig = {
     manualTurnMs: 8 * 60 * 60 * 1000,
     scheduledTurnMs: 8 * 60 * 60 * 1000,
-    subagentTurnMs: 8 * 60 * 60 * 1000,
+    deepWorkTurnMs: 6 * 60 * 60 * 1000,
+    subagentTurnMs: 2 * 60 * 60 * 1000,
     maintenanceTurnMs: 10 * 60 * 1000,
     idleTimeoutMs: 10 * 60 * 1000,
     providerIdleTimeoutMs: 2 * 60 * 1000,

@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { Slot } from 'radix-ui'
 
 import { cn } from '#/lib/utils'
 
@@ -13,6 +14,28 @@ function Card({
             data-size={size}
             className={cn(
                 'group/card flex flex-col gap-4 overflow-hidden rounded-xl bg-card py-4 text-sm text-card-foreground ring-1 ring-foreground/10 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl',
+                className,
+            )}
+            {...props}
+        />
+    )
+}
+
+function CardButton({
+    className,
+    size = 'default',
+    asChild = false,
+    ...props
+}: React.ComponentProps<'button'> & { size?: 'default' | 'sm'; asChild?: boolean }) {
+    const Comp = asChild ? Slot.Root : 'button'
+
+    return (
+        <Comp
+            type={asChild ? undefined : 'button'}
+            data-slot="card-button"
+            data-size={size}
+            className={cn(
+                'group/card-button flex w-full cursor-pointer rounded-lg border border-border/60 bg-card text-left text-sm text-card-foreground transition-colors outline-none select-none hover:bg-muted/40 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 data-[size=sm]:rounded-md',
                 className,
             )}
             {...props}
@@ -92,4 +115,13 @@ function CardFooter({ className, ...props }: React.ComponentProps<'div'>) {
     )
 }
 
-export { Card, CardHeader, CardFooter, CardTitle, CardAction, CardDescription, CardContent }
+export {
+    Card,
+    CardButton,
+    CardHeader,
+    CardFooter,
+    CardTitle,
+    CardAction,
+    CardDescription,
+    CardContent,
+}

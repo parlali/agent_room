@@ -5,20 +5,25 @@ import { basename, dirname, extname, isAbsolute, join } from 'node:path'
 import type { PiRuntimeConfig } from '../../rooms/pi-runtime-config'
 import { assertPathInsideRoot } from '../../security/path-boundary'
 import { ensureShellWritableDirectory, ensureShellWritableFile } from '../shell-sandbox'
+import { resolveExistingToolPath } from '../room-tools/file-helpers'
+import type { ToolRoot } from '../room-tools/shared'
 
 function assertInside(candidate: string, root: string): string {
     return assertPathInsideRoot(candidate, root, (path) => `Path escapes allowed root: ${path}`)
 }
 
 function workspacePath(config: PiRuntimeConfig, path: string): string {
+    const requested = documentPath(path)
+    const base = config.paths.workspaceDir
+    return assertInside(isAbsolute(requested) ? requested : join(base, requested), base)
+}
+
+function documentPath(path: string): string {
     const requested = path.trim()
     if (!requested) {
         throw new Error('Path cannot be empty')
     }
-    return assertInside(
-        isAbsolute(requested) ? requested : join(config.paths.workspaceDir, requested),
-        config.paths.workspaceDir,
-    )
+    return requested
 }
 
 function isNotFoundFsError(error: unknown): boolean {
@@ -54,9 +59,17 @@ export async function existingWorkspacePath(
     config: PiRuntimeConfig,
     path: string,
 ): Promise<string> {
-    const root = await realpath(config.paths.workspaceDir)
+    const base = await realpath(config.paths.workspaceDir)
     const requested = workspacePath(config, path)
-    return assertInside(await realpath(requested), root)
+    return assertInside(await realpath(requested), base)
+}
+
+export async function existingDocumentPath(
+    config: PiRuntimeConfig,
+    root: ToolRoot,
+    path: string,
+): Promise<string> {
+    return resolveExistingToolPath(config, root, documentPath(path))
 }
 
 export async function writableWorkspacePath(

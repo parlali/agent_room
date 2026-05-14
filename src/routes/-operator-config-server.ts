@@ -238,6 +238,37 @@ export const completeGitHubAppManifestServer = createServerFn({ method: 'POST' }
         })
     })
 
+export const completeGitHubCallbackServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => githubAppManifestCompleteInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { completeGitHubCallback } =
+            await import('#/server/configuration/operator-configuration')
+        return completeGitHubCallback({
+            code: data.code,
+            state: data.state,
+            actorUserId: actor.userId,
+        })
+    })
+
+export const startGitHubUserAuthorizationServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) =>
+        githubAppManifestStartInputSchema
+            .pick({
+                publicOrigin: true,
+            })
+            .parse(input),
+    )
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { startGitHubUserAuthorization } =
+            await import('#/server/configuration/operator-configuration')
+        return startGitHubUserAuthorization({
+            publicOrigin: data.publicOrigin,
+            actorUserId: actor.userId,
+        })
+    })
+
 export const refreshGitHubInstallationsServer = createServerFn({ method: 'POST' }).handler(
     async () => {
         const actor = await requireMutationActor()
@@ -246,6 +277,15 @@ export const refreshGitHubInstallationsServer = createServerFn({ method: 'POST' 
         return refreshGitHubInstallations(actor.userId)
     },
 )
+
+export const disconnectGitHubUserAuthorizationServer = createServerFn({
+    method: 'POST',
+}).handler(async () => {
+    const actor = await requireMutationActor()
+    const { disconnectGitHubUserAuthorization } =
+        await import('#/server/configuration/operator-configuration')
+    return disconnectGitHubUserAuthorization(actor.userId)
+})
 
 export const resetGitHubAppConfigurationServer = createServerFn({ method: 'POST' }).handler(
     async () => {

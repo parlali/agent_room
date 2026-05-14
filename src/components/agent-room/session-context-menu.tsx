@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { forwardRef, useState, type ComponentPropsWithoutRef, type ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { CopyIcon, Loader2Icon, MoreHorizontalIcon, PencilIcon, Trash2Icon } from 'lucide-react'
@@ -226,24 +226,29 @@ export function SessionContextMenu({
     )
 }
 
-export function SessionContextMenuTrigger({
-    className,
-    label = 'Session options',
-}: {
-    className?: string
+type SessionContextMenuTriggerProps = ComponentPropsWithoutRef<'button'> & {
     label?: string
-}) {
+}
+
+export const SessionContextMenuTrigger = forwardRef<
+    HTMLButtonElement,
+    SessionContextMenuTriggerProps
+>(function Trigger({ className, label = 'Session options', children, ...props }, ref) {
     return (
-        <button
+        <Button
+            ref={ref}
             type="button"
+            variant="ghost"
+            size="icon-xs"
             aria-label={label}
             className={cn(
-                'inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50',
+                'size-5 shrink-0 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground',
                 className,
             )}
+            {...props}
         >
-            <MoreHorizontalIcon className="size-3.5" />
+            {children ?? <MoreHorizontalIcon className="size-3.5" />}
             <span className="sr-only">{label}</span>
-        </button>
+        </Button>
     )
-}
+})

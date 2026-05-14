@@ -6,6 +6,10 @@ import type { RoomSessionArtifact, RoomSessionArtifactKind } from '../rooms/exec
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { entryTimestamp } from './session-entry-mapper'
 import { isRecord } from './runtime-redaction'
+import {
+    promptAttachmentMetadataByEntryId,
+    type PromptAttachmentMetadata,
+} from './prompt-attachments'
 
 type ArtifactSurface = RoomSessionArtifact['surface']
 
@@ -257,13 +261,16 @@ function collectAttachments(
     config: PiRuntimeConfig,
     entry: SessionEntry,
     artifacts: Map<string, RoomSessionArtifact>,
+    attachmentMetadata: Map<string, PromptAttachmentMetadata>,
 ): void {
     if (entry.type !== 'message') return
     const message = entry.message as unknown
     if (!isRecord(message) || message.role !== 'user') return
-    const text = extractTextFromRuntimeContent(message.content)
-    const parsed = parseRoomMessageAttachments(text)
-    for (const attachment of parsed.attachments) {
+    const metadata = entry.parentId ? (attachmentMetadata.get(entry.parentId) ?? null) : null
+    const attachments =
+        metadata?.attachments ??
+        parseRoomMessageAttachments(extractTextFromRuntimeContent(message.content)).attachments
+    for (const attachment of attachments) {
         addArtifact(
             artifacts,
             artifactFromPath({
@@ -405,11 +412,12 @@ export function extractSessionArtifacts(
 ): RoomSessionArtifact[] {
     const toolCalls = new Map<string, ToolCallRecord>()
     const artifacts = new Map<string, RoomSessionArtifact>()
+    const attachmentMetadata = promptAttachmentMetadataByEntryId(entries)
     for (const entry of entries) {
         collectToolCalls(entry, toolCalls)
     }
     for (const entry of entries) {
-        collectAttachments(config, entry, artifacts)
+        collectAttachments(config, entry, artifacts, attachmentMetadata)
         collectToolResult({
             config,
             entry,

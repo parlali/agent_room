@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { createRuntimeEventBus } from './runtime-event-bus'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { RUNTIME_EVENT_STREAM_HEARTBEAT_MS, createRuntimeEventBus } from './runtime-event-bus'
 
 async function readSse(reader: ReadableStreamDefaultReader<Uint8Array>) {
     const result = await reader.read()
@@ -16,6 +16,10 @@ async function readSse(reader: ReadableStreamDefaultReader<Uint8Array>) {
 }
 
 describe('runtime event bus', () => {
+    afterEach(() => {
+        vi.useRealTimers()
+    })
+
     it('broadcasts thread events to room subscribers without losing session streams', async () => {
         const bus = createRuntimeEventBus({
             roomId: 'room-1',
@@ -60,5 +64,25 @@ describe('runtime event bus', () => {
 
         await roomReader.cancel()
         await sessionReader.cancel()
+    })
+
+    it('keeps idle streams warm before production proxy idle cutoffs', async () => {
+        vi.useFakeTimers()
+        const bus = createRuntimeEventBus({
+            roomId: 'room-1',
+            redactPayload: (payload) => payload,
+            stateVersionForThread: () => null,
+        })
+        const reader = bus.createRoomEventStream().getReader()
+
+        await readSse(reader)
+        const heartbeat = readSse(reader)
+        vi.advanceTimersByTime(RUNTIME_EVENT_STREAM_HEARTBEAT_MS)
+
+        await expect(heartbeat).resolves.toMatchObject({
+            event: 'heartbeat',
+        })
+
+        await reader.cancel()
     })
 })

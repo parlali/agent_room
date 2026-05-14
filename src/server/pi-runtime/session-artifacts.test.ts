@@ -46,6 +46,7 @@ describe('session artifact extraction', () => {
             expect.arrayContaining([
                 expect.objectContaining({
                     id: 'store:attachments/run/spec.docx',
+                    byteLength: 9216,
                     kind: 'attached',
                     name: 'spec.docx',
                     surface: 'store',
@@ -54,6 +55,7 @@ describe('session artifact extraction', () => {
                 }),
                 expect.objectContaining({
                     id: 'workspace:assets/diagram.png',
+                    byteLength: 12288,
                     kind: 'attached',
                     name: 'diagram.png',
                     surface: 'workspace',
@@ -162,6 +164,7 @@ describe('session artifact extraction', () => {
         expect(artifacts).toHaveLength(1)
         expect(artifacts[0]).toMatchObject({
             id: 'store:attachments/session/source.pdf',
+            byteLength: 5120,
             kind: 'attached',
         })
     })

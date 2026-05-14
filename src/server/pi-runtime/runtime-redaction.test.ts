@@ -29,6 +29,7 @@ function testConfig(): PiRuntimeConfig {
         budgets: {
             manualTurnMs: 1000,
             scheduledTurnMs: 1000,
+            deepWorkTurnMs: 1000,
             subagentTurnMs: 1000,
             maintenanceTurnMs: 1000,
             idleTimeoutMs: 1000,

@@ -3,6 +3,8 @@ import type {
     AppGitHubAppRecord,
     AppGitHubInstallationRecord,
     AppGitHubManifestSessionRecord,
+    AppGitHubUserAuthSessionRecord,
+    AppGitHubUserConnectionRecord,
     AppProviderConnectionRecord,
     AppSettingsRecord,
     ArtifactIndexRecord,
@@ -198,6 +200,39 @@ export function mapAppGitHubApp(row: DbRow): AppGitHubAppRecord {
         validationMessage: nullableValue<string>(row.validation_message),
         lastValidatedAt: nullableValue<Date>(row.last_validated_at),
         createdByUserId: nullableValue<string>(row.created_by_user_id),
+        createdAt: row.created_at as Date,
+        updatedAt: row.updated_at as Date,
+    }
+}
+
+export function mapAppGitHubUserAuthSession(row: DbRow): AppGitHubUserAuthSessionRecord {
+    return {
+        stateHash: String(row.state_hash),
+        actorUserId: nullableValue<string>(row.actor_user_id),
+        publicOrigin: String(row.public_origin),
+        codeVerifier: String(row.code_verifier),
+        status: row.status as AppGitHubUserAuthSessionRecord['status'],
+        expiresAt: row.expires_at as Date,
+        createdAt: row.created_at as Date,
+        updatedAt: row.updated_at as Date,
+    }
+}
+
+export function mapAppGitHubUserConnection(row: DbRow): AppGitHubUserConnectionRecord {
+    return {
+        id: Boolean(row.id),
+        githubUserId: String(row.github_user_id),
+        login: String(row.login),
+        name: nullableValue<string>(row.name),
+        avatarUrl: nullableValue<string>(row.avatar_url),
+        htmlUrl: nullableValue<string>(row.html_url),
+        tokenType: String(row.token_type),
+        accessTokenSecretId: String(row.access_token_secret_id),
+        accessTokenExpiresAt: nullableValue<Date>(row.access_token_expires_at),
+        refreshTokenSecretId: nullableValue<string>(row.refresh_token_secret_id),
+        refreshTokenExpiresAt: nullableValue<Date>(row.refresh_token_expires_at),
+        createdByUserId: nullableValue<string>(row.created_by_user_id),
+        lastAuthorizedAt: row.last_authorized_at as Date,
         createdAt: row.created_at as Date,
         updatedAt: row.updated_at as Date,
     }

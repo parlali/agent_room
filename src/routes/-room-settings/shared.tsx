@@ -1,5 +1,6 @@
 import { ModelSelect } from '#/components/agent-room/model-select'
 import { Button } from '#/components/ui/button'
+import { CardButton } from '#/components/ui/card'
 import { cn } from '#/lib/utils'
 import { Loader2Icon, SaveIcon } from 'lucide-react'
 
@@ -17,11 +18,10 @@ export function ModeRadio({
     onSelect: () => void
 }) {
     return (
-        <button
-            type="button"
+        <CardButton
             onClick={onSelect}
             className={cn(
-                'flex flex-col items-start gap-1 rounded-lg border px-3 py-2 text-left text-sm transition-colors',
+                'flex-col items-start gap-1 px-3 py-2',
                 checked
                     ? 'border-foreground bg-muted/40 text-foreground'
                     : 'border-border/70 text-muted-foreground hover:border-border hover:text-foreground',
@@ -30,7 +30,7 @@ export function ModeRadio({
         >
             <span className="font-medium">{label}</span>
             <span className="text-xs">{description}</span>
-        </button>
+        </CardButton>
     )
 }
 

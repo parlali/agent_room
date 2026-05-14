@@ -1,5 +1,8 @@
-export type ThreadKind = 'main' | 'subagent'
+import type { RunKind } from './run-budget'
+
+export type ThreadKind = 'main' | 'subagent' | 'deep_work'
 export type ThreadTitleSource = 'initial' | 'generated' | 'manual'
+export type ThreadRunKind = RunKind
 
 export interface ThreadRecord {
     key: string
@@ -15,7 +18,7 @@ export interface ThreadRecord {
     model: string | null
     thinkingLevel: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | null
     activeRunId: string | null
-    activeRunKind: 'manual' | 'scheduled' | 'subagent' | 'maintenance' | null
+    activeRunKind: ThreadRunKind | null
     heartbeatAt: number | null
     runStartedAt: number | null
     runBudgetExpiresAt: number | null
@@ -29,6 +32,8 @@ export interface ThreadRecord {
     subagentRunId: string | null
     subagentName: string | null
     subagentTask: string | null
+    deepWorkRunId: string | null
+    deepWorkObjective: string | null
     completedAt: number | null
 }
 
@@ -52,7 +57,7 @@ export function normalizeThreadRecord(
         model?: string | null
         thinkingLevel?: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | null
         activeRunId?: string | null
-        activeRunKind?: 'manual' | 'scheduled' | 'subagent' | 'maintenance' | null
+        activeRunKind?: ThreadRunKind | null
         heartbeatAt?: number | null
         runStartedAt?: number | null
         runBudgetExpiresAt?: number | null
@@ -93,12 +98,14 @@ export function normalizeThreadRecord(
                 ? record.idleDurationMs
                 : 0,
         lastError: record.lastError ?? null,
-        kind: record.kind === 'subagent' ? 'subagent' : 'main',
+        kind: record.kind === 'subagent' || record.kind === 'deep_work' ? record.kind : 'main',
         parentThreadKey: record.parentThreadKey ?? null,
         parentRunId: record.parentRunId ?? null,
         subagentRunId: record.subagentRunId ?? null,
         subagentName: record.subagentName ?? null,
         subagentTask: record.subagentTask ?? null,
+        deepWorkRunId: record.deepWorkRunId ?? null,
+        deepWorkObjective: record.deepWorkObjective ?? null,
         completedAt: record.completedAt ?? null,
     }
 }
@@ -112,4 +119,18 @@ export function normalizeThreadIndexFile(file: ThreadIndexFile): ThreadIndexFile
 
 export function subagentAgentId(record: ThreadRecord): string {
     return record.subagentRunId ? `subagent:${record.subagentRunId}` : `subagent:${record.key}`
+}
+
+export function deepWorkAgentId(record: ThreadRecord): string {
+    return record.deepWorkRunId ? `deep_work:${record.deepWorkRunId}` : `deep_work:${record.key}`
+}
+
+export function threadAgentId(record: ThreadRecord): string {
+    if (record.kind === 'subagent') {
+        return subagentAgentId(record)
+    }
+    if (record.kind === 'deep_work') {
+        return deepWorkAgentId(record)
+    }
+    return 'main'
 }

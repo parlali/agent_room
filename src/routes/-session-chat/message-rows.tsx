@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { CopyIcon, PencilIcon } from 'lucide-react'
 import { toast } from 'sonner'
@@ -15,29 +15,24 @@ import type {
     RoomExecutionMessage,
     RoomRuntimeOverview,
     RoomSessionDisplayRow,
+    RunTranscriptRow,
+    WorkTranscriptItem,
 } from '#/lib/room-execution-types'
 
 import { AttachmentCards } from './attachment-cards'
 import { renderMarkdown } from './markdown'
-import type { EditingMessageDraft, DisplayItem } from '#/lib/message-list-model'
-import { SessionRunStatus } from './session-run-status'
-import type { StreamTurnItem } from './stream-state'
+import {
+    workTranscriptItemHasVisibleContent,
+    type EditingMessageDraft,
+    type DisplayItem,
+} from '#/lib/message-list-model'
+import { TranscriptRunStatus } from './session-run-status'
 import { ToolActivity } from './tool-step'
 import type { ToolActivityTask } from '#/lib/tool-activity'
 
 type EditMessageHandler = (input: EditingMessageDraft) => void
 
-export function DisplayRow({
-    room,
-    item,
-    canEditMessages,
-    editingMessage,
-    editPending,
-    onEditMessage,
-    onChangeEditingMessageText,
-    onSubmitEditingMessage,
-    onCancelEditingMessage,
-}: {
+type DisplayRowProps = {
     room: RoomRuntimeOverview
     item: DisplayItem | RoomSessionDisplayRow
     canEditMessages: boolean
@@ -47,13 +42,49 @@ export function DisplayRow({
     onChangeEditingMessageText: (text: string) => void
     onSubmitEditingMessage: () => void
     onCancelEditingMessage: () => void
-}) {
-    if (item.type === 'tools') {
-        return <ToolRow id={item.id} tasks={item.tasks} />
+    assistantContinuesPrevious?: boolean
+    transcriptCollapsed?: boolean
+    onToggleTranscript?: (row: RunTranscriptRow) => void
+    onRowLayoutChange?: () => void
+}
+
+export const DisplayRow = memo(function DisplayRowComponent({
+    room,
+    item,
+    canEditMessages,
+    editingMessage,
+    editPending,
+    onEditMessage,
+    onChangeEditingMessageText,
+    onSubmitEditingMessage,
+    onCancelEditingMessage,
+    assistantContinuesPrevious = false,
+    transcriptCollapsed,
+    onToggleTranscript,
+    onRowLayoutChange,
+}: DisplayRowProps) {
+    if (item.type === 'run_transcript') {
+        return (
+            <RunTranscript
+                room={room}
+                row={item}
+                collapsed={transcriptCollapsed ?? item.collapsed}
+                onToggle={() => onToggleTranscript?.(item)}
+                onLayoutChange={onRowLayoutChange}
+            />
+        )
     }
 
-    if (item.type === 'run-status') {
-        return <SessionRunStatus thread={item.thread} variant="body" />
+    if (item.type === 'assistant_final') {
+        return (
+            <AssistantRow
+                room={room}
+                text={item.message.text}
+                timestamp={item.timestamp}
+                streaming={item.streaming}
+                showGlyph={!assistantContinuesPrevious}
+            />
+        )
     }
 
     return (
@@ -69,38 +100,147 @@ export function DisplayRow({
             onCancelEditingMessage={onCancelEditingMessage}
         />
     )
-}
+}, areDisplayRowsEqual)
 
-export function StreamRow({
-    room,
-    item,
-    timestamp,
+function ToolRow({
+    id,
+    tasks,
+    onLayoutChange,
 }: {
-    room: RoomRuntimeOverview
-    item: StreamTurnItem
-    timestamp: number | null
+    id: string
+    tasks: ToolActivityTask[]
+    onLayoutChange?: () => void
 }) {
-    if (item.type === 'tools') {
-        return <ToolRow id={item.id} tasks={item.tasks} />
-    }
-
     return (
-        <AssistantRow
-            room={room}
-            text={item.markdown}
-            timestamp={timestamp}
-            streaming={!item.complete}
-        />
-    )
-}
-
-function ToolRow({ id, tasks }: { id: string; tasks: ToolActivityTask[] }) {
-    return (
-        <div className="flex w-full justify-start gap-3">
-            <div className="size-8 shrink-0" aria-hidden />
-            <ToolActivity id={id} tasks={tasks} className="min-w-0 flex-1" />
+        <div className="flex w-full justify-start">
+            <ToolActivity
+                id={id}
+                tasks={tasks}
+                className="min-w-0 flex-1"
+                onLayoutChange={onLayoutChange}
+            />
         </div>
     )
+}
+
+function RunTranscript({
+    room,
+    row,
+    collapsed,
+    onToggle,
+    onLayoutChange,
+}: {
+    room: RoomRuntimeOverview
+    row: RunTranscriptRow
+    collapsed: boolean
+    onToggle: () => void
+    onLayoutChange?: () => void
+}) {
+    const displayItems = useMemo(() => groupTranscriptDisplayItems(row.items), [row.items])
+    const visibleItemCount = displayItems.length
+    useLayoutEffect(() => {
+        onLayoutChange?.()
+    }, [collapsed, onLayoutChange, row.runtimeMs, row.status, visibleItemCount])
+
+    return (
+        <div className="group/message flex w-full justify-start gap-3">
+            <RoomGlyph name={room.displayName} seed={room.roomId} size="sm" className="mt-0.5" />
+            <div className="flex min-w-0 flex-1 flex-col items-start gap-1.5">
+                <TranscriptRunStatus row={row} collapsed={collapsed} onToggle={onToggle} />
+                {!collapsed && visibleItemCount > 0 ? (
+                    <div className="flex w-full max-w-[min(42rem,92%)] flex-col gap-1.5">
+                        {displayItems.map((item) => (
+                            <TranscriptDisplayItem
+                                key={item.id}
+                                item={item}
+                                onLayoutChange={onLayoutChange}
+                            />
+                        ))}
+                    </div>
+                ) : null}
+            </div>
+        </div>
+    )
+}
+
+type TranscriptDisplayItem =
+    | {
+          type: 'item'
+          id: string
+          item: WorkTranscriptItem
+      }
+    | {
+          type: 'tool_group'
+          id: string
+          tasks: ToolActivityTask[]
+      }
+
+function groupTranscriptDisplayItems(items: WorkTranscriptItem[]): TranscriptDisplayItem[] {
+    const displayItems: TranscriptDisplayItem[] = []
+    let toolGroup: Extract<TranscriptDisplayItem, { type: 'tool_group' }> | null = null
+
+    const flushToolGroup = () => {
+        if (!toolGroup) return
+        displayItems.push(toolGroup)
+        toolGroup = null
+    }
+
+    for (const item of items) {
+        if (!workTranscriptItemHasVisibleContent(item)) continue
+        if (item.type === 'tool_activity') {
+            if (toolGroup) {
+                toolGroup.tasks.push(item.task)
+            } else {
+                toolGroup = {
+                    type: 'tool_group',
+                    id: item.id,
+                    tasks: [item.task],
+                }
+            }
+            continue
+        }
+        flushToolGroup()
+        displayItems.push({
+            type: 'item',
+            id: item.id,
+            item,
+        })
+    }
+
+    flushToolGroup()
+    return displayItems
+}
+
+function TranscriptDisplayItem({
+    item,
+    onLayoutChange,
+}: {
+    item: TranscriptDisplayItem
+    onLayoutChange?: () => void
+}) {
+    if (item.type === 'tool_group') {
+        return <ToolRow id={item.id} tasks={item.tasks} onLayoutChange={onLayoutChange} />
+    }
+
+    return <TranscriptItem item={item.item} onLayoutChange={onLayoutChange} />
+}
+
+function TranscriptItem({
+    item,
+    onLayoutChange,
+}: {
+    item: WorkTranscriptItem
+    onLayoutChange?: () => void
+}) {
+    if (item.type === 'model_text') {
+        return (
+            <div className="px-1 py-0.5 text-sm text-foreground">
+                <MessageText text={item.markdown} streaming={!item.complete} />
+            </div>
+        )
+    }
+
+    return <ToolRow id={item.id} tasks={[item.task]} onLayoutChange={onLayoutChange} />
 }
 
 function MessageRow({
@@ -290,15 +430,26 @@ function AssistantRow({
     text,
     timestamp,
     streaming,
+    showGlyph = true,
 }: {
     room: RoomRuntimeOverview
     text: string
     timestamp: number | null
     streaming: boolean
+    showGlyph?: boolean
 }) {
     return (
         <div className="group/message flex w-full justify-start gap-3">
-            <RoomGlyph name={room.displayName} seed={room.roomId} size="sm" className="mt-0.5" />
+            {showGlyph ? (
+                <RoomGlyph
+                    name={room.displayName}
+                    seed={room.roomId}
+                    size="sm"
+                    className="mt-0.5"
+                />
+            ) : (
+                <span className="size-6 shrink-0" aria-hidden />
+            )}
             <div className="flex min-w-0 flex-col items-start gap-1">
                 <div className="max-w-[min(42rem,92%)] rounded-2xl bg-card px-3.5 py-2 text-card-foreground shadow-sm ring-1 ring-foreground/10">
                     {text ? (
@@ -413,15 +564,43 @@ const MessageText = memo(function RenderedMessageText({
         const metric = renderMetricRef.current
         if (!metric) return
         renderMetricRef.current = null
+        if (!shouldRecordMarkdownRenderMetric(metric, streaming)) return
         recordClientPerformance({
             name: 'chat.markdown.render',
             textLength: metric.textLength,
             durationMs: metric.durationMs,
         })
-    }, [rendered])
+    }, [rendered, streaming])
     if (!text) return null
     return <>{rendered}</>
 })
+
+function shouldRecordMarkdownRenderMetric(
+    metric: { durationMs: number; textLength: number },
+    streaming: boolean,
+): boolean {
+    if (streaming) return false
+    return metric.durationMs >= 8 || metric.textLength >= 4000
+}
+
+function areDisplayRowsEqual(previous: DisplayRowProps, next: DisplayRowProps): boolean {
+    return (
+        previous.room.roomId === next.room.roomId &&
+        previous.room.displayName === next.room.displayName &&
+        previous.item === next.item &&
+        previous.canEditMessages === next.canEditMessages &&
+        previous.editingMessage === next.editingMessage &&
+        previous.editPending === next.editPending &&
+        previous.assistantContinuesPrevious === next.assistantContinuesPrevious &&
+        previous.transcriptCollapsed === next.transcriptCollapsed &&
+        previous.onEditMessage === next.onEditMessage &&
+        previous.onChangeEditingMessageText === next.onChangeEditingMessageText &&
+        previous.onSubmitEditingMessage === next.onSubmitEditingMessage &&
+        previous.onCancelEditingMessage === next.onCancelEditingMessage &&
+        previous.onToggleTranscript === next.onToggleTranscript &&
+        previous.onRowLayoutChange === next.onRowLayoutChange
+    )
+}
 
 const markdownRenderCacheLimit = 160
 const markdownRenderCache = new Map<string, ReactNode>()

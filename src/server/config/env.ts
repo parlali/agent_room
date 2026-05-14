@@ -34,11 +34,16 @@ const rawEnvSchema = z.object({
         .int()
         .positive()
         .default(8 * 60 * 60 * 1000),
+    AGENT_ROOM_RUN_BUDGET_DEEP_WORK_MS: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(6 * 60 * 60 * 1000),
     AGENT_ROOM_RUN_BUDGET_SUBAGENT_MS: z.coerce
         .number()
         .int()
         .positive()
-        .default(8 * 60 * 60 * 1000),
+        .default(2 * 60 * 60 * 1000),
     AGENT_ROOM_RUN_BUDGET_MAINTENANCE_MS: z.coerce
         .number()
         .int()
@@ -108,6 +113,7 @@ export interface AppEnv {
     budgets: {
         manualTurnMs: number
         scheduledTurnMs: number
+        deepWorkTurnMs: number
         subagentTurnMs: number
         maintenanceTurnMs: number
         idleTimeoutMs: number
@@ -268,6 +274,7 @@ export function getAppEnv(): AppEnv {
         budgets: {
             manualTurnMs: data.AGENT_ROOM_RUN_BUDGET_MANUAL_MS,
             scheduledTurnMs: data.AGENT_ROOM_RUN_BUDGET_SCHEDULED_MS,
+            deepWorkTurnMs: data.AGENT_ROOM_RUN_BUDGET_DEEP_WORK_MS,
             subagentTurnMs: data.AGENT_ROOM_RUN_BUDGET_SUBAGENT_MS,
             maintenanceTurnMs: data.AGENT_ROOM_RUN_BUDGET_MAINTENANCE_MS,
             idleTimeoutMs: data.AGENT_ROOM_IDLE_TIMEOUT_MS,

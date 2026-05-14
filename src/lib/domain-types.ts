@@ -177,6 +177,17 @@ export interface AppGitHubManifestSessionRecord {
     updatedAt: Date
 }
 
+export interface AppGitHubUserAuthSessionRecord {
+    stateHash: string
+    actorUserId: string | null
+    publicOrigin: string
+    codeVerifier: string
+    status: 'pending' | 'completed' | 'expired' | 'failed'
+    expiresAt: Date
+    createdAt: Date
+    updatedAt: Date
+}
+
 export interface AppGitHubAppRecord {
     id: boolean
     appId: string
@@ -191,6 +202,24 @@ export interface AppGitHubAppRecord {
     validationMessage: string | null
     lastValidatedAt: Date | null
     createdByUserId: string | null
+    createdAt: Date
+    updatedAt: Date
+}
+
+export interface AppGitHubUserConnectionRecord {
+    id: boolean
+    githubUserId: string
+    login: string
+    name: string | null
+    avatarUrl: string | null
+    htmlUrl: string | null
+    tokenType: string
+    accessTokenSecretId: string
+    accessTokenExpiresAt: Date | null
+    refreshTokenSecretId: string | null
+    refreshTokenExpiresAt: Date | null
+    createdByUserId: string | null
+    lastAuthorizedAt: Date
     createdAt: Date
     updatedAt: Date
 }
@@ -362,6 +391,7 @@ export interface UsageEventRecord {
 export interface RunBudgetConfig {
     manualTurnMs: number
     scheduledTurnMs: number
+    deepWorkTurnMs: number
     subagentTurnMs: number
     maintenanceTurnMs: number
     idleTimeoutMs: number

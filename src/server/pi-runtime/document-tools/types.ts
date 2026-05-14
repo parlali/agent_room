@@ -1,4 +1,5 @@
 import type { PiRuntimeConfig } from '../../rooms/pi-runtime-config'
+import type { ToolRoot } from '../room-tools/shared'
 
 export interface DocumentToolContext {
     config: PiRuntimeConfig
@@ -7,6 +8,7 @@ export interface DocumentToolContext {
 
 export interface DocumentToolDetails {
     path?: string
+    root?: ToolRoot
     artifactId?: string
     sha256?: string
     byteLength?: number

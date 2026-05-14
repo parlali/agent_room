@@ -1,5 +1,5 @@
-import { Link, Outlet, createFileRoute, useNavigate, useRouterState } from '@tanstack/react-router'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link, Outlet, createFileRoute, useRouterState } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import {
     CalendarClockIcon,
@@ -10,9 +10,9 @@ import {
     SettingsIcon,
     UploadIcon,
 } from 'lucide-react'
-import { toast } from 'sonner'
 
 import { Button } from '#/components/ui/button'
+import { CardButton } from '#/components/ui/card'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
 import { RoomDashboardLayout } from '#/components/room-dashboard'
 import {
@@ -23,14 +23,13 @@ import {
     SessionContextMenu,
     SessionContextMenuTrigger,
     StateBadge,
+    useStartRoomSession,
 } from '#/components/agent-room'
 import { describeSchedule, describeSessionState } from '#/lib/state'
 import { formatBytes, formatRelativeTime, pluralize } from '#/lib/format'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
-import { markChatSelection } from '#/lib/browser-performance'
 import { requireRouteUser } from './-route-auth'
 import {
-    createThreadServer,
     getRoomSidebarServer,
     getRoomSetupReadinessServer,
     listCronJobsServer,
@@ -58,9 +57,6 @@ function RoomHomePage() {
 }
 
 function RoomHomeContent({ roomId }: { roomId: string }) {
-    const navigate = useNavigate()
-    const queryClient = useQueryClient()
-
     const executionQuery = useQuery({
         queryKey: roomQueryKey.roomSidebar(roomId),
         queryFn: () => getRoomSidebarServer({ data: { roomId } }),
@@ -87,24 +83,7 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
         staleTime: roomQueryPolicy.coldStaleMs,
     })
 
-    const startSession = useMutation({
-        mutationFn: () => createThreadServer({ data: { roomId } }),
-        onSuccess: async ({ key }) => {
-            await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) })
-            await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomExecution(roomId) })
-            await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
-            markChatSelection(roomId, key)
-            navigate({
-                to: '/rooms/$roomId/sessions/$sessionKey',
-                params: { roomId, sessionKey: key },
-            })
-        },
-        onError: (e: unknown) => {
-            toast.error('Could not start a new session', {
-                description: e instanceof Error ? e.message : 'Unexpected error',
-            })
-        },
-    })
+    const startSession = useStartRoomSession({ roomId })
 
     const snapshot = executionQuery.data
     const room = snapshot?.room ?? null
@@ -199,7 +178,14 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                                 title={`Setup needs attention (${blockingIssues.length})`}
                                 description={blockingIssues.map((i) => i.message).join(' · ')}
                                 action={
-                                    <Link to="/settings">
+                                    <Link
+                                        to="/settings"
+                                        search={{
+                                            installationId: '',
+                                            setupAction: '',
+                                            githubState: '',
+                                        }}
+                                    >
                                         <Button variant="outline" size="sm">
                                             Open settings
                                         </Button>
@@ -292,9 +278,12 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                                                         <span className="truncate text-sm font-medium">
                                                             {thread.title || 'Untitled session'}
                                                         </span>
-                                                        {thread.kind === 'subagent' ? (
+                                                        {thread.kind === 'subagent' ||
+                                                        thread.kind === 'deep_work' ? (
                                                             <span className="rounded border border-border px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-muted-foreground">
-                                                                Subtask
+                                                                {thread.kind === 'subagent'
+                                                                    ? 'Subtask'
+                                                                    : 'Deep work'}
                                                             </span>
                                                         ) : null}
                                                         <StateBadge
@@ -473,29 +462,30 @@ function ActionTile({
     }
 }) {
     const inner = (
-        <div className="flex h-full flex-col items-start gap-2 rounded-lg border border-border/70 bg-card px-3 py-3 text-sm transition-colors hover:bg-accent/40">
+        <>
             <span className="text-muted-foreground">{icon}</span>
             <span className="font-medium">{label}</span>
-        </div>
+        </>
     )
     if (href) {
         return (
-            <Link to={href.to} params={href.params} className="block">
-                {inner}
-            </Link>
+            <CardButton asChild className="h-full flex-col items-start gap-2 px-3 py-3">
+                <Link to={href.to} params={href.params}>
+                    {inner}
+                </Link>
+            </CardButton>
         )
     }
     return (
         <Tooltip>
             <TooltipTrigger asChild>
-                <button
-                    type="button"
+                <CardButton
                     onClick={onClick}
                     disabled={pending}
-                    className="block w-full cursor-pointer text-left disabled:opacity-50"
+                    className="h-full flex-col items-start gap-2 px-3 py-3 disabled:opacity-50"
                 >
                     {inner}
-                </button>
+                </CardButton>
             </TooltipTrigger>
             <TooltipContent>{pending ? 'Working…' : label}</TooltipContent>
         </Tooltip>

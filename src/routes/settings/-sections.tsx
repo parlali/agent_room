@@ -8,6 +8,7 @@ import {
     PlugIcon,
     RefreshCwIcon,
     Trash2Icon,
+    UserRoundIcon,
     WrenchIcon,
 } from 'lucide-react'
 
@@ -66,24 +67,32 @@ export function GitHubAppSection({
     publicOrigin,
     targetOwner,
     setupPending,
+    accountConnectPending,
     refreshPending,
+    disconnectAccountPending,
     resetPending,
     onChangePublicOrigin,
     onChangeTargetOwner,
     onStartSetup,
+    onConnectAccount,
     onRefresh,
+    onDisconnectAccount,
     onReset,
 }: {
     config: OperatorConfigSnapshot | undefined
     publicOrigin: string
     targetOwner: string
     setupPending: boolean
+    accountConnectPending: boolean
     refreshPending: boolean
+    disconnectAccountPending: boolean
     resetPending: boolean
     onChangePublicOrigin: (value: string) => void
     onChangeTargetOwner: (value: string) => void
     onStartSetup: () => void
+    onConnectAccount: () => void
     onRefresh: () => void
+    onDisconnectAccount: () => void
     onReset: () => void
 }) {
     const [resetOpen, setResetOpen] = useState(false)
@@ -91,11 +100,14 @@ export function GitHubAppSection({
     const app = github?.app
     const configured = app?.configured ?? false
     const installations = github?.installations ?? []
+    const accounts = github?.accounts ?? []
+    const user = github?.user
+    const connected = user?.connected ?? false
     return (
         <>
             <Section
-                title="GitHub App"
-                description="First-party GitHub access for programmer rooms."
+                title="GitHub"
+                description="Connect accounts and install the room-scoped GitHub App."
                 actions={
                     configured ? (
                         <div className="flex flex-wrap justify-end gap-2">
@@ -108,10 +120,10 @@ export function GitHubAppSection({
                                 </Button>
                             ) : null}
                             {app?.installUrl ? (
-                                <Button type="button" size="sm" variant="outline" asChild>
-                                    <a href={app.installUrl} target="_blank" rel="noreferrer">
+                                <Button type="button" size="sm" asChild>
+                                    <a href={app.installUrl}>
                                         <ExternalLinkIcon />
-                                        Install
+                                        Add account
                                     </a>
                                 </Button>
                             ) : null}
@@ -181,11 +193,6 @@ export function GitHubAppSection({
                     </div>
                 ) : (
                     <div className="space-y-4">
-                        <AttentionBanner
-                            tone="info"
-                            title="Need organizations?"
-                            description="If this app was created as private on GitHub, make it public in GitHub App settings or forget it here and create a new installable app."
-                        />
                         <div className="grid gap-3 sm:grid-cols-2">
                             <FieldGroup label="App">
                                 <div className="flex min-h-10 items-center rounded-md border border-border bg-muted/30 px-3 text-sm">
@@ -198,38 +205,154 @@ export function GitHubAppSection({
                                 </div>
                             </FieldGroup>
                         </div>
-                        {installations.length === 0 ? (
+
+                        <div className="rounded-md border p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className="text-sm font-medium">GitHub account</span>
+                                        {connected ? (
+                                            <StateBadge
+                                                tone={
+                                                    user?.status === 'invalid' ? 'danger' : 'ready'
+                                                }
+                                                label={
+                                                    user?.status === 'invalid'
+                                                        ? 'Reconnect'
+                                                        : 'Connected'
+                                                }
+                                            />
+                                        ) : null}
+                                    </div>
+                                    <div className="mt-0.5 text-xs text-muted-foreground">
+                                        {connected
+                                            ? user?.login
+                                                ? `Connected as ${user.login}`
+                                                : 'Connected'
+                                            : 'Connect GitHub to discover accounts and guide installs.'}
+                                    </div>
+                                    {user?.validationMessage ? (
+                                        <div className="mt-1 text-xs text-destructive">
+                                            {user.validationMessage}
+                                        </div>
+                                    ) : null}
+                                </div>
+                                <div className="flex flex-wrap justify-end gap-2">
+                                    {connected ? (
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={onDisconnectAccount}
+                                            disabled={disconnectAccountPending}
+                                        >
+                                            <UserRoundIcon />
+                                            Disconnect
+                                        </Button>
+                                    ) : null}
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        onClick={onConnectAccount}
+                                        disabled={accountConnectPending}
+                                    >
+                                        <UserRoundIcon />
+                                        {connected
+                                            ? accountConnectPending
+                                                ? 'Reconnecting...'
+                                                : 'Reconnect GitHub'
+                                            : accountConnectPending
+                                              ? 'Connecting...'
+                                              : 'Connect GitHub'}
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {accounts.length === 0 ? (
                             <EmptyState
                                 icon={GitBranchIcon}
-                                title="No GitHub installations"
-                                description="Install the GitHub App on the repositories programmer rooms should use, then refresh."
+                                title="No GitHub accounts"
+                                description="Connect GitHub or install the app on accounts programmer rooms should use."
                             />
                         ) : (
                             <div className="divide-y divide-border/60 rounded-md border">
-                                {installations.map((installation) => {
-                                    const status = describeProviderStatus(installation.status)
+                                {accounts.map((account) => {
+                                    const status = describeProviderStatus(
+                                        account.installationStatus,
+                                    )
                                     return (
                                         <div
-                                            key={installation.installationId}
-                                            className="flex items-start justify-between gap-3 px-4 py-3"
+                                            key={account.login}
+                                            className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
                                         >
                                             <div className="min-w-0">
                                                 <div className="flex flex-wrap items-center gap-2">
                                                     <span className="text-sm font-medium">
-                                                        {installation.accountLogin}
+                                                        {account.login}
                                                     </span>
-                                                    <ChipBadge>
-                                                        {installation.repositorySelection}
-                                                    </ChipBadge>
-                                                    <StateBadge
-                                                        tone={status.tone}
-                                                        label={status.label}
-                                                    />
+                                                    <ChipBadge>{account.accountType}</ChipBadge>
+                                                    {account.repositorySelection ? (
+                                                        <ChipBadge>
+                                                            {account.repositorySelection}
+                                                        </ChipBadge>
+                                                    ) : null}
+                                                    {account.installed ? (
+                                                        <StateBadge
+                                                            tone={status.tone}
+                                                            label={status.label}
+                                                        />
+                                                    ) : (
+                                                        <StateBadge
+                                                            tone="muted"
+                                                            label="Not installed"
+                                                        />
+                                                    )}
                                                 </div>
-                                                <div className="mt-0.5 text-xs text-muted-foreground">
-                                                    Updated{' '}
-                                                    {formatRelativeTime(installation.updatedAt)}
-                                                </div>
+                                                {account.updatedAt ? (
+                                                    <div className="mt-0.5 text-xs text-muted-foreground">
+                                                        Updated{' '}
+                                                        {formatRelativeTime(account.updatedAt)}
+                                                    </div>
+                                                ) : null}
+                                            </div>
+                                            <div className="flex flex-wrap justify-end gap-2">
+                                                {account.manageUrl ? (
+                                                    <Button
+                                                        type="button"
+                                                        size="sm"
+                                                        variant="outline"
+                                                        asChild
+                                                    >
+                                                        <a
+                                                            href={account.manageUrl}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                        >
+                                                            <ExternalLinkIcon />
+                                                            Manage
+                                                        </a>
+                                                    </Button>
+                                                ) : null}
+                                                {account.installUrl ? (
+                                                    <Button
+                                                        type="button"
+                                                        size="sm"
+                                                        variant={
+                                                            account.installed
+                                                                ? 'outline'
+                                                                : 'default'
+                                                        }
+                                                        asChild
+                                                    >
+                                                        <a href={account.installUrl}>
+                                                            <ExternalLinkIcon />
+                                                            {account.installed
+                                                                ? 'Update'
+                                                                : 'Install'}
+                                                        </a>
+                                                    </Button>
+                                                ) : null}
                                             </div>
                                         </div>
                                     )

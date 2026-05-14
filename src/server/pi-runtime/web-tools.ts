@@ -30,6 +30,8 @@ interface WebToolDetails {
     modelVisibleTruncated?: boolean
     outputArtifact?: ToolOutputArtifact
     resultCount?: number
+    backendFormat?: 'json' | 'html'
+    fallbackReason?: string | null
 }
 
 function createWebSearchTool(ctx: WebToolContext): ToolDefinition {
@@ -56,27 +58,32 @@ function createWebSearchTool(ctx: WebToolContext): ToolDefinition {
                 20,
             )
             try {
+                const search = await searxngSearch({
+                    config: ctx.config,
+                    query: input.query,
+                    count: Math.min(20, count + 20),
+                    language: input.language,
+                    freshness: input.freshness,
+                    safeSearch: input.safeSearch,
+                    location: input.location,
+                    signal,
+                })
                 const results = filterResultsByDomain({
-                    results: await searxngSearch({
-                        config: ctx.config,
-                        query: input.query,
-                        count: Math.min(20, count + 20),
-                        language: input.language,
-                        freshness: input.freshness,
-                        safeSearch: input.safeSearch,
-                        location: input.location,
-                        signal,
-                    }),
+                    results: search.results,
                     allowedDomains: normalizeStringArray(input.allowedDomains),
                     blockedDomains: normalizeStringArray(input.blockedDomains),
                 }).slice(0, count)
                 await ctx.audit('tool.web_search', {
                     query: input.query,
                     resultCount: results.length,
+                    backendFormat: search.backendFormat,
+                    fallbackReason: search.fallbackReason,
                     status: 'complete',
                 })
                 return textToolResult<WebToolDetails>(formatSearchResults(results), {
                     resultCount: results.length,
+                    backendFormat: search.backendFormat,
+                    fallbackReason: search.fallbackReason,
                 })
             } catch (error) {
                 await ctx.audit('tool.web_search', {

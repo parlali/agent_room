@@ -7,6 +7,10 @@ import {
 } from '#/lib/runtime-message'
 import type { RoomExecutionMessage, RoomExecutionMessagePart } from '../rooms/execution-types'
 import type { SessionEntry } from '@mariozechner/pi-coding-agent'
+import {
+    displayTextWithPromptAttachments,
+    type PromptAttachmentMetadata,
+} from './prompt-attachments'
 import { isRecord } from './runtime-redaction'
 
 export function shortText(value: string, length = 120): string {
@@ -42,6 +46,25 @@ function toolCallPart(
         input: toRuntimeSerializable(block.arguments ?? {}),
         rawType: 'toolCall',
         contentIndex,
+    })
+}
+
+function thinkingPart(
+    block: Record<string, unknown>,
+    contentIndex: number | null,
+): RoomExecutionMessagePart {
+    const text = typeof block.thinking === 'string' ? block.thinking : ''
+    return emptyRuntimePart({
+        type: 'thinking',
+        text,
+        status: block.redacted === true ? 'redacted' : 'complete',
+        rawType: 'thinking',
+        contentIndex,
+        result: toRuntimeSerializable({
+            redacted: block.redacted === true,
+            hasThinking: typeof block.thinking === 'string' && block.thinking.length > 0,
+            hasSignature: typeof block.thinkingSignature === 'string',
+        }),
     })
 }
 
@@ -96,6 +119,7 @@ export function mapSessionEntry(
     entry: SessionEntry,
     index: number,
     completedIds: Set<string>,
+    attachmentMetadata?: Map<string, PromptAttachmentMetadata>,
 ): RoomExecutionMessage | null {
     const compaction = mapCompactionEntry(entry, index)
     if (compaction) {
@@ -129,7 +153,7 @@ export function mapSessionEntry(
                     parts.push(textPart(block, text, contentIndex))
                 }
             } else if (block.type === 'thinking') {
-                continue
+                parts.push(thinkingPart(block, contentIndex))
             } else if (block.type === 'toolCall') {
                 parts.push(toolCallPart(block, completedIds, contentIndex))
             } else {
@@ -151,13 +175,22 @@ export function mapSessionEntry(
     const text =
         extractTextFromRuntimeContent(content) ||
         (typeof message.errorMessage === 'string' ? message.errorMessage : '')
+    const displayText =
+        role === 'user'
+            ? displayTextWithPromptAttachments(
+                  text,
+                  entry.parentId ? (attachmentMetadata?.get(entry.parentId) ?? null) : null,
+              )
+            : text
 
     return {
         id: entry.id || `message-${index + 1}`,
         role,
-        text,
+        text: displayText,
         parts,
         timestamp: entryTimestamp(entry),
+        provider: typeof message.provider === 'string' ? message.provider : null,
+        model: typeof message.model === 'string' ? message.model : null,
     }
 }
 

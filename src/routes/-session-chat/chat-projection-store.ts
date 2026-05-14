@@ -88,7 +88,7 @@ export async function editOptimisticUserMessage(input: {
         input.queryClient.getQueryData<InfiniteData<RoomSessionWindow, string | null>>(queryKey)
     input.queryClient.setQueryData<InfiniteData<RoomSessionWindow, string | null>>(
         queryKey,
-        (current) => updateMessageRow(current, input.messageId, input.message),
+        (current) => pruneAfterEditedMessage(current, input.messageId, input.message),
     )
     return { previous }
 }
@@ -152,28 +152,77 @@ function appendOptimisticRow(
     }
 }
 
-function updateMessageRow(
+function pruneAfterEditedMessage(
     current: InfiniteData<RoomSessionWindow, string | null> | undefined,
     messageId: string,
     text: string,
 ): InfiniteData<RoomSessionWindow, string | null> | undefined {
     if (!current) return current
+    const chronological = current.pages.map((page, index) => ({
+        page,
+        pageParam: current.pageParams[index] ?? null,
+    }))
+    chronological.reverse()
+
+    const nextChronological: typeof chronological = []
+    let found = false
+    for (const pair of chronological) {
+        if (found) break
+        const rowIndex = pair.page.rows.findIndex(
+            (row) => row.type === 'user_message' && row.message.id === messageId,
+        )
+        if (rowIndex < 0) {
+            nextChronological.push(pair)
+            continue
+        }
+        const editedRows = pair.page.rows.slice(0, rowIndex + 1).map((row) => {
+            if (row.type !== 'user_message' || row.message.id !== messageId) return row
+            return {
+                ...row,
+                message: {
+                    ...row.message,
+                    text,
+                    parts: row.message.parts.map((part) =>
+                        part.type === 'text'
+                            ? {
+                                  ...part,
+                                  text,
+                              }
+                            : part,
+                    ),
+                },
+            }
+        })
+        nextChronological.push({
+            page: {
+                ...pair.page,
+                rows: editedRows,
+                afterCursor:
+                    editedRows.length > 0 ? String(editedRows[editedRows.length - 1]!.seq) : null,
+                hasNewer: false,
+                totalRows: Math.min(
+                    pair.page.totalRows,
+                    loadedRowCount(nextChronological) + editedRows.length,
+                ),
+            },
+            pageParam: pair.pageParam,
+        })
+        found = true
+    }
+
+    if (!found) return current
+    nextChronological.reverse()
     return {
         ...current,
-        pages: current.pages.map((page) => ({
-            ...page,
-            rows: page.rows.map((row) => {
-                if (row.type !== 'message' || row.message.id !== messageId) return row
-                return {
-                    ...row,
-                    message: {
-                        ...row.message,
-                        text,
-                    },
-                }
-            }),
-        })),
+        pages: nextChronological.map((pair) => pair.page),
+        pageParams: nextChronological.map((pair) => pair.pageParam),
     }
+}
+
+function loadedRowCount(
+    pages: Array<{ page: RoomSessionWindow; pageParam: string | null }>,
+): number {
+    return pages.reduce((total, pair) => total + pair.page.rows.length, 0)
 }
 
 function optimisticMessageRow(input: {
@@ -202,7 +251,7 @@ function optimisticMessageRow(input: {
         timestamp: input.timestamp,
     }
     return {
-        type: 'message',
+        type: 'user_message',
         id: message.id,
         seq: input.timestamp,
         message,

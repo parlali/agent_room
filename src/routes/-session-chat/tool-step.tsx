@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, LoaderIcon, WrenchIcon } from 'lucide-react'
+import {
+    AlertTriangleIcon,
+    CheckIcon,
+    ChevronDownIcon,
+    LoaderIcon,
+    SquareIcon,
+    WrenchIcon,
+} from 'lucide-react'
 
 import { Button } from '#/components/ui/button'
 import { cn } from '#/lib/utils'
@@ -10,22 +17,20 @@ export function ToolActivity({
     id,
     tasks,
     className,
+    onLayoutChange,
 }: {
     id: string
     tasks: ToolActivityTask[]
     className?: string
+    onLayoutChange?: () => void
 }) {
     const visibleTasks = useMemo(() => tasks.filter((task) => task.title.trim()), [tasks])
     const status = activityStatus(visibleTasks)
-    const [open, setOpen] = useState(status === 'in_progress' || status === 'pending')
+    const [open, setOpen] = useState(false)
 
     useEffect(() => {
-        if (status === 'in_progress' || status === 'pending') {
-            setOpen(true)
-        } else if (status === 'complete') {
-            setOpen(false)
-        }
-    }, [status])
+        onLayoutChange?.()
+    }, [onLayoutChange, open, status, tasks])
 
     if (visibleTasks.length === 0) return null
 
@@ -34,7 +39,7 @@ export function ToolActivity({
     return (
         <div
             className={cn(
-                'flex w-full max-w-[min(42rem,100%)] flex-col items-start gap-1',
+                'flex w-full max-w-[min(42rem,100%)] flex-col items-start gap-1 text-muted-foreground',
                 className,
             )}
         >
@@ -42,10 +47,13 @@ export function ToolActivity({
                 type="button"
                 variant="ghost"
                 size="xs"
-                onClick={() => setOpen((value) => !value)}
+                onClick={() => {
+                    setOpen((value) => !value)
+                    onLayoutChange?.()
+                }}
                 className={cn(
-                    'max-w-full justify-start gap-1.5 px-1.5 text-left text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground',
-                    open && 'bg-muted/40 text-foreground',
+                    'h-auto max-w-full justify-start gap-1.5 px-1 py-0.5 text-left text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                    open && 'text-foreground',
                 )}
                 aria-expanded={open}
                 aria-controls={`${id}-details`}
@@ -56,6 +64,7 @@ export function ToolActivity({
                         status === 'complete' && 'text-ready-fg',
                         status === 'in_progress' && 'animate-spin text-working-fg',
                         status === 'pending' && 'text-muted-foreground',
+                        status === 'stopped' && 'text-muted-foreground',
                         status === 'error' && 'text-attention-fg',
                     )}
                 />
@@ -68,10 +77,7 @@ export function ToolActivity({
                 />
             </Button>
             {open ? (
-                <div
-                    id={`${id}-details`}
-                    className="ml-5 flex w-[calc(100%-1.25rem)] flex-col gap-1 border-l border-border/70 pl-3"
-                >
+                <div id={`${id}-details`} className="flex w-full max-w-full flex-col gap-1 pl-5">
                     {visibleTasks.map((task) => (
                         <ToolTaskRow key={task.id} task={task} />
                     ))}
@@ -85,7 +91,7 @@ function ToolTaskRow({ task }: { task: ToolActivityTask }) {
     const Icon = statusIcon(task.status)
 
     return (
-        <div className="flex min-w-0 flex-col gap-1 rounded-md px-2 py-1.5 text-xs text-muted-foreground">
+        <div className="flex min-w-0 flex-col gap-1 py-1 text-xs text-muted-foreground">
             <div className="flex min-w-0 items-center gap-2">
                 <Icon
                     className={cn(
@@ -93,6 +99,7 @@ function ToolTaskRow({ task }: { task: ToolActivityTask }) {
                         task.status === 'complete' && 'text-ready-fg',
                         task.status === 'in_progress' && 'animate-spin text-working-fg',
                         task.status === 'pending' && 'text-muted-foreground',
+                        task.status === 'stopped' && 'text-muted-foreground',
                         task.status === 'error' && 'text-attention-fg',
                     )}
                 />
@@ -124,11 +131,13 @@ function activityStatus(tasks: ToolActivityTask[]): ToolTaskStatus {
     if (tasks.some((task) => task.status === 'error')) return 'error'
     if (tasks.some((task) => task.status === 'in_progress')) return 'in_progress'
     if (tasks.some((task) => task.status === 'pending')) return 'pending'
+    if (tasks.some((task) => task.status === 'stopped')) return 'stopped'
     return 'complete'
 }
 
 function activityStatusLabel(status: ToolTaskStatus): string {
     if (status === 'error') return 'Needs attention'
+    if (status === 'stopped') return 'Stopped'
     if (status === 'complete') return 'Done'
     if (status === 'pending') return 'Waiting'
     return 'Working'
@@ -137,6 +146,7 @@ function activityStatusLabel(status: ToolTaskStatus): string {
 function statusIcon(status: ToolTaskStatus) {
     if (status === 'complete') return CheckIcon
     if (status === 'in_progress') return LoaderIcon
+    if (status === 'stopped') return SquareIcon
     if (status === 'error') return AlertTriangleIcon
     return WrenchIcon
 }

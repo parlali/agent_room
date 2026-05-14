@@ -15,9 +15,16 @@ function DropdownMenuPortal({
 }
 
 function DropdownMenuTrigger({
+    className,
     ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>) {
-    return <DropdownMenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />
+    return (
+        <DropdownMenuPrimitive.Trigger
+            data-slot="dropdown-menu-trigger"
+            className={cn('cursor-pointer disabled:cursor-not-allowed', className)}
+            {...props}
+        />
+    )
 }
 
 function DropdownMenuContent({

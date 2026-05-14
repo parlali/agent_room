@@ -6,11 +6,8 @@ import {
     resolveRoomFileDownloadAsset,
     resolveRoomFilePreviewAsset,
 } from '#/server/rooms/file-store-preview'
+import { contentDispositionHeader } from '#/server/http/content-disposition'
 import type { RoomFileSurface } from '#/lib/room-file-types'
-
-function contentDispositionFilename(name: string): string {
-    return name.replace(/["\r\n]/g, '_')
-}
 
 export const Route = createFileRoute('/api/rooms/$roomId/files/preview')({
     server: {
@@ -55,7 +52,10 @@ export const Route = createFileRoute('/api/rooms/$roomId/files/preview')({
                             'content-type': asset.mediaType,
                             'content-length': String(asset.byteLength),
                             'cache-control': 'no-store',
-                            'content-disposition': `${download ? 'attachment' : 'inline'}; filename="${contentDispositionFilename(asset.name)}"`,
+                            'content-disposition': contentDispositionHeader({
+                                disposition: download ? 'attachment' : 'inline',
+                                filename: asset.name,
+                            }),
                             'x-content-type-options': 'nosniff',
                         },
                     })

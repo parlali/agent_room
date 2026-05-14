@@ -1,17 +1,21 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronRight, Loader2Icon, Plus } from 'lucide-react'
-import { toast } from 'sonner'
 
 import { cn } from '#/lib/utils'
 import { describeRoomState } from '#/lib/state'
 import { formatRelativeTime } from '#/lib/format'
 import { Button } from '#/components/ui/button'
 import { Skeleton } from '#/components/ui/skeleton'
-import { SessionContextMenu, SessionContextMenuTrigger, StatusDot } from '#/components/agent-room'
+import {
+    SessionContextMenu,
+    SessionContextMenuTrigger,
+    StatusDot,
+    useStartRoomSession,
+} from '#/components/agent-room'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
-import { createThreadServer, getRoomSidebarServer } from '#/routes/-room-runtime-server'
+import { getRoomSidebarServer } from '#/routes/-room-runtime-server'
 import type { RoomExecutionThread, RoomRuntimeOverview } from '#/lib/room-execution-types'
 import { markChatSelection } from '#/lib/browser-performance'
 import { prewarmSessionDetail } from '#/routes/-session-chat/chat-projection-store'
@@ -108,31 +112,7 @@ function RoomNode({
         desiredState: room.desiredState,
         healthStatus: room.healthStatus,
     })
-    const navigate = useNavigate()
-    const queryClient = useQueryClient()
-    const startSession = useMutation({
-        mutationFn: () => createThreadServer({ data: { roomId: room.roomId } }),
-        onSuccess: async ({ key }) => {
-            await Promise.all([
-                queryClient.invalidateQueries({
-                    queryKey: roomQueryKey.roomExecution(room.roomId),
-                }),
-                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(room.roomId) }),
-                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList }),
-            ])
-            onNavigate?.()
-            markChatSelection(room.roomId, key)
-            navigate({
-                to: '/rooms/$roomId/sessions/$sessionKey',
-                params: { roomId: room.roomId, sessionKey: key },
-            })
-        },
-        onError: (e: unknown) => {
-            toast.error('Could not start a new session', {
-                description: e instanceof Error ? e.message : 'Unexpected error',
-            })
-        },
-    })
+    const startSession = useStartRoomSession({ roomId: room.roomId, onStarted: onNavigate })
     const isOnHomeOrSurface =
         activePathname === `/rooms/${room.roomId}` ||
         (activePathname.startsWith(`/rooms/${room.roomId}/`) &&
@@ -148,17 +128,19 @@ function RoomNode({
                         'bg-sidebar-accent text-sidebar-accent-foreground',
                 )}
             >
-                <button
+                <Button
                     type="button"
+                    variant="ghost"
+                    size="icon-xs"
                     onClick={onToggle}
-                    className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                    className="size-5 shrink-0 rounded text-muted-foreground hover:bg-muted hover:text-foreground"
                     aria-expanded={expanded}
                     aria-label={expanded ? 'Collapse room' : 'Expand room'}
                 >
                     <ChevronRight
                         className={cn('size-3.5 transition-transform', expanded && 'rotate-90')}
                     />
-                </button>
+                </Button>
                 <Link
                     to="/rooms/$roomId"
                     params={{ roomId: room.roomId }}
@@ -216,6 +198,7 @@ function RoomSessions({
 }) {
     const navigate = useNavigate()
     const queryClient = useQueryClient()
+    const startSession = useStartRoomSession({ roomId, onStarted: onNavigate })
     const [showAll, setShowAll] = useState(false)
     const [streamError, setStreamError] = useState<string | null>(null)
     const query = useQuery({
@@ -265,12 +248,20 @@ function RoomSessions({
         return (
             <div className="space-y-1 px-5 pb-1.5 pt-0.5">
                 <p className="text-xs text-muted-foreground">No sessions yet.</p>
-                <Link to="/rooms/$roomId" params={{ roomId }} onClick={onNavigate}>
-                    <Button variant="ghost" size="xs" className="h-6 w-full justify-start">
+                <Button
+                    variant="ghost"
+                    size="xs"
+                    className="h-6 w-full justify-start"
+                    onClick={() => startSession.mutate()}
+                    disabled={startSession.isPending}
+                >
+                    {startSession.isPending ? (
+                        <Loader2Icon className="size-3 animate-spin" />
+                    ) : (
                         <Plus className="size-3" />
-                        Start session
-                    </Button>
-                </Link>
+                    )}
+                    Start session
+                </Button>
             </div>
         )
     }

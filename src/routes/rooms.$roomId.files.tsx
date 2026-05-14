@@ -18,6 +18,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 
 import { Button } from '#/components/ui/button'
+import { CardButton } from '#/components/ui/card'
 import { Input } from '#/components/ui/input'
 import {
     Dialog,
@@ -351,15 +352,16 @@ function TreeNode({
     const Icon = active ? FolderOpenIcon : FolderIcon
     return (
         <div>
-            <button
+            <Button
                 type="button"
+                variant="ghost"
                 onClick={() => onSelect(node.surface, node.relativePath)}
-                className={`flex h-8 w-full min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 text-left text-sm transition-colors hover:bg-muted hover:text-foreground ${active ? 'bg-muted text-foreground' : 'text-muted-foreground'}`}
+                className={`h-8 w-full min-w-0 justify-start gap-2 rounded-md px-2 text-left text-sm font-normal hover:bg-muted hover:text-foreground ${active ? 'bg-muted text-foreground' : 'text-muted-foreground'}`}
                 style={{ paddingLeft: `${depth * 10 + 8}px` }}
             >
                 <Icon className="size-4 shrink-0" />
                 <span className="truncate">{node.name}</span>
-            </button>
+            </Button>
             {node.children.length > 0 ? (
                 <div>
                     {node.children.map((child) => (
@@ -557,10 +559,10 @@ function FileBrowserRow({
     const Icon = pickIcon(entry)
     return (
         <li>
-            <button
-                type="button"
+            <CardButton
                 onClick={onClick}
-                className={`flex w-full cursor-pointer items-center gap-3 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-muted ${selected ? 'bg-muted' : ''}`}
+                size="sm"
+                className={`items-center gap-3 border-0 bg-transparent px-2 py-2.5 hover:bg-muted ${selected ? 'bg-muted' : ''}`}
             >
                 <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
                     <Icon className="size-4" aria-hidden />
@@ -586,7 +588,7 @@ function FileBrowserRow({
                 {entry.kind === 'directory' ? (
                     <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" />
                 ) : null}
-            </button>
+            </CardButton>
         </li>
     )
 }

@@ -4,6 +4,8 @@ export {
     appGitHubAppRepository,
     appGitHubInstallationRepository,
     appGitHubManifestSessionRepository,
+    appGitHubUserAuthSessionRepository,
+    appGitHubUserConnectionRepository,
     roomGitHubBindingRepository,
 } from './github-repository'
 export { providerValidationRepository } from './provider-validation-repository'

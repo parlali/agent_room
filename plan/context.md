@@ -169,7 +169,37 @@ It should tell the model:
 - how to handle scheduled autonomous work
 - how to communicate results
 
+The base prompt should be shared across room modes, with small mode-specific additions for programmer and coworker behavior. Shared behavior should include a broad work contract: actionable requests are tasks, each non-final turn should use tools or ask only for the one blocker, weak results should trigger another query/path/source, source-dependent work should be grounded in tool evidence, and final answers should start with the result rather than broad context. The user-visible answer is the tie-in summary: useful findings, decisions, artifacts, verification, risks, or named blockers, not exhaustive taxonomies, boilerplate primers, or menus of possible work.
+
+Room instructions and room-local memory are the canonical standing context. Workspace `AGENTS.md`, `CLAUDE.md`, and similar project files should not be injected as room instructions. Programmer rooms may inspect repository guidance files when coding work requires it, but that is task context, not room identity.
+
 It should not explain room isolation, runtime tokens, ports, other rooms, process boundaries, or implementation topology.
+
+## Long-Running Goal Direction
+
+The "agentic coworker" behavior cannot be solved by system prompt tuning alone.
+
+The prompt can bias a single turn toward initiative, tool use, evidence, and concise synthesis. Long-horizon autonomy needs product/runtime primitives: a durable goal record, continuation policy, budget accounting, user controls, clear status, and deterministic feedback.
+
+Codex `/goal` is the right shape to learn from:
+
+- persist a goal on the thread or room with objective, status, token/time usage, optional budget, and timestamps
+- expose lifecycle controls to create, inspect, edit, pause, resume, clear, and complete the goal
+- continue automatically only when the goal is active, the runtime is idle, no user input is queued, and the current mode allows execution
+- inject a hidden continuation prompt that treats the goal objective as untrusted user data
+- let the model mark a goal complete only after evidence-backed completion audit
+- let user/system code pause, resume, clear, or budget-limit goals; do not let the model use completion as an escape hatch
+- account usage against the goal and stop with a concise budget-limited wrap-up when the budget is reached
+
+Ralph loops are useful for the same reason, but they are lower-level. Their main lesson is not "repeat the same prompt forever." It is that the loop needs stable external state and deterministic feedback. Progress should live in files, plans, tests, logs, artifacts, memory, git history, and run records rather than relying on chat context. Each iteration should inspect current state, make one meaningful move, run a real verifier, and either continue, mark complete, or report a concrete blocker.
+
+Agent Room should combine these ideas at the room level:
+
+- room goals are first-class runtime state, separate from long-term memory
+- scheduled jobs remain time-based work; goals are objective-based work
+- goal continuation should reuse the existing run queue, watchdogs, usage sync, audit trail, and SSE read model rather than polling or spawning uncontrolled loops
+- completion should be evidence-based and visible in the transcript, status UI, and usage history
+- prompts remain concise because the loop state and feedback are represented by product data, not a giant instruction blob
 
 ## Product Principles
 

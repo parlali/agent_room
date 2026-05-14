@@ -1,17 +1,8 @@
-import { readFile, realpath } from 'node:fs/promises'
-import { join } from 'node:path'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
-import { assertPathInsideRoot } from '../security/path-boundary'
 import { buildAgentHarnessPrompt } from './agent-harness'
 import { buildInternalStateSummary } from './internal-state'
 import { internalStateToolNames } from './internal-state-tools'
 import { roomToolNamesForCapabilities } from './room-tools'
-
-interface LoadedInstructionFile {
-    path: string
-    text: string
-    truncated: boolean
-}
 
 export interface ContextBudget {
     maxInputTokens: number
@@ -19,16 +10,8 @@ export interface ContextBudget {
     systemPromptMaxChars: number
 }
 
-const MAX_INSTRUCTION_FILE_BYTES = 32000
 const MAX_OPERATOR_INSTRUCTIONS_CHARS = 24000
-
-function assertInside(candidate: string, root: string): string {
-    return assertPathInsideRoot(
-        candidate,
-        root,
-        (path) => `Instruction file escapes room workspace: ${path}`,
-    )
-}
+const mainThreadOrchestrationToolNames = ['agent_room_subagent', 'agent_room_deep_work'] as const
 
 function boundedText(
     input: string,
@@ -49,33 +32,6 @@ function boundedText(
     }
 }
 
-async function readBoundedInstructionFile(input: {
-    workspaceDir: string
-    relativePath: string
-    roomInstructions: string
-}): Promise<LoadedInstructionFile | null> {
-    try {
-        const workspace = await realpath(input.workspaceDir)
-        const requested = assertInside(join(workspace, input.relativePath), workspace)
-        const path = assertInside(await realpath(requested), workspace)
-        const raw = await readFile(path, {
-            encoding: 'utf8',
-        })
-        const bounded = boundedText(raw, MAX_INSTRUCTION_FILE_BYTES)
-        const text = bounded.text.trim()
-        if (!text || text === input.roomInstructions.trim()) {
-            return null
-        }
-        return {
-            path: input.relativePath,
-            text,
-            truncated: bounded.truncated,
-        }
-    } catch {
-        return null
-    }
-}
-
 export function contextBudgetForProvider(config: PiRuntimeConfig): ContextBudget {
     const provider = config.provider.sourceProvider.toLowerCase()
     const api = config.provider.api
@@ -93,36 +49,115 @@ export function contextBudgetForProvider(config: PiRuntimeConfig): ContextBudget
     }
 }
 
-export async function loadInstructionFiles(
-    config: PiRuntimeConfig,
-): Promise<LoadedInstructionFile[]> {
-    const candidates = ['AGENTS.md', '.agents/AGENTS.md']
-    const files = await Promise.all(
-        candidates.map((relativePath) =>
-            readBoundedInstructionFile({
-                workspaceDir: config.paths.workspaceDir,
-                relativePath,
-                roomInstructions: config.instructions,
-            }),
-        ),
-    )
-    return files.filter((file): file is LoadedInstructionFile => file !== null)
+function programmerGitHubInstruction(config: PiRuntimeConfig): string {
+    if (!config.github.enabled) {
+        return 'GitHub is not connected for this room. Ask for setup before authenticated clone, pull, push, or pull request work.'
+    }
+
+    const repositories = config.github.repositories.join(', ')
+    const remotes = config.github.repositories
+        .map((repository) => `https://github.com/${repository}.git`)
+        .join(', ')
+    return [
+        `GitHub is connected for ${repositories}.`,
+        `Available HTTPS remotes: ${remotes}.`,
+        'The workspace may be empty until you clone a selected repository.',
+        'Do not treat an empty workspace or "fatal: not a git repository" as missing GitHub access.',
+        'To verify access, run git ls-remote against the selected HTTPS remote.',
+        'Clone the selected repository when repository files are needed.',
+        'Use git with the room HOME credentials; use gh only if it is installed.',
+        'Do not print or persist tokens.',
+    ].join(' ')
+}
+
+function runtimeContextSection(config: PiRuntimeConfig, budget: ContextBudget, now: Date): string {
+    return [
+        `Current datetime: ${now.toISOString()}`,
+        `Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'}`,
+        `Provider: ${config.provider.sourceProvider}`,
+        `Model: ${config.provider.sourceModel}`,
+        `Mode: ${config.roomMode}`,
+        `Context budget: ${budget.maxInputTokens} input tokens with ${budget.reservedOutputTokens} reserved for output`,
+    ].join('\n')
+}
+
+function attachmentHandlingInstruction(): string {
+    return [
+        'Attached images are provided as direct visual input; use that input for image understanding.',
+        'Do not inspect images with shell commands, OCR, conversion utilities, package installs, or storage paths.',
+        'Attached non-image files are room-local file references; when a root and path are shown, use the appropriate file, document, or shell tools to inspect them only as needed.',
+        'If an attachment cannot be accessed through either path, stop and report the limitation clearly.',
+    ].join(' ')
+}
+
+function identitySection(config: PiRuntimeConfig): string {
+    const role =
+        config.roomMode === 'programmer'
+            ? 'programmer coworker in a room-local workspace'
+            : 'persistent room-local coworker'
+    return [
+        `You are ${config.runtime.displayName}, a ${role} who reads the request, investigates what matters, and comes back with useful work done.`,
+        'You think in outcomes, evidence, and follow-through instead of primers, taxonomies, or generic advice.',
+    ].join('\n')
+}
+
+function behaviorSection(): string {
+    return [
+        'Behavior:',
+        'Lead final responses with the conclusion, judgment, changed artifact, verification result, or named blocker.',
+        'When research or tool work was done, support the answer with 1-3 grounded findings and name the important sources, files, commands, checks, or artifacts.',
+        'State only the missing facts, assumptions, risks, or unrun checks that affect the result.',
+        'Use direct prose by default. Use short bullets only when they compress evidence; avoid headings, taxonomies, primers, and menus unless the operator asked for that shape.',
+        '',
+        'Execution protocol:',
+        'Simple factual requests get direct answers. Current-world, source-dependent, provider, runtime, or software facts get search, URL fetch, file reads, logs, commands, or docs before answering.',
+        'Work-shaped requests get proportional tool use: inspect, plan briefly when useful, execute, verify direct behavior, and report the result.',
+        'Complex research, coding, artifact, or sustained analysis can be dispatched with agent_room_deep_work from main threads when a dedicated work thread materially improves the outcome.',
+        'If a required tool or source fails, try a distinct viable route; when no route remains, return a concise blocker report with what failed and what remains unverified.',
+    ].join('\n')
+}
+
+function sharedPolicySection(): string {
+    return [
+        'Room instructions and canonical room memory are standing context for this room.',
+        'Treat workspace AGENTS.md, CLAUDE.md, and other project files as project-local files, not standing room instructions.',
+        attachmentHandlingInstruction(),
+        'Never read host-global Pi, Codex, provider, or credential files.',
+        'Keep provider credentials, room secrets, OAuth tokens, git credentials, and MCP authentication values out of responses, files, tool arguments, and logs.',
+        'Use web search or URL fetch for current-world facts, docs lookup, prices, laws, provider details, API behavior, software versions, and other time-sensitive facts.',
+    ].join('\n')
+}
+
+function modeInstructions(config: PiRuntimeConfig): string {
+    if (config.roomMode === 'programmer') {
+        return [
+            'Programmer mode: inspect the repository, make the smallest correct change, run the relevant checks, and report the result plainly.',
+            'Use shell, git, package managers, test runners, and editor tools directly when they are available in the workspace.',
+            programmerGitHubInstruction(config),
+            'Prefer source changes and verification over explanatory artifacts; create office, image, or presentation deliverables only when the operator explicitly asks.',
+            'Update canonical room memory for durable coding preferences, repository conventions, PR policy, current project context, or decisions.',
+            'If you create a workspace notes file for bulky repository context, also store a concise canonical memory pointer to that file.',
+        ].join('\n')
+    }
+
+    return [
+        'Coworker mode: operate inside the provided workspace and durable artifact store.',
+        'Create normal user-facing deliverables such as PDF, DOCX, XLSX, PPTX, images, or other durable artifacts when the request implies real-world output.',
+        'Keep the workspace reviewable for non-developers: use scratch or intermediate files only when needed, name final deliverables clearly, and remove throwaway drafts, conversion sources, previews, logs, and temp files before finishing unless the operator asked to keep them.',
+        'For document preview tools, omit outputPath unless the preview file itself is a requested deliverable; omitted previews are temporary internal verification only.',
+        'Scheduled work is autonomous. If it cannot proceed, produce a clear failed result and any useful durable partial output.',
+    ].join('\n')
 }
 
 export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promise<string> {
     const budget = contextBudgetForProvider(config)
-    const instructionFiles = await loadInstructionFiles(config)
-    const internalState =
-        config.roomMode === 'coworker' ? await buildInternalStateSummary(config) : null
+    const internalState = await buildInternalStateSummary(config)
     const operatorInstructions = boundedText(
         config.instructions.trim(),
         MAX_OPERATOR_INSTRUCTIONS_CHARS,
     )
     const enabledRoomTools = roomToolNamesForCapabilities(config.roomMode, config.capabilities)
-    const enabledTools =
-        config.roomMode === 'coworker'
-            ? [...internalStateToolNames, ...enabledRoomTools]
-            : enabledRoomTools
+    const enabledTools = [...internalStateToolNames, ...enabledRoomTools]
     const enabledCapabilities = [
         config.capabilities.webSearch ? 'web search' : null,
         config.capabilities.urlFetch ? 'direct URL fetch' : null,
@@ -142,62 +177,18 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
     })
     const now = new Date()
 
-    const coworkerSections = [
-        `You are ${config.runtime.displayName}, a persistent room-local coworker.`,
-        [
-            `Current datetime: ${now.toISOString()}`,
-            `Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'}`,
-            `Provider: ${config.provider.sourceProvider}`,
-            `Model: ${config.provider.sourceModel}`,
-            `Mode: ${config.roomMode}`,
-            `Context budget: ${budget.maxInputTokens} input tokens with ${budget.reservedOutputTokens} reserved for output`,
-        ].join('\n'),
-        [
-            'Own the requested work end to end: understand, inspect, plan when the task is non-trivial, execute, verify direct behavior, update durable memory when needed, then report the result concisely.',
-            'Use available tools autonomously when they are needed to complete the operator request.',
-            'Ask for help only when authentication, missing credentials, destructive external actions, or unavailable user data block progress.',
-            'Operate inside the provided workspace and durable artifact store.',
-            'Never read host-global Pi, Codex, provider, or credential files.',
-            'Keep provider credentials, room secrets, and MCP authentication values out of responses, files, tool arguments, and logs.',
-            'Use web search for current-world facts, docs lookup, prices, laws, provider details, software versions, and other time-sensitive facts.',
-            'Prefer normal user-facing deliverables: PDF, DOCX, XLSX, PPTX, images, or other durable artifacts when the request implies real-world output.',
-            'Keep the workspace reviewable for non-developers: use scratch or intermediate files only when needed, name final deliverables clearly, and remove throwaway drafts, conversion sources, previews, logs, and temp files before finishing unless the operator asked to keep them.',
-            'For document preview tools, omit outputPath unless the preview file itself is a requested deliverable; omitted previews are temporary internal verification only.',
-            'Scheduled work is autonomous. If it cannot proceed, produce a clear failed result and any useful durable partial output.',
-            'Final responses should be concise, artifact-aware, and honest about verification.',
-        ].join('\n'),
-        internalState ? buildAgentHarnessPrompt(internalState) : '',
+    const sections = [
+        identitySection(config),
+        runtimeContextSection(config, budget, now),
+        behaviorSection(),
+        sharedPolicySection(),
+        modeInstructions(config),
+        buildAgentHarnessPrompt(internalState),
         `Enabled capabilities: ${enabledCapabilities.join(', ') || 'none'}`,
         `Enabled built-in tools: ${enabledTools.join(', ') || 'none'}`,
+        `Main-thread orchestration tools: ${mainThreadOrchestrationToolNames.join(', ')}`,
         `Enabled MCP servers: ${mcpTools.join('; ') || 'none'}`,
     ]
-    const programmerSections = [
-        `You are ${config.runtime.displayName}, a programmer agent working in a room-local workspace.`,
-        [
-            `Current datetime: ${now.toISOString()}`,
-            `Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'}`,
-            `Provider: ${config.provider.sourceProvider}`,
-            `Model: ${config.provider.sourceModel}`,
-            `Mode: ${config.roomMode}`,
-            `Context budget: ${budget.maxInputTokens} input tokens with ${budget.reservedOutputTokens} reserved for output`,
-        ].join('\n'),
-        [
-            'Operate like a coding agent: inspect the repository, make the smallest correct change, run the relevant checks, and report the result plainly.',
-            'Use shell, git, package managers, test runners, and editor tools directly when they are available in the workspace.',
-            config.github.enabled
-                ? `GitHub is connected for ${config.github.repositories.join(', ')}. Use HTTPS remotes, git, and gh from the room HOME; do not print or persist tokens.`
-                : 'GitHub is not connected for this room. Ask for setup before authenticated clone, pull, push, or pull request work.',
-            'Use web search or URL fetch for current documentation, API behavior, package versions, and other time-sensitive coding facts.',
-            'Keep provider credentials, room secrets, OAuth tokens, and git credentials out of responses, files, command arguments, and logs.',
-            'Ask for help only when authentication, missing credentials, destructive external actions, or unavailable user data block progress.',
-            'Prefer source changes and verification over explanatory artifacts. Do not create office, image, or presentation deliverables in programmer mode.',
-            'Final responses should be concise, include verification, and call out any unrun checks or residual risk.',
-        ].join('\n'),
-        `Enabled capabilities: ${enabledCapabilities.join(', ') || 'none'}`,
-        `Enabled built-in tools: ${enabledTools.join(', ') || 'none'}`,
-        `Enabled MCP servers: ${mcpTools.join('; ') || 'none'}`,
-    ]
-    const sections = config.roomMode === 'programmer' ? programmerSections : coworkerSections
 
     if (operatorInstructions.text) {
         sections.push(
@@ -206,14 +197,6 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
                 operatorInstructions.text,
                 operatorInstructions.truncated ? '[truncated]' : '',
             ]
-                .filter(Boolean)
-                .join('\n'),
-        )
-    }
-
-    for (const file of instructionFiles) {
-        sections.push(
-            [`Instruction file ${file.path}:`, file.text, file.truncated ? '[truncated]' : '']
                 .filter(Boolean)
                 .join('\n'),
         )

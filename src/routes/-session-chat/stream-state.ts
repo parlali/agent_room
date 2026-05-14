@@ -4,7 +4,23 @@ import {
     runtimeTextPhaseFromSignature,
     toRuntimeSerializable,
 } from '#/lib/runtime-message'
-import type { RoomExecutionMessagePart, RoomRealtimeEvent } from '#/lib/room-execution-types'
+import type {
+    ChatTimelineRow,
+    RoomExecutionMessage,
+    RoomExecutionMessagePart,
+    RoomRealtimeEvent,
+    RunTranscriptRow,
+    RunTranscriptStatus,
+} from '#/lib/room-execution-types'
+import {
+    appendModelTextDelta,
+    completeModelTextItem,
+    createRunTranscriptRow,
+    settleTranscriptItems,
+    transcriptHasVisibleContent,
+    upsertModelTextItem,
+    upsertToolActivityItem,
+} from '#/lib/message-list-model'
 import {
     toolTaskFromRuntimeEvent,
     toolTasksFromParts,
@@ -17,31 +33,20 @@ export type StreamTurnStatus =
     | 'thinking'
     | 'working'
     | 'responding'
+    | 'stopped'
     | 'complete'
     | 'error'
-
-export type StreamTurnItem =
-    | {
-          type: 'assistant'
-          id: string
-          contentIndex: number | null
-          markdown: string
-          complete: boolean
-          textPhase: RoomExecutionMessagePart['textPhase']
-      }
-    | {
-          type: 'tools'
-          id: string
-          contentIndex: number | null
-          tasks: ToolActivityTask[]
-      }
 
 export interface StreamTurnState {
     runId: string | null
     status: StreamTurnStatus
-    items: StreamTurnItem[]
+    rows: ChatTimelineRow[]
     finished: boolean
     updatedAt: number | null
+    startedAt: number | null
+    turnIndex: number
+    hasToolActivity: boolean
+    currentTurnHasToolCall: boolean
 }
 
 type AssistantTextUpdate = {
@@ -50,18 +55,25 @@ type AssistantTextUpdate = {
     textPhase: RoomExecutionMessagePart['textPhase']
 }
 
+type TranscriptTextPhase = 'thinking' | 'commentary' | 'unknown'
+
 export const emptyStreamTurnState: StreamTurnState = {
     runId: null,
     status: 'idle',
-    items: [],
+    rows: [],
     finished: false,
     updatedAt: null,
+    startedAt: null,
+    turnIndex: 0,
+    hasToolActivity: false,
+    currentTurnHasToolCall: false,
 }
 
 export function streamTurnHasContent(state: StreamTurnState): boolean {
-    return state.items.some((item) => {
-        if (item.type === 'assistant') return item.markdown.trim().length > 0
-        return item.tasks.length > 0
+    return state.rows.some((row) => {
+        if (row.type === 'run_transcript') return transcriptHasVisibleContent(row)
+        if (row.type === 'assistant_final') return row.message.text.trim().length > 0
+        return false
     })
 }
 
@@ -71,92 +83,60 @@ export function reduceRoomStreamEvent(
 ): StreamTurnState {
     if (realtime.event === 'run.accepted') {
         const payload = isRecord(realtime.payload) ? realtime.payload : {}
+        const runId =
+            typeof payload.runId === 'string' && payload.runId.trim()
+                ? payload.runId
+                : `live-${realtime.receivedAt}`
         return {
-            runId: typeof payload.runId === 'string' ? payload.runId : null,
+            runId,
             status: 'queued',
-            items: [],
+            rows: [
+                createRunTranscriptRow({
+                    id: `run-transcript-${runId}`,
+                    seq: 0,
+                    runId,
+                    status: 'queued',
+                    startedAt: realtime.receivedAt,
+                    runtimeMs: null,
+                    collapsed: false,
+                    timestamp: realtime.receivedAt,
+                }),
+            ],
             finished: false,
             updatedAt: realtime.receivedAt,
+            startedAt: realtime.receivedAt,
+            turnIndex: 0,
+            hasToolActivity: false,
+            currentTurnHasToolCall: false,
         }
+    }
+
+    if (state.finished && state.status === 'stopped') {
+        return state
     }
 
     if (realtime.event === 'run.finished' || realtime.event === 'agent_end') {
         const payload = isRecord(realtime.payload) ? realtime.payload : {}
         const errored = typeof payload.error === 'string' && payload.error.trim().length > 0
-        const settled = settleToolTasks(state, errored ? 'error' : 'complete')
-        return {
-            ...settled,
-            status: errored ? 'error' : 'complete',
-            finished: true,
-            updatedAt: realtime.receivedAt,
-        }
+        const status = errored ? 'error' : 'complete'
+        const runtimeMs =
+            typeof payload.durationMs === 'number' && Number.isFinite(payload.durationMs)
+                ? payload.durationMs
+                : state.startedAt
+                  ? Math.max(0, realtime.receivedAt - state.startedAt)
+                  : null
+        return finishStreamTurn(state, status, runtimeMs, realtime.receivedAt)
     }
 
     const event = payloadRuntimeEvent(realtime.payload)
     if (!event) return state
 
+    if (event.type === 'agent_start' || event.type === 'turn_start') {
+        return ensureTranscript(state, realtime.receivedAt, 'thinking')
+    }
+
     if (event.type === 'message_update') {
-        const assistantEvent = isRecord(event.assistantMessageEvent)
-            ? event.assistantMessageEvent
-            : null
-        if (assistantEvent?.type === 'thinking_delta') {
-            return {
-                ...state,
-                status: state.status === 'idle' ? 'thinking' : state.status,
-                updatedAt: realtime.receivedAt,
-            }
-        }
-        if (assistantEvent?.type === 'toolcall_start') {
-            const tool = toolTaskFromAssistantToolCall(assistantEvent)
-            if (!tool) {
-                return {
-                    ...state,
-                    status:
-                        state.status === 'idle' || state.status === 'queued'
-                            ? 'thinking'
-                            : state.status,
-                    updatedAt: realtime.receivedAt,
-                }
-            }
-            return upsertToolTask(state, tool.task, realtime.receivedAt, tool.contentIndex)
-        }
-        if (
-            assistantEvent?.type !== 'text_start' &&
-            assistantEvent?.type !== 'text_delta' &&
-            assistantEvent?.type !== 'text_end'
-        ) {
-            return state
-        }
-
-        const update = assistantTextFromUpdate(event, assistantEvent)
-        if (update.text.trim()) {
-            return setAssistantMarkdown(
-                state,
-                update,
-                assistantEvent.type === 'text_end',
-                realtime.receivedAt,
-            )
-        }
-
-        if (assistantEvent.type !== 'text_delta') {
-            return {
-                ...state,
-                status: 'responding',
-                updatedAt: realtime.receivedAt,
-            }
-        }
-
-        const delta = typeof assistantEvent.delta === 'string' ? assistantEvent.delta : ''
-        if (!delta) return state
-        return appendAssistantDelta(
-            state,
-            {
-                contentIndex: contentIndexFromAssistantEvent(assistantEvent),
-                text: delta,
-                textPhase: null,
-            },
-            realtime.receivedAt,
-        )
+        return reduceMessageUpdate(state, event, realtime.receivedAt)
     }
 
     if (event.type === 'message_end') {
@@ -172,36 +152,19 @@ export function reduceRoomStreamEvent(
     ) {
         const task = toolTaskFromRuntimeEvent(event)
         if (!task) return state
-        return upsertToolTask(state, task, realtime.receivedAt)
+        return upsertLiveToolTask(state, task, realtime.receivedAt)
     }
 
     if (event.type === 'turn_end') {
         const message = isRecord(event.message) ? event.message : null
-        if (message?.role === 'assistant') {
-            const withText = setAssistantContentBlocks(
-                state,
-                message.content,
-                true,
-                realtime.receivedAt,
-            )
-            if (streamTurnHasContent(withText)) {
-                const settled = settleToolTasks(
-                    withText,
-                    state.status === 'error' ? 'error' : 'complete',
-                )
-                return {
-                    ...settled,
-                    status: state.status === 'error' ? 'error' : 'complete',
-                    finished: true,
-                    updatedAt: realtime.receivedAt,
-                }
-            }
-        }
-        const settled = settleToolTasks(state, state.status === 'error' ? 'error' : 'complete')
+        const withMessage =
+            message?.role === 'assistant'
+                ? setAssistantContentBlocks(state, message.content, true, realtime.receivedAt)
+                : state
         return {
-            ...settled,
-            status: state.status === 'error' ? 'error' : 'complete',
-            finished: true,
+            ...withMessage,
+            turnIndex: withMessage.turnIndex + 1,
+            currentTurnHasToolCall: false,
             updatedAt: realtime.receivedAt,
         }
     }
@@ -212,7 +175,10 @@ export function reduceRoomStreamEvent(
 export function shouldRefetchForRoomEvent(realtime: RoomRealtimeEvent): boolean {
     if (
         realtime.event === 'run.finished' ||
+        realtime.event === 'run.accepted' ||
+        realtime.event === 'run.error' ||
         realtime.event === 'agent_end' ||
+        realtime.event === 'thread.message_edited' ||
         realtime.event === 'thread.renamed' ||
         realtime.event === 'thread.title_generated' ||
         realtime.event === 'thread.forked' ||
@@ -225,77 +191,303 @@ export function shouldRefetchForRoomEvent(realtime: RoomRealtimeEvent): boolean 
     return false
 }
 
-function appendAssistantDelta(
-    state: StreamTurnState,
-    update: AssistantTextUpdate,
-    updatedAt: number,
-): StreamTurnState {
-    const items = [...state.items]
-    const existingIndex = findAssistantItemIndex(items, update.contentIndex)
-
-    if (existingIndex !== null) {
-        const item = items[existingIndex]!
-        if (item.type === 'assistant' && !item.complete) {
-            items[existingIndex] = {
-                ...item,
-                markdown: `${item.markdown}${update.text}`,
-                textPhase: update.textPhase ?? item.textPhase,
-            }
-        }
-    } else {
-        insertStreamItem(items, {
-            type: 'assistant',
-            id: assistantItemId(items.length, update.contentIndex),
-            contentIndex: update.contentIndex,
-            markdown: update.text,
-            complete: false,
-            textPhase: update.textPhase,
-        })
-    }
-
-    return {
-        ...state,
-        status: 'responding',
-        items,
-        updatedAt,
-    }
+export function stopStreamTurn(state: StreamTurnState, stoppedAt: number): StreamTurnState {
+    if (state.finished) return state
+    if (state.rows.length === 0) return emptyStreamTurnState
+    const runtimeMs = state.startedAt ? Math.max(0, stoppedAt - state.startedAt) : null
+    return finishStreamTurn(state, 'stopped', runtimeMs, stoppedAt)
 }
 
-function setAssistantMarkdown(
+function reduceMessageUpdate(
+    state: StreamTurnState,
+    event: Record<string, unknown>,
+    updatedAt: number,
+): StreamTurnState {
+    const assistantEvent = isRecord(event.assistantMessageEvent)
+        ? event.assistantMessageEvent
+        : null
+    if (!assistantEvent) return state
+
+    if (
+        assistantEvent.type === 'thinking_start' ||
+        assistantEvent.type === 'thinking_delta' ||
+        assistantEvent.type === 'thinking_end'
+    ) {
+        return reduceThinkingUpdate(state, assistantEvent, updatedAt)
+    }
+
+    if (
+        assistantEvent.type === 'toolcall_start' ||
+        assistantEvent.type === 'toolcall_delta' ||
+        assistantEvent.type === 'toolcall_end'
+    ) {
+        const tool = toolTaskFromAssistantToolCall(assistantEvent)
+        const withToolTurn = moveCurrentTurnUnknownFinalTextToTranscript({
+            ...state,
+            currentTurnHasToolCall: true,
+            hasToolActivity: true,
+        })
+        if (!tool) {
+            return updateTranscriptStatus(withToolTurn, 'working', updatedAt)
+        }
+        return upsertLiveToolTask(withToolTurn, tool.task, updatedAt, tool.contentIndex)
+    }
+
+    if (
+        assistantEvent.type !== 'text_start' &&
+        assistantEvent.type !== 'text_delta' &&
+        assistantEvent.type !== 'text_end'
+    ) {
+        return state
+    }
+
+    const update = assistantTextFromUpdate(event, assistantEvent)
+    if (update.text.trim()) {
+        return setAssistantText(state, update, assistantEvent.type === 'text_end', updatedAt)
+    }
+
+    if (assistantEvent.type === 'text_delta') {
+        const delta = typeof assistantEvent.delta === 'string' ? assistantEvent.delta : ''
+        if (!delta) return updateTranscriptStatus(state, 'responding', updatedAt)
+        return appendAssistantText(
+            state,
+            {
+                contentIndex: contentIndexFromAssistantEvent(assistantEvent),
+                text: delta,
+                textPhase: update.textPhase,
+            },
+            updatedAt,
+        )
+    }
+
+    return updateTranscriptStatus(state, 'responding', updatedAt)
+}
+
+function setAssistantText(
     state: StreamTurnState,
     update: AssistantTextUpdate,
     complete: boolean,
     updatedAt: number,
 ): StreamTurnState {
-    const items = [...state.items]
-    const existingIndex = findAssistantItemIndex(items, update.contentIndex)
-
-    if (existingIndex !== null) {
-        const item = items[existingIndex]!
-        if (item.type === 'assistant') {
-            items[existingIndex] = {
-                ...item,
-                markdown: update.text,
-                complete,
-                textPhase: update.textPhase ?? item.textPhase,
-            }
-        }
-    } else {
-        insertStreamItem(items, {
-            type: 'assistant',
-            id: assistantItemId(items.length, update.contentIndex),
+    const phase = classifyLiveText(state, update)
+    if (phase === 'final_answer') {
+        return upsertFinalText(state, update, complete, updatedAt)
+    }
+    const transcript = currentTranscript(ensureTranscript(state, updatedAt, 'responding'))
+    if (!transcript) return state
+    return writeTranscriptText(
+        transcript,
+        {
+            id: liveTextItemId(transcript.state.turnIndex, 'text', update.contentIndex),
             contentIndex: update.contentIndex,
-            markdown: update.text,
+            text: update.text,
             complete,
-            textPhase: update.textPhase,
+            phase: update.textPhase === 'commentary' ? 'commentary' : 'unknown',
+            timestamp: updatedAt,
+            append: false,
+        },
+        'responding',
+    )
+}
+
+function appendAssistantText(
+    state: StreamTurnState,
+    update: AssistantTextUpdate,
+    updatedAt: number,
+): StreamTurnState {
+    const phase = classifyLiveText(state, update)
+    if (phase === 'final_answer') {
+        return appendFinalText(state, update, updatedAt)
+    }
+    const transcript = currentTranscript(ensureTranscript(state, updatedAt, 'responding'))
+    if (!transcript) return state
+    return writeTranscriptText(
+        transcript,
+        {
+            id: liveTextItemId(transcript.state.turnIndex, 'text', update.contentIndex),
+            contentIndex: update.contentIndex,
+            text: update.text,
+            complete: false,
+            phase: update.textPhase === 'commentary' ? 'commentary' : 'unknown',
+            timestamp: updatedAt,
+            append: true,
+        },
+        'responding',
+    )
+}
+
+function upsertFinalText(
+    state: StreamTurnState,
+    update: AssistantTextUpdate,
+    complete: boolean,
+    updatedAt: number,
+): StreamTurnState {
+    return writeFinalText(state, update, update.text, complete, updatedAt, false)
+}
+
+function appendFinalText(
+    state: StreamTurnState,
+    update: AssistantTextUpdate,
+    updatedAt: number,
+): StreamTurnState {
+    return writeFinalText(state, update, update.text, false, updatedAt, true)
+}
+
+function writeFinalText(
+    state: StreamTurnState,
+    update: AssistantTextUpdate,
+    text: string,
+    complete: boolean,
+    updatedAt: number,
+    append: boolean,
+): StreamTurnState {
+    const ensured = ensureTranscript(state, updatedAt, 'responding')
+    const transcript = currentTranscript(ensured)
+    const finalId = liveFinalRowId(ensured.turnIndex, update.contentIndex)
+    const rows = ensured.rows.map((row): ChatTimelineRow => {
+        if (row.type !== 'assistant_final' || row.id !== finalId) return row
+        const nextText = append ? `${row.message.text}${text}` : text
+        return {
+            ...row,
+            message: finalMessage(finalId, nextText, update, updatedAt),
+            streaming: !complete,
+            timestamp: updatedAt,
+        }
+    })
+    if (!rows.some((row) => row.type === 'assistant_final' && row.id === finalId)) {
+        rows.push({
+            type: 'assistant_final',
+            id: finalId,
+            seq: rows.length,
+            message: finalMessage(finalId, text, update, updatedAt),
+            streaming: !complete,
+            timestamp: updatedAt,
         })
     }
-
+    const collapsedRows = rows.map((row, seq): ChatTimelineRow => {
+        if (row.type === 'run_transcript' && transcript?.row.id === row.id) {
+            return {
+                ...row,
+                seq,
+                collapsed: true,
+            }
+        }
+        return {
+            ...row,
+            seq,
+        }
+    })
     return {
-        ...state,
-        status: assistantStatusAfterTextUpdate(state),
-        items,
+        ...ensured,
+        status: 'responding',
+        rows: collapsedRows,
         updatedAt,
+    }
+}
+
+function reduceThinkingUpdate(
+    state: StreamTurnState,
+    assistantEvent: Record<string, unknown>,
+    updatedAt: number,
+): StreamTurnState {
+    const ensured = ensureTranscript(state, updatedAt, 'responding')
+    const transcript = currentTranscript(ensured)
+    if (!transcript) return ensured
+    const contentIndex = contentIndexFromAssistantEvent(assistantEvent)
+    const id = liveTextItemId(transcript.state.turnIndex, 'thinking', contentIndex)
+    const text = thinkingTextFromUpdate(assistantEvent, contentIndex)
+
+    if (assistantEvent.type === 'thinking_end' && text.length === 0) {
+        return replaceTranscript(
+            transcript.state,
+            completeModelTextItem(transcript.row, {
+                id,
+                timestamp: updatedAt,
+            }),
+            'responding',
+            updatedAt,
+        )
+    }
+
+    if (text.length === 0) {
+        return updateTranscriptStatus(ensured, 'responding', updatedAt)
+    }
+
+    return writeTranscriptText(
+        transcript,
+        {
+            id,
+            contentIndex,
+            text,
+            complete: assistantEvent.type === 'thinking_end',
+            phase: 'thinking',
+            timestamp: updatedAt,
+            append: assistantEvent.type === 'thinking_delta',
+        },
+        'responding',
+    )
+}
+
+function writeTranscriptText(
+    transcript: { state: StreamTurnState; row: RunTranscriptRow },
+    input: {
+        id: string
+        contentIndex: number | null
+        text: string
+        complete: boolean
+        phase: TranscriptTextPhase
+        timestamp: number
+        append: boolean
+    },
+    status: RunTranscriptStatus,
+): StreamTurnState {
+    const nextRow = input.append
+        ? appendModelTextDelta(transcript.row, {
+              id: input.id,
+              turnIndex: transcript.state.turnIndex,
+              contentIndex: input.contentIndex,
+              markdown: input.text,
+              complete: input.complete,
+              phase: input.phase,
+              timestamp: input.timestamp,
+          })
+        : upsertModelTextItem(transcript.row, {
+              id: input.id,
+              turnIndex: transcript.state.turnIndex,
+              contentIndex: input.contentIndex,
+              markdown: input.text,
+              complete: input.complete,
+              phase: input.phase,
+              timestamp: input.timestamp,
+          })
+    return replaceTranscript(transcript.state, nextRow, status, input.timestamp)
+}
+
+function upsertLiveToolTask(
+    state: StreamTurnState,
+    task: ToolActivityTask,
+    updatedAt: number,
+    contentIndex: number | null = null,
+): StreamTurnState {
+    const ensured = ensureTranscript(state, updatedAt, 'working')
+    const transcript = currentTranscript(ensured)
+    if (!transcript) return ensured
+    const toolCallId = task.id
+    return {
+        ...replaceTranscript(
+            transcript.state,
+            upsertToolActivityItem(transcript.row, {
+                id: `tool-${toolCallId}`,
+                turnIndex: transcript.state.turnIndex,
+                contentIndex,
+                toolCallId,
+                task,
+                timestamp: updatedAt,
+            }),
+            task.status === 'error' ? 'error' : 'working',
+            updatedAt,
+        ),
+        hasToolActivity: true,
     }
 }
 
@@ -305,156 +497,260 @@ function setAssistantContentBlocks(
     complete: boolean,
     updatedAt: number,
 ): StreamTurnState {
-    const updates = assistantTextBlocks(content)
+    const updates = assistantBlocks(content)
     if (updates.length === 0) return state
 
     let next = state
+    const hasToolCall = updates.some((update) => update.part?.type === 'tool_call')
+    if (hasToolCall) {
+        next = moveCurrentTurnUnknownFinalTextToTranscript({
+            ...next,
+            hasToolActivity: true,
+            currentTurnHasToolCall: true,
+        })
+    }
     for (const update of updates) {
-        next = setAssistantMarkdown(next, update, complete, updatedAt)
+        if (update.part?.type === 'thinking') {
+            if (update.text.length > 0) {
+                const transcript = currentTranscript(
+                    ensureTranscript(next, updatedAt, 'responding'),
+                )
+                if (transcript) {
+                    next = writeTranscriptText(
+                        transcript,
+                        {
+                            id: liveTextItemId(
+                                transcript.state.turnIndex,
+                                'thinking',
+                                update.contentIndex,
+                            ),
+                            contentIndex: update.contentIndex,
+                            text: update.text,
+                            complete: true,
+                            phase: 'thinking',
+                            timestamp: updatedAt,
+                            append: false,
+                        },
+                        'responding',
+                    )
+                }
+            }
+            continue
+        }
+        if (update.part?.type === 'tool_call') {
+            const tasks = toolTasksFromParts([update.part])
+            const task = tasks[0] ?? null
+            if (task) next = upsertLiveToolTask(next, task, updatedAt, update.contentIndex)
+            continue
+        }
+        if (update.text.trim()) {
+            next = setAssistantText(next, update, complete, updatedAt)
+        }
     }
     return next
 }
 
-function upsertToolTask(
+function finishStreamTurn(
     state: StreamTurnState,
-    task: ToolActivityTask,
+    status: 'stopped' | 'complete' | 'error',
+    runtimeMs: number | null,
     updatedAt: number,
-    contentIndex: number | null = null,
 ): StreamTurnState {
-    const items = [...state.items]
-
-    for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
-        const item = items[itemIndex]!
-        if (item.type !== 'tools') continue
-        const taskIndex = item.tasks.findIndex((candidate) => candidate.id === task.id)
-        if (taskIndex < 0) continue
-        const tasks = [...item.tasks]
-        tasks[taskIndex] = mergeToolTask(tasks[taskIndex]!, task)
-        items[itemIndex] = {
-            ...item,
-            tasks,
-            contentIndex: item.contentIndex ?? contentIndex,
+    const finalStatus = state.status === 'stopped' ? 'stopped' : status
+    const transcript = currentTranscript(state)
+    const rows = state.rows.map((row, seq): ChatTimelineRow => {
+        if (row.type !== 'run_transcript' || row.id !== transcript?.row.id) {
+            if (row.type === 'assistant_final') {
+                return {
+                    ...row,
+                    seq,
+                    streaming: false,
+                }
+            }
+            return {
+                ...row,
+                seq,
+            }
         }
+        const settled = settleTranscriptItems(row, finalStatus)
         return {
-            ...state,
-            status: task.status === 'error' ? 'error' : 'working',
-            items,
-            updatedAt,
+            ...settled,
+            seq,
+            status: finalStatus,
+            runtimeMs,
+            collapsed: state.rows.some((candidate) => candidate.type === 'assistant_final'),
+            timestamp: updatedAt,
         }
-    }
-
-    const last = items[items.length - 1]
-    if (last?.type === 'tools' && (contentIndex === null || last.contentIndex === contentIndex)) {
-        items[items.length - 1] = {
-            ...last,
-            contentIndex: last.contentIndex ?? contentIndex,
-            tasks: [...last.tasks, task],
-        }
-    } else {
-        insertStreamItem(items, {
-            type: 'tools',
-            id: `tools-${items.length + 1}`,
-            contentIndex,
-            tasks: [task],
-        })
-    }
-
+    })
     return {
         ...state,
-        status: task.status === 'error' ? 'error' : 'working',
-        items,
+        status: finalStatus,
+        rows,
+        finished: true,
         updatedAt,
     }
 }
 
-function settleToolTasks(state: StreamTurnState, status: 'complete' | 'error'): StreamTurnState {
+function ensureTranscript(
+    state: StreamTurnState,
+    updatedAt: number,
+    status: RunTranscriptStatus,
+): StreamTurnState {
+    if (state.rows.some((row) => row.type === 'run_transcript')) {
+        return updateTranscriptStatus(state, status, updatedAt)
+    }
+    const runId = state.runId ?? `live-${updatedAt}`
     return {
         ...state,
-        items: state.items.map((item) => {
-            if (item.type !== 'tools') return item
+        runId,
+        status,
+        rows: [
+            createRunTranscriptRow({
+                id: `run-transcript-${runId}`,
+                seq: 0,
+                runId,
+                status,
+                startedAt: state.startedAt ?? updatedAt,
+                runtimeMs: null,
+                collapsed: false,
+                timestamp: updatedAt,
+            }),
+            ...state.rows,
+        ].map((row, seq) => ({ ...row, seq })),
+        startedAt: state.startedAt ?? updatedAt,
+        updatedAt,
+    }
+}
+
+function updateTranscriptStatus(
+    state: StreamTurnState,
+    status: RunTranscriptStatus,
+    updatedAt: number,
+): StreamTurnState {
+    return {
+        ...state,
+        status,
+        rows: state.rows.map((row, seq): ChatTimelineRow => {
+            if (row.type !== 'run_transcript') return { ...row, seq }
             return {
-                ...item,
-                tasks: item.tasks.map((task) => {
-                    if (isTerminalToolStatus(task.status)) return task
-                    return {
-                        ...task,
-                        status,
-                        result:
-                            task.result ??
-                            (status === 'error' ? 'The tool did not finish' : 'The tool finished'),
-                    }
-                }),
+                ...row,
+                seq,
+                status: row.status === 'error' ? 'error' : status,
+                timestamp: updatedAt,
             }
         }),
+        updatedAt,
     }
 }
 
-function mergeToolTask(existing: ToolActivityTask, incoming: ToolActivityTask): ToolActivityTask {
-    if (isTerminalToolStatus(existing.status) && !isTerminalToolStatus(incoming.status)) {
-        return {
-            ...existing,
-            detail: existing.detail ?? incoming.detail,
-        }
-    }
-
-    if (existing.status === 'error' && incoming.status === 'complete') {
-        return existing
-    }
-
+function replaceTranscript(
+    state: StreamTurnState,
+    transcript: RunTranscriptRow,
+    status: RunTranscriptStatus,
+    updatedAt: number,
+): StreamTurnState {
     return {
-        ...incoming,
-        detail: incoming.detail ?? existing.detail,
-        result: incoming.result ?? existing.result,
+        ...state,
+        status,
+        rows: state.rows.map(
+            (row, seq): ChatTimelineRow =>
+                row.type === 'run_transcript'
+                    ? {
+                          ...transcript,
+                          seq,
+                          status: transcript.status === 'error' ? 'error' : status,
+                          timestamp: updatedAt,
+                      }
+                    : {
+                          ...row,
+                          seq,
+                      },
+        ),
+        updatedAt,
     }
 }
 
-function insertStreamItem(items: StreamTurnItem[], item: StreamTurnItem): void {
-    if (item.contentIndex === null) {
-        items.push(item)
-        return
-    }
-
-    const index = items.findIndex(
-        (existing) => existing.contentIndex !== null && existing.contentIndex > item.contentIndex!,
-    )
-    if (index < 0) {
-        items.push(item)
-        return
-    }
-    items.splice(index, 0, item)
-}
-
-function findAssistantItemIndex(
-    items: StreamTurnItem[],
-    contentIndex: number | null,
-): number | null {
-    if (contentIndex !== null) {
-        const index = items.findIndex(
-            (item) => item.type === 'assistant' && item.contentIndex === contentIndex,
+function moveCurrentTurnUnknownFinalTextToTranscript(state: StreamTurnState): StreamTurnState {
+    let next = state
+    const movedIds = new Set<string>()
+    for (const row of state.rows) {
+        if (row.type !== 'assistant_final') continue
+        if (!row.id.startsWith(`stream-final-${state.turnIndex}-`)) continue
+        const part = row.message.parts[0]
+        if (part?.textPhase !== null) continue
+        next = setAssistantText(
+            next,
+            {
+                contentIndex: part.contentIndex,
+                text: row.message.text,
+                textPhase: null,
+            },
+            !row.streaming,
+            row.timestamp ?? state.updatedAt ?? Date.now(),
         )
-        return index >= 0 ? index : null
+        movedIds.add(row.id)
     }
-
-    for (let index = items.length - 1; index >= 0; index -= 1) {
-        const item = items[index]!
-        if (item.type === 'assistant' && !item.complete && item.contentIndex === null) {
-            return index
-        }
+    if (movedIds.size === 0) return next
+    return {
+        ...next,
+        rows: next.rows
+            .filter((row) => !movedIds.has(row.id))
+            .map((row, seq) => ({
+                ...row,
+                seq,
+            })),
     }
-
-    return null
 }
 
-function assistantItemId(position: number, contentIndex: number | null): string {
-    return contentIndex === null ? `assistant-${position + 1}` : `assistant-content-${contentIndex}`
+function currentTranscript(
+    state: StreamTurnState,
+): { state: StreamTurnState; row: RunTranscriptRow } | null {
+    const row = state.rows.find(
+        (candidate): candidate is RunTranscriptRow => candidate.type === 'run_transcript',
+    )
+    return row ? { state, row } : null
+}
+
+function classifyLiveText(
+    state: StreamTurnState,
+    update: AssistantTextUpdate,
+): RoomExecutionMessagePart['textPhase'] | 'commentary' | 'final_answer' {
+    if (update.textPhase === 'commentary' || update.textPhase === 'final_answer') {
+        return update.textPhase
+    }
+    if (state.currentTurnHasToolCall) return 'commentary'
+    if (state.hasToolActivity) return 'final_answer'
+    return 'final_answer'
+}
+
+function finalMessage(
+    id: string,
+    text: string,
+    update: AssistantTextUpdate,
+    timestamp: number | null,
+): RoomExecutionMessage {
+    return {
+        id,
+        role: 'assistant',
+        text,
+        parts: [
+            emptyRuntimePart({
+                type: 'text',
+                text,
+                contentIndex: update.contentIndex,
+                textPhase: update.textPhase,
+            }),
+        ],
+        timestamp,
+    }
 }
 
 function toolTaskFromAssistantToolCall(
     assistantEvent: Record<string, unknown>,
 ): { task: ToolActivityTask; contentIndex: number | null } | null {
     const contentIndex = contentIndexFromAssistantEvent(assistantEvent)
-    const block = assistantBlockFromEvent(assistantEvent, contentIndex)
-    if (!block || block.type !== 'toolCall') return null
+    const block = toolCallBlockFromEvent(assistantEvent, contentIndex)
+    if (!block) return null
 
     const tasks = toolTasksFromParts([
         emptyRuntimePart({
@@ -505,14 +801,58 @@ function assistantTextFromUpdate(
     }
 }
 
-function assistantTextBlocks(content: unknown): AssistantTextUpdate[] {
+function assistantBlocks(content: unknown): Array<
+    AssistantTextUpdate & {
+        part: RoomExecutionMessagePart | null
+    }
+> {
     if (Array.isArray(content)) {
-        const updates: AssistantTextUpdate[] = []
+        const updates: Array<AssistantTextUpdate & { part: RoomExecutionMessagePart | null }> = []
         for (const [contentIndex, block] of content.entries()) {
             if (!isRecord(block)) continue
-            const update = textUpdateFromBlock(block, contentIndex)
-            if (update.text.trim()) {
-                updates.push(update)
+            if (block.type === 'text') {
+                const update = textUpdateFromBlock(block, contentIndex)
+                if (update.text.trim()) {
+                    updates.push({
+                        ...update,
+                        part: emptyRuntimePart({
+                            type: 'text',
+                            text: update.text,
+                            contentIndex,
+                            textPhase: update.textPhase,
+                        }),
+                    })
+                }
+            } else if (block.type === 'thinking') {
+                const text = thinkingTextFromBlock(block)
+                updates.push({
+                    contentIndex,
+                    text,
+                    textPhase: null,
+                    part: emptyRuntimePart({
+                        type: 'thinking',
+                        text,
+                        status: block.redacted === true ? 'redacted' : 'complete',
+                        rawType: 'thinking',
+                        contentIndex,
+                    }),
+                })
+            } else if (block.type === 'toolCall') {
+                updates.push({
+                    contentIndex,
+                    text: '',
+                    textPhase: null,
+                    part: emptyRuntimePart({
+                        type: 'tool_call',
+                        text: typeof block.name === 'string' ? block.name : '',
+                        toolName: typeof block.name === 'string' ? block.name : null,
+                        toolCallId: typeof block.id === 'string' ? block.id : null,
+                        status: 'running',
+                        input: toRuntimeSerializable(block.arguments ?? {}),
+                        rawType: 'toolCall',
+                        contentIndex,
+                    }),
+                })
             }
         }
         return updates
@@ -525,6 +865,11 @@ function assistantTextBlocks(content: unknown): AssistantTextUpdate[] {
                   contentIndex: null,
                   text,
                   textPhase: null,
+                  part: emptyRuntimePart({
+                      type: 'text',
+                      text,
+                      contentIndex: null,
+                  }),
               },
           ]
         : []
@@ -539,6 +884,33 @@ function textUpdateFromBlock(
         text: extractTextFromRuntimeContent(block),
         textPhase: runtimeTextPhaseFromSignature(block.textSignature),
     }
+}
+
+function thinkingTextFromUpdate(
+    assistantEvent: Record<string, unknown>,
+    contentIndex: number | null,
+): string {
+    if (assistantEvent.type === 'thinking_delta') {
+        return typeof assistantEvent.delta === 'string' ? assistantEvent.delta : ''
+    }
+    if (typeof assistantEvent.content === 'string') {
+        return assistantEvent.content
+    }
+    const block = assistantBlockFromEvent(assistantEvent, contentIndex)
+    return block?.type === 'thinking' ? thinkingTextFromBlock(block) : ''
+}
+
+function thinkingTextFromBlock(block: Record<string, unknown>): string {
+    return typeof block.thinking === 'string' ? block.thinking : ''
+}
+
+function toolCallBlockFromEvent(
+    assistantEvent: Record<string, unknown>,
+    contentIndex: number | null,
+): Record<string, unknown> | null {
+    if (isRecord(assistantEvent.toolCall)) return assistantEvent.toolCall
+    const block = assistantBlockFromEvent(assistantEvent, contentIndex)
+    return block?.type === 'toolCall' ? block : null
 }
 
 function assistantBlockFromEvent(
@@ -568,18 +940,25 @@ function contentIndexFromAssistantEvent(assistantEvent: Record<string, unknown>)
         : null
 }
 
-function isTerminalToolStatus(status: ToolActivityTask['status']): boolean {
-    return status === 'complete' || status === 'error'
-}
-
 function payloadRuntimeEvent(payload: unknown): Record<string, unknown> | null {
     if (!isRecord(payload)) return null
     return isRecord(payload.event) ? payload.event : null
 }
 
-function assistantStatusAfterTextUpdate(state: StreamTurnState): StreamTurnStatus {
-    if (!state.finished) return 'responding'
-    return state.status === 'error' ? 'error' : 'complete'
+function liveTextItemId(
+    turnIndex: number,
+    source: 'thinking' | 'text',
+    contentIndex: number | null,
+): string {
+    return contentIndex === null
+        ? `model-text-${turnIndex}-${source}-unknown`
+        : `model-text-${turnIndex}-${source}-${contentIndex}`
+}
+
+function liveFinalRowId(turnIndex: number, contentIndex: number | null): string {
+    return contentIndex === null
+        ? `stream-final-${turnIndex}-unknown`
+        : `stream-final-${turnIndex}-${contentIndex}`
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

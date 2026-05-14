@@ -28,12 +28,16 @@ export async function writeGitHubRuntimeCredentials(input: {
         throw new Error('GitHub runtime credential paths were not configured')
     }
 
+    const ghConfigDir = dirname(github.ghHostsPath)
+    const configDir = dirname(ghConfigDir)
+
     await ensureShellWritableDirectory(input.config.paths.homeDir)
-    await mkdir(dirname(github.ghHostsPath), {
+    await mkdir(ghConfigDir, {
         recursive: true,
         mode: 0o700,
     })
-    await ensureShellWritableDirectory(dirname(github.ghHostsPath))
+    await ensureShellWritableDirectory(configDir)
+    await ensureShellWritableDirectory(ghConfigDir)
 
     await writeFile(
         github.ghHostsPath,

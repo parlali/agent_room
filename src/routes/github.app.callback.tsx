@@ -1,11 +1,11 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { Loader2Icon } from 'lucide-react'
+import { ExternalLinkIcon, Loader2Icon } from 'lucide-react'
 import { AttentionBanner, PageHeader, Section, StateBadge } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
 import { roomQueryKey } from '#/lib/room-query-keys'
-import { completeGitHubAppManifestServer } from './-operator-config-server'
+import { completeGitHubCallbackServer } from './-operator-config-server'
 import { requireRouteUser } from './-route-auth'
 
 export const Route = createFileRoute('/github/app/callback')({
@@ -20,9 +20,10 @@ export const Route = createFileRoute('/github/app/callback')({
 function GitHubAppCallbackPage() {
     const search = Route.useSearch()
     const queryClient = useQueryClient()
+    const submittedKeyRef = useRef<string | null>(null)
     const mutation = useMutation({
         mutationFn: () =>
-            completeGitHubAppManifestServer({
+            completeGitHubCallbackServer({
                 data: {
                     code: search.code,
                     state: search.state,
@@ -38,12 +39,18 @@ function GitHubAppCallbackPage() {
     })
 
     useEffect(() => {
-        if (search.code && search.state && mutation.isIdle) {
-            mutation.mutate()
-        }
+        if (!search.code || !search.state) return
+        const submissionKey = `${search.state}:${search.code}`
+        if (submittedKeyRef.current === submissionKey) return
+        submittedKeyRef.current = submissionKey
+        mutation.mutate()
     }, [mutation, search.code, search.state])
 
     const missingParams = !search.code || !search.state
+    const github = mutation.data?.github
+    const installationCount = github?.installations.length ?? 0
+    const installUrl = github?.app.installUrl ?? null
+    const connectedLogin = github?.user.login ?? null
     return (
         <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
             <PageHeader
@@ -58,7 +65,7 @@ function GitHubAppCallbackPage() {
                         title="GitHub callback is incomplete"
                         description="The callback did not include the setup code and state."
                     />
-                ) : mutation.isPending ? (
+                ) : mutation.isPending || mutation.isIdle ? (
                     <Section
                         title="Finishing setup"
                         description="Exchanging GitHub app credentials."
@@ -78,6 +85,62 @@ function GitHubAppCallbackPage() {
                                 : 'Unexpected GitHub setup error'
                         }
                     />
+                ) : mutation.data?.kind === 'user' ? (
+                    <Section
+                        title="GitHub connected"
+                        description={
+                            connectedLogin
+                                ? `Connected as ${connectedLogin}.`
+                                : 'GitHub account connection is ready.'
+                        }
+                    >
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <StateBadge tone="ready" label="Connected" />
+                            <Button asChild>
+                                <Link
+                                    to="/settings"
+                                    search={{
+                                        installationId: '',
+                                        setupAction: '',
+                                        githubState: '',
+                                    }}
+                                >
+                                    Back to settings
+                                </Link>
+                            </Button>
+                        </div>
+                    </Section>
+                ) : installationCount === 0 ? (
+                    <Section
+                        title="GitHub App created"
+                        description="Install it on repositories before binding programmer rooms."
+                    >
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <StateBadge tone="ready" label="Ready" />
+                            <div className="flex flex-wrap justify-end gap-2">
+                                {installUrl ? (
+                                    <Button asChild variant="outline">
+                                        <a href={installUrl}>
+                                            <ExternalLinkIcon />
+                                            Install
+                                        </a>
+                                    </Button>
+                                ) : null}
+                                <Button asChild>
+                                    <Link
+                                        to="/settings"
+                                        search={{
+                                            installationId: '',
+                                            setupAction: '',
+                                            githubState: '',
+                                        }}
+                                    >
+                                        Back to settings
+                                    </Link>
+                                </Button>
+                            </div>
+                        </div>
+                    </Section>
                 ) : (
                     <Section
                         title="GitHub App ready"
@@ -86,7 +149,16 @@ function GitHubAppCallbackPage() {
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <StateBadge tone="ready" label="Ready" />
                             <Button asChild>
-                                <Link to="/settings">Back to settings</Link>
+                                <Link
+                                    to="/settings"
+                                    search={{
+                                        installationId: '',
+                                        setupAction: '',
+                                        githubState: '',
+                                    }}
+                                >
+                                    Back to settings
+                                </Link>
                             </Button>
                         </div>
                     </Section>
