@@ -4,6 +4,10 @@ import type {
     RoomToolActivityStatus,
     RoomToolActivityTask,
 } from '#/lib/room-execution-types'
+import {
+    categorizeAgentRoomTool,
+    type AgentRoomToolCategory,
+} from '#/lib/agent-room-tool-categories'
 
 export type ToolTaskStatus = RoomToolActivityStatus
 export type ToolActivityTask = RoomToolActivityTask
@@ -30,144 +34,93 @@ interface ToolCopy {
     completeResult: string
 }
 
-const TOOL_COPY: Array<[RegExp, ToolCopy]> = [
-    [
-        /^agent_room_memory_read$/,
-        {
-            title: 'Read memory',
-            action: 'read',
-            completeResult: 'Room memory was checked',
-        },
-    ],
-    [
-        /^agent_room_memory_(patch|replace)$/,
-        {
-            title: 'Updated memory',
-            action: 'edited',
-            completeResult: 'Room memory was updated',
-        },
-    ],
-    [
-        /^agent_room_(read|workspace_tree|list)$/,
-        {
-            title: 'Checked files',
-            action: 'read',
-            completeResult: 'Workspace information was provided to the agent',
-        },
-    ],
-    [
-        /^agent_room_search$/,
-        {
-            title: 'Searched files',
-            action: 'searched',
-            completeResult: 'Workspace search results were provided to the agent',
-        },
-    ],
-    [
-        /^agent_room_(write|edit)$/,
-        {
-            title: 'Updated files',
-            action: 'edited',
-            completeResult: 'Workspace files were updated',
-        },
-    ],
-    [
-        /^agent_room_(artifact_import|artifact_export)$/,
-        {
-            title: 'Moved artifact',
-            action: 'updated',
-            completeResult: 'Artifact files were moved',
-        },
-    ],
-    [
-        /^agent_room_(shell|command_start|command_poll|command_status|command_terminate)$/,
-        {
-            title: 'Ran workspace command',
-            action: 'ran',
-            completeResult: 'Command state was updated',
-        },
-    ],
-    [
-        /^agent_room_web_search$/,
-        {
-            title: 'Searched the web',
-            action: 'searched',
-            completeResult: 'Web results were provided to the agent',
-        },
-    ],
-    [
-        /^agent_room_fetch_url$/,
-        {
-            title: 'Fetched a web page',
-            action: 'read',
-            completeResult: 'Page content was provided to the agent',
-        },
-    ],
-    [
-        /^agent_room_docx$/,
-        {
-            title: 'Worked on a document',
-            action: 'edited',
-            completeResult: 'Document work completed',
-        },
-    ],
-    [
-        /^agent_room_xlsx$/,
-        {
-            title: 'Worked on a spreadsheet',
-            action: 'edited',
-            completeResult: 'Spreadsheet work completed',
-        },
-    ],
-    [
-        /^agent_room_pptx$/,
-        {
-            title: 'Worked on a presentation',
-            action: 'edited',
-            completeResult: 'Presentation work completed',
-        },
-    ],
-    [
-        /^agent_room_pdf$/,
-        {
-            title: 'Prepared a PDF',
-            action: 'created',
-            completeResult: 'PDF work completed',
-        },
-    ],
-    [
-        /^agent_room_image_generate$/,
-        {
-            title: 'Created an image',
-            action: 'created',
-            completeResult: 'Image generation completed',
-        },
-    ],
-    [
-        /^agent_room_subagent$/,
-        {
-            title: 'Asked another agent',
-            action: 'delegated',
-            completeResult: 'The agent returned its work',
-        },
-    ],
-    [
-        /^agent_room_deep_work$/,
-        {
-            title: 'Started deep work',
-            action: 'delegated',
-            completeResult: 'Deep work returned its result',
-        },
-    ],
-    [
-        /^mcp_/,
-        {
-            title: 'Used a connected tool',
-            action: 'used',
-            completeResult: 'The connected tool returned a result',
-        },
-    ],
-]
+const TOOL_COPY: Record<Exclude<AgentRoomToolCategory, 'other'>, ToolCopy> = {
+    memory_read: {
+        title: 'Read memory',
+        action: 'read',
+        completeResult: 'Room memory was checked',
+    },
+    memory_write: {
+        title: 'Updated memory',
+        action: 'edited',
+        completeResult: 'Room memory was updated',
+    },
+    workspace_read: {
+        title: 'Checked files',
+        action: 'read',
+        completeResult: 'Workspace information was provided to the agent',
+    },
+    workspace_search: {
+        title: 'Searched files',
+        action: 'searched',
+        completeResult: 'Workspace search results were provided to the agent',
+    },
+    workspace_write: {
+        title: 'Updated files',
+        action: 'edited',
+        completeResult: 'Workspace files were updated',
+    },
+    artifact: {
+        title: 'Moved artifact',
+        action: 'updated',
+        completeResult: 'Artifact files were moved',
+    },
+    command: {
+        title: 'Ran workspace command',
+        action: 'ran',
+        completeResult: 'Command state was updated',
+    },
+    research_search: {
+        title: 'Searched the web',
+        action: 'searched',
+        completeResult: 'Web results were provided to the agent',
+    },
+    research_fetch: {
+        title: 'Fetched a web page',
+        action: 'read',
+        completeResult: 'Page content was provided to the agent',
+    },
+    document_docx: {
+        title: 'Worked on a document',
+        action: 'edited',
+        completeResult: 'Document work completed',
+    },
+    document_xlsx: {
+        title: 'Worked on a spreadsheet',
+        action: 'edited',
+        completeResult: 'Spreadsheet work completed',
+    },
+    document_pptx: {
+        title: 'Worked on a presentation',
+        action: 'edited',
+        completeResult: 'Presentation work completed',
+    },
+    document_pdf: {
+        title: 'Prepared a PDF',
+        action: 'created',
+        completeResult: 'PDF work completed',
+    },
+    image: {
+        title: 'Created an image',
+        action: 'created',
+        completeResult: 'Image generation completed',
+    },
+    subagent: {
+        title: 'Asked another agent',
+        action: 'delegated',
+        completeResult: 'The agent returned its work',
+    },
+    deep_work: {
+        title: 'Started deep work',
+        action: 'delegated',
+        completeResult: 'Deep work returned its result',
+    },
+    mcp: {
+        title: 'Used a connected tool',
+        action: 'used',
+        completeResult: 'The connected tool returned a result',
+    },
+}
 
 const SENSITIVE_KEY_PATTERN = /(secret|token|password|credential|authorization|api.?key|hash)/i
 const workingResultLabel = 'Working'
@@ -384,10 +337,9 @@ function projectToolTask(input: ToolProjectionInput, index = 0): ToolActivityTas
 }
 
 function toolCopy(name: string | null): ToolCopy {
-    if (name) {
-        for (const [pattern, copy] of TOOL_COPY) {
-            if (pattern.test(name)) return copy
-        }
+    const category = categorizeAgentRoomTool(name)
+    if (category !== 'other') {
+        return TOOL_COPY[category]
     }
     return {
         title: 'Used a tool',
@@ -432,9 +384,9 @@ function terminalToolResult(
 }
 
 function completeResultForProjectedTask(task: ToolActivityTask): string {
-    const copy = TOOL_COPY.find(([, candidate]) => {
+    const copy = Object.values(TOOL_COPY).find((candidate) => {
         return candidate.title === task.title && candidate.action === task.action
-    })?.[1]
+    })
     return copy?.completeResult ?? 'The tool finished'
 }
 

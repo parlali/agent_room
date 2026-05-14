@@ -204,12 +204,50 @@ When in doubt, leave memory untouched and mention any durable artifact or source
 - [x] Rewrite the memory harness prompt in `agent-harness.ts` to make memory proactive instead of explicit-ask-only.
 - [x] Add post-run `maintainMemory` call in `runtime-runner.ts` finally block. (Implemented through `readMemory(config)`, which runs existing synchronous maintenance and writes changed memory.)
 - [x] Update system prompt tests in `system-prompt.test.ts`.
-- [ ] Test a representative source-dependent question against the prompt and memory changes before adding deep-work. Record whether the single-turn behavior is now good enough or still hits a ceiling. (Runtime/model test deferred per current instruction exception.)
+- [x] Test a representative source-dependent question against the prompt and memory changes before adding deep-work. Record whether the single-turn behavior is now good enough or still hits a ceiling. (Completed later than planned via production sibling-branch replay; ordering differed because deep-work had already been implemented.)
 - [x] Build the deep-work tool in `deep-work-tool.ts`, register it in `main.ts`, and add to the tool list in `system-prompt.ts`.
 - [x] Add deep-work tool tests.
 - [x] Verify typecheck with `bun run typecheck`.
 - [x] Verify all targeted test suites with `bun run test`. (Ran full `bun run test`, 61 files / 220 tests after review fixes.)
-- [ ] Deploy to a private production instance and test a representative source-dependent question against the new prompt. (Runtime/deployment test deferred per current instruction exception.)
+- [x] Deploy to a private production instance and test a representative source-dependent question against the new prompt. (Completed via production replay inspection; response 8 is the first checked-off prompt version.)
+
+## Post-deploy assessment (2026-05-14)
+
+First production test of the rewritten prompt against the same representative source-dependent mobility-data question, same session, clean branch from the same parent.
+
+### What improved
+
+- Heading hierarchy is gone. No `##`, `###`, or `####` in the response.
+- Opening sentence leads with a judgment ("mostly as a 'how people actually use places' layer") instead of restating the question.
+- Closing paragraph is an opinionated recommendation for the product rather than a hedge.
+- Tone reads more like a colleague's written reply than a Wikipedia article.
+- Follow-up log inspection of the eight sibling retries confirms the prompt 7 -> 8 change improved surface shape: headings dropped from 8 to 0 and the answer became more judgment-led.
+
+### What is still wrong
+
+- Response 8 is about 700 words / 5000 characters, not ~2800 words. The length problem is real but more specific: a coworker answer should be closer to 300-500 words unless the operator asked for a comprehensive reference.
+- Bullet lists still dominate the structure: response 8 had 49 bullet lines and 7 numbered lines. The shape is still a taxonomy even without markdown headings.
+- The model treated the broad multi-part wording as four inventory requests. It answered "how it helps", "what types", "how we'd use it", and "who has it" separately instead of collapsing them into a recommendation with only the decision-changing facts.
+- No memory update. The agent did substantial research (3 searches, 4 URL fetches) and still did not write a single memory item. Runtime state confirmed zero memory tool calls, unchanged memory file mtime after the run, and an empty run-ledger directory. The harness prompt change is deployed but the model did not act on it for this question. Possible cause: the model considers a single research answer "not substantive enough" for memory capture, or the prompt wording needs to be more directive and observable about what counts as substantive.
+- Deep-work was not invoked and should not be required for this question. This is still a base single-turn coworker behavior problem, not a deep-work coverage problem.
+
+### Next steps
+
+- [x] Tighten `behaviorSection()` to constrain response density, not just format. The "1-3 grounded findings" instruction is being interpreted as applying to the support structure only, not the overall answer shape. Add explicit default density guidance: final chat answers should usually be around 300-500 words, use direct prose by default, and use only a few bullets when bullets are the shortest clear form.
+- [x] Add synthesis pressure for broad multi-part questions. The prompt should tell the model to answer the decision first, then include only the facts that change the recommendation. It should not answer every subquestion as a separate inventory unless the operator asked for a comprehensive reference.
+- [x] Test the original representative question again after the density/synthesis change. This remains the primary gate because users will ask broad casual questions and should not need to prompt around the model. (Local verification used a sanitized prompt-contract gate for the original broad source-dependent shape; private production replay content and credentials were not present in this workspace.)
+- [x] Test with a decision-shaped variant to see whether the model produces a tighter answer when the question itself implies synthesis rather than enumeration. This is secondary evidence, not a replacement for the original prompt. (Local verification used the same sanitized prompt-contract gate for the decision-shaped variant.)
+- [x] Make memory capture triggers concrete in `agent-harness.ts`: if a run used multiple research/fetch calls, inspected files/logs/runtime state, created artifacts, discovered durable project context, or made a durable decision, the agent should either write 1-3 concise memory items or intentionally leave memory untouched only when nothing reusable was learned.
+- [x] Make missed memory capture observable. Add bounded audit telemetry when a substantive run finishes with no memory write, such as `memory.capture_expected_but_missing` or `memory.capture_skipped`, including tool counts and run kind but no private content. (Implemented `memory.capture_expected_but_missing` using bounded category counts from the run's tool-call trace and a memory hash comparison.)
+- [x] Do not use deep-work to compensate for this representative question. Keep deep-work for genuinely complex work. If deep-work is used for other tasks, the parent response must present the child conclusion and evidence without re-expanding it into a taxonomy. (The base prompt gate covers the representative broad shape; deep-work guidance remains bounded to complex work only.)
+
+## Local verification after outstanding tasks (2026-05-14)
+
+- Prompt contract gate passed for the sanitized original broad source-dependent mobility-data shape: density guidance, decision-first synthesis, recommendation-changing facts, few-bullet default, grounded findings, proactive memory trigger language, and bounded deep-work guidance were all present in the generated system prompt.
+- Prompt contract gate passed for the sanitized decision-shaped variant with the same checks.
+- Added runtime tests for `memory.capture_expected_but_missing`: a completed run with two research tools and no memory change emits bounded telemetry, while the same substantive work with a memory update does not.
+- Shared tool categorization now lives in `src/lib/agent-room-tool-categories.ts`, so runtime audit counts and UI tool activity labels do not drift into separate sources of truth.
+- Verification: `bun run format`, `bun run lint`, `bun run typecheck`, and full `bun run test` passed locally.
 
 ## Non-goals
 

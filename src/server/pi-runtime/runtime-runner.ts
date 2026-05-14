@@ -19,6 +19,11 @@ import {
     type RunKind,
 } from './run-budget'
 import { sessionModelCostKnown, sessionUsageDelta, sessionUsageSnapshot } from './session-usage'
+import {
+    memoryCaptureExpectationReasons,
+    memoryWasCaptured,
+    summarizeRunToolActivity,
+} from './runtime-tool-activity'
 
 export interface ActiveThread {
     session: AgentSession
@@ -86,6 +91,8 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
             let preparedPrompt: PreparedPrompt = {
                 text: input.message,
             }
+            let branchLengthBeforePrompt = 0
+            let memoryHashBeforeRun: string | null = null
             await dependencies.refreshSystemPrompt(dependencies.activeThreads.get(input.record.key))
             const active = await dependencies.getActiveThread(input.record)
             try {
@@ -209,6 +216,12 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
             watchdog.unref?.()
             const runStartedAt = heartbeat.startedAt
             const usageBefore = sessionUsageSnapshot(active.session)
+            branchLengthBeforePrompt = active.session.sessionManager.getBranch().length
+            try {
+                memoryHashBeforeRun = (await readMemory(dependencies.config)).hash
+            } catch {
+                memoryHashBeforeRun = null
+            }
             try {
                 await withToolRunContext(
                     {
@@ -292,6 +305,9 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                     sessionUsageSnapshot(active.session),
                     sessionModelCostKnown(active.session),
                 )
+                const toolActivity = summarizeRunToolActivity(
+                    active.session.sessionManager.getBranch().slice(branchLengthBeforePrompt),
+                )
                 await dependencies.appendRuntimeEvent('run.finished', {
                     sessionKey: input.record.key,
                     runId: input.runId,
@@ -318,13 +334,33 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                     startedAt: new Date(runStartedAt).toISOString(),
                     finishedAt: new Date(finishedAt).toISOString(),
                 })
+                let memoryHashAfterRun: string | null = null
                 try {
-                    await readMemory(dependencies.config)
+                    memoryHashAfterRun = (await readMemory(dependencies.config)).hash
                 } catch (error) {
                     await dependencies.appendRuntimeEvent('memory.maintenance_failed', {
                         sessionKey: input.record.key,
                         runId: input.runId,
                         message: dependencies.errorMessage(error),
+                    })
+                }
+                const captureReasons = memoryCaptureExpectationReasons(toolActivity)
+                if (
+                    input.record.status === 'idle' &&
+                    captureReasons.length > 0 &&
+                    !memoryWasCaptured({
+                        beforeHash: memoryHashBeforeRun,
+                        afterHash: memoryHashAfterRun,
+                        counts: toolActivity,
+                    })
+                ) {
+                    await dependencies.appendRuntimeEvent('memory.capture_expected_but_missing', {
+                        sessionKey: input.record.key,
+                        runId: input.runId,
+                        runKind,
+                        status: input.record.status,
+                        reasons: captureReasons,
+                        toolCounts: toolActivity,
                     })
                 }
                 void dependencies.maybeGenerateThreadTitle(input.record)

@@ -105,9 +105,11 @@ function behaviorSection(): string {
     return [
         'Behavior:',
         'Lead final responses with the conclusion, judgment, changed artifact, verification result, or named blocker.',
+        'Final chat answers are usually 300-500 words unless the operator asked for comprehensive reference material, code, a long-form artifact, or exhaustive analysis.',
+        'For broad multi-part questions, answer the decision first, collapse overlapping subquestions into one synthesis, and include only the facts that change the recommendation.',
         'When research or tool work was done, support the answer with 1-3 grounded findings and name the important sources, files, commands, checks, or artifacts.',
         'State only the missing facts, assumptions, risks, or unrun checks that affect the result.',
-        'Use direct prose by default. Use short bullets only when they compress evidence; avoid headings, taxonomies, primers, and menus unless the operator asked for that shape.',
+        'Use direct prose by default. Use only a few bullets when they are the shortest clear form; avoid headings, taxonomies, primers, inventories, and menus unless the operator asked for that shape.',
         '',
         'Execution protocol:',
         'Simple factual requests get direct answers. Current-world, source-dependent, provider, runtime, or software facts get search, URL fetch, file reads, logs, commands, or docs before answering.',
