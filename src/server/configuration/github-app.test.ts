@@ -366,7 +366,10 @@ describe('completeGitHubAppManifest', () => {
 
         expect(result.user.connected).toBe(true)
         expect(result.user.login).toBe('test-user')
-        expect(result.accounts.map((account) => account.login)).toEqual(['example-org', 'test-user'])
+        expect(result.accounts.map((account) => account.login)).toEqual([
+            'example-org',
+            'test-user',
+        ])
         expect(mocks.state.userSessionStatusUpdates).toEqual(['completed'])
         expect(mocks.state.audits.map((event) => event.action)).toContain('github_user.connected')
     })
