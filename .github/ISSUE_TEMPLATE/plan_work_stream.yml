@@ -1,0 +1,77 @@
+name: Plan work stream
+description: A scoped multi-task work stream derived from a plan/ brainstorm document.
+title: '[Stream]: '
+labels:
+    - plan-stream
+body:
+    - type: markdown
+      attributes:
+          value: |
+              Use this template for a multi-task work stream traced from a `plan/` brainstorm document.
+
+              For single bugs or small features, prefer the bug or feature request templates.
+
+              Do not paste private room data, generated credentials, real provider keys, OAuth tokens, host paths, personal account fixtures, or chat-derived observations. Sanitize any evidence first.
+    - type: input
+      id: source
+      attributes:
+          label: Source brainstorm
+          description: Path to the `plan/` document this stream is derived from.
+          placeholder: plan/plan.md
+      validations:
+          required: true
+    - type: textarea
+      id: goal
+      attributes:
+          label: Goal
+          description: One short paragraph. The user-facing or operator-facing outcome this stream delivers.
+      validations:
+          required: true
+    - type: textarea
+      id: scope
+      attributes:
+          label: In scope
+          description: Concrete behaviors and surfaces this stream must implement. Trace UI action through service, adapter, runtime, persisted state, and read model where applicable.
+      validations:
+          required: true
+    - type: textarea
+      id: nonnegotiables
+      attributes:
+          label: Non-negotiables
+          description: Invariants this stream must preserve. Cover auth, room isolation, credentials, provider binding, runtime config, audit, single source of truth, and fail-closed behavior where applicable.
+      validations:
+          required: true
+    - type: textarea
+      id: outofscope
+      attributes:
+          label: Out of scope and follow-ups
+          description: What is deliberately deferred and why. Link follow-up issues if they exist.
+    - type: textarea
+      id: openquestions
+      attributes:
+          label: Open design questions
+          description: Forks that must be resolved during implementation. List each option and the criteria for picking.
+    - type: textarea
+      id: acceptance
+      attributes:
+          label: Acceptance criteria
+          description: Verifiable conditions. Include tests, runtime/audit checks, and any operator-visible behavior. Cover the real failure modes, not just the happy path.
+      validations:
+          required: true
+    - type: textarea
+      id: dependencies
+      attributes:
+          label: Dependencies
+          description: Related issues, blocked-by, prerequisite work.
+    - type: textarea
+      id: safety
+      attributes:
+          label: Safety and isolation notes
+          description: Touches on auth, room isolation, credentials, provider binding, runtime config, tools, files, scheduled jobs, or secret handling.
+    - type: checkboxes
+      id: hygiene
+      attributes:
+          label: Hygiene
+          options:
+              - label: This issue does not contain secrets, generated credentials, private room data, real provider keys, OAuth tokens, host paths, or chat-derived personal observations.
+                required: true
