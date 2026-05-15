@@ -119,6 +119,7 @@ async function appendAttachmentIngestionEvents(input: {
             ingestionMode: ingestion.ingestionMode,
             pageCount: ingestion.pageCount,
             pages: ingestion.pages,
+            requestedPages: ingestion.requestedPages,
             inputBlocks: ingestion.inputBlocks,
             degraded: ingestion.degraded,
             degradedReason: ingestion.degradedReason,

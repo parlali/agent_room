@@ -176,6 +176,7 @@ async function materializeAttachment(
                 ingestionMode: pdf.mode,
                 pageCount: pdf.pageCount,
                 pages: pdf.selectedPages.label,
+                requestedPages: pdf.requestedPages,
                 inputBlocks: pdf.content.length,
                 degraded: pdf.degraded,
                 degradedReason: pdf.degradedReason,
@@ -249,7 +250,12 @@ function attachmentSummaryLine(attachment: MaterializedAttachment, index: number
         return [
             ...base,
             `provided as native PDF document input (${attachment.ingestion.pages})`,
-        ].join(', ')
+            attachment.ingestion.degraded && attachment.ingestion.degradedReason
+                ? `degraded: ${attachment.ingestion.degradedReason}`
+                : null,
+        ]
+            .filter((part): part is string => part !== null)
+            .join(', ')
     }
     if (attachment.ingestion?.ingestionMode === 'image_render') {
         return [
@@ -402,6 +408,7 @@ function pdfIngestionRecordFromValue(value: unknown): PdfIngestionRecord | null 
                 ? value.pageCount
                 : null,
         pages: typeof value.pages === 'string' ? value.pages : null,
+        requestedPages: typeof value.requestedPages === 'string' ? value.requestedPages : null,
         inputBlocks:
             typeof value.inputBlocks === 'number' && Number.isFinite(value.inputBlocks)
                 ? value.inputBlocks

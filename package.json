@@ -24,7 +24,7 @@
         "#/*": "./src/*"
     },
     "scripts": {
-        "build": "vite build",
+        "build": "vite build && bun run scripts/copy-runtime-assets.ts",
         "start": "bun run scripts/start-server.ts",
         "preview": "vite preview",
         "test": "vitest run",

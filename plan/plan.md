@@ -27,5 +27,7 @@ The brainstorm has been split into three public OSS work-stream issues. Implemen
 - [x] Surface PDF ingestion mode in prompt attachment metadata, audit events, tool details, and model-visible attachment summaries.
 - [x] Map Anthropic PDF payloads through Pi provider routing without claiming image-rendered or text-extracted content is native.
 - [x] Ship the repo-owned `office-documents` skill and bundled script for DOCX, XLSX, and PPTX create, inspect, and edit workflows.
-- [x] Keep existing dedicated DOCX/XLSX/PPTX tools during the transition period while the bundled skill path is introduced.
+- [x] Package bundled skills into the production build so runtime resource loading resolves the shipped `SKILL.md` and script.
+- [x] Keep existing dedicated DOCX/XLSX/PPTX tools during the transition period while the bundled skill path is introduced (implemented as legacy compatibility tools with the bundled skill as the preferred create, inspect, and edit path).
+- [x] Verify active model changes drive PDF routing, page-range reporting is truthful, and non-contiguous rendered pages stay bounded to selected pages.
 - [x] Verify direct behavior and downstream effects with `bun run check`.

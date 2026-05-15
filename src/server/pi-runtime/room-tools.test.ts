@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest'
 import { strFromU8, unzipSync } from 'fflate'
 import * as XLSX from 'xlsx'
 import { PDFDocument } from 'pdf-lib'
+import type { Api, Model } from '@mariozechner/pi-ai'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { __testing, createRoomTools, roomToolNamesForCapabilities } from './room-tools'
 import { createDocumentTools } from './document-tools'
@@ -79,6 +80,7 @@ async function executeDocumentTool(
     name: string,
     input: object,
     signal?: AbortSignal,
+    toolContext: object = {},
 ) {
     const events: Array<{ event: string; payload: unknown }> = []
     const tools = createDocumentTools({
@@ -91,11 +93,56 @@ async function executeDocumentTool(
     if (!tool) {
         throw new Error(`Missing tool ${name}`)
     }
-    const result = await tool.execute('call-1', input as never, signal, undefined, {} as never)
+    const result = await tool.execute(
+        'call-1',
+        input as never,
+        signal,
+        undefined,
+        toolContext as never,
+    )
     return {
         result,
         events,
     }
+}
+
+function model(input: Array<'text' | 'image'>, overrides: Partial<Model<Api>> = {}): Model<Api> {
+    return {
+        id: 'test-model',
+        name: 'Test Model',
+        provider: 'openai',
+        api: 'openai-responses',
+        baseUrl: 'https://example.test',
+        reasoning: false,
+        input,
+        cost: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+        },
+        contextWindow: 128000,
+        maxTokens: 4096,
+        ...overrides,
+    }
+}
+
+function anthropicModel(): Model<Api> {
+    return model(['text', 'image'], {
+        id: 'claude-sonnet-4-20250514',
+        provider: 'anthropic',
+        api: 'anthropic-messages',
+    })
+}
+
+async function writePdfFixture(path: string, pageCount: number): Promise<Buffer> {
+    const pdf = await PDFDocument.create()
+    for (let page = 0; page < pageCount; page += 1) {
+        pdf.addPage([200, 200])
+    }
+    const bytes = Buffer.from(await pdf.save())
+    await writeFile(path, bytes)
+    return bytes
 }
 
 function resultText(result: Awaited<ReturnType<typeof executeTool>>['result']): string {
@@ -485,17 +532,23 @@ describe('room Pi tools', () => {
 
     it('reads PDFs through native document mode and keeps text extraction explicit', async () => {
         await withRoom(async (config) => {
-            config.provider.sourceProvider = 'anthropic'
-            config.provider.api = 'anthropic-messages'
             await executeDocumentTool(config, 'agent_room_pdf', {
                 operation: 'create',
                 path: 'source.pdf',
                 paragraphs: ['Native PDF path text'],
             })
 
-            const readPdf = await executeDocumentTool(config, 'agent_room_read_pdf', {
-                path: 'source.pdf',
-            })
+            const readPdf = await executeDocumentTool(
+                config,
+                'agent_room_read_pdf',
+                {
+                    path: 'source.pdf',
+                },
+                undefined,
+                {
+                    model: anthropicModel(),
+                },
+            )
 
             expect(resultText(readPdf.result)).toContain('native document input')
             expect(readPdf.result.content[1]).toMatchObject({
@@ -509,6 +562,77 @@ describe('room Pi tools', () => {
             expect(
                 createDocumentTools({ config, audit: async () => {} }).map((tool) => tool.name),
             ).toContain('agent_room_pdf_extract_text')
+        })
+    })
+
+    it('does not route PDFs through stale Anthropic config after the active model changes', async () => {
+        await withRoom(async (config) => {
+            config.provider.sourceProvider = 'anthropic'
+            config.provider.api = 'anthropic-messages'
+            config.provider.piProvider = 'anthropic'
+            await executeDocumentTool(config, 'agent_room_pdf', {
+                operation: 'create',
+                path: 'source.pdf',
+                paragraphs: ['Stale provider text'],
+            })
+
+            const readPdf = await executeDocumentTool(
+                config,
+                'agent_room_read_pdf',
+                {
+                    path: 'source.pdf',
+                },
+                undefined,
+                {
+                    model: model(['text'], {
+                        id: 'gpt-text-only',
+                        provider: 'openai',
+                        api: 'openai-responses',
+                    }),
+                },
+            )
+
+            expect(resultText(readPdf.result)).toContain('unsupported')
+            expect(readPdf.result.content).toHaveLength(1)
+            expect(resultDetails(readPdf.result)).toMatchObject({
+                ingestionMode: 'unsupported',
+                backend: 'unsupported',
+                inputBlocks: 0,
+                degraded: true,
+            })
+        })
+    })
+
+    it('discloses that native PDF page selections do not crop document bytes', async () => {
+        await withRoom(async (config) => {
+            await writePdfFixture(join(config.paths.workspaceDir, 'multi.pdf'), 2)
+
+            const readPdf = await executeDocumentTool(
+                config,
+                'agent_room_read_pdf',
+                {
+                    path: 'multi.pdf',
+                    pages: '1',
+                },
+                undefined,
+                {
+                    model: anthropicModel(),
+                },
+            )
+
+            expect(resultText(readPdf.result)).toContain('native document input')
+            expect(resultText(readPdf.result)).toContain('native document input sends the full PDF')
+            expect(readPdf.result.content[1]).toMatchObject({
+                type: 'image',
+                mimeType: 'application/pdf',
+            })
+            expect(resultDetails(readPdf.result)).toMatchObject({
+                ingestionMode: 'native_document',
+                backend: 'anthropic_native_document',
+                pages: 'all pages',
+                requestedPages: 'pages 1',
+                degraded: true,
+            })
         })
     })
 

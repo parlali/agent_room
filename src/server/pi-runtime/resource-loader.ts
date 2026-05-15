@@ -1,5 +1,4 @@
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import {
     createExtensionRuntime,
     loadSkillsFromDir,
@@ -7,10 +6,10 @@ import {
     type ResourceLoader,
     type Skill,
 } from '@mariozechner/pi-coding-agent'
+import { bundledSkillsDirectory } from './bundled-skills'
 
-const agentRoomSkillDirectory = fileURLToPath(new URL('./skills', import.meta.url))
 const agentRoomSkills = loadSkillsFromDir({
-    dir: agentRoomSkillDirectory,
+    dir: bundledSkillsDirectory(),
     source: 'project',
 })
 

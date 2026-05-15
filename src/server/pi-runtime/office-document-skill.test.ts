@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { createPiResourceLoader } from './resource-loader'
+import { officeDocumentScriptPath } from './bundled-skills'
 
 const scriptPath = fileURLToPath(
     new URL('./skills/office-documents/scripts/office_document.py', import.meta.url),
@@ -93,6 +94,7 @@ describe('office document skill', () => {
         const appendPrompt = loader.getAppendSystemPrompt().join('\n')
         expect(appendPrompt).toContain('office_document.py')
         expect(appendPrompt).toContain('agent_room_shell')
+        expect(officeDocumentScriptPath()).toBe(scriptPath)
     })
 
     it.each(['docx', 'xlsx', 'pptx'])(

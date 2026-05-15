@@ -25,6 +25,7 @@ export interface PdfReadMaterialization {
     content: ImageContent[]
     pageCount: number
     selectedPages: PdfPageSelection
+    requestedPages: string | null
     degraded: boolean
     degradedReason: string | null
     backend: 'anthropic_native_document' | 'rendered_page_images' | 'unsupported'
@@ -38,6 +39,7 @@ export interface PdfIngestionRecord {
     ingestionMode: PdfIngestionMode
     pageCount: number | null
     pages: string | null
+    requestedPages: string | null
     inputBlocks: number
     degraded: boolean
     degradedReason: string | null
@@ -55,10 +57,13 @@ export function isNativePdfProvider(
     config: PiRuntimeConfig,
     model: Model<Api> | undefined,
 ): boolean {
+    if (model) {
+        return model.provider === 'anthropic' && model.api === 'anthropic-messages'
+    }
     return (
         config.provider.sourceProvider === 'anthropic' &&
         config.provider.api === 'anthropic-messages' &&
-        (!model || model.api === 'anthropic-messages')
+        config.provider.piProvider === 'anthropic'
     )
 }
 
@@ -165,17 +170,17 @@ export async function renderPdfPageImages(input: {
 }): Promise<ImageContent[]> {
     const tempDir = await mkdtemp(join(input.config.paths.tmpDir, 'pdf-pages-'))
     const prefix = join(tempDir, 'page')
-    const minPage = input.selection.pages[0]!
-    const maxPage = input.selection.pages[input.selection.pages.length - 1]!
     try {
-        await runDocumentWorker({
-            config: input.config,
-            command: 'pdftoppm',
-            args: ['-png', '-f', String(minPage), '-l', String(maxPage), input.path, prefix],
-            cwd: input.config.paths.workspaceDir,
-            timeoutMs: input.config.budgets.documentWorkerMs,
-            signal: input.signal,
-        })
+        for (const page of input.selection.pages) {
+            await runDocumentWorker({
+                config: input.config,
+                command: 'pdftoppm',
+                args: ['-png', '-f', String(page), '-l', String(page), input.path, prefix],
+                cwd: input.config.paths.workspaceDir,
+                timeoutMs: input.config.budgets.documentWorkerMs,
+                signal: input.signal,
+            })
+        }
         const selected = new Set(input.selection.pages)
         const entries = await readdir(tempDir)
         const paths = entries
@@ -236,17 +241,27 @@ export async function materializePdfRead(input: {
         : null
 
     if (nativeEligible) {
+        const requestedSelection = input.pages
+            ? normalizePdfPageSelection({
+                  pages: input.pages,
+                  pageCount,
+                  maxPages: anthropicNativePdfMaxPages,
+              })
+            : null
         return {
             mode: 'native_document',
             content: [nativePdfImageContent(bytes)],
             pageCount,
             selectedPages: normalizePdfPageSelection({
-                pages: input.pages,
+                pages: null,
                 pageCount,
                 maxPages: anthropicNativePdfMaxPages,
             }),
-            degraded: false,
-            degradedReason: null,
+            requestedPages: requestedSelection?.label ?? null,
+            degraded: Boolean(requestedSelection),
+            degradedReason: requestedSelection
+                ? `Native PDF document input sends the full PDF; requested ${requestedSelection.label} was not used to crop the bytes sent to the model.`
+                : null,
             backend: 'anthropic_native_document',
         }
     }
@@ -265,6 +280,7 @@ export async function materializePdfRead(input: {
             content: [],
             pageCount,
             selectedPages,
+            requestedPages: input.pages ? selectedPages.label : null,
             degraded: true,
             degradedReason:
                 degradedReason ??
@@ -293,6 +309,7 @@ export async function materializePdfRead(input: {
             content: [],
             pageCount,
             selectedPages,
+            requestedPages: input.pages ? selectedPages.label : null,
             degraded: true,
             degradedReason: `PDF page rendering failed: ${error instanceof Error ? error.message : String(error)}`,
             backend: 'unsupported',
@@ -304,6 +321,7 @@ export async function materializePdfRead(input: {
         content,
         pageCount,
         selectedPages,
+        requestedPages: input.pages ? selectedPages.label : null,
         degraded: Boolean(degradedReason || selectedPages.truncated),
         degradedReason:
             degradedReason ??

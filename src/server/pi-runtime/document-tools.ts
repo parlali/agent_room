@@ -54,9 +54,9 @@ function createDocxTool(ctx: DocumentToolContext): ToolDefinition {
         name: 'agent_room_docx',
         label: 'Word Document',
         description:
-            'Create or edit workspace DOCX documents, and inspect, export, or preview room-local DOCX files.',
+            'Legacy DOCX compatibility tool. Prefer the bundled office-documents skill for create, inspect, and edit; use this tool for export or preview compatibility.',
         promptSnippet:
-            'agent_room_docx performs structured DOCX operations for room-local files and promotes workspace outputs as durable artifacts.',
+            'agent_room_docx is a legacy compatibility path. Prefer the office-documents skill through agent_room_shell for DOCX create, inspect, and edit. Use agent_room_docx only when export_pdf, preview, or legacy structured compatibility is needed.',
         parameters: Type.Object({
             operation: Type.Union([
                 Type.Literal('create'),
@@ -130,9 +130,9 @@ function createXlsxTool(ctx: DocumentToolContext): ToolDefinition {
         name: 'agent_room_xlsx',
         label: 'Workbook',
         description:
-            'Create or edit workspace XLSX workbooks, and inspect, export, or preview room-local XLSX files.',
+            'Legacy XLSX compatibility tool. Prefer the bundled office-documents skill for create, inspect, and edit; use this tool for export, preview, or workbook chart compatibility.',
         promptSnippet:
-            'agent_room_xlsx performs structured workbook operations for room-local files with rows, formulas, charts, cell edits, and durable workspace exports. workbookJson is a JSON array of sheets like [{"name":"Data","rows":[["Item","Qty"],["A",1]],"charts":[{"type":"bar","title":"Totals","labelsRange":"A2:A4","valuesRange":"D2:D4","anchor":"F2"}]}]. replacementsJson accepts [{"oldText":"A","newText":"B"}] or direct cell edits like [{"sheet":"Data","cell":"B2","value":12}].',
+            'agent_room_xlsx is a legacy compatibility path. Prefer the office-documents skill through agent_room_shell for XLSX create, inspect, and edit. Use agent_room_xlsx when export_pdf, preview, or structured workbook chart compatibility is needed. workbookJson is a JSON array of sheets like [{"name":"Data","rows":[["Item","Qty"],["A",1]],"charts":[{"type":"bar","title":"Totals","labelsRange":"A2:A4","valuesRange":"D2:D4","anchor":"F2"}]}]. replacementsJson accepts [{"oldText":"A","newText":"B"}] or direct cell edits like [{"sheet":"Data","cell":"B2","value":12}].',
         parameters: Type.Object({
             operation: Type.Union([
                 Type.Literal('create'),
@@ -205,9 +205,9 @@ function createPptxTool(ctx: DocumentToolContext): ToolDefinition {
         name: 'agent_room_pptx',
         label: 'Presentation',
         description:
-            'Create or edit workspace PPTX presentations, and inspect, export, or preview room-local PPTX files.',
+            'Legacy PPTX compatibility tool. Prefer the bundled office-documents skill for create, inspect, and edit; use this tool for export or preview compatibility.',
         promptSnippet:
-            'agent_room_pptx creates structured workspace slides and inspects, exports, or previews room-local presentations.',
+            'agent_room_pptx is a legacy compatibility path. Prefer the office-documents skill through agent_room_shell for PPTX create, inspect, and edit. Use agent_room_pptx only when export_pdf, preview, or legacy structured compatibility is needed.',
         parameters: Type.Object({
             operation: Type.Union([
                 Type.Literal('create'),
@@ -389,13 +389,14 @@ function createReadPdfTool(ctx: DocumentToolContext): ToolDefinition {
             pages: Type.Optional(Type.String()),
         }),
         executionMode: 'sequential',
-        execute: async (_toolCallId, input, signal) => {
+        execute: async (_toolCallId, input, signal, _onUpdate, toolContext) => {
             const root = sourceRoot(input)
             const path = await existingDocumentPath(ctx.config, root, input.path)
             const pdf = await materializePdfRead({
                 config: ctx.config,
                 path,
                 pages: input.pages,
+                model: toolContext?.model,
                 signal,
             })
             const details = {
@@ -407,6 +408,7 @@ function createReadPdfTool(ctx: DocumentToolContext): ToolDefinition {
                 backend: pdf.backend,
                 pageCount: pdf.pageCount,
                 pages: pdf.selectedPages.label,
+                requestedPages: pdf.requestedPages,
                 inputBlocks: pdf.content.length,
                 degraded: pdf.degraded,
                 degradedReason: pdf.degradedReason,
@@ -414,7 +416,7 @@ function createReadPdfTool(ctx: DocumentToolContext): ToolDefinition {
             await ctx.audit('tool.pdf', details)
             const message =
                 pdf.mode === 'native_document'
-                    ? `PDF read prepared as Anthropic native document input (${pdf.selectedPages.label}; ${pdf.pageCount} total pages).`
+                    ? `PDF read prepared as Anthropic native document input (${pdf.selectedPages.label}; ${pdf.pageCount} total pages).${pdf.requestedPages ? ` Requested ${pdf.requestedPages}; native document input sends the full PDF.` : ''}`
                     : pdf.mode === 'image_render'
                       ? `PDF read prepared as rendered page images (${pdf.selectedPages.label}; ${pdf.pageCount} total pages).`
                       : `PDF read is unsupported for the configured provider/model (${pdf.selectedPages.label}; ${pdf.pageCount} total pages).`
