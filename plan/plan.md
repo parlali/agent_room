@@ -26,7 +26,7 @@ The brainstorm has been split into three public OSS work-stream issues. Implemen
 - [x] Persist and audit PDF ingestion mode as `native_document`, `image_render`, or `unsupported`.
 - [x] Surface PDF ingestion mode in prompt attachment metadata, audit events, tool details, and model-visible attachment summaries.
 - [x] Map Anthropic PDF payloads through Pi provider routing without claiming image-rendered or text-extracted content is native.
-- [x] Ship the repo-owned `office-documents` skill and bundled script for DOCX, XLSX, and PPTX create, inspect, and edit workflows.
+- [x] Ship repo-owned `docx`, `xlsx`, and `pptx` skills with bundled scripts for create, inspect, and edit workflows. (Updated from the original single `office-documents` wording after upstream review showed Claude/OpenAI use format-specific skills.)
 - [x] Package bundled skills into the production build so runtime resource loading resolves the shipped `SKILL.md` and script.
 - [x] Remove dedicated DOCX/XLSX/PPTX runtime tools so the bundled skill and script are the single create, inspect, and edit implementation.
 - [x] Verify active model changes drive PDF routing, page-range reporting is truthful, and non-contiguous rendered pages stay bounded to selected pages.

@@ -17,10 +17,10 @@ export function bundledSkillsDirectory(): string {
     return directory
 }
 
-export function officeDocumentScriptPath(): string {
-    const path = join(bundledSkillsDirectory(), 'office-documents/scripts/office_document.py')
+export function bundledSkillScriptPath(skillName: string, scriptPath: string): string {
+    const path = join(bundledSkillsDirectory(), skillName, scriptPath)
     if (!existsSync(path)) {
-        throw new Error('Agent Room office document script was not found')
+        throw new Error(`Agent Room bundled skill script was not found: ${skillName}/${scriptPath}`)
     }
     return path
 }

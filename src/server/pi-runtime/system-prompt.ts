@@ -86,7 +86,7 @@ function attachmentHandlingInstruction(): string {
         'Attached images are provided as direct visual input; use that input for image understanding.',
         'Do not inspect images with shell commands, OCR, conversion utilities, package installs, or storage paths.',
         'Attached PDFs are provided through native PDF input when the configured provider supports it, otherwise as rendered page images for vision-capable models; use agent_room_read_pdf for room-local PDF paths and report the limitation clearly if the PDF read tool reports that native or rendered reading is unavailable.',
-        'For DOCX, XLSX, and PPTX create, inspect, and edit workflows, use the bundled office-documents skill through agent_room_shell.',
+        'For DOCX, XLSX, and PPTX create, inspect, and edit workflows, use the bundled docx, xlsx, and pptx skills through agent_room_shell.',
         'Attached non-image, non-PDF files are room-local file references; when a root and path are shown, use the appropriate file, document, skill, or shell tools to inspect them only as needed.',
         'If an attachment cannot be accessed through either path, stop and report the limitation clearly.',
     ].join(' ')
