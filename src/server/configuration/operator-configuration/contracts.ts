@@ -10,6 +10,7 @@ import type {
     ProviderApi,
     RoomMode,
     RoomProviderMode,
+    SearchSafeSearch,
 } from '../../domain/types'
 import {
     mcpAuthModes,
@@ -129,6 +130,22 @@ export interface AppSettingsSummary {
         backendUrl: string
         defaultResultCount: number
         timeoutMs: number
+        maxSearchesPerRun: number
+        brave: {
+            enabled: boolean
+            hasCredential: boolean
+            country: string | null
+            searchLang: string | null
+            safeSearch: SearchSafeSearch
+            timeoutMs: number
+            resultCount: number
+        }
+        browserbase: {
+            enabled: boolean
+            hasCredential: boolean
+            timeoutMs: number
+            resultCount: number
+        }
     }
     image: {
         provider: ImageProviderId | null

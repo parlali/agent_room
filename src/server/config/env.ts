@@ -24,6 +24,7 @@ const rawEnvSchema = z.object({
     AGENT_ROOM_SEARCH_BACKEND_URL: z.string().url().default('http://searxng:8080'),
     AGENT_ROOM_SEARCH_DEFAULT_RESULTS: z.coerce.number().int().positive().max(20).default(5),
     AGENT_ROOM_SEARCH_TIMEOUT_MS: z.coerce.number().int().positive().max(30000).default(10000),
+    AGENT_ROOM_SEARCH_MAX_PER_RUN: z.coerce.number().int().positive().max(100).default(20),
     AGENT_ROOM_RUN_BUDGET_MANUAL_MS: z.coerce
         .number()
         .int()
@@ -109,6 +110,7 @@ export interface AppEnv {
         backendUrl: string
         defaultResultCount: number
         timeoutMs: number
+        maxSearchesPerRun: number
     }
     budgets: {
         manualTurnMs: number
@@ -270,6 +272,7 @@ export function getAppEnv(): AppEnv {
             backendUrl: data.AGENT_ROOM_SEARCH_BACKEND_URL.replace(/\/$/, ''),
             defaultResultCount: data.AGENT_ROOM_SEARCH_DEFAULT_RESULTS,
             timeoutMs: data.AGENT_ROOM_SEARCH_TIMEOUT_MS,
+            maxSearchesPerRun: data.AGENT_ROOM_SEARCH_MAX_PER_RUN,
         },
         budgets: {
             manualTurnMs: data.AGENT_ROOM_RUN_BUDGET_MANUAL_MS,

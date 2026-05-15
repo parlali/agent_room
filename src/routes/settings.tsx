@@ -48,6 +48,7 @@ import {
     SetupBanner,
     type AppCapabilityDefaults,
     type AppImageProvider,
+    type AppSearchDraft,
 } from './settings/-sections'
 
 export const Route = createFileRoute('/settings')({
@@ -59,6 +60,63 @@ export const Route = createFileRoute('/settings')({
     }),
     component: SettingsPage,
 })
+
+function toSearchDraft(search: OperatorConfigSnapshot['settings']['search']): AppSearchDraft {
+    return {
+        enabled: search.enabled,
+        backendUrl: search.backendUrl,
+        defaultResultCount: search.defaultResultCount,
+        timeoutMs: search.timeoutMs,
+        maxSearchesPerRun: search.maxSearchesPerRun,
+        brave: {
+            enabled: search.brave.enabled,
+            country: search.brave.country ?? '',
+            searchLang: search.brave.searchLang ?? '',
+            safeSearch: search.brave.safeSearch,
+            timeoutMs: search.brave.timeoutMs,
+            resultCount: search.brave.resultCount,
+            apiKey: '',
+            hasCredential: search.brave.hasCredential,
+            replaceApiKey: !search.brave.hasCredential,
+        },
+        browserbase: {
+            enabled: search.browserbase.enabled,
+            timeoutMs: search.browserbase.timeoutMs,
+            resultCount: search.browserbase.resultCount,
+            apiKey: '',
+            hasCredential: search.browserbase.hasCredential,
+            replaceApiKey: !search.browserbase.hasCredential,
+        },
+    }
+}
+
+function searchDraftDirty(
+    draft: AppSearchDraft,
+    saved: OperatorConfigSnapshot['settings']['search'],
+): boolean {
+    return (
+        draft.enabled !== saved.enabled ||
+        draft.backendUrl.trim() !== saved.backendUrl ||
+        draft.defaultResultCount !== saved.defaultResultCount ||
+        draft.timeoutMs !== saved.timeoutMs ||
+        draft.maxSearchesPerRun !== saved.maxSearchesPerRun ||
+        draft.brave.enabled !== saved.brave.enabled ||
+        draft.brave.country.trim() !== (saved.brave.country ?? '') ||
+        draft.brave.searchLang.trim() !== (saved.brave.searchLang ?? '') ||
+        draft.brave.safeSearch !== saved.brave.safeSearch ||
+        draft.brave.timeoutMs !== saved.brave.timeoutMs ||
+        draft.brave.resultCount !== saved.brave.resultCount ||
+        (draft.brave.enabled &&
+            draft.brave.replaceApiKey &&
+            draft.brave.apiKey.trim().length > 0) ||
+        draft.browserbase.enabled !== saved.browserbase.enabled ||
+        draft.browserbase.timeoutMs !== saved.browserbase.timeoutMs ||
+        draft.browserbase.resultCount !== saved.browserbase.resultCount ||
+        (draft.browserbase.enabled &&
+            draft.browserbase.replaceApiKey &&
+            draft.browserbase.apiKey.trim().length > 0)
+    )
+}
 
 function SettingsPage() {
     const queryClient = useQueryClient()
@@ -85,6 +143,7 @@ function SettingsPage() {
     const [appImageApiKey, setAppImageApiKey] = useState('')
     const [appImageReplaceApiKey, setAppImageReplaceApiKey] = useState(true)
     const [appImageHasCredential, setAppImageHasCredential] = useState(false)
+    const [appSearch, setAppSearch] = useState<AppSearchDraft | null>(null)
     const [githubPublicOrigin, setGithubPublicOrigin] = useState('')
     const [githubTargetOwner, setGithubTargetOwner] = useState('')
     const autoGitHubRefreshKeyRef = useRef<string | null>(null)
@@ -103,6 +162,7 @@ function SettingsPage() {
         setAppImageApiKey('')
         setAppImageReplaceApiKey(!config.settings.image.hasCredential)
         setAppImageHasCredential(config.settings.image.hasCredential)
+        setAppSearch(toSearchDraft(config.settings.search))
         if (!githubPublicOrigin && typeof window !== 'undefined') {
             setGithubPublicOrigin(window.location.origin)
         }
@@ -287,9 +347,42 @@ function SettingsPage() {
     const updateCapabilitiesMutation = useMutation({
         mutationFn: async () => {
             if (!capabilityDefaults) throw new Error('Capability defaults are not loaded')
+            if (!appSearch) throw new Error('Search defaults are not loaded')
             return updateAppCapabilitySettingsServer({
                 data: {
                     capabilityDefaults,
+                    search: {
+                        enabled: appSearch.enabled,
+                        backendUrl: appSearch.backendUrl.trim(),
+                        defaultResultCount: appSearch.defaultResultCount,
+                        timeoutMs: appSearch.timeoutMs,
+                        maxSearchesPerRun: appSearch.maxSearchesPerRun,
+                        brave: {
+                            enabled: appSearch.brave.enabled,
+                            country: appSearch.brave.country.trim() || null,
+                            searchLang: appSearch.brave.searchLang.trim() || null,
+                            safeSearch: appSearch.brave.safeSearch,
+                            timeoutMs: appSearch.brave.timeoutMs,
+                            resultCount: appSearch.brave.resultCount,
+                            apiKey:
+                                appSearch.brave.enabled &&
+                                appSearch.brave.replaceApiKey &&
+                                appSearch.brave.apiKey.trim()
+                                    ? appSearch.brave.apiKey
+                                    : undefined,
+                        },
+                        browserbase: {
+                            enabled: appSearch.browserbase.enabled,
+                            timeoutMs: appSearch.browserbase.timeoutMs,
+                            resultCount: appSearch.browserbase.resultCount,
+                            apiKey:
+                                appSearch.browserbase.enabled &&
+                                appSearch.browserbase.replaceApiKey &&
+                                appSearch.browserbase.apiKey.trim()
+                                    ? appSearch.browserbase.apiKey
+                                    : undefined,
+                        },
+                    },
                     image: {
                         provider: appImageProvider === 'none' ? null : appImageProvider,
                         model: appImageModel.trim() ? appImageModel.trim() : null,
@@ -449,6 +542,50 @@ function SettingsPage() {
     }
 
     const onSaveCapabilities = () => {
+        if (!appSearch) {
+            toast.error('Search defaults are not loaded')
+            return
+        }
+        if (appSearch.enabled && !appSearch.backendUrl.trim()) {
+            toast.error('SearXNG backend URL is required')
+            return
+        }
+        if (appSearch.brave.enabled) {
+            if (
+                appSearch.brave.replaceApiKey &&
+                !appSearch.brave.apiKey.trim() &&
+                !appSearch.brave.hasCredential
+            ) {
+                toast.error('Brave Search API key is required')
+                return
+            }
+            if (
+                appSearch.brave.replaceApiKey &&
+                appSearch.brave.hasCredential &&
+                !appSearch.brave.apiKey.trim()
+            ) {
+                toast.error('Enter a new Brave Search API key or cancel replacement')
+                return
+            }
+        }
+        if (appSearch.browserbase.enabled) {
+            if (
+                appSearch.browserbase.replaceApiKey &&
+                !appSearch.browserbase.apiKey.trim() &&
+                !appSearch.browserbase.hasCredential
+            ) {
+                toast.error('Browserbase API key is required')
+                return
+            }
+            if (
+                appSearch.browserbase.replaceApiKey &&
+                appSearch.browserbase.hasCredential &&
+                !appSearch.browserbase.apiKey.trim()
+            ) {
+                toast.error('Enter a new Browserbase API key or cancel replacement')
+                return
+            }
+        }
         if (appImageProvider !== 'none') {
             if (!appImageModel.trim()) {
                 toast.error('Default image model is required')
@@ -474,9 +611,10 @@ function SettingsPage() {
         )
     }, [config, defaultProviderId])
     const capabilitiesDirty = useMemo(() => {
-        if (!config || !capabilityDefaults) return false
+        if (!config || !capabilityDefaults || !appSearch) return false
         return (
             !capabilityDefaultsEqual(capabilityDefaults, config.settings.capabilityDefaults) ||
+            searchDraftDirty(appSearch, config.settings.search) ||
             (appImageProvider === 'none' ? null : appImageProvider) !==
                 config.settings.image.provider ||
             appImageModel.trim() !== (config.settings.image.model ?? '') ||
@@ -489,6 +627,7 @@ function SettingsPage() {
         appImageModel,
         appImageProvider,
         appImageReplaceApiKey,
+        appSearch,
         capabilityDefaults,
         config,
     ])
@@ -586,6 +725,7 @@ function SettingsPage() {
                         appImageApiKey={appImageApiKey}
                         appImageHasCredential={appImageHasCredential}
                         appImageReplaceApiKey={appImageReplaceApiKey}
+                        appSearch={appSearch}
                         savePending={updateCapabilitiesMutation.isPending}
                         capabilitiesDirty={capabilitiesDirty}
                         setCapabilityDefaults={setCapabilityDefaults}
@@ -594,6 +734,7 @@ function SettingsPage() {
                         setAppImageApiKey={setAppImageApiKey}
                         setAppImageHasCredential={setAppImageHasCredential}
                         setAppImageReplaceApiKey={setAppImageReplaceApiKey}
+                        setAppSearch={setAppSearch}
                         onSaveCapabilities={onSaveCapabilities}
                     />
 

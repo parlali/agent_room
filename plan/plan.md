@@ -31,3 +31,12 @@ The brainstorm has been split into three public OSS work-stream issues. Implemen
 - [x] Remove dedicated DOCX/XLSX/PPTX runtime tools so the bundled skill and script are the single create, inspect, and edit implementation.
 - [x] Verify active model changes drive PDF routing, page-range reporting is truthful, and non-contiguous rendered pages stay bounded to selected pages.
 - [x] Verify direct behavior and downstream effects with `bun run check`.
+
+## Issue 2 implementation notes
+
+- [x] Issue 2 search implementation keeps one model-facing `agent_room_web_search` tool and routes Brave, Browserbase Search API, then SearXNG behind typed provider contracts.
+- [x] Browserbase search uses the documented `POST /v1/search` API with `x-bb-api-key`, not Browserbase browser sessions, CDP, or rendered Brave Search scraping.
+- [x] SearXNG engine health records rate-limited and CAPTCHA-blocked engines with short TTL and sends those engines as disabled on later SearXNG requests where supported.
+- [x] PR review hardening removes provider response bodies from model-visible search failure metadata and rolls back search credential writes on rejected settings saves.
+- [x] Follow-up hardening bounds provider response body reads after headers arrive, including Brave JSON, SearXNG JSON/HTML, Browserbase Search JSON, and provider error bodies.
+- [x] Search implementation is split into shared contracts/helpers, SearXNG, Brave, Browserbase, and router modules so provider parsing and routing state each have focused ownership.

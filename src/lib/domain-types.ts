@@ -30,6 +30,19 @@ export const capabilityIds = [
     'shell_coding',
 ] as const
 export const imageProviderIds = ['openai', 'gemini'] as const
+export const searchProviderIds = ['brave', 'browserbase', 'searxng'] as const
+export const searchSafeSearchValues = ['off', 'moderate', 'strict'] as const
+export const searchErrorCodes = [
+    'rate_limited',
+    'captcha',
+    'blocked',
+    'timeout',
+    'aborted',
+    'bad_response',
+    'empty_results',
+    'misconfigured',
+    'budget_exceeded',
+] as const
 export const usageEventKinds = [
     'run',
     'provider',
@@ -55,6 +68,9 @@ export type RoomMode = (typeof roomModes)[number]
 export type CronRunStatus = (typeof cronRunStatuses)[number]
 export type CapabilityId = (typeof capabilityIds)[number]
 export type ImageProviderId = (typeof imageProviderIds)[number]
+export type SearchProviderId = (typeof searchProviderIds)[number]
+export type SearchSafeSearch = (typeof searchSafeSearchValues)[number]
+export type SearchErrorCode = (typeof searchErrorCodes)[number]
 export type UsageEventKind = (typeof usageEventKinds)[number]
 
 export type JsonPrimitive = string | number | boolean | null
@@ -421,6 +437,22 @@ export interface SearchRuntimeConfig {
     backendUrl: string
     defaultResultCount: number
     timeoutMs: number
+    maxSearchesPerRun: number
+    brave: {
+        enabled: boolean
+        envKey: string | null
+        country: string | null
+        searchLang: string | null
+        safeSearch: SearchSafeSearch
+        timeoutMs: number
+        resultCount: number
+    }
+    browserbase: {
+        enabled: boolean
+        envKey: string | null
+        timeoutMs: number
+        resultCount: number
+    }
 }
 
 export interface ImageRuntimeConfig {

@@ -6,9 +6,11 @@ import type {
     JsonValue,
     RoomMode,
     RunBudgetConfig,
+    SearchProviderId,
     SearchRuntimeConfig,
+    SearchSafeSearch,
 } from '../domain/types'
-import { capabilityIds, imageProviderIds } from '../domain/types'
+import { capabilityIds, imageProviderIds, searchSafeSearchValues } from '../domain/types'
 import { getAppEnv } from '../config/env'
 
 export const defaultCapabilities: CapabilityConfig = {
@@ -129,6 +131,106 @@ export function normalizeSearchConfig(value: JsonValue | unknown): SearchRuntime
             typeof record.timeoutMs === 'number' && Number.isFinite(record.timeoutMs)
                 ? Math.max(1000, Math.min(30000, Math.floor(record.timeoutMs)))
                 : env.search.timeoutMs,
+        maxSearchesPerRun:
+            typeof record.maxSearchesPerRun === 'number' &&
+            Number.isFinite(record.maxSearchesPerRun)
+                ? Math.max(1, Math.min(100, Math.floor(record.maxSearchesPerRun)))
+                : env.search.maxSearchesPerRun,
+        brave: normalizeBraveSearchConfig(record.brave),
+        browserbase: normalizeBrowserbaseSearchConfig(record.browserbase),
+    }
+}
+
+export function searchProviderEnvKey(provider: Exclude<SearchProviderId, 'searxng'>): string {
+    return provider === 'brave'
+        ? 'AGENT_ROOM_SEARCH_BRAVE_API_KEY'
+        : 'AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY'
+}
+
+export function searchProviderSecretId(input: {
+    config: JsonValue
+    provider: Exclude<SearchProviderId, 'searxng'>
+}): string | null {
+    const record =
+        input.config && typeof input.config === 'object' && !Array.isArray(input.config)
+            ? (input.config as Record<string, unknown>)
+            : {}
+    const providerRecord = searchProviderRecord(record[input.provider])
+    return typeof providerRecord.secretId === 'string' && providerRecord.secretId.trim()
+        ? providerRecord.secretId.trim()
+        : null
+}
+
+export function withSearchProviderEnvKeys(
+    config: SearchRuntimeConfig,
+    providers: Partial<Record<Exclude<SearchProviderId, 'searxng'>, boolean>>,
+): SearchRuntimeConfig {
+    return {
+        ...config,
+        brave: {
+            ...config.brave,
+            envKey: providers.brave && config.brave.enabled ? searchProviderEnvKey('brave') : null,
+        },
+        browserbase: {
+            ...config.browserbase,
+            envKey:
+                providers.browserbase && config.browserbase.enabled
+                    ? searchProviderEnvKey('browserbase')
+                    : null,
+        },
+    }
+}
+
+function searchProviderRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {}
+}
+
+function normalizeSearchSafeSearch(value: unknown): SearchSafeSearch {
+    return typeof value === 'string' && searchSafeSearchValues.includes(value as SearchSafeSearch)
+        ? (value as SearchSafeSearch)
+        : 'moderate'
+}
+
+function normalizeOptionalString(value: unknown): string | null {
+    return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function normalizeSearchTimeout(value: unknown, fallback: number): number {
+    return typeof value === 'number' && Number.isFinite(value)
+        ? Math.max(1000, Math.min(30000, Math.floor(value)))
+        : fallback
+}
+
+function normalizeSearchResultCount(value: unknown, fallback: number): number {
+    return typeof value === 'number' && Number.isFinite(value)
+        ? Math.max(1, Math.min(20, Math.floor(value)))
+        : fallback
+}
+
+function normalizeBraveSearchConfig(value: unknown): SearchRuntimeConfig['brave'] {
+    const env = getAppEnv()
+    const record = searchProviderRecord(value)
+    return {
+        enabled: typeof record.enabled === 'boolean' ? record.enabled : false,
+        envKey: null,
+        country: normalizeOptionalString(record.country),
+        searchLang: normalizeOptionalString(record.searchLang),
+        safeSearch: normalizeSearchSafeSearch(record.safeSearch),
+        timeoutMs: normalizeSearchTimeout(record.timeoutMs, env.search.timeoutMs),
+        resultCount: normalizeSearchResultCount(record.resultCount, env.search.defaultResultCount),
+    }
+}
+
+function normalizeBrowserbaseSearchConfig(value: unknown): SearchRuntimeConfig['browserbase'] {
+    const env = getAppEnv()
+    const record = searchProviderRecord(value)
+    return {
+        enabled: typeof record.enabled === 'boolean' ? record.enabled : false,
+        envKey: null,
+        timeoutMs: normalizeSearchTimeout(record.timeoutMs, env.search.timeoutMs),
+        resultCount: normalizeSearchResultCount(record.resultCount, env.search.defaultResultCount),
     }
 }
 
