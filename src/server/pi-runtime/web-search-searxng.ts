@@ -4,6 +4,9 @@ import {
     assertNonEmptyResults,
     fetchWithTimeout,
     normalizeHtmlText,
+    readResponseJsonWithTimeout,
+    readResponseTextWithTimeout,
+    remainingTimeoutMs,
     responseError,
     SearchProviderError,
     searchHeaders,
@@ -311,9 +314,11 @@ export class SearxngSearchProvider implements SearchProvider {
             })
         }
 
+        const jsonTimeoutMs = input.config.search.timeoutMs
+        const jsonStartedAt = Date.now()
         const jsonResponse = await fetchWithTimeout({
             providerId: this.id,
-            timeoutMs: input.config.search.timeoutMs,
+            timeoutMs: jsonTimeoutMs,
             signal: input.signal,
             url: buildSearxngSearchUrl({
                 config: input.config,
@@ -331,7 +336,12 @@ export class SearxngSearchProvider implements SearchProvider {
         })
         if (jsonResponse.ok) {
             const fetchedAt = new Date().toISOString()
-            const parsedJson: unknown = await jsonResponse.json()
+            const parsedJson = await readResponseJsonWithTimeout({
+                providerId: this.id,
+                response: jsonResponse,
+                timeoutMs: remainingTimeoutMs(jsonStartedAt, jsonTimeoutMs),
+                signal: input.signal,
+            })
             const results = parseSearxngResults(parsedJson, fetchedAt).slice(0, input.count)
             const unresponsiveEngines = parseSearxngUnresponsiveEngines(parsedJson)
             assertNonEmptyResults(this.id, results)
@@ -352,14 +362,18 @@ export class SearxngSearchProvider implements SearchProvider {
         const jsonError = await responseError({
             providerId: this.id,
             response: jsonResponse,
+            timeoutMs: remainingTimeoutMs(jsonStartedAt, jsonTimeoutMs),
+            signal: input.signal,
         })
         if (!shouldTryHtmlFallback(jsonResponse.status)) {
             throw jsonError
         }
 
+        const htmlTimeoutMs = input.config.search.timeoutMs
+        const htmlStartedAt = Date.now()
         const htmlResponse = await fetchWithTimeout({
             providerId: this.id,
-            timeoutMs: input.config.search.timeoutMs,
+            timeoutMs: htmlTimeoutMs,
             signal: input.signal,
             url: buildSearxngSearchUrl({
                 config: input.config,
@@ -378,6 +392,8 @@ export class SearxngSearchProvider implements SearchProvider {
             const htmlError = await responseError({
                 providerId: this.id,
                 response: htmlResponse,
+                timeoutMs: remainingTimeoutMs(htmlStartedAt, htmlTimeoutMs),
+                signal: input.signal,
             })
             throw new SearchProviderError({
                 code: htmlError.code,
@@ -388,7 +404,12 @@ export class SearxngSearchProvider implements SearchProvider {
             })
         }
         const parsed = await parseSearxngHtmlResults(
-            await htmlResponse.text(),
+            await readResponseTextWithTimeout({
+                providerId: this.id,
+                response: htmlResponse,
+                timeoutMs: remainingTimeoutMs(htmlStartedAt, htmlTimeoutMs),
+                signal: input.signal,
+            }),
             new Date().toISOString(),
         )
         const results = parsed.slice(0, input.count)

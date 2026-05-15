@@ -15,6 +15,7 @@ import {
     type SearchProviderSearchInput,
     type SearchProviderResponse,
 } from './web-search'
+import { BraveSearchProvider } from './web-search-brave'
 import { BrowserbaseSearchProvider } from './web-search-browserbase'
 import { SearchRouter } from './web-search-router'
 import { parseSearxngHtmlResults, searxngSearch } from './web-search-searxng'
@@ -297,6 +298,49 @@ describe('web tools', () => {
                 rank: 1,
             },
         ])
+    })
+
+    it('bounds provider response body stalls after headers arrive', async () => {
+        process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = 'brave-secret'
+        globalThis.fetch = (async () =>
+            ({
+                ok: true,
+                status: 200,
+                body: {
+                    getReader: () => ({
+                        read: () => new Promise(() => undefined),
+                        cancel: () => Promise.resolve(),
+                        releaseLock: () => undefined,
+                    }),
+                },
+            }) as unknown as Response) as typeof fetch
+        const provider = new BraveSearchProvider()
+        const startedAt = Date.now()
+
+        await expect(
+            provider.search({
+                config: createTestPiRuntimeConfig({
+                    search: {
+                        enabled: false,
+                        brave: {
+                            enabled: true,
+                            envKey: 'AGENT_ROOM_SEARCH_BRAVE_API_KEY',
+                            country: null,
+                            searchLang: null,
+                            safeSearch: 'moderate',
+                            timeoutMs: 20,
+                            resultCount: 5,
+                        },
+                    },
+                }),
+                query: 'stalled body',
+                count: 1,
+            }),
+        ).rejects.toMatchObject({
+            code: 'timeout',
+        })
+
+        expect(Date.now() - startedAt).toBeLessThan(500)
     })
 
     it('maps Browserbase browser-mediated extracted results into canonical search results', () => {

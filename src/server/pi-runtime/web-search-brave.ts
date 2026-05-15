@@ -4,6 +4,8 @@ import {
     fetchWithTimeout,
     isPublicHttpUrl,
     normalizeHtmlText,
+    readResponseJsonWithTimeout,
+    remainingTimeoutMs,
     responseError,
     SearchProviderError,
     type SearchProvider,
@@ -77,9 +79,11 @@ export class BraveSearchProvider implements SearchProvider {
             })
         }
 
+        const timeoutMs = input.config.search.brave.timeoutMs
+        const startedAt = Date.now()
         const response = await fetchWithTimeout({
             providerId: this.id,
-            timeoutMs: input.config.search.brave.timeoutMs,
+            timeoutMs,
             signal: input.signal,
             url: buildBraveSearchUrl(input),
             init: {
@@ -95,11 +99,18 @@ export class BraveSearchProvider implements SearchProvider {
             throw await responseError({
                 providerId: this.id,
                 response,
+                timeoutMs: remainingTimeoutMs(startedAt, timeoutMs),
+                signal: input.signal,
             })
         }
 
         const results = parseBraveSearchResults(
-            await response.json(),
+            await readResponseJsonWithTimeout({
+                providerId: this.id,
+                response,
+                timeoutMs: remainingTimeoutMs(startedAt, timeoutMs),
+                signal: input.signal,
+            }),
             new Date().toISOString(),
         ).slice(0, input.count)
         assertNonEmptyResults(this.id, results)

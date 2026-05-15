@@ -5,6 +5,8 @@ import {
     fetchWithTimeout,
     isPublicHttpUrl,
     normalizeHtmlText,
+    readResponseJsonWithTimeout,
+    remainingTimeoutMs,
     responseError,
     SearchProviderError,
     type SearchProvider,
@@ -108,6 +110,7 @@ async function createBrowserbaseSession(input: {
     timeoutMs: number
     signal?: AbortSignal
 }): Promise<BrowserbaseSessionRecord> {
+    const startedAt = Date.now()
     const response = await fetchWithTimeout({
         providerId: 'browserbase',
         timeoutMs: input.timeoutMs,
@@ -132,9 +135,16 @@ async function createBrowserbaseSession(input: {
         throw await responseError({
             providerId: 'browserbase',
             response,
+            timeoutMs: remainingTimeoutMs(startedAt, input.timeoutMs),
+            signal: input.signal,
         })
     }
-    const record: unknown = await response.json()
+    const record = await readResponseJsonWithTimeout({
+        providerId: 'browserbase',
+        response,
+        timeoutMs: remainingTimeoutMs(startedAt, input.timeoutMs),
+        signal: input.signal,
+    })
     if (
         !record ||
         typeof record !== 'object' ||

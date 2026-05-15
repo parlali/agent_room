@@ -145,10 +145,6 @@ export function searchHeaders(format: 'json' | 'html'): HeadersInit {
     }
 }
 
-async function responseText(response: Response): Promise<string> {
-    return response.text().catch(() => '')
-}
-
 function boundedResponseText(text: string): string {
     return normalizeHtmlText(text).slice(0, 160)
 }
@@ -156,13 +152,46 @@ function boundedResponseText(text: string): string {
 export async function responseError(input: {
     providerId: SearchProviderId
     response: Response
+    timeoutMs: number
+    signal?: AbortSignal
 }): Promise<SearchProviderError> {
-    const text = await responseText(input.response)
+    const statusError = classifySearchHttpStatus({
+        providerId: input.providerId,
+        status: input.response.status,
+    })
+    if (statusError) {
+        return statusError
+    }
+    const text = await readResponseTextWithTimeout({
+        providerId: input.providerId,
+        response: input.response,
+        timeoutMs: input.timeoutMs,
+        signal: input.signal,
+    })
     return classifySearchHttpError({
         providerId: input.providerId,
         status: input.response.status,
         text: boundedResponseText(text),
     })
+}
+
+function classifySearchHttpStatus(input: {
+    providerId: SearchProviderId
+    status: number
+}): SearchProviderError | null {
+    if (input.status === 429) {
+        return httpSearchError(input.providerId, 'rate_limited', input.status, false)
+    }
+    if (input.status === 408 || input.status === 504) {
+        return httpSearchError(input.providerId, 'timeout', input.status, true)
+    }
+    if (input.status === 401) {
+        return httpSearchError(input.providerId, 'misconfigured', input.status, false)
+    }
+    if (input.status === 402) {
+        return httpSearchError(input.providerId, 'blocked', input.status, false)
+    }
+    return null
 }
 
 function classifySearchHttpError(input: {
@@ -225,11 +254,103 @@ function searchErrorMessage(
     return `${providerId} search ${code.replaceAll('_', ' ')}${statusText}`
 }
 
+function responseBodyTimeoutError(providerId: SearchProviderId): SearchProviderError {
+    return new SearchProviderError({
+        code: 'timeout',
+        providerId,
+        retryable: true,
+        message: `${providerId} search response body timed out`,
+    })
+}
+
 function isAbortError(error: unknown): boolean {
     if (!error || typeof error !== 'object') {
         return false
     }
     return String((error as { name?: unknown }).name ?? '').toLowerCase() === 'aborterror'
+}
+
+export async function readResponseTextWithTimeout(input: {
+    providerId: SearchProviderId
+    response: Response
+    timeoutMs: number
+    signal?: AbortSignal
+}): Promise<string> {
+    const body = input.response.body
+    if (!body) {
+        return ''
+    }
+    const reader = body.getReader()
+    const decoder = new TextDecoder()
+    let timeout: ReturnType<typeof setTimeout> | null = null
+    let rejectAbort: ((error: SearchProviderError) => void) | null = null
+    let aborted = false
+    const abortPromise = new Promise<never>((_resolve, reject) => {
+        rejectAbort = reject
+    })
+    const abort = () => {
+        if (aborted) return
+        aborted = true
+        const error = responseBodyTimeoutError(input.providerId)
+        reader.cancel().catch(() => undefined)
+        rejectAbort?.(error)
+    }
+    timeout = setTimeout(abort, input.timeoutMs)
+    timeout.unref?.()
+    input.signal?.addEventListener('abort', abort, { once: true })
+    if (input.signal?.aborted) {
+        abort()
+    }
+
+    try {
+        let text = ''
+        while (true) {
+            const chunk = await Promise.race([reader.read(), abortPromise])
+            if (chunk.done) {
+                break
+            }
+            text += decoder.decode(chunk.value, { stream: true })
+        }
+        text += decoder.decode()
+        return text
+    } catch (error) {
+        if (error instanceof SearchProviderError) {
+            throw error
+        }
+        throw new SearchProviderError({
+            code: 'bad_response',
+            providerId: input.providerId,
+            retryable: true,
+            message: `${input.providerId} search response body failed`,
+        })
+    } finally {
+        input.signal?.removeEventListener('abort', abort)
+        if (timeout) {
+            clearTimeout(timeout)
+        }
+        try {
+            reader.releaseLock()
+        } catch {}
+    }
+}
+
+export async function readResponseJsonWithTimeout(input: {
+    providerId: SearchProviderId
+    response: Response
+    timeoutMs: number
+    signal?: AbortSignal
+}): Promise<unknown> {
+    const text = await readResponseTextWithTimeout(input)
+    try {
+        return JSON.parse(text)
+    } catch {
+        throw new SearchProviderError({
+            code: 'bad_response',
+            providerId: input.providerId,
+            retryable: true,
+            message: `${input.providerId} search returned invalid JSON`,
+        })
+    }
 }
 
 export async function fetchWithTimeout(input: {
@@ -271,6 +392,10 @@ export async function fetchWithTimeout(input: {
         input.signal?.removeEventListener('abort', abort)
         clearTimeout(timeout)
     }
+}
+
+export function remainingTimeoutMs(startedAt: number, timeoutMs: number): number {
+    return Math.max(1, timeoutMs - (Date.now() - startedAt))
 }
 
 export function assertNonEmptyResults(
