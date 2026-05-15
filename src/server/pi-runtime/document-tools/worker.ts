@@ -1,24 +1,22 @@
 import { spawn } from 'node:child_process'
-import { mkdtemp, rename, rm } from 'node:fs/promises'
-import { basename, dirname, extname, join } from 'node:path'
 import type { PiRuntimeConfig } from '../../rooms/pi-runtime-config'
 import { buildBoundedProcessEnv } from '../../security/process-env'
 import {
-    ensureShellWritableDirectory,
     ensureShellWritableFile,
     resolveShellSandboxIdentity,
     type ShellSandboxIdentity,
 } from '../shell-sandbox'
 import type { DocumentToolContext } from './types'
-import { assertExists } from './paths'
 
-async function runWorker(input: {
+export async function runDocumentWorker(input: {
     config: PiRuntimeConfig
     command: string
     args: string[]
     cwd: string
     timeoutMs: number
     signal?: AbortSignal
+    outputLimitBytes?: number
+    outputMode?: 'head' | 'tail'
 }): Promise<string> {
     return await new Promise((resolvePromise, reject) => {
         let settled = false
@@ -77,7 +75,9 @@ async function runWorker(input: {
             finish(new Error(`${input.command} aborted`))
         }
         const append = (chunk: Buffer) => {
-            output = `${output}${chunk.toString('utf8')}`.slice(-12000)
+            const limit = input.outputLimitBytes ?? 12000
+            const next = `${output}${chunk.toString('utf8')}`
+            output = input.outputMode === 'head' ? next.slice(0, limit) : next.slice(-limit)
         }
         timer = setTimeout(() => {
             terminateWithEscalation()
@@ -106,51 +106,13 @@ function currentWorkerSandboxIdentity(): ShellSandboxIdentity {
     })
 }
 
-export async function exportOfficeToPdf(
-    ctx: DocumentToolContext,
-    inputPath: string,
-    outputPath: string,
-    signal?: AbortSignal,
-): Promise<void> {
-    await assertExists(inputPath)
-    const tempDir = await mkdtemp(join(ctx.config.paths.tmpDir, 'office-export-'))
-    try {
-        await runWorker({
-            config: ctx.config,
-            command: 'soffice',
-            args: [
-                '--headless',
-                '--nologo',
-                '--nofirststartwizard',
-                '--convert-to',
-                'pdf',
-                '--outdir',
-                tempDir,
-                inputPath,
-            ],
-            cwd: ctx.config.paths.workspaceDir,
-            timeoutMs: ctx.config.budgets.documentWorkerMs,
-            signal,
-        })
-        const generatedPath = join(tempDir, `${basename(inputPath, extname(inputPath))}.pdf`)
-        await ensureShellWritableDirectory(dirname(outputPath))
-        await rename(generatedPath, outputPath)
-        await ensureShellWritableFile(outputPath)
-    } finally {
-        await rm(tempDir, {
-            recursive: true,
-            force: true,
-        })
-    }
-}
-
 export async function renderPdfPreview(
     ctx: DocumentToolContext,
     inputPath: string,
     outputPath: string,
     signal?: AbortSignal,
 ): Promise<void> {
-    await runWorker({
+    await runDocumentWorker({
         config: ctx.config,
         command: 'pdftoppm',
         args: ['-png', '-f', '1', '-singlefile', inputPath, outputPath.replace(/\.png$/i, '')],

@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import { describe, expect, it } from 'vitest'
+import { PDFDocument } from 'pdf-lib'
 import { formatMessageWithAttachments, type RoomAttachment } from '#/lib/room-attachments'
 import {
     displayTextWithPromptAttachments,
@@ -34,6 +35,21 @@ function model(input: Array<'text' | 'image'>): Model<Api> {
         contextWindow: 128000,
         maxTokens: 4096,
     }
+}
+
+function anthropicModel(input: Array<'text' | 'image'>): Model<Api> {
+    return {
+        ...model(input),
+        provider: 'anthropic',
+        api: 'anthropic-messages',
+        id: 'claude-sonnet-4-20250514',
+    }
+}
+
+async function pdfBytes(): Promise<Buffer> {
+    const pdf = await PDFDocument.create()
+    pdf.addPage([200, 200])
+    return Buffer.from(await pdf.save())
 }
 
 async function withConfig<T>(fn: (root: string) => Promise<T>): Promise<T> {
@@ -110,7 +126,7 @@ describe('prompt attachments', () => {
         })
     })
 
-    it('keeps non-image uploads as room-local file references', async () => {
+    it('materializes PDFs as rendered page images for non-Anthropic vision models', async () => {
         await withConfig(async (root) => {
             const config = createTestPiRuntimeConfig({ root })
             await ensureTestPiRuntimeDirectories(config)
@@ -118,7 +134,7 @@ describe('prompt attachments', () => {
             await mkdir(join(config.paths.storeDir, 'attachments/session'), {
                 recursive: true,
             })
-            await writeFile(join(config.paths.storeDir, relativePath), Buffer.from('%PDF-1.7'))
+            await writeFile(join(config.paths.storeDir, relativePath), await pdfBytes())
 
             const prepared = await preparePromptWithAttachments({
                 config,
@@ -129,15 +145,91 @@ describe('prompt attachments', () => {
                         byteLength: 8,
                     },
                 ]),
+                renderPdfPageImages: async () => [
+                    {
+                        type: 'image',
+                        data: pngBytes.toString('base64'),
+                        mimeType: 'image/png',
+                    },
+                ],
+            })
+
+            expect(prepared.images).toHaveLength(1)
+            expect(prepared.images?.[0]?.mimeType).toBe('image/png')
+            expect(prepared.text).toContain('provided as rendered PDF page images')
+            expect(prepared.metadata?.ingestions[0]).toMatchObject({
+                ingestionMode: 'image_render',
+                pages: 'all pages',
+                inputBlocks: 1,
+            })
+        })
+    })
+
+    it('materializes PDFs as native documents for Anthropic rooms', async () => {
+        await withConfig(async (root) => {
+            const config = createTestPiRuntimeConfig({ root })
+            config.provider.sourceProvider = 'anthropic'
+            config.provider.api = 'anthropic-messages'
+            await ensureTestPiRuntimeDirectories(config)
+            const relativePath = 'attachments/session/spec.pdf'
+            const bytes = await pdfBytes()
+            await mkdir(join(config.paths.storeDir, 'attachments/session'), {
+                recursive: true,
+            })
+            await writeFile(join(config.paths.storeDir, relativePath), bytes)
+
+            const prepared = await preparePromptWithAttachments({
+                config,
+                model: anthropicModel(['text', 'image']),
+                message: formatMessageWithAttachments('Read this', [
+                    {
+                        ...attachment(relativePath, 'spec.pdf'),
+                        byteLength: bytes.byteLength,
+                    },
+                ]),
+            })
+
+            expect(prepared.images).toHaveLength(1)
+            expect(prepared.images?.[0]?.mimeType).toBe('application/pdf')
+            expect(prepared.text).toContain('provided as native PDF document input')
+            expect(prepared.metadata?.ingestions[0]).toMatchObject({
+                ingestionMode: 'native_document',
+                pages: 'all pages',
+                inputBlocks: 1,
+            })
+        })
+    })
+
+    it('records unsupported PDF ingestion when no native or vision path is available', async () => {
+        await withConfig(async (root) => {
+            const config = createTestPiRuntimeConfig({ root })
+            await ensureTestPiRuntimeDirectories(config)
+            const relativePath = 'attachments/session/spec.pdf'
+            await mkdir(join(config.paths.storeDir, 'attachments/session'), {
+                recursive: true,
+            })
+            await writeFile(join(config.paths.storeDir, relativePath), await pdfBytes())
+
+            const prepared = await preparePromptWithAttachments({
+                config,
+                model: model(['text']),
+                message: formatMessageWithAttachments('Read this', [
+                    {
+                        ...attachment(relativePath, 'spec.pdf'),
+                        byteLength: 8,
+                    },
+                ]),
             })
 
             expect(prepared.images).toHaveLength(0)
-            expect(prepared.text).toContain('File attachment 1: spec.pdf')
-            expect(prepared.text).toContain('available as room-local file')
-            expect(prepared.text).toContain('root=store path="attachments/session/spec.pdf"')
-            expect(prepared.text).toContain(
-                'shellPath="$AGENT_ROOM_STORE_DIR/attachments/session/spec.pdf"',
-            )
+            expect(prepared.text).toContain('PDF content was not provided to the model')
+            expect(prepared.text).toContain('unsupported')
+            expect(prepared.metadata?.ingestions[0]).toMatchObject({
+                ingestionMode: 'unsupported',
+                pages: 'all pages',
+                inputBlocks: 0,
+                degraded: true,
+            })
         })
     })
 
@@ -167,6 +259,7 @@ describe('prompt attachments', () => {
         const metadata = {
             text: 'Look at this',
             attachments: [attachment('attachments/session/image.png')],
+            ingestions: [],
         }
         const map = promptAttachmentMetadataByEntryId([
             {

@@ -90,7 +90,9 @@ describe('Agent Room Pi system prompt', () => {
             expect(prompt).toContain('Keep the workspace reviewable for non-developers')
             expect(prompt).toContain('omitted previews are temporary internal verification only')
             expect(prompt).toContain('Attached images are provided as direct visual input')
-            expect(prompt).toContain('Attached non-image files are room-local file references')
+            expect(prompt).toContain(
+                'Attached non-image, non-PDF files are room-local file references',
+            )
             expect(prompt).not.toContain('Do not use shell commands, document tools')
             expect(prompt).toContain('Room memory harness')
             expect(prompt).not.toContain('memory.md')

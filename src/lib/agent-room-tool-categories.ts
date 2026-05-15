@@ -8,9 +8,6 @@ export type AgentRoomToolCategory =
     | 'command'
     | 'research_search'
     | 'research_fetch'
-    | 'document_docx'
-    | 'document_xlsx'
-    | 'document_pptx'
     | 'document_pdf'
     | 'image'
     | 'subagent'
@@ -47,10 +44,9 @@ export function categorizeAgentRoomTool(name: string | null): AgentRoomToolCateg
     }
     if (name === 'agent_room_web_search') return 'research_search'
     if (name === 'agent_room_fetch_url') return 'research_fetch'
-    if (name === 'agent_room_docx') return 'document_docx'
-    if (name === 'agent_room_xlsx') return 'document_xlsx'
-    if (name === 'agent_room_pptx') return 'document_pptx'
-    if (name === 'agent_room_pdf') return 'document_pdf'
+    if (name === 'agent_room_pdf' || name === 'agent_room_read_pdf') {
+        return 'document_pdf'
+    }
     if (name === 'agent_room_image_generate') return 'image'
     if (name === 'agent_room_subagent') return 'subagent'
     if (name === 'agent_room_deep_work') return 'deep_work'

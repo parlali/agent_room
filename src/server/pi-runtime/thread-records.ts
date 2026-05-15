@@ -4,6 +4,14 @@ export type ThreadKind = 'main' | 'subagent' | 'deep_work'
 export type ThreadTitleSource = 'initial' | 'generated' | 'manual'
 export type ThreadRunKind = RunKind
 
+export interface PendingUserMessageRecord {
+    messageId: string
+    runId: string
+    runKind: ThreadRunKind
+    text: string
+    queuedAt: number
+}
+
 export interface ThreadRecord {
     key: string
     sessionFile: string
@@ -35,6 +43,7 @@ export interface ThreadRecord {
     deepWorkRunId: string | null
     deepWorkObjective: string | null
     completedAt: number | null
+    pendingUserMessages?: PendingUserMessageRecord[]
 }
 
 export interface ThreadIndexFile {
@@ -107,6 +116,7 @@ export function normalizeThreadRecord(
         deepWorkRunId: record.deepWorkRunId ?? null,
         deepWorkObjective: record.deepWorkObjective ?? null,
         completedAt: record.completedAt ?? null,
+        pendingUserMessages: normalizePendingUserMessages(record.pendingUserMessages),
     }
 }
 
@@ -133,4 +143,43 @@ export function threadAgentId(record: ThreadRecord): string {
         return deepWorkAgentId(record)
     }
     return 'main'
+}
+
+function normalizePendingUserMessages(value: unknown): PendingUserMessageRecord[] {
+    if (!Array.isArray(value)) return []
+    return value.flatMap((item): PendingUserMessageRecord[] => {
+        if (!item || typeof item !== 'object') return []
+        const record = item as Partial<PendingUserMessageRecord>
+        const legacyRecord = item as Partial<PendingUserMessageRecord> & { id?: unknown }
+        const messageId =
+            typeof record.messageId === 'string'
+                ? record.messageId
+                : typeof legacyRecord.id === 'string'
+                  ? legacyRecord.id
+                  : null
+        if (
+            typeof messageId !== 'string' ||
+            typeof record.runId !== 'string' ||
+            typeof record.text !== 'string' ||
+            typeof record.queuedAt !== 'number' ||
+            !Number.isFinite(record.queuedAt)
+        ) {
+            return []
+        }
+        return [
+            {
+                messageId,
+                runId: record.runId,
+                runKind:
+                    record.runKind === 'scheduled' ||
+                    record.runKind === 'subagent' ||
+                    record.runKind === 'deep_work' ||
+                    record.runKind === 'maintenance'
+                        ? record.runKind
+                        : 'manual',
+                text: record.text,
+                queuedAt: record.queuedAt,
+            },
+        ]
+    })
 }

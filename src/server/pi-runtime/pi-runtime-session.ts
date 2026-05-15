@@ -20,6 +20,7 @@ import { createDocumentTools } from './document-tools'
 import { createImageTools } from './image-tools'
 import { createSubagentTool } from './subagent-tool'
 import { createDeepWorkTool } from './deep-work-tool'
+import { rewriteNativePdfPayload } from './pdf-document-payload'
 import type { ThreadKind, ThreadRecord } from './thread-records'
 import type { RunKind } from './run-budget'
 
@@ -184,6 +185,19 @@ export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Prom
         tools: customTools.map((tool) => tool.name),
         customTools,
     })
+    session.agent.onPayload = async (payload, model) => {
+        const rewritten = rewriteNativePdfPayload(payload)
+        if (rewritten.count > 0) {
+            await input.audit('attachment.pdf_native_payload_mapped', {
+                provider: config.provider.sourceProvider,
+                model: config.provider.sourceModel,
+                piProvider: model.provider,
+                piModel: model.id,
+                documentBlocks: rewritten.count,
+            })
+        }
+        return rewritten.payload
+    }
     session.setAutoCompactionEnabled(config.compaction.enabled)
     session.setAutoRetryEnabled(false)
     return session

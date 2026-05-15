@@ -4,7 +4,7 @@ import { createRunTranscriptRow } from '#/lib/message-list-model'
 import { emptyRuntimePart } from '#/lib/runtime-message'
 import type { ChatTimelineRow, RoomSessionDisplayRow } from '#/lib/room-execution-types'
 
-import { buildTimelineRows } from './message-list'
+import { buildTimelineRows, timelineRowKey } from './message-list'
 import { emptyStreamTurnState, type StreamTurnState } from './stream-state'
 
 describe('message list stream merge', () => {
@@ -55,6 +55,112 @@ describe('message list stream merge', () => {
 
         expect(rows.map((row) => row.id)).toEqual(['old-final', 'live-final'])
     })
+
+    it('keeps queued pending user rows visible while an earlier run streams', () => {
+        const persistedRows: RoomSessionDisplayRow[] = [
+            userRow('user-1', 1),
+            createRunTranscriptRow({
+                id: 'run-transcript-static',
+                seq: 1,
+                runId: 'static',
+                status: 'working',
+                startedAt: 2,
+                runtimeMs: null,
+                collapsed: false,
+                timestamp: 2,
+                items: [],
+            }),
+            pendingUserRow('pending-user-run-2', 5),
+            {
+                ...createRunTranscriptRow({
+                    id: 'pending-run-run-2',
+                    seq: 3,
+                    runId: 'run-2',
+                    status: 'queued',
+                    startedAt: 5,
+                    runtimeMs: null,
+                    collapsed: false,
+                    timestamp: 5,
+                    items: [],
+                }),
+                pending: true,
+            },
+        ]
+        const stream = streamState([
+            createRunTranscriptRow({
+                id: 'run-transcript-live',
+                seq: 1,
+                runId: 'live',
+                status: 'working',
+                startedAt: 2,
+                runtimeMs: null,
+                collapsed: false,
+                timestamp: 4,
+                items: [],
+            }),
+        ])
+
+        const rows = buildTimelineRows(persistedRows, stream, true, 'session-1')
+
+        expect(rows.map((row) => row.id)).toEqual([
+            'user-1',
+            'run-transcript-live',
+            'pending-user-run-2',
+            'pending-run-run-2',
+        ])
+    })
+
+    it('keeps queued rows visible by pending metadata instead of id prefix', () => {
+        const persistedRows: RoomSessionDisplayRow[] = [
+            userRow('user-1', 1),
+            pendingUserRow('stable-user-message', 5),
+            {
+                ...createRunTranscriptRow({
+                    id: 'stable-run-row',
+                    seq: 2,
+                    runId: 'run-2',
+                    status: 'queued',
+                    startedAt: 5,
+                    runtimeMs: null,
+                    collapsed: false,
+                    timestamp: 5,
+                    items: [],
+                }),
+                pending: true,
+            },
+        ]
+        const stream = streamState([
+            createRunTranscriptRow({
+                id: 'run-transcript-live',
+                seq: 1,
+                runId: 'live',
+                status: 'working',
+                startedAt: 2,
+                runtimeMs: null,
+                collapsed: false,
+                timestamp: 4,
+                items: [],
+            }),
+        ])
+
+        const rows = buildTimelineRows(persistedRows, stream, true, 'session-1')
+
+        expect(rows.map((row) => row.id)).toEqual([
+            'user-1',
+            'run-transcript-live',
+            'stable-user-message',
+            'stable-run-row',
+        ])
+    })
+
+    it('scopes virtual row keys to the session', () => {
+        expect(timelineRowKey('session-1', assistantFinalRow('same-row', 'A', 1), 0)).toBe(
+            'session-1:same-row',
+        )
+        expect(timelineRowKey('session-2', assistantFinalRow('same-row', 'A', 1), 0)).toBe(
+            'session-2:same-row',
+        )
+    })
 })
 
 function streamState(rows: ChatTimelineRow[]): StreamTurnState {
@@ -86,6 +192,25 @@ function userRow(id: string, timestamp: number): RoomSessionDisplayRow {
                 }),
             ],
             timestamp,
+        },
+    }
+}
+
+function pendingUserRow(id: string, timestamp: number): RoomSessionDisplayRow {
+    const row = userRow(id, timestamp) as Extract<
+        RoomSessionDisplayRow,
+        {
+            type: 'user_message'
+        }
+    >
+    return {
+        ...row,
+        id,
+        pending: true,
+        message: {
+            ...row.message,
+            id,
+            text: 'Queued follow-up',
         },
     }
 }

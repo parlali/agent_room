@@ -1,18 +1,9 @@
-import { mkdtemp, rm } from 'node:fs/promises'
-import { basename, join, relative } from 'node:path'
 import type { AgentToolResult } from '@mariozechner/pi-coding-agent'
 import { textToolResult } from '../tool-helpers'
 import { promoteArtifact } from './artifacts'
-import { mediaTypeFor, writableInternalPreviewPath, writableWorkspacePath } from './paths'
-import type {
-    DocumentToolContext,
-    DocumentToolDetails,
-    OfficeExportFormat,
-    OfficeExportOperation,
-} from './types'
+import { mediaTypeFor } from './paths'
+import type { DocumentToolContext, DocumentToolDetails } from './types'
 import type { ToolRoot } from '../room-tools/shared'
-import { officeExportFormats } from './types'
-import { exportOfficeToPdf, renderPdfPreview } from './worker'
 
 export async function completeOperation(
     ctx: DocumentToolContext,
@@ -48,75 +39,5 @@ export async function completeOperation(
         byteLength: artifact?.byteLength,
         durationMs,
         mediaType: input.mediaPath ? mediaTypeFor(input.mediaPath) : undefined,
-    })
-}
-
-export async function completeOfficeExportOrPreview(
-    ctx: DocumentToolContext,
-    input: {
-        sourcePath: string
-        requestedPath: string
-        sourceRoot?: ToolRoot
-        outputPath?: string
-        format: OfficeExportFormat
-        operation: OfficeExportOperation
-        startedAt: number
-        signal?: AbortSignal
-    },
-): Promise<AgentToolResult<DocumentToolDetails>> {
-    const format = officeExportFormats[input.format]
-    if (input.operation === 'preview') {
-        const hiddenPreview = !input.outputPath
-        const previewPath = input.outputPath
-            ? await writableWorkspacePath(ctx.config, input.outputPath)
-            : await writableInternalPreviewPath(ctx.config, input.requestedPath, 'png')
-        const tempDir = await mkdtemp(join(ctx.config.paths.tmpDir, 'office-preview-'))
-        try {
-            const pdfPath = join(tempDir, 'preview.pdf')
-            await exportOfficeToPdf(ctx, input.sourcePath, pdfPath, input.signal)
-            await renderPdfPreview(ctx, pdfPath, previewPath, input.signal)
-            const visiblePath = input.outputPath
-                ? relative(ctx.config.paths.workspaceDir, previewPath)
-                : null
-            return completeOperation(ctx, {
-                path: previewPath,
-                format: input.format,
-                operation: input.operation,
-                startedAt: input.startedAt,
-                message: visiblePath
-                    ? `Rendered ${format.label} preview ${visiblePath}`
-                    : `Verified ${format.label} preview rendering internally`,
-                mediaPath: hiddenPreview ? undefined : previewPath,
-                auditPath: hiddenPreview ? 'internal-preview' : undefined,
-                displayPath: visiblePath ?? 'internal-preview',
-            })
-        } finally {
-            await rm(tempDir, {
-                recursive: true,
-                force: true,
-            })
-            if (hiddenPreview) {
-                await rm(previewPath, {
-                    force: true,
-                })
-            }
-        }
-    }
-    const defaultOutputPath =
-        input.sourceRoot === 'store'
-            ? `${basename(input.requestedPath).replace(format.extensionPattern, '')}.pdf`
-            : `${input.requestedPath.replace(format.extensionPattern, '')}.pdf`
-    const outputPath = await writableWorkspacePath(
-        ctx.config,
-        input.outputPath ?? defaultOutputPath,
-    )
-    await exportOfficeToPdf(ctx, input.sourcePath, outputPath, input.signal)
-    return completeOperation(ctx, {
-        path: outputPath,
-        format: input.format,
-        operation: input.operation,
-        startedAt: input.startedAt,
-        message: `Exported ${format.label} PDF ${relative(ctx.config.paths.workspaceDir, outputPath)}`,
-        mediaPath: outputPath,
     })
 }

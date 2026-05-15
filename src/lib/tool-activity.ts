@@ -80,21 +80,6 @@ const TOOL_COPY: Record<Exclude<AgentRoomToolCategory, 'other'>, ToolCopy> = {
         action: 'read',
         completeResult: 'Page content was provided to the agent',
     },
-    document_docx: {
-        title: 'Worked on a document',
-        action: 'edited',
-        completeResult: 'Document work completed',
-    },
-    document_xlsx: {
-        title: 'Worked on a spreadsheet',
-        action: 'edited',
-        completeResult: 'Spreadsheet work completed',
-    },
-    document_pptx: {
-        title: 'Worked on a presentation',
-        action: 'edited',
-        completeResult: 'Presentation work completed',
-    },
     document_pdf: {
         title: 'Prepared a PDF',
         action: 'created',

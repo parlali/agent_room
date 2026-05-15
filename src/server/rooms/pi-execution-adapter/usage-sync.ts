@@ -55,12 +55,7 @@ function usageKindForRuntimeEvent(event: string): UsageEventKind | null {
     if (event === 'tool.image_generate') {
         return 'image'
     }
-    if (
-        event === 'tool.docx' ||
-        event === 'tool.xlsx' ||
-        event === 'tool.pptx' ||
-        event === 'tool.pdf'
-    ) {
+    if (event === 'tool.pdf') {
         return 'document_worker'
     }
     return 'tool'

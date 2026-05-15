@@ -58,6 +58,7 @@ import { createRuntimeModelState } from './runtime-model-state'
 import { cleanManualThreadTitle, createThreadTitleGenerator } from './runtime-title-generator'
 import { promptAttachmentMetadataByEntryId } from './prompt-attachments'
 import { createSessionEventQueue } from './session-event-queue'
+import { removeDeliveredPendingUserMessage } from './pending-user-messages'
 
 const configPath = process.env.AGENT_ROOM_PI_RUNTIME_CONFIG_PATH
 if (!configPath) {
@@ -411,36 +412,49 @@ function logSessionEventError(error: unknown, event: AgentSessionEvent): void {
 async function handleSessionEvent(record: ThreadRecord, event: AgentSessionEvent): Promise<void> {
     const active = activeThreads.get(record.key)
     await active?.touchRunHeartbeat?.(event.type)
+    const deliveredPending = removeDeliveredPendingUserMessage(record, event)
+    const pendingChanged = deliveredPending.changed
+    const eventForLog = deliveredPending.event
     updateThreadFromMessages(record)
-    if (event.type === 'agent_start' || event.type === 'turn_start') {
+    if (eventForLog.type === 'agent_start' || eventForLog.type === 'turn_start') {
         record.status = 'running'
     }
-    if (event.type === 'compaction_start') {
+    if (eventForLog.type === 'compaction_start') {
         record.status = 'compacting'
     }
-    if (event.type === 'compaction_end') {
-        record.status = event.errorMessage
+    if (eventForLog.type === 'compaction_end') {
+        record.status = eventForLog.errorMessage
             ? 'error'
             : active?.session.isStreaming || active?.session.isCompacting
               ? 'running'
               : 'idle'
-        record.lastError = event.errorMessage ? redactString(event.errorMessage) : null
+        record.lastError = eventForLog.errorMessage ? redactString(eventForLog.errorMessage) : null
     }
-    if (event.type === 'agent_end') {
+    if (eventForLog.type === 'agent_end') {
         const latestError = latestAssistantErrorMessage(record)
         record.status = latestError ? 'error' : 'idle'
         record.lastError = latestError
         record.activeRunId = null
     }
     await persistThreadIndex()
-    await appendRuntimeEvent(event.type, {
+    await appendRuntimeEvent(eventForLog.type, {
         sessionKey: record.key,
-        event,
+        event: eventForLog,
     })
-    broadcast(record.key, event.type, {
+    broadcast(record.key, eventForLog.type, {
         sessionKey: record.key,
-        event,
+        event: eventForLog,
     })
+    if (pendingChanged) {
+        await appendRuntimeEvent('thread.pending_messages_changed', {
+            sessionKey: record.key,
+            pendingCount: record.pendingUserMessages?.length ?? 0,
+        })
+        broadcast(record.key, 'thread.pending_messages_changed', {
+            sessionKey: record.key,
+            pendingCount: record.pendingUserMessages?.length ?? 0,
+        })
+    }
 }
 
 function findThread(key: string): ThreadRecord | null {

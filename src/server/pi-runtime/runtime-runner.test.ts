@@ -66,6 +66,10 @@ function fakeActiveThread(input: {
         getBranch: () => input.entries,
         getEntries: () => input.entries,
         getEntry: () => null,
+        appendMessage: (message: Record<string, unknown>) => {
+            input.entries.push(messageEntry(message))
+            return input.entries[input.entries.length - 1]!.id
+        },
         appendCustomEntry: () => {},
     }
     return {
@@ -139,6 +143,132 @@ function createRunner(input: {
 }
 
 describe('runtime runner memory capture audit', () => {
+    it('persists a pending user turn as soon as an async run is queued', async () => {
+        await withConfig(async ({ config, root }) => {
+            const record = threadRecord(root)
+            const entries: SessionEntry[] = []
+            const active = fakeActiveThread({
+                entries,
+                prompt: async () => {},
+            })
+            active.queue = new Promise(() => {})
+            const events: Array<{ event: string; payload: unknown }> = []
+            const runPrompt = createRunner({
+                config,
+                record,
+                active,
+                events,
+            })
+
+            await runPrompt({
+                record,
+                message: 'Continue with the next check',
+                runId: 'run-pending',
+                awaitCompletion: false,
+            })
+
+            expect(record.pendingUserMessages).toEqual([
+                expect.objectContaining({
+                    messageId: 'run-pending',
+                    runId: 'run-pending',
+                    text: 'Continue with the next check',
+                }),
+            ])
+        })
+    })
+
+    it('persists a visible assistant error when the provider rejects a run', async () => {
+        await withConfig(async ({ config, root }) => {
+            const record = threadRecord(root)
+            const entries: SessionEntry[] = []
+            const active = fakeActiveThread({
+                entries,
+                prompt: async () => {
+                    throw new Error('Codex error: cyber_policy rejected the request')
+                },
+            })
+            const events: Array<{ event: string; payload: unknown }> = []
+            const runPrompt = createRunner({
+                config,
+                record,
+                active,
+                events,
+            })
+
+            await runPrompt({
+                record,
+                message: 'Review this defensive finding',
+                runId: 'run-rejected',
+                awaitCompletion: true,
+            })
+
+            const assistant = entries
+                .map((entry) => (entry.type === 'message' ? entry.message : null))
+                .find((message) => message?.role === 'assistant') as
+                | Record<string, unknown>
+                | undefined
+
+            expect(record.status).toBe('error')
+            expect(record.pendingUserMessages).toEqual([])
+            expect(assistant).toMatchObject({
+                role: 'assistant',
+                stopReason: 'error',
+                errorMessage: 'Codex error: cyber_policy rejected the request',
+            })
+            expect(JSON.stringify(assistant?.content)).toContain('safety policy')
+        })
+    })
+
+    it('persists a new provider rejection after an older assistant error', async () => {
+        await withConfig(async ({ config, root }) => {
+            const record = threadRecord(root)
+            const entries: SessionEntry[] = [
+                messageEntry({
+                    role: 'assistant',
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'Previous provider error',
+                        },
+                    ],
+                    stopReason: 'error',
+                    errorMessage: 'Previous provider error',
+                }),
+            ]
+            const active = fakeActiveThread({
+                entries,
+                prompt: async () => {
+                    throw new Error('Codex error: cyber_policy rejected the follow-up')
+                },
+            })
+            const events: Array<{ event: string; payload: unknown }> = []
+            const runPrompt = createRunner({
+                config,
+                record,
+                active,
+                events,
+            })
+
+            await runPrompt({
+                record,
+                message: 'Continue with the authorized review',
+                runId: 'run-rejected-again',
+                awaitCompletion: true,
+            })
+
+            const assistantErrors = entries
+                .map((entry) => (entry.type === 'message' ? entry.message : null))
+                .filter(
+                    (message) => message?.role === 'assistant' && message.stopReason === 'error',
+                )
+
+            expect(assistantErrors).toHaveLength(2)
+            expect(assistantErrors.at(-1)).toMatchObject({
+                errorMessage: 'Codex error: cyber_policy rejected the follow-up',
+            })
+        })
+    })
+
     it('classifies substantive tool activity without storing tool arguments', () => {
         const counts = summarizeRunToolActivity([
             assistantToolEntry([

@@ -12,8 +12,8 @@ import {
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
-import { strFromU8, unzipSync } from 'fflate'
-import * as XLSX from 'xlsx'
+import { PDFDocument } from 'pdf-lib'
+import type { Api, Model } from '@mariozechner/pi-ai'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { __testing, createRoomTools, roomToolNamesForCapabilities } from './room-tools'
 import { createDocumentTools } from './document-tools'
@@ -78,6 +78,7 @@ async function executeDocumentTool(
     name: string,
     input: object,
     signal?: AbortSignal,
+    toolContext: object = {},
 ) {
     const events: Array<{ event: string; payload: unknown }> = []
     const tools = createDocumentTools({
@@ -90,11 +91,56 @@ async function executeDocumentTool(
     if (!tool) {
         throw new Error(`Missing tool ${name}`)
     }
-    const result = await tool.execute('call-1', input as never, signal, undefined, {} as never)
+    const result = await tool.execute(
+        'call-1',
+        input as never,
+        signal,
+        undefined,
+        toolContext as never,
+    )
     return {
         result,
         events,
     }
+}
+
+function model(input: Array<'text' | 'image'>, overrides: Partial<Model<Api>> = {}): Model<Api> {
+    return {
+        id: 'test-model',
+        name: 'Test Model',
+        provider: 'openai',
+        api: 'openai-responses',
+        baseUrl: 'https://example.test',
+        reasoning: false,
+        input,
+        cost: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+        },
+        contextWindow: 128000,
+        maxTokens: 4096,
+        ...overrides,
+    }
+}
+
+function anthropicModel(): Model<Api> {
+    return model(['text', 'image'], {
+        id: 'claude-sonnet-4-20250514',
+        provider: 'anthropic',
+        api: 'anthropic-messages',
+    })
+}
+
+async function writePdfFixture(path: string, pageCount: number): Promise<Buffer> {
+    const pdf = await PDFDocument.create()
+    for (let page = 0; page < pageCount; page += 1) {
+        pdf.addPage([200, 200])
+    }
+    const bytes = Buffer.from(await pdf.save())
+    await writeFile(path, bytes)
+    return bytes
 }
 
 function resultText(result: Awaited<ReturnType<typeof executeTool>>['result']): string {
@@ -406,31 +452,30 @@ describe('room Pi tools', () => {
         })
     })
 
-    it('lets document tools inspect store-backed uploaded files without mutating them', async () => {
+    it('lets PDF tools inspect store-backed uploaded files without mutating them', async () => {
         await withRoom(async (config) => {
             await mkdir(join(config.paths.storeDir, 'attachments/session'), {
                 recursive: true,
             })
-            await executeDocumentTool(config, 'agent_room_docx', {
-                operation: 'create',
-                path: 'source.docx',
-                paragraphs: ['Uploaded contract text'],
-            })
-            await copyFile(
-                join(config.paths.workspaceDir, 'source.docx'),
-                join(config.paths.storeDir, 'attachments/session/source.docx'),
-            )
-            const inspectedDocx = await executeDocumentTool(config, 'agent_room_docx', {
-                operation: 'inspect',
-                root: 'store',
-                path: 'attachments/session/source.docx',
-            })
-
             await executeDocumentTool(config, 'agent_room_pdf', {
                 operation: 'create',
                 path: 'source.pdf',
                 paragraphs: ['Uploaded PDF text'],
             })
+            await executeDocumentTool(config, 'agent_room_pdf', {
+                operation: 'edit',
+                path: 'source.pdf',
+                editsJson: JSON.stringify([
+                    {
+                        type: 'append_text_page',
+                        title: 'Appendix',
+                        paragraphs: ['Added directly to the PDF'],
+                    },
+                ]),
+            })
+            const editedPdf = await PDFDocument.load(
+                await readFile(join(config.paths.workspaceDir, 'source.pdf')),
+            )
             await copyFile(
                 join(config.paths.workspaceDir, 'source.pdf'),
                 join(config.paths.storeDir, 'attachments/session/source.pdf'),
@@ -441,29 +486,216 @@ describe('room Pi tools', () => {
                 path: 'attachments/session/source.pdf',
             })
 
-            expect(resultText(inspectedDocx.result)).toContain('Uploaded contract text')
-            expect(resultDetails(inspectedDocx.result)).toMatchObject({
-                root: 'store',
-                format: 'docx',
-            })
+            expect(editedPdf.getPageCount()).toBe(2)
             expect(resultText(inspectedPdf.result)).toContain('PDF file')
             expect(resultDetails(inspectedPdf.result)).toMatchObject({
                 root: 'store',
                 format: 'pdf',
             })
+        })
+    })
+
+    it('rejects empty PDF edit payloads', async () => {
+        await withRoom(async (config) => {
+            await executeDocumentTool(config, 'agent_room_pdf', {
+                operation: 'create',
+                path: 'source.pdf',
+                paragraphs: ['Original PDF text'],
+            })
+
             await expect(
-                executeDocumentTool(config, 'agent_room_docx', {
+                executeDocumentTool(config, 'agent_room_pdf', {
                     operation: 'edit',
-                    root: 'store',
-                    path: 'attachments/session/source.docx',
-                    replacementsJson: JSON.stringify([
+                    path: 'source.pdf',
+                }),
+            ).rejects.toThrow('Missing or empty PDF edits JSON')
+            await expect(
+                executeDocumentTool(config, 'agent_room_pdf', {
+                    operation: 'edit',
+                    path: 'source.pdf',
+                    editsJson: '[]',
+                }),
+            ).rejects.toThrow('PDF edits must contain at least one edit')
+        })
+    })
+
+    it('rejects invalid PDF delete page values instead of coercing them', async () => {
+        await withRoom(async (config) => {
+            await executeDocumentTool(config, 'agent_room_pdf', {
+                operation: 'create',
+                path: 'source.pdf',
+                paragraphs: ['Original PDF text'],
+            })
+
+            await expect(
+                executeDocumentTool(config, 'agent_room_pdf', {
+                    operation: 'edit',
+                    path: 'source.pdf',
+                    editsJson: JSON.stringify([
                         {
-                            oldText: 'Uploaded',
-                            newText: 'Edited',
+                            type: 'delete_pages',
+                            pages: ['x'],
                         },
                     ]),
                 }),
-            ).rejects.toThrow(/workspace/)
+            ).rejects.toThrow('PDF edit 1 delete_pages page 1 must be an integer from 1 to 10000')
+            await expect(
+                executeDocumentTool(config, 'agent_room_pdf', {
+                    operation: 'edit',
+                    path: 'source.pdf',
+                    editsJson: JSON.stringify([
+                        {
+                            type: 'delete_pages',
+                            pages: [2],
+                        },
+                    ]),
+                }),
+            ).rejects.toThrow('PDF edit delete_pages page 2 exceeds page count')
+            const pdf = await PDFDocument.load(
+                await readFile(join(config.paths.workspaceDir, 'source.pdf')),
+            )
+            expect(pdf.getPageCount()).toBe(1)
+        })
+    })
+
+    it('does not expose office or text-extraction document compatibility tools', async () => {
+        await withRoom(async (config) => {
+            const names = createDocumentTools({ config, audit: async () => {} }).map(
+                (tool) => tool.name,
+            )
+
+            expect(names).toContain('agent_room_read_pdf')
+            expect(names).toContain('agent_room_pdf')
+            expect(names).not.toContain('agent_room_docx')
+            expect(names).not.toContain('agent_room_xlsx')
+            expect(names).not.toContain('agent_room_pptx')
+            expect(names).not.toContain('agent_room_pdf_extract_text')
+        })
+    })
+
+    it('reads PDFs through native document mode and keeps text extraction explicit', async () => {
+        await withRoom(async (config) => {
+            await executeDocumentTool(config, 'agent_room_pdf', {
+                operation: 'create',
+                path: 'source.pdf',
+                paragraphs: ['Native PDF path text'],
+            })
+
+            const readPdf = await executeDocumentTool(
+                config,
+                'agent_room_read_pdf',
+                {
+                    path: 'source.pdf',
+                },
+                undefined,
+                {
+                    model: anthropicModel(),
+                },
+            )
+
+            expect(resultText(readPdf.result)).toContain('native document input')
+            expect(readPdf.result.content[1]).toMatchObject({
+                type: 'image',
+                mimeType: 'application/pdf',
+            })
+            expect(resultDetails(readPdf.result)).toMatchObject({
+                ingestionMode: 'native_document',
+                backend: 'anthropic_native_document',
+            })
+        })
+    })
+
+    it('does not route PDFs through stale Anthropic config after the active model changes', async () => {
+        await withRoom(async (config) => {
+            config.provider.sourceProvider = 'anthropic'
+            config.provider.api = 'anthropic-messages'
+            config.provider.piProvider = 'anthropic'
+            await executeDocumentTool(config, 'agent_room_pdf', {
+                operation: 'create',
+                path: 'source.pdf',
+                paragraphs: ['Stale provider text'],
+            })
+
+            const readPdf = await executeDocumentTool(
+                config,
+                'agent_room_read_pdf',
+                {
+                    path: 'source.pdf',
+                },
+                undefined,
+                {
+                    model: model(['text'], {
+                        id: 'gpt-text-only',
+                        provider: 'openai',
+                        api: 'openai-responses',
+                    }),
+                },
+            )
+
+            expect(resultText(readPdf.result)).toContain('unsupported')
+            expect(readPdf.result.content).toHaveLength(1)
+            expect(resultDetails(readPdf.result)).toMatchObject({
+                ingestionMode: 'unsupported',
+                backend: 'unsupported',
+                inputBlocks: 0,
+                degraded: true,
+            })
+        })
+    })
+
+    it('discloses that native PDF page selections do not crop document bytes', async () => {
+        await withRoom(async (config) => {
+            await writePdfFixture(join(config.paths.workspaceDir, 'multi.pdf'), 2)
+
+            const readPdf = await executeDocumentTool(
+                config,
+                'agent_room_read_pdf',
+                {
+                    path: 'multi.pdf',
+                    pages: '1',
+                },
+                undefined,
+                {
+                    model: anthropicModel(),
+                },
+            )
+
+            expect(resultText(readPdf.result)).toContain('native document input')
+            expect(resultText(readPdf.result)).toContain('native document input sends the full PDF')
+            expect(readPdf.result.content[1]).toMatchObject({
+                type: 'image',
+                mimeType: 'application/pdf',
+            })
+            expect(resultDetails(readPdf.result)).toMatchObject({
+                ingestionMode: 'native_document',
+                backend: 'anthropic_native_document',
+                pages: 'all pages',
+                requestedPages: 'pages 1',
+                degraded: true,
+            })
+        })
+    })
+
+    it('reports unsupported PDF reads without falling back to text extraction silently', async () => {
+        await withRoom(async (config) => {
+            await executeDocumentTool(config, 'agent_room_pdf', {
+                operation: 'create',
+                path: 'source.pdf',
+                paragraphs: ['Unsupported PDF path text'],
+            })
+
+            const readPdf = await executeDocumentTool(config, 'agent_room_read_pdf', {
+                path: 'source.pdf',
+            })
+
+            expect(resultText(readPdf.result)).toContain('unsupported')
+            expect(readPdf.result.content).toHaveLength(1)
+            expect(resultDetails(readPdf.result)).toMatchObject({
+                ingestionMode: 'unsupported',
+                backend: 'unsupported',
+                inputBlocks: 0,
+                degraded: true,
+            })
         })
     })
 
@@ -506,84 +738,6 @@ describe('room Pi tools', () => {
             await expect(
                 readFile(join(config.paths.workspaceDir, 'exports/report-copy.txt'), 'utf8'),
             ).resolves.toBe('artifact body')
-        })
-    })
-
-    it('creates workbook rows and charts and supports direct cell edits', async () => {
-        await withRoom(async (config) => {
-            const workbookJson = JSON.stringify({
-                sheets: [
-                    {
-                        name: 'Verification Data',
-                        data: [
-                            ['Item', 'Quantity', 'Price', 'Total'],
-                            ['Product A', 10, 5.5, '=B2*C2'],
-                            ['Product B', 20, 2.75, '=B3*C3'],
-                            ['Product C', 15, 7, '=B4*C4'],
-                        ],
-                        charts: [
-                            {
-                                type: 'bar',
-                                title: 'Totals',
-                                categories: {
-                                    sheet: 'Verification Data',
-                                    cells: 'A2:A4',
-                                },
-                                series: [
-                                    {
-                                        sheet: 'Verification Data',
-                                        cells: 'D2:D4',
-                                    },
-                                ],
-                                anchor: 'F2',
-                            },
-                        ],
-                    },
-                ],
-            })
-            await executeDocumentTool(config, 'agent_room_xlsx', {
-                operation: 'create',
-                path: 'plan-verification.xlsx',
-                workbookJson,
-            })
-            const inspected = await executeDocumentTool(config, 'agent_room_xlsx', {
-                operation: 'inspect',
-                path: 'plan-verification.xlsx',
-            })
-            expect(resultText(inspected.result)).toContain('Product A')
-
-            await executeDocumentTool(config, 'agent_room_xlsx', {
-                operation: 'edit',
-                path: 'plan-verification.xlsx',
-                replacementsJson: JSON.stringify([
-                    {
-                        sheet: 'Verification Data',
-                        cell: 'B2',
-                        value: 12,
-                    },
-                ]),
-            })
-
-            const workbook = XLSX.readFile(
-                join(config.paths.workspaceDir, 'plan-verification.xlsx'),
-                {
-                    cellFormula: true,
-                },
-            )
-            const sheet = workbook.Sheets['Verification Data']
-            expect(sheet?.['B2']?.v).toBe(12)
-            expect(sheet?.['D2']?.f).toBe('B2*C2')
-            expect(sheet?.['D2']?.v).toBe(66)
-
-            const zip = unzipSync(
-                new Uint8Array(
-                    await readFile(join(config.paths.workspaceDir, 'plan-verification.xlsx')),
-                ),
-            )
-            expect(zip['xl/charts/chart1.xml']).toBeDefined()
-            expect(strFromU8(zip['xl/charts/chart1.xml']!)).toContain('Verification Data')
-            expect(strFromU8(zip['xl/charts/chart1.xml']!)).toContain('A2:A4')
-            expect(strFromU8(zip['xl/worksheets/sheet1.xml']!)).toContain('<drawing ')
         })
     })
 })

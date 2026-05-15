@@ -87,6 +87,7 @@ export function reduceRoomStreamEvent(
             typeof payload.runId === 'string' && payload.runId.trim()
                 ? payload.runId
                 : `live-${realtime.receivedAt}`
+        const startedAt = runStartedAtFromPayload(payload, realtime.receivedAt)
         return {
             runId,
             status: 'queued',
@@ -96,22 +97,22 @@ export function reduceRoomStreamEvent(
                     seq: 0,
                     runId,
                     status: 'queued',
-                    startedAt: realtime.receivedAt,
+                    startedAt,
                     runtimeMs: null,
                     collapsed: false,
-                    timestamp: realtime.receivedAt,
+                    timestamp: startedAt,
                 }),
             ],
             finished: false,
             updatedAt: realtime.receivedAt,
-            startedAt: realtime.receivedAt,
+            startedAt,
             turnIndex: 0,
             hasToolActivity: false,
             currentTurnHasToolCall: false,
         }
     }
 
-    if (state.finished && state.status === 'stopped') {
+    if (state.finished) {
         return state
     }
 
@@ -126,6 +127,10 @@ export function reduceRoomStreamEvent(
                   ? Math.max(0, realtime.receivedAt - state.startedAt)
                   : null
         return finishStreamTurn(state, status, runtimeMs, realtime.receivedAt)
+    }
+
+    if (realtime.event === 'run.error') {
+        return reduceRunError(state, realtime)
     }
 
     const event = payloadRuntimeEvent(realtime.payload)
@@ -184,6 +189,7 @@ export function shouldRefetchForRoomEvent(realtime: RoomRealtimeEvent): boolean 
         realtime.event === 'thread.forked' ||
         realtime.event === 'thread.deleted' ||
         realtime.event === 'thread.model_changed' ||
+        realtime.event === 'thread.pending_messages_changed' ||
         realtime.event === 'room.files.changed'
     ) {
         return true
@@ -196,6 +202,58 @@ export function stopStreamTurn(state: StreamTurnState, stoppedAt: number): Strea
     if (state.rows.length === 0) return emptyStreamTurnState
     const runtimeMs = state.startedAt ? Math.max(0, stoppedAt - state.startedAt) : null
     return finishStreamTurn(state, 'stopped', runtimeMs, stoppedAt)
+}
+
+function reduceRunError(state: StreamTurnState, realtime: RoomRealtimeEvent): StreamTurnState {
+    const payload = isRecord(realtime.payload) ? realtime.payload : {}
+    const runId =
+        typeof payload.runId === 'string' && payload.runId.trim()
+            ? payload.runId
+            : (state.runId ?? `live-${realtime.receivedAt}`)
+    const startedAt = state.startedAt ?? runStartedAtFromPayload(payload, realtime.receivedAt)
+    const message = runErrorMessageFromPayload(payload)
+    const runtimeMs =
+        typeof payload.durationMs === 'number' && Number.isFinite(payload.durationMs)
+            ? payload.durationMs
+            : Math.max(0, realtime.receivedAt - startedAt)
+    const transcript = currentTranscript(
+        ensureTranscript(
+            {
+                ...state,
+                runId,
+                startedAt,
+                finished: false,
+            },
+            realtime.receivedAt,
+            'error',
+        ),
+    )
+    if (!transcript) {
+        return finishStreamTurn(
+            {
+                ...state,
+                runId,
+                startedAt,
+            },
+            'error',
+            runtimeMs,
+            realtime.receivedAt,
+        )
+    }
+    const withError = writeTranscriptText(
+        transcript,
+        {
+            id: `run-error-${runId}`,
+            contentIndex: null,
+            text: message,
+            complete: true,
+            phase: 'commentary',
+            timestamp: realtime.receivedAt,
+            append: false,
+        },
+        'error',
+    )
+    return finishStreamTurn(withError, 'error', runtimeMs, realtime.receivedAt)
 }
 
 function reduceMessageUpdate(
@@ -959,6 +1017,30 @@ function liveFinalRowId(turnIndex: number, contentIndex: number | null): string 
     return contentIndex === null
         ? `stream-final-${turnIndex}-unknown`
         : `stream-final-${turnIndex}-${contentIndex}`
+}
+
+function runStartedAtFromPayload(payload: Record<string, unknown>, fallback: number): number {
+    if (typeof payload.startedAtMs === 'number' && Number.isFinite(payload.startedAtMs)) {
+        return payload.startedAtMs
+    }
+    if (typeof payload.startedAt === 'number' && Number.isFinite(payload.startedAt)) {
+        return payload.startedAt
+    }
+    if (typeof payload.startedAt === 'string') {
+        const parsed = Date.parse(payload.startedAt)
+        if (Number.isFinite(parsed)) return parsed
+    }
+    return fallback
+}
+
+function runErrorMessageFromPayload(payload: Record<string, unknown>): string {
+    const detail =
+        typeof payload.message === 'string' && payload.message.trim()
+            ? payload.message.trim()
+            : typeof payload.error === 'string' && payload.error.trim()
+              ? payload.error.trim()
+              : ''
+    return detail ? `Run failed: ${detail}` : 'Run failed before the model returned a response.'
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

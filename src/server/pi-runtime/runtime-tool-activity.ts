@@ -79,12 +79,7 @@ export function summarizeRunToolActivity(entries: readonly SessionEntry[]): RunT
                 counts.commandCalls += 1
             } else if (category === 'artifact') {
                 counts.artifactCalls += 1
-            } else if (
-                category === 'document_docx' ||
-                category === 'document_xlsx' ||
-                category === 'document_pptx' ||
-                category === 'document_pdf'
-            ) {
+            } else if (category === 'document_pdf') {
                 counts.documentCalls += 1
             } else if (category === 'image') {
                 counts.imageCalls += 1
