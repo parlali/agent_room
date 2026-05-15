@@ -84,7 +84,6 @@ export async function updateAppCapabilitySettings(input: {
         }
         browserbase: {
             enabled: boolean
-            projectId: string | null
             timeoutMs: number
             resultCount: number
             apiKey?: string
@@ -220,7 +219,6 @@ async function resolveSearchConfigForSave(input: {
               }
               browserbase: {
                   enabled: boolean
-                  projectId: string | null
                   timeoutMs: number
                   resultCount: number
                   apiKey?: string
@@ -243,9 +241,6 @@ async function resolveSearchConfigForSave(input: {
     const secretRollbacks: SearchSecretRollback[] = []
     const braveApiKey = input.next.brave.apiKey?.trim() ?? ''
     const browserbaseApiKey = input.next.browserbase.apiKey?.trim() ?? ''
-    if (input.next.browserbase.enabled && !input.next.browserbase.projectId?.trim()) {
-        throw new Error('Browserbase project ID is required when Browserbase search is enabled')
-    }
 
     try {
         const braveSecretId = await resolveProviderSearchSecret({
@@ -279,7 +274,6 @@ async function resolveSearchConfigForSave(input: {
             },
             browserbase: {
                 enabled: input.next.browserbase.enabled,
-                projectId: input.next.browserbase.projectId,
                 timeoutMs: input.next.browserbase.timeoutMs,
                 resultCount: input.next.browserbase.resultCount,
                 secretId: browserbaseSecretId,
@@ -302,7 +296,6 @@ async function resolveSearchConfigForSave(input: {
             },
             browserbase: {
                 enabled: config.browserbase.enabled,
-                projectId: config.browserbase.projectId,
                 timeoutMs: config.browserbase.timeoutMs,
                 resultCount: config.browserbase.resultCount,
                 secretId: browserbaseSecretId,

@@ -143,7 +143,6 @@ export interface AppSettingsSummary {
         browserbase: {
             enabled: boolean
             hasCredential: boolean
-            projectId: string | null
             timeoutMs: number
             resultCount: number
         }

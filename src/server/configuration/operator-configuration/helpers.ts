@@ -212,7 +212,6 @@ export function summarizeSettings(record: AppSettingsRecord): AppSettingsSummary
             browserbase: {
                 enabled: search.browserbase.enabled,
                 hasCredential: browserbaseSecretId !== null,
-                projectId: search.browserbase.projectId,
                 timeoutMs: search.browserbase.timeoutMs,
                 resultCount: search.browserbase.resultCount,
             },

@@ -39,7 +39,6 @@ export const testSearch: SearchRuntimeConfig = {
     browserbase: {
         enabled: false,
         envKey: null,
-        projectId: null,
         timeoutMs: 10000,
         resultCount: 5,
     },

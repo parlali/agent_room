@@ -5,7 +5,7 @@ import {
     isBlockedNetworkAddress,
     normalizeSearxngSafeSearch,
     parseBraveSearchResults,
-    parseBrowserExtractedSearchResults,
+    parseBrowserbaseSearchResults,
     parseSearxngResults,
     sanitizeUrlForAudit,
 } from './web-tools'
@@ -343,94 +343,127 @@ describe('web tools', () => {
         expect(Date.now() - startedAt).toBeLessThan(500)
     })
 
-    it('maps Browserbase browser-mediated extracted results into canonical search results', () => {
-        const results = parseBrowserExtractedSearchResults(
-            [
-                {
-                    title: 'Browser result',
-                    url: 'https://example.com/browser',
-                    snippet: 'Found through a browser page',
-                },
-                {
-                    title: 'Ignored',
-                    url: 'about:blank',
-                    snippet: 'ignored',
-                },
-            ],
+    it('maps Browserbase Search API results into canonical search results', () => {
+        const results = parseBrowserbaseSearchResults(
+            {
+                results: [
+                    {
+                        title: 'Browserbase result',
+                        url: 'https://example.com/browserbase',
+                        author: 'Example Publisher',
+                        publishedDate: '2026-05-03',
+                    },
+                    {
+                        title: 'Ignored',
+                        url: 'about:blank',
+                    },
+                ],
+            },
             '2026-05-03T10:00:00.000Z',
         )
 
         expect(results).toEqual([
             {
-                title: 'Browser result',
-                url: 'https://example.com/browser',
-                snippet: 'Found through a browser page',
-                engine: 'browserbase:brave',
+                title: 'Browserbase result',
+                url: 'https://example.com/browserbase',
+                snippet: 'Author: Example Publisher Published: 2026-05-03',
+                engine: 'browserbase',
                 fetchedAt: '2026-05-03T10:00:00.000Z',
                 rank: 1,
             },
         ])
     })
 
-    it('bounds Browserbase CDP command and cleanup hangs by timeout', async () => {
+    it('uses Browserbase Search API without sessions, CDP, or Brave page scraping', async () => {
         process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
         const fetchUrls: string[] = []
+        const fetchBodies: unknown[] = []
         globalThis.fetch = (async (input, init) => {
             const url = String(input)
             fetchUrls.push(url)
-            if (url.endsWith('/sessions')) {
-                return new Response(
-                    JSON.stringify({
-                        id: 'session-1',
-                        connectUrl: 'ws://browserbase.test/session-1',
-                    }),
-                    {
-                        status: 200,
-                        headers: {
-                            'content-type': 'application/json',
+            fetchBodies.push(JSON.parse(String(init?.body ?? '{}')))
+            return new Response(
+                JSON.stringify({
+                    results: [
+                        {
+                            title: 'Browserbase direct',
+                            url: 'https://example.com/direct',
+                            snippet: 'From Browserbase Search API',
                         },
+                    ],
+                }),
+                {
+                    status: 200,
+                    headers: {
+                        'content-type': 'application/json',
                     },
-                )
-            }
-            return new Promise<Response>((_resolve, reject) => {
-                const signal = init?.signal
-                const abort = () => {
-                    const error = new Error('aborted')
-                    Object.defineProperty(error, 'name', {
-                        value: 'AbortError',
-                    })
-                    reject(error)
-                }
-                signal?.addEventListener('abort', abort, { once: true })
-                if (signal?.aborted) {
-                    abort()
-                }
-            })
+                },
+            )
         }) as typeof fetch
 
-        class HangingWebSocket extends EventTarget {
-            static CONNECTING = 0
-            static OPEN = 1
-            static CLOSING = 2
-            static CLOSED = 3
-            readyState = HangingWebSocket.CONNECTING
-
+        class ForbiddenWebSocket extends EventTarget {
             constructor() {
                 super()
-                setTimeout(() => {
-                    this.readyState = HangingWebSocket.OPEN
-                    this.dispatchEvent(new Event('open'))
-                }, 0)
-            }
-
-            send(): void {}
-
-            close(): void {
-                this.readyState = HangingWebSocket.CLOSED
-                this.dispatchEvent(new Event('close'))
+                throw new Error('Browserbase Search API must not open CDP')
             }
         }
-        globalThis.WebSocket = HangingWebSocket as unknown as typeof WebSocket
+        globalThis.WebSocket = ForbiddenWebSocket as unknown as typeof WebSocket
+        const provider = new BrowserbaseSearchProvider()
+
+        const response = await provider.search({
+            config: createTestPiRuntimeConfig({
+                search: {
+                    enabled: false,
+                    browserbase: {
+                        enabled: true,
+                        envKey: 'AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY',
+                        timeoutMs: 10000,
+                        resultCount: 5,
+                    },
+                },
+            }),
+            query: 'browserbase direct search',
+            count: 3,
+        })
+
+        expect(fetchUrls).toEqual(['https://api.browserbase.com/v1/search'])
+        expect(fetchUrls.join('\n')).not.toContain('/sessions')
+        expect(fetchUrls.join('\n')).not.toContain('search.brave.com')
+        expect(fetchBodies).toEqual([
+            {
+                query: 'browserbase direct search',
+                numResults: 3,
+            },
+        ])
+        expect(response).toMatchObject({
+            backendFormat: 'api',
+            browserMediated: false,
+            results: [
+                {
+                    title: 'Browserbase direct',
+                    url: 'https://example.com/direct',
+                    snippet: 'From Browserbase Search API',
+                    engine: 'browserbase',
+                    rank: 1,
+                },
+            ],
+        })
+    })
+
+    it('bounds Browserbase Search API body stalls by timeout', async () => {
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
+        globalThis.fetch = (async () =>
+            ({
+                ok: true,
+                status: 200,
+                body: {
+                    getReader: () => ({
+                        read: () => new Promise(() => undefined),
+                        cancel: () => Promise.resolve(),
+                        releaseLock: () => undefined,
+                    }),
+                },
+            }) as unknown as Response) as typeof fetch
         const provider = new BrowserbaseSearchProvider()
         const startedAt = Date.now()
 
@@ -442,7 +475,6 @@ describe('web tools', () => {
                         browserbase: {
                             enabled: true,
                             envKey: 'AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY',
-                            projectId: 'browserbase-project',
                             timeoutMs: 20,
                             resultCount: 5,
                         },
@@ -456,10 +488,6 @@ describe('web tools', () => {
         })
 
         expect(Date.now() - startedAt).toBeLessThan(500)
-        expect(fetchUrls).toEqual([
-            'https://api.browserbase.com/v1/sessions',
-            'https://api.browserbase.com/v1/sessions/session-1',
-        ])
     })
 
     it('routes providers by priority, retries transient failures, and records fallback metadata', async () => {
@@ -499,10 +527,10 @@ describe('web tools', () => {
                             rank: 1,
                         },
                     ],
-                    backendFormat: 'browser',
+                    backendFormat: 'api',
                     fallbackReason: null,
                     degradedReason: null,
-                    browserMediated: true,
+                    browserMediated: false,
                 }
             },
         })
@@ -531,7 +559,7 @@ describe('web tools', () => {
         expect(searxng.calls).toBe(0)
         expect(response.backend).toBe('browserbase')
         expect(response.degraded).toBe(true)
-        expect(response.browserMediated).toBe(true)
+        expect(response.browserMediated).toBe(false)
         expect(response.fallbackChain.map((step) => step.status)).toEqual(['failed', 'complete'])
         expect(audits).toContain('search.provider_retrying')
         expect(audits).toContain('search.provider_completed')
@@ -615,7 +643,6 @@ describe('web tools', () => {
                             browserbase: {
                                 enabled: false,
                                 envKey: null,
-                                projectId: null,
                                 timeoutMs: 10000,
                                 resultCount: 5,
                             },
@@ -656,7 +683,6 @@ describe('web tools', () => {
                     browserbase: {
                         enabled: false,
                         envKey: null,
-                        projectId: null,
                         timeoutMs: 10000,
                         resultCount: 5,
                     },

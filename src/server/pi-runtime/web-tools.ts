@@ -15,7 +15,7 @@ import { SearchRouter } from './web-search-router'
 import { sanitizeUrlForAudit } from './web-url-safety'
 
 export { parseBraveSearchResults } from './web-search-brave'
-export { parseBrowserExtractedSearchResults } from './web-search-browserbase'
+export { parseBrowserbaseSearchResults } from './web-search-browserbase'
 export { normalizeSearxngSafeSearch, parseSearxngResults } from './web-search-searxng'
 export { type WebSearchResult } from './web-search'
 export { assertSafeUrl, isBlockedNetworkAddress, sanitizeUrlForAudit } from './web-url-safety'

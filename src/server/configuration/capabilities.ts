@@ -229,7 +229,6 @@ function normalizeBrowserbaseSearchConfig(value: unknown): SearchRuntimeConfig['
     return {
         enabled: typeof record.enabled === 'boolean' ? record.enabled : false,
         envKey: null,
-        projectId: normalizeOptionalString(record.projectId),
         timeoutMs: normalizeSearchTimeout(record.timeoutMs, env.search.timeoutMs),
         resultCount: normalizeSearchResultCount(record.resultCount, env.search.defaultResultCount),
     }

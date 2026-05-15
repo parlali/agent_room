@@ -70,7 +70,6 @@ const appCapabilityInputSchema = z.object({
             }),
             browserbase: z.object({
                 enabled: z.boolean(),
-                projectId: z.string().nullable(),
                 timeoutMs: z.number().int().positive().max(30000),
                 resultCount: z.number().int().positive().max(20),
                 apiKey: z.string().optional(),

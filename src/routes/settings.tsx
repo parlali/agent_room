@@ -81,7 +81,6 @@ function toSearchDraft(search: OperatorConfigSnapshot['settings']['search']): Ap
         },
         browserbase: {
             enabled: search.browserbase.enabled,
-            projectId: search.browserbase.projectId ?? '',
             timeoutMs: search.browserbase.timeoutMs,
             resultCount: search.browserbase.resultCount,
             apiKey: '',
@@ -111,7 +110,6 @@ function searchDraftDirty(
             draft.brave.replaceApiKey &&
             draft.brave.apiKey.trim().length > 0) ||
         draft.browserbase.enabled !== saved.browserbase.enabled ||
-        draft.browserbase.projectId.trim() !== (saved.browserbase.projectId ?? '') ||
         draft.browserbase.timeoutMs !== saved.browserbase.timeoutMs ||
         draft.browserbase.resultCount !== saved.browserbase.resultCount ||
         (draft.browserbase.enabled &&
@@ -375,7 +373,6 @@ function SettingsPage() {
                         },
                         browserbase: {
                             enabled: appSearch.browserbase.enabled,
-                            projectId: appSearch.browserbase.projectId.trim() || null,
                             timeoutMs: appSearch.browserbase.timeoutMs,
                             resultCount: appSearch.browserbase.resultCount,
                             apiKey:
@@ -572,10 +569,6 @@ function SettingsPage() {
             }
         }
         if (appSearch.browserbase.enabled) {
-            if (!appSearch.browserbase.projectId.trim()) {
-                toast.error('Browserbase project ID is required')
-                return
-            }
             if (
                 appSearch.browserbase.replaceApiKey &&
                 !appSearch.browserbase.apiKey.trim() &&

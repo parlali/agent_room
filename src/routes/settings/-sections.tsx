@@ -83,7 +83,6 @@ export interface AppSearchDraft {
     }
     browserbase: {
         enabled: boolean
-        projectId: string
         timeoutMs: number
         resultCount: number
         apiKey: string
@@ -925,20 +924,6 @@ export function CapabilitiesSection({
                                             onChange={(apiKey) => updateBrowserbase({ apiKey })}
                                             placeholder="Browserbase API key"
                                         />
-                                        <FieldGroup
-                                            label="Project ID"
-                                            htmlFor="browserbase-project-id"
-                                        >
-                                            <Input
-                                                id="browserbase-project-id"
-                                                value={appSearch.browserbase.projectId}
-                                                onChange={(event) =>
-                                                    updateBrowserbase({
-                                                        projectId: event.target.value,
-                                                    })
-                                                }
-                                            />
-                                        </FieldGroup>
                                         <div className="grid gap-3 sm:grid-cols-2">
                                             <FieldGroup
                                                 label="Result count"

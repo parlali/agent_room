@@ -449,7 +449,6 @@ export interface SearchRuntimeConfig {
     browserbase: {
         enabled: boolean
         envKey: string | null
-        projectId: string | null
         timeoutMs: number
         resultCount: number
     }
