@@ -114,6 +114,7 @@ async function createDocxFixture(path: string): Promise<void> {
             '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">',
             '<w:body>',
             '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Split</w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>Target</w:t></w:r></w:p>',
+            '<w:p><w:r><w:t>Keep </w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>BoldTarget</w:t></w:r><w:r><w:rPr><w:i/></w:rPr><w:t> tail</w:t></w:r></w:p>',
             '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>TableTarget</w:t></w:r></w:p></w:tc></w:tr></w:tbl>',
             '<w:sectPr><w:headerReference w:type="default" r:id="rIdHeader1" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><w:footerReference w:type="default" r:id="rIdFooter1" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/></w:sectPr>',
             '</w:body>',
@@ -237,6 +238,7 @@ async function createPptxFixture(path: string): Promise<void> {
             '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">',
             '<p:cSld><p:spTree>',
             '<p:sp><p:txBody><a:bodyPr/><a:p><a:r><a:t>Split</a:t></a:r><a:r><a:t>Title</a:t></a:r></a:p></p:txBody></p:sp>',
+            '<p:sp><p:txBody><a:bodyPr/><a:p><a:r><a:t>Keep </a:t></a:r><a:r><a:rPr b="1"/><a:t>BoldTarget</a:t></a:r><a:r><a:rPr i="1"/><a:t> tail</a:t></a:r></a:p></p:txBody></p:sp>',
             '<p:graphicFrame><a:graphic><a:graphicData><a:tbl><a:tr><a:tc><a:txBody><a:p><a:r><a:t>TableTarget</a:t></a:r></a:p></a:txBody></a:tc></a:tr></a:tbl></a:graphicData></a:graphic></p:graphicFrame>',
             '</p:spTree></p:cSld>',
             '</p:sld>',
@@ -429,6 +431,7 @@ describe('office document skills', () => {
                 }),
             )
             expect(before).toContain('SplitTarget')
+            expect(before).toContain('BoldTarget')
             expect(before).toContain('TableTarget')
             expect(before).toContain('HeaderTarget')
             expect(before).toContain('FooterTarget')
@@ -445,6 +448,7 @@ describe('office document skills', () => {
                     '--replacements-json',
                     JSON.stringify([
                         { oldText: 'SplitTarget', newText: 'Merged replacement' },
+                        { oldText: 'BoldTarget', newText: 'Bold replacement' },
                         { oldText: 'TableTarget', newText: 'Table replacement' },
                         { oldText: 'HeaderTarget', newText: 'Header replacement' },
                         { oldText: 'FooterTarget', newText: 'Footer replacement' },
@@ -462,10 +466,14 @@ describe('office document skills', () => {
                 }),
             )
             expect(after).toContain('Merged replacement')
+            expect(after).toContain('Bold replacement')
             expect(after).toContain('Table replacement')
             expect(after).toContain('Header replacement')
             expect(after).toContain('Footer replacement')
             expect(after).toContain('Comment replacement')
+            const documentXml = await zipText(join(workspace, 'fixture.docx'), 'word/document.xml')
+            expect(documentXml).toContain('<w:rPr><w:b/></w:rPr><w:t>Bold replacement</w:t>')
+            expect(documentXml).toContain('<w:rPr><w:i/></w:rPr><w:t> tail</w:t>')
             const zip = await JSZip.loadAsync(await readFile(join(workspace, 'fixture.docx')))
             expect(zip.file('word/media/image1.png')).not.toBeNull()
         })
@@ -541,6 +549,7 @@ describe('office document skills', () => {
                 }),
             )
             expect(before).toContain('SplitTitle')
+            expect(before).toContain('BoldTarget')
             expect(before).toContain('TableTarget')
             expect(before).toContain('Notes: 1')
             expect(before).toContain('Charts: 1')
@@ -557,6 +566,7 @@ describe('office document skills', () => {
                     '--replacements-json',
                     JSON.stringify([
                         { oldText: 'SplitTitle', newText: 'Merged title' },
+                        { oldText: 'BoldTarget', newText: 'Bold replacement' },
                         { oldText: 'TableTarget', newText: 'Table replacement' },
                         { oldText: 'NotesTarget', newText: 'Notes replacement' },
                     ]),
@@ -572,9 +582,13 @@ describe('office document skills', () => {
                 }),
             )
             expect(after).toContain('Merged title')
+            expect(after).toContain('Bold replacement')
             expect(after).toContain('Table replacement')
             expect(after).toContain('Charts: 1')
             expect(after).toContain('Media: 1')
+            const slideXml = await zipText(join(workspace, 'fixture.pptx'), 'ppt/slides/slide1.xml')
+            expect(slideXml).toContain('<a:rPr b="1"/><a:t>Bold replacement</a:t>')
+            expect(slideXml).toContain('<a:rPr i="1"/><a:t> tail</a:t>')
             const notesXml = await zipText(
                 join(workspace, 'fixture.pptx'),
                 'ppt/notesSlides/notesSlide1.xml',

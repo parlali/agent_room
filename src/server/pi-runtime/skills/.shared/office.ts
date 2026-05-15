@@ -308,23 +308,101 @@ export function replaceAcrossTextElements(
     if (textElements.length === 0) {
         return 0
     }
-    let nextText = textElements.map((element) => element.textContent ?? '').join('')
+
+    let segments = textElements.map((element, index) => ({
+        sourceIndex: index,
+        text: element.textContent ?? '',
+    }))
     let count = 0
     for (const replacement of replacements) {
-        const occurrences = countOccurrences(nextText, replacement.oldText)
-        if (occurrences > 0) {
-            nextText = nextText.split(replacement.oldText).join(replacement.newText)
-            count += occurrences
-        }
+        const result = replaceTextSegments(segments, replacement)
+        segments = result.segments
+        count += result.count
     }
     if (count === 0) {
         return 0
     }
-    setElementText(textElements[0] as XmlElement, nextText)
-    for (const element of textElements.slice(1)) {
-        setElementText(element, '')
+    const outputByElement = new Map<number, string>()
+    for (const segment of segments) {
+        outputByElement.set(
+            segment.sourceIndex,
+            `${outputByElement.get(segment.sourceIndex) ?? ''}${segment.text}`,
+        )
     }
+    textElements.forEach((element, index) => {
+        setElementText(element, outputByElement.get(index) ?? '')
+    })
     return count
+}
+
+interface TextSegment {
+    sourceIndex: number
+    text: string
+}
+
+function replaceTextSegments(
+    segments: TextSegment[],
+    replacement: Replacement,
+): { segments: TextSegment[]; count: number } {
+    const fullText = segments.map((segment) => segment.text).join('')
+    const ranges: Array<{ start: number; end: number }> = []
+    let offset = 0
+    while (true) {
+        const start = fullText.indexOf(replacement.oldText, offset)
+        if (start < 0) break
+        const end = start + replacement.oldText.length
+        ranges.push({ start, end })
+        offset = end
+    }
+    if (ranges.length === 0) {
+        return { segments, count: 0 }
+    }
+
+    const nextSegments: TextSegment[] = []
+    let position = 0
+    let rangeIndex = 0
+    for (const segment of segments) {
+        let segmentOffset = 0
+        const segmentStart = position
+        const segmentEnd = segmentStart + segment.text.length
+        while (rangeIndex < ranges.length && ranges[rangeIndex].end <= segmentStart) {
+            rangeIndex += 1
+        }
+        if (rangeIndex > 0) {
+            const previousRange = ranges[rangeIndex - 1]
+            if (previousRange.end > segmentStart) {
+                segmentOffset = Math.min(segment.text.length, previousRange.end - segmentStart)
+            }
+        }
+        while (
+            rangeIndex < ranges.length &&
+            ranges[rangeIndex].start >= segmentStart &&
+            ranges[rangeIndex].start < segmentEnd
+        ) {
+            const range = ranges[rangeIndex]
+            const beforeLength = range.start - segmentStart - segmentOffset
+            if (beforeLength > 0) {
+                nextSegments.push({
+                    sourceIndex: segment.sourceIndex,
+                    text: segment.text.slice(segmentOffset, segmentOffset + beforeLength),
+                })
+            }
+            nextSegments.push({
+                sourceIndex: segment.sourceIndex,
+                text: replacement.newText,
+            })
+            segmentOffset = Math.max(segmentOffset, range.end - segmentStart)
+            rangeIndex += 1
+        }
+        if (segmentOffset < segment.text.length) {
+            nextSegments.push({
+                sourceIndex: segment.sourceIndex,
+                text: segment.text.slice(segmentOffset),
+            })
+        }
+        position = segmentEnd
+    }
+    return { segments: nextSegments, count: ranges.length }
 }
 
 export function countOccurrences(text: string, needle: string): number {
