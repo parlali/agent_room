@@ -50,7 +50,13 @@ export function categorizeAgentRoomTool(name: string | null): AgentRoomToolCateg
     if (name === 'agent_room_docx') return 'document_docx'
     if (name === 'agent_room_xlsx') return 'document_xlsx'
     if (name === 'agent_room_pptx') return 'document_pptx'
-    if (name === 'agent_room_pdf') return 'document_pdf'
+    if (
+        name === 'agent_room_pdf' ||
+        name === 'agent_room_read_pdf' ||
+        name === 'agent_room_pdf_extract_text'
+    ) {
+        return 'document_pdf'
+    }
     if (name === 'agent_room_image_generate') return 'image'
     if (name === 'agent_room_subagent') return 'subagent'
     if (name === 'agent_room_deep_work') return 'deep_work'

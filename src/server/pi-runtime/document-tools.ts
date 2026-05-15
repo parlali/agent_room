@@ -20,6 +20,7 @@ import {
 } from './document-tools/paths'
 import type { DocumentToolContext, DocumentToolDetails } from './document-tools/types'
 import { renderPdfPreview } from './document-tools/worker'
+import { materializePdfRead } from './pdf-ingestion'
 import {
     createXlsx,
     editXlsx,
@@ -279,15 +280,14 @@ function createPdfTool(ctx: DocumentToolContext): ToolDefinition {
         name: 'agent_room_pdf',
         label: 'PDF',
         description:
-            'Create workspace PDF files, inspect PDF metadata and text, extract PDF text, and preview room-local PDF files.',
+            'Create workspace PDF files, inspect PDF metadata, edit PDFs, and preview room-local PDF files.',
         promptSnippet:
-            'agent_room_pdf creates and edits durable workspace PDF outputs, extracts text directly from room-local PDFs with operation "extract_text", and renders page previews when visual verification is needed. editsJson accepts [{"type":"append_text_page","title":"...","paragraphs":["..."]}], [{"type":"stamp_text","text":"...","page":1,"x":54,"y":54}], or [{"type":"delete_pages","pages":[2]}]. Use inspect or extract_text for PDF content instead of agent_room_read or shell extraction unless this tool reports that extraction is unavailable.',
+            'agent_room_pdf creates and edits durable workspace PDF outputs, inspects metadata, and renders previews. Use agent_room_read_pdf to read PDF content by default, and agent_room_pdf_extract_text only when explicit text extraction is requested. editsJson accepts [{"type":"append_text_page","title":"...","paragraphs":["..."]}], [{"type":"stamp_text","text":"...","page":1,"x":54,"y":54}], or [{"type":"delete_pages","pages":[2]}].',
         parameters: Type.Object({
             operation: Type.Union([
                 Type.Literal('create'),
                 Type.Literal('inspect'),
                 Type.Literal('edit'),
-                Type.Literal('extract_text'),
                 Type.Literal('preview'),
             ]),
             path: Type.String(),
@@ -296,8 +296,6 @@ function createPdfTool(ctx: DocumentToolContext): ToolDefinition {
             paragraphs: Type.Optional(Type.Array(Type.String())),
             editsJson: Type.Optional(Type.String()),
             outputPath: Type.Optional(Type.String()),
-            pageStart: Type.Optional(Type.Number()),
-            pageEnd: Type.Optional(Type.Number()),
             maxChars: Type.Optional(Type.Number()),
         }),
         executionMode: 'sequential',
@@ -345,22 +343,6 @@ function createPdfTool(ctx: DocumentToolContext): ToolDefinition {
                     },
                 )
             }
-            if (input.operation === 'extract_text') {
-                return textToolResult<DocumentToolDetails>(
-                    await extractPdfText(ctx, path, {
-                        pageStart: input.pageStart,
-                        pageEnd: input.pageEnd,
-                        maxChars: input.maxChars,
-                        signal,
-                    }),
-                    {
-                        path,
-                        root,
-                        format: 'pdf',
-                        operation: input.operation,
-                    },
-                )
-            }
             const hiddenPreview = !input.outputPath
             const previewPath = input.outputPath
                 ? await writableWorkspacePath(ctx.config, input.outputPath)
@@ -393,6 +375,109 @@ function createPdfTool(ctx: DocumentToolContext): ToolDefinition {
     })
 }
 
+function createReadPdfTool(ctx: DocumentToolContext): ToolDefinition {
+    return defineTool({
+        name: 'agent_room_read_pdf',
+        label: 'Read PDF',
+        description:
+            'Read a room-local PDF through the highest-fidelity configured provider path. Anthropic rooms receive native PDF document input; other vision-capable rooms receive rendered page images.',
+        promptSnippet:
+            'agent_room_read_pdf is the default PDF reading path. Use pages like "1", "1-3", or "1,4-5" to bound rendered pages. It reports whether the model received a native PDF document or rendered page images.',
+        parameters: Type.Object({
+            path: Type.String(),
+            root: rootParameter,
+            pages: Type.Optional(Type.String()),
+        }),
+        executionMode: 'sequential',
+        execute: async (_toolCallId, input, signal) => {
+            const root = sourceRoot(input)
+            const path = await existingDocumentPath(ctx.config, root, input.path)
+            const pdf = await materializePdfRead({
+                config: ctx.config,
+                path,
+                pages: input.pages,
+                signal,
+            })
+            const details = {
+                path,
+                root,
+                format: 'pdf',
+                operation: 'read',
+                ingestionMode: pdf.mode,
+                backend: pdf.backend,
+                pageCount: pdf.pageCount,
+                pages: pdf.selectedPages.label,
+                inputBlocks: pdf.content.length,
+                degraded: pdf.degraded,
+                degradedReason: pdf.degradedReason,
+            }
+            await ctx.audit('tool.pdf', details)
+            const message =
+                pdf.mode === 'native_document'
+                    ? `PDF read prepared as Anthropic native document input (${pdf.selectedPages.label}; ${pdf.pageCount} total pages).`
+                    : pdf.mode === 'image_render'
+                      ? `PDF read prepared as rendered page images (${pdf.selectedPages.label}; ${pdf.pageCount} total pages).`
+                      : `PDF read is unsupported for the configured provider/model (${pdf.selectedPages.label}; ${pdf.pageCount} total pages).`
+            return {
+                content: [
+                    {
+                        type: 'text' as const,
+                        text:
+                            pdf.degraded && pdf.degradedReason
+                                ? `${message}\nDegraded: ${pdf.degradedReason}`
+                                : message,
+                    },
+                    ...pdf.content,
+                ],
+                details,
+            }
+        },
+    })
+}
+
+function createPdfExtractTextTool(ctx: DocumentToolContext): ToolDefinition {
+    return defineTool({
+        name: 'agent_room_pdf_extract_text',
+        label: 'Extract PDF Text',
+        description:
+            'Explicitly extract text from a room-local PDF. This is not the default PDF reading path and may return no text for scanned PDFs.',
+        promptSnippet:
+            'agent_room_pdf_extract_text is only for explicit text extraction requests or when agent_room_read_pdf reports that native document or image rendering is unavailable.',
+        parameters: Type.Object({
+            path: Type.String(),
+            root: rootParameter,
+            pageStart: Type.Optional(Type.Number()),
+            pageEnd: Type.Optional(Type.Number()),
+            maxChars: Type.Optional(Type.Number()),
+        }),
+        executionMode: 'sequential',
+        execute: async (_toolCallId, input, signal) => {
+            const root = sourceRoot(input)
+            const path = await existingDocumentPath(ctx.config, root, input.path)
+            const text = await extractPdfText(ctx, path, {
+                pageStart: input.pageStart,
+                pageEnd: input.pageEnd,
+                maxChars: input.maxChars,
+                signal,
+            })
+            await ctx.audit('tool.pdf', {
+                path,
+                root,
+                format: 'pdf',
+                operation: 'extract_text',
+                ingestionMode: 'text_extract',
+            })
+            return textToolResult<DocumentToolDetails & { ingestionMode: 'text_extract' }>(text, {
+                path,
+                root,
+                format: 'pdf',
+                operation: 'extract_text',
+                ingestionMode: 'text_extract',
+            })
+        },
+    })
+}
+
 export function createDocumentTools(ctx: DocumentToolContext): ToolDefinition[] {
     const tools: ToolDefinition[] = []
     if (ctx.config.capabilities.documents) {
@@ -405,6 +490,8 @@ export function createDocumentTools(ctx: DocumentToolContext): ToolDefinition[] 
         tools.push(createPptxTool(ctx))
     }
     if (ctx.config.capabilities.pdf) {
+        tools.push(createReadPdfTool(ctx))
+        tools.push(createPdfExtractTextTool(ctx))
         tools.push(createPdfTool(ctx))
     }
     return tools

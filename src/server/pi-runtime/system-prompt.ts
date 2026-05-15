@@ -85,7 +85,8 @@ function attachmentHandlingInstruction(): string {
     return [
         'Attached images are provided as direct visual input; use that input for image understanding.',
         'Do not inspect images with shell commands, OCR, conversion utilities, package installs, or storage paths.',
-        'Attached non-image files are room-local file references; when a root and path are shown, use the appropriate file, document, or shell tools to inspect them only as needed.',
+        'Attached PDFs are provided through native PDF input when the configured provider supports it, otherwise as rendered page images for vision-capable models; use agent_room_read_pdf by default for room-local PDF paths and agent_room_pdf_extract_text only when text extraction is explicitly requested or the PDF read tool reports that native or rendered reading is unavailable.',
+        'Attached non-image, non-PDF files are room-local file references; when a root and path are shown, use the appropriate file, document, skill, or shell tools to inspect them only as needed.',
         'If an attachment cannot be accessed through either path, stop and report the limitation clearly.',
     ].join(' ')
 }
@@ -166,7 +167,7 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
         config.capabilities.documents ? 'DOCX documents' : null,
         config.capabilities.spreadsheets ? 'XLSX spreadsheets' : null,
         config.capabilities.presentations ? 'PPTX presentations' : null,
-        config.capabilities.pdf ? 'PDF export and preview' : null,
+        config.capabilities.pdf ? 'native or rendered PDF reading, PDF export, and preview' : null,
         config.capabilities.images ? 'image generation' : null,
         config.capabilities.mcp ? 'connected MCP tools' : null,
         config.capabilities.shellCoding ? 'shell and coding tools' : null,

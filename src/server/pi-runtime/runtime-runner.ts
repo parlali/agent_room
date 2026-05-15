@@ -101,6 +101,31 @@ function removePendingUserMessage(record: ThreadRecord, runId: string): void {
     record.updatedAt = Date.now()
 }
 
+async function appendAttachmentIngestionEvents(input: {
+    dependencies: RuntimeRunnerDependencies
+    record: ThreadRecord
+    runId: string
+    preparedPrompt: PreparedPrompt
+}): Promise<void> {
+    const ingestions = input.preparedPrompt.metadata?.ingestions ?? []
+    for (const ingestion of ingestions) {
+        await input.dependencies.appendRuntimeEvent('attachment.pdf_ingested', {
+            sessionKey: input.record.key,
+            runId: input.runId,
+            attachmentId: ingestion.attachmentId,
+            name: ingestion.name,
+            relativePath: ingestion.relativePath,
+            mediaType: ingestion.mediaType,
+            ingestionMode: ingestion.ingestionMode,
+            pageCount: ingestion.pageCount,
+            pages: ingestion.pages,
+            inputBlocks: ingestion.inputBlocks,
+            degraded: ingestion.degraded,
+            degradedReason: ingestion.degradedReason,
+        })
+    }
+}
+
 function appendFailedPromptMessages(
     active: ActiveThread,
     input: RunPromptInput,
@@ -363,13 +388,19 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                         runId: input.runId,
                         signal: abortController.signal,
                     },
-                    () => {
+                    async () => {
                         if (preparedPrompt.metadata) {
                             active.session.sessionManager.appendCustomEntry(
                                 promptAttachmentMetadataType,
                                 preparedPrompt.metadata,
                             )
                         }
+                        await appendAttachmentIngestionEvents({
+                            dependencies,
+                            record: input.record,
+                            runId: input.runId,
+                            preparedPrompt,
+                        })
                         return active.session.prompt(
                             preparedPrompt.text,
                             active.session.isStreaming

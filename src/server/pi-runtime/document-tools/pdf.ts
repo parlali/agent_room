@@ -117,24 +117,15 @@ export function normalizePdfEdits(value: unknown): PdfEdit[] {
 }
 
 export async function inspectPdf(
-    ctx: DocumentToolContext,
+    _ctx: DocumentToolContext,
     path: string,
-    input: {
+    _input: {
         signal?: AbortSignal
         maxChars?: number
     } = {},
 ): Promise<string> {
     const buffer = await readFile(path)
-    const metadata = pdfMetadata(path, buffer)
-    try {
-        const extracted = await extractPdfText(ctx, path, {
-            maxChars: input.maxChars ?? 12000,
-            signal: input.signal,
-        })
-        return `${metadata}\n\n${extracted}`
-    } catch (error) {
-        return `${metadata}\n\nText extraction unavailable: ${error instanceof Error ? error.message : String(error)}`
-    }
+    return pdfMetadata(path, buffer)
 }
 
 export async function extractPdfText(

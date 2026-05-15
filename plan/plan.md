@@ -17,3 +17,15 @@ The brainstorm has been split into three public OSS work-stream issues. Implemen
 - [x] File Issue 2 (Search reliability) using the template.
 - [x] File Issue 3 (Browser automation) using the template.
 - [x] Replace this document with a short pointer to the three filed issues once they are created.
+
+## Issue 1 implementation notes
+
+- [x] Preserve uploaded PDFs as canonical room-local artifacts and materialize reads from that original file.
+- [x] Add `agent_room_read_pdf` with native Anthropic document routing and rendered page-image routing for other vision-capable models.
+- [x] Keep explicit `agent_room_pdf_extract_text` separate from default PDF reading.
+- [x] Persist and audit PDF ingestion mode as `native_document`, `image_render`, `text_extract`, or `unsupported`.
+- [x] Surface PDF ingestion mode in prompt attachment metadata, audit events, tool details, and model-visible attachment summaries.
+- [x] Map Anthropic PDF payloads through Pi provider routing without claiming image-rendered or text-extracted content is native.
+- [x] Ship the repo-owned `office-documents` skill and bundled script for DOCX, XLSX, and PPTX create, inspect, and edit workflows.
+- [x] Keep existing dedicated DOCX/XLSX/PPTX tools during the transition period while the bundled skill path is introduced.
+- [x] Verify direct behavior and downstream effects with `bun run check`.

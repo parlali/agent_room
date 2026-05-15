@@ -483,6 +483,58 @@ describe('room Pi tools', () => {
         })
     })
 
+    it('reads PDFs through native document mode and keeps text extraction explicit', async () => {
+        await withRoom(async (config) => {
+            config.provider.sourceProvider = 'anthropic'
+            config.provider.api = 'anthropic-messages'
+            await executeDocumentTool(config, 'agent_room_pdf', {
+                operation: 'create',
+                path: 'source.pdf',
+                paragraphs: ['Native PDF path text'],
+            })
+
+            const readPdf = await executeDocumentTool(config, 'agent_room_read_pdf', {
+                path: 'source.pdf',
+            })
+
+            expect(resultText(readPdf.result)).toContain('native document input')
+            expect(readPdf.result.content[1]).toMatchObject({
+                type: 'image',
+                mimeType: 'application/pdf',
+            })
+            expect(resultDetails(readPdf.result)).toMatchObject({
+                ingestionMode: 'native_document',
+                backend: 'anthropic_native_document',
+            })
+            expect(
+                createDocumentTools({ config, audit: async () => {} }).map((tool) => tool.name),
+            ).toContain('agent_room_pdf_extract_text')
+        })
+    })
+
+    it('reports unsupported PDF reads without falling back to text extraction silently', async () => {
+        await withRoom(async (config) => {
+            await executeDocumentTool(config, 'agent_room_pdf', {
+                operation: 'create',
+                path: 'source.pdf',
+                paragraphs: ['Unsupported PDF path text'],
+            })
+
+            const readPdf = await executeDocumentTool(config, 'agent_room_read_pdf', {
+                path: 'source.pdf',
+            })
+
+            expect(resultText(readPdf.result)).toContain('unsupported')
+            expect(readPdf.result.content).toHaveLength(1)
+            expect(resultDetails(readPdf.result)).toMatchObject({
+                ingestionMode: 'unsupported',
+                backend: 'unsupported',
+                inputBlocks: 0,
+                degraded: true,
+            })
+        })
+    })
+
     it('imports and exports artifacts through the room store', async () => {
         await withRoom(async (config) => {
             await writeFile(join(config.paths.workspaceDir, 'report.txt'), 'artifact body', 'utf8')

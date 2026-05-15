@@ -51,6 +51,8 @@ const readToolNames = new Set([
     'agent_room_xlsx',
     'agent_room_pptx',
     'agent_room_pdf',
+    'agent_room_read_pdf',
+    'agent_room_pdf_extract_text',
 ])
 
 function artifactId(surface: ArtifactSurface, relativePath: string): string {
