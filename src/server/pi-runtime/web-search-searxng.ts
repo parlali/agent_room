@@ -354,7 +354,7 @@ export class SearxngSearchProvider implements SearchProvider {
                 engineFailures: unresponsiveEngines.map((engine) => ({
                     engine: engine.engine,
                     code: engine.code,
-                    reason: engine.code,
+                    reason: engine.message || engine.code,
                 })),
             }
         }

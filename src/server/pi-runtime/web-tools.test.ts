@@ -18,7 +18,7 @@ import {
 import { BraveSearchProvider } from './web-search-brave'
 import { BrowserbaseSearchProvider } from './web-search-browserbase'
 import { SearchRouter } from './web-search-router'
-import { parseSearxngHtmlResults, searxngSearch } from './web-search-searxng'
+import { parseSearxngHtmlResults, SearxngSearchProvider, searxngSearch } from './web-search-searxng'
 import { createTestPiRuntimeConfig } from './test-runtime-defaults'
 import { withToolRunContext } from './tool-run-context'
 
@@ -264,6 +264,43 @@ describe('web tools', () => {
         })
 
         expect(new URL(calls[1]).searchParams.get('disabled_engines')).toBe('google')
+    })
+
+    it('preserves SearXNG unresponsive engine failure messages', async () => {
+        globalThis.fetch = (async () =>
+            new Response(
+                JSON.stringify({
+                    results: [
+                        {
+                            title: 'First',
+                            url: 'https://example.com/first',
+                            content: 'First result',
+                            engines: ['duckduckgo'],
+                        },
+                    ],
+                    unresponsive_engines: [['google', 'rate limit']],
+                }),
+                {
+                    status: 200,
+                    headers: {
+                        'content-type': 'application/json',
+                    },
+                },
+            )) as typeof fetch
+
+        const response = await new SearxngSearchProvider().search({
+            config: createTestPiRuntimeConfig(),
+            query: 'first',
+            count: 5,
+        })
+
+        expect(response.engineFailures).toEqual([
+            {
+                engine: 'google',
+                code: 'rate_limited',
+                reason: 'rate limit',
+            },
+        ])
     })
 
     it('maps Brave web results into canonical search results', () => {
