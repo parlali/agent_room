@@ -73,7 +73,10 @@ function createManager(
 function installBrowserbaseFakes(
     input: {
         connectUrl?: string
+        failWebSocket?: boolean
         liveUrl?: string
+        releaseStatus?: number
+        sessionCreateStatus?: number
         state?: FakeBrowserState
     } = {},
 ) {
@@ -84,6 +87,7 @@ function installBrowserbaseFakes(
         sent: [],
     }
     const fetchCalls: FetchCall[] = []
+    let sessionCount = 0
     globalThis.fetch = (async (request, init) => {
         const url = String(request)
         const body = init?.body ? JSON.parse(String(init.body)) : null
@@ -94,10 +98,22 @@ function installBrowserbaseFakes(
             apiKey: new Headers(init?.headers).get('x-bb-api-key'),
         })
         if (url === 'https://api.browserbase.com/v1/sessions' && init?.method === 'POST') {
+            if (input.sessionCreateStatus) {
+                return Response.json(
+                    {
+                        error: 'session create failed',
+                    },
+                    {
+                        status: input.sessionCreateStatus,
+                    },
+                )
+            }
+            sessionCount += 1
+            const id = `bb-session-${sessionCount}`
             return Response.json(
                 {
-                    id: 'bb-session-1',
-                    connectUrl: input.connectUrl ?? 'wss://connect.browserbase.test/session-secret',
+                    id,
+                    connectUrl: input.connectUrl ?? `wss://connect.browserbase.test/${id}-secret`,
                 },
                 {
                     status: 201,
@@ -119,9 +135,19 @@ function installBrowserbaseFakes(
                 ],
             })
         }
-        if (url.endsWith('/sessions/bb-session-1') && init?.method === 'POST') {
+        if (url.includes('/sessions/bb-session-') && init?.method === 'POST') {
+            if (input.releaseStatus) {
+                return Response.json(
+                    {
+                        error: 'release failed',
+                    },
+                    {
+                        status: input.releaseStatus,
+                    },
+                )
+            }
             return Response.json({
-                id: 'bb-session-1',
+                id: url.split('/').at(-1),
                 status: 'COMPLETED',
             })
         }
@@ -137,6 +163,9 @@ function installBrowserbaseFakes(
 
         constructor(url: string) {
             super()
+            if (input.failWebSocket) {
+                throw new Error(`Cannot connect to ${url}`)
+            }
             this.url = url
             FakeWebSocket.instances.push(this)
             queueMicrotask(() => {
@@ -367,9 +396,7 @@ describe('Browserbase browser automation', () => {
         expect(fetchCalls[0]?.apiKey).toBe('browserbase-secret')
         expect(fetchCalls[0]?.body).toEqual({
             keepAlive: true,
-            browserSettings: {
-                timeout: 660,
-            },
+            timeout: 660,
         })
         const audit = events.map((event) => payloadText(event.payload)).join('\n')
         expect(audit).not.toContain('browserbase-secret')
@@ -380,9 +407,9 @@ describe('Browserbase browser automation', () => {
         expect(payloadText(broadcasts)).not.toContain('live-secret')
     })
 
-    it('fails closed when the per-turn browser action budget is exhausted', async () => {
+    it('fails closed when the per-turn browser action budget is exhausted but still allows close', async () => {
         process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
-        installBrowserbaseFakes()
+        const { fetchCalls } = installBrowserbaseFakes()
         const { manager, events } = createManager({
             browserActionsPerTurn: 1,
         })
@@ -415,6 +442,253 @@ describe('Browserbase browser automation', () => {
                 payloadText(event.payload).includes('Browser action budget exceeded'),
         )
         expect(failed).toBeTruthy()
+
+        await expect(
+            manager.close({
+                ...context,
+                action: 'close',
+                toolCallId: 'call-3',
+            }),
+        ).resolves.toBeTruthy()
+        expect(fetchCalls.at(-1)).toMatchObject({
+            method: 'POST',
+            url: 'https://api.browserbase.com/v1/sessions/bb-session-1',
+            body: {
+                status: 'REQUEST_RELEASE',
+            },
+        })
+    })
+
+    it('executes navigate, click, type, scroll, screenshot, and read text through the active session', async () => {
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
+        const { state } = installBrowserbaseFakes()
+        const { manager, events } = createManager()
+        const context = {
+            action: 'open' as const,
+            toolCallId: 'call-1',
+            sessionKey: 'thread-1',
+            runId: 'run-1',
+        }
+        await manager.open(context, {
+            url: 'https://93.184.216.34/start',
+        })
+
+        await manager.navigate(
+            {
+                ...context,
+                action: 'navigate',
+                toolCallId: 'call-2',
+            },
+            {
+                url: 'https://93.184.216.34/next',
+            },
+        )
+        await manager.click(
+            {
+                ...context,
+                action: 'click',
+                toolCallId: 'call-3',
+            },
+            {
+                selector: '#submit',
+            },
+        )
+        await manager.type(
+            {
+                ...context,
+                action: 'type',
+                toolCallId: 'call-4',
+            },
+            {
+                selector: 'input[name="q"]',
+                text: 'browser test',
+                clear: true,
+            },
+        )
+        await manager.scroll(
+            {
+                ...context,
+                action: 'scroll',
+                toolCallId: 'call-5',
+            },
+            {
+                direction: 'down',
+                amount: 400,
+            },
+        )
+        const screenshot = await manager.screenshot({
+            ...context,
+            action: 'screenshot',
+            toolCallId: 'call-6',
+        })
+        const text = await manager.readText(
+            {
+                ...context,
+                action: 'read_text',
+                toolCallId: 'call-7',
+            },
+            {},
+        )
+
+        const methods = state.sent.map((entry) => (entry as { method: string }).method)
+        expect(methods).toContain('Page.navigate')
+        expect(methods).toContain('Input.dispatchMouseEvent')
+        expect(methods).toContain('Input.insertText')
+        expect(methods).toContain('Page.captureScreenshot')
+        expect(screenshot.content.some((entry) => entry.type === 'image')).toBe(true)
+        expect(text.content[0]?.type === 'text' ? text.content[0].text : '').toContain(
+            'Visible text from the page',
+        )
+        for (const action of ['navigate', 'click', 'type', 'scroll', 'screenshot', 'read_text']) {
+            expect(
+                events.some(
+                    (event) =>
+                        event.event === `tool.browser_${action}` &&
+                        payloadText(event.payload).includes('"status":"complete"'),
+                ),
+            ).toBe(true)
+        }
+    })
+
+    it('audits invalid input failures after budget consumption without exposing raw invalid values', async () => {
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
+        installBrowserbaseFakes()
+        const { manager, events } = createManager()
+
+        await expect(
+            manager.navigate(
+                {
+                    action: 'navigate',
+                    toolCallId: 'call-1',
+                    sessionKey: 'thread-1',
+                    runId: 'run-1',
+                },
+                {
+                    url: 'not a url with token',
+                },
+            ),
+        ).rejects.toThrow('Browser URL must be an absolute http or https URL')
+
+        const failed = events.find(
+            (event) =>
+                event.event === 'tool.browser_navigate' &&
+                payloadText(event.payload).includes('"status":"failed"'),
+        )
+        expect(failed).toBeTruthy()
+        expect(payloadText(failed?.payload)).toContain(
+            'Browser URL must be an absolute http or https URL',
+        )
+        expect(payloadText(failed?.payload)).not.toContain('not a url with token')
+        expect(payloadText(failed?.payload)).toContain('"used":1')
+    })
+
+    it.each([
+        [401, 'Browserbase authentication failed'],
+        [429, 'Browserbase session limit or rate limit was reached'],
+    ])('fails closed and audits Browserbase create status %s', async (status, message) => {
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
+        installBrowserbaseFakes({
+            sessionCreateStatus: status,
+        })
+        const { manager, events } = createManager()
+
+        await expect(
+            manager.open(
+                {
+                    action: 'open',
+                    toolCallId: 'call-1',
+                    sessionKey: 'thread-1',
+                    runId: 'run-1',
+                },
+                {
+                    url: 'https://93.184.216.34/start',
+                },
+            ),
+        ).rejects.toThrow(message)
+
+        expect(payloadText(events)).toContain(message)
+        expect(payloadText(events)).not.toContain('browserbase-secret')
+    })
+
+    it('redacts Browserbase connection URLs from connect failures, audit payloads, and snapshots', async () => {
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
+        installBrowserbaseFakes({
+            connectUrl: 'wss://connect.browserbase.test/session-secret?token=secret-token',
+            failWebSocket: true,
+        })
+        const { manager, events, broadcasts } = createManager()
+
+        await expect(
+            manager.open(
+                {
+                    action: 'open',
+                    toolCallId: 'call-1',
+                    sessionKey: 'thread-1',
+                    runId: 'run-1',
+                },
+                {
+                    url: 'https://93.184.216.34/start',
+                },
+            ),
+        ).rejects.toThrow('Browser CDP connection failed')
+
+        const serialized = payloadText({
+            events,
+            broadcasts,
+            snapshot: manager.snapshot(),
+        })
+        expect(serialized).not.toContain('connect.browserbase.test')
+        expect(serialized).not.toContain('session-secret')
+        expect(serialized).not.toContain('secret-token')
+        expect(manager.snapshot()).toMatchObject({
+            status: 'error',
+            message: 'Browser CDP connection failed',
+        })
+    })
+
+    it('audits replacement, idle, and shutdown release paths', async () => {
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
+        installBrowserbaseFakes()
+        const { manager, events } = createManager()
+        const context = {
+            action: 'open' as const,
+            toolCallId: 'call-1',
+            sessionKey: 'thread-1',
+            runId: 'run-1',
+        }
+        await manager.open(context, {
+            url: 'https://93.184.216.34/one',
+        })
+        await manager.open(
+            {
+                ...context,
+                toolCallId: 'call-2',
+            },
+            {
+                url: 'https://93.184.216.34/two',
+            },
+        )
+        await manager.closeAll('runtime_shutdown')
+        await manager.open(
+            {
+                ...context,
+                toolCallId: 'call-3',
+                runId: 'run-2',
+            },
+            {
+                url: 'https://93.184.216.34/three',
+            },
+        )
+        await manager.closeAll('idle_timeout')
+
+        const releaseAudit = events
+            .filter((event) => event.event === 'browser.session_release')
+            .map((event) => payloadText(event.payload))
+            .join('\n')
+        expect(releaseAudit).toContain('"reason":"replaced"')
+        expect(releaseAudit).toContain('"reason":"runtime_shutdown"')
+        expect(releaseAudit).toContain('"reason":"idle_timeout"')
+        expect(releaseAudit).toContain('"status":"complete"')
     })
 
     it('closes the active Browserbase session through REQUEST_RELEASE', async () => {
