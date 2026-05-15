@@ -169,7 +169,7 @@ describe('runtime runner memory capture audit', () => {
 
             expect(record.pendingUserMessages).toEqual([
                 expect.objectContaining({
-                    id: 'run-pending',
+                    messageId: 'run-pending',
                     runId: 'run-pending',
                     text: 'Continue with the next check',
                 }),

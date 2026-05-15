@@ -188,11 +188,21 @@ function optionalNumber(value: unknown): number | undefined {
 }
 
 function parseJsonArray(value: unknown): unknown[] {
-    if (Array.isArray(value)) return value
-    if (typeof value !== 'string' || !value.trim()) return []
+    if (Array.isArray(value)) {
+        if (value.length === 0) {
+            throw new Error('PDF edits must contain at least one edit')
+        }
+        return value
+    }
+    if (typeof value !== 'string' || !value.trim()) {
+        throw new Error('Missing or empty PDF edits JSON')
+    }
     const parsed = JSON.parse(value) as unknown
     if (!Array.isArray(parsed)) {
         throw new Error('PDF edits must be a JSON array')
+    }
+    if (parsed.length === 0) {
+        throw new Error('PDF edits must contain at least one edit')
     }
     return parsed
 }

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 const skillDirectoryCandidates = [
     fileURLToPath(new URL('./skills', import.meta.url)),
+    fileURLToPath(new URL('../assets/skills', import.meta.url)),
     fileURLToPath(new URL('./assets/skills', import.meta.url)),
     join(process.cwd(), 'dist/server/assets/skills'),
     join(process.cwd(), 'src/server/pi-runtime/skills'),

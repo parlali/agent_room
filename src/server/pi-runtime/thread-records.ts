@@ -5,7 +5,7 @@ export type ThreadTitleSource = 'initial' | 'generated' | 'manual'
 export type ThreadRunKind = RunKind
 
 export interface PendingUserMessageRecord {
-    id: string
+    messageId: string
     runId: string
     runKind: ThreadRunKind
     text: string
@@ -150,8 +150,15 @@ function normalizePendingUserMessages(value: unknown): PendingUserMessageRecord[
     return value.flatMap((item): PendingUserMessageRecord[] => {
         if (!item || typeof item !== 'object') return []
         const record = item as Partial<PendingUserMessageRecord>
+        const legacyRecord = item as Partial<PendingUserMessageRecord> & { id?: unknown }
+        const messageId =
+            typeof record.messageId === 'string'
+                ? record.messageId
+                : typeof legacyRecord.id === 'string'
+                  ? legacyRecord.id
+                  : null
         if (
-            typeof record.id !== 'string' ||
+            typeof messageId !== 'string' ||
             typeof record.runId !== 'string' ||
             typeof record.text !== 'string' ||
             typeof record.queuedAt !== 'number' ||
@@ -161,7 +168,7 @@ function normalizePendingUserMessages(value: unknown): PendingUserMessageRecord[
         }
         return [
             {
-                id: record.id,
+                messageId,
                 runId: record.runId,
                 runKind:
                     record.runKind === 'scheduled' ||

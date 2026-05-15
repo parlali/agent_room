@@ -495,6 +495,30 @@ describe('room Pi tools', () => {
         })
     })
 
+    it('rejects empty PDF edit payloads', async () => {
+        await withRoom(async (config) => {
+            await executeDocumentTool(config, 'agent_room_pdf', {
+                operation: 'create',
+                path: 'source.pdf',
+                paragraphs: ['Original PDF text'],
+            })
+
+            await expect(
+                executeDocumentTool(config, 'agent_room_pdf', {
+                    operation: 'edit',
+                    path: 'source.pdf',
+                }),
+            ).rejects.toThrow('Missing or empty PDF edits JSON')
+            await expect(
+                executeDocumentTool(config, 'agent_room_pdf', {
+                    operation: 'edit',
+                    path: 'source.pdf',
+                    editsJson: '[]',
+                }),
+            ).rejects.toThrow('PDF edits must contain at least one edit')
+        })
+    })
+
     it('does not expose office or text-extraction document compatibility tools', async () => {
         await withRoom(async (config) => {
             const names = createDocumentTools({ config, audit: async () => {} }).map(

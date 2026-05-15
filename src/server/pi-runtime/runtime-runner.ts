@@ -88,7 +88,7 @@ function assertPromptMetadataCanBePersisted(active: ActiveThread): void {
 
 function addPendingUserMessage(record: ThreadRecord, message: PendingUserMessageRecord): void {
     const current = record.pendingUserMessages ?? []
-    if (current.some((candidate) => candidate.id === message.id)) return
+    if (current.some((candidate) => candidate.messageId === message.messageId)) return
     record.pendingUserMessages = [...current, message]
     record.updatedAt = Math.max(record.updatedAt, message.queuedAt)
 }
@@ -543,7 +543,7 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
         const active = await dependencies.getActiveThread(input.record)
         if (!input.editMessageId) {
             addPendingUserMessage(input.record, {
-                id: input.runId,
+                messageId: input.runId,
                 runId: input.runId,
                 runKind:
                     input.runKind ??

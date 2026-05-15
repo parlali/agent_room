@@ -77,6 +77,7 @@ function normalizeSheets(value: unknown): SheetInput[] {
     const source = isRecord(value) ? value.sheets : value
     const sheets =
         Array.isArray(source) && source.length > 0 ? source : [{ name: 'Sheet 1', rows: [['']] }]
+    const seenNames = new Set<string>()
     return sheets.map((sheet, index) => {
         const record = isRecord(sheet) ? sheet : {}
         const rows = Array.isArray(record.rows)
@@ -84,8 +85,27 @@ function normalizeSheets(value: unknown): SheetInput[] {
             : Array.isArray(record.data)
               ? record.data
               : []
+        const rawName =
+            record.name === undefined || record.name === null
+                ? `Sheet ${index + 1}`
+                : String(record.name)
+        const name = rawName.trim()
+        if (!name) {
+            fail('Sheet name cannot be empty')
+        }
+        if (name.length > 31) {
+            fail(`Sheet name cannot exceed 31 characters: ${name}`)
+        }
+        if ([...name].some((character) => '[]:*?/\\'.includes(character))) {
+            fail(`Invalid sheet name: ${name}`)
+        }
+        const comparableName = name.toLowerCase()
+        if (seenNames.has(comparableName)) {
+            fail(`Duplicate sheet name: ${name}`)
+        }
+        seenNames.add(comparableName)
         return {
-            name: String(record.name || `Sheet ${index + 1}`).slice(0, 31),
+            name,
             rows: rows.map((row) => (Array.isArray(row) ? row : [row])),
         }
     })
@@ -543,11 +563,16 @@ function updateDimension(document: XmlDocument): void {
     if (cells.length === 0) {
         return
     }
+    const minColumn = Math.min(...cells.map((cell) => columnIndex(cell.column)))
+    const minRow = Math.min(...cells.map((cell) => cell.row))
     const maxColumn = Math.max(...cells.map((cell) => columnIndex(cell.column)))
     const maxRow = Math.max(...cells.map((cell) => cell.row))
     const dimension = firstElementByLocalName(document, 'dimension')
     if (dimension) {
-        dimension.setAttribute('ref', `A1:${columnName(maxColumn)}${maxRow}`)
+        dimension.setAttribute(
+            'ref',
+            `${columnName(minColumn)}${minRow}:${columnName(maxColumn)}${maxRow}`,
+        )
     }
 }
 

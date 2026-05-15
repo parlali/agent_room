@@ -359,50 +359,82 @@ function replaceTextSegments(
     }
 
     const nextSegments: TextSegment[] = []
+    const segmentRanges = segmentRangesFor(segments)
+    let cursor = 0
+    for (const range of ranges) {
+        appendOriginalTextSegments(nextSegments, segmentRanges, cursor, range.start)
+        appendReplacementTextSegments(nextSegments, segmentRanges, replacement, range)
+        cursor = range.end
+    }
+    appendOriginalTextSegments(nextSegments, segmentRanges, cursor, fullText.length)
+    return { segments: nextSegments, count: ranges.length }
+}
+
+interface TextSegmentRange extends TextSegment {
+    start: number
+    end: number
+}
+
+function segmentRangesFor(segments: TextSegment[]): TextSegmentRange[] {
+    const ranges: TextSegmentRange[] = []
     let position = 0
-    let rangeIndex = 0
     for (const segment of segments) {
-        let segmentOffset = 0
         const segmentStart = position
         const segmentEnd = segmentStart + segment.text.length
-        while (rangeIndex < ranges.length && ranges[rangeIndex].end <= segmentStart) {
-            rangeIndex += 1
-        }
-        if (rangeIndex > 0) {
-            const previousRange = ranges[rangeIndex - 1]
-            if (previousRange.end > segmentStart) {
-                segmentOffset = Math.min(segment.text.length, previousRange.end - segmentStart)
-            }
-        }
-        while (
-            rangeIndex < ranges.length &&
-            ranges[rangeIndex].start >= segmentStart &&
-            ranges[rangeIndex].start < segmentEnd
-        ) {
-            const range = ranges[rangeIndex]
-            const beforeLength = range.start - segmentStart - segmentOffset
-            if (beforeLength > 0) {
-                nextSegments.push({
-                    sourceIndex: segment.sourceIndex,
-                    text: segment.text.slice(segmentOffset, segmentOffset + beforeLength),
-                })
-            }
-            nextSegments.push({
-                sourceIndex: segment.sourceIndex,
-                text: replacement.newText,
-            })
-            segmentOffset = Math.max(segmentOffset, range.end - segmentStart)
-            rangeIndex += 1
-        }
-        if (segmentOffset < segment.text.length) {
-            nextSegments.push({
-                sourceIndex: segment.sourceIndex,
-                text: segment.text.slice(segmentOffset),
-            })
-        }
+        ranges.push({
+            ...segment,
+            start: segmentStart,
+            end: segmentEnd,
+        })
         position = segmentEnd
     }
-    return { segments: nextSegments, count: ranges.length }
+    return ranges
+}
+
+function appendOriginalTextSegments(
+    output: TextSegment[],
+    segments: TextSegmentRange[],
+    start: number,
+    end: number,
+): void {
+    if (end <= start) return
+    for (const segment of segments) {
+        const overlapStart = Math.max(start, segment.start)
+        const overlapEnd = Math.min(end, segment.end)
+        if (overlapEnd <= overlapStart) continue
+        output.push({
+            sourceIndex: segment.sourceIndex,
+            text: segment.text.slice(overlapStart - segment.start, overlapEnd - segment.start),
+        })
+    }
+}
+
+function appendReplacementTextSegments(
+    output: TextSegment[],
+    segments: TextSegmentRange[],
+    replacement: Replacement,
+    range: { start: number; end: number },
+): void {
+    const oldLength = range.end - range.start
+    const newLength = replacement.newText.length
+    for (const segment of segments) {
+        const overlapStart = Math.max(range.start, segment.start)
+        const overlapEnd = Math.min(range.end, segment.end)
+        if (overlapEnd <= overlapStart) continue
+        const newStart = replacementSplitOffset(overlapStart - range.start, oldLength, newLength)
+        const newEnd = replacementSplitOffset(overlapEnd - range.start, oldLength, newLength)
+        const text = replacement.newText.slice(newStart, newEnd)
+        if (text.length === 0) continue
+        output.push({
+            sourceIndex: segment.sourceIndex,
+            text,
+        })
+    }
+}
+
+function replacementSplitOffset(offset: number, oldLength: number, newLength: number): number {
+    if (oldLength === 0) return 0
+    return Math.floor((offset * newLength) / oldLength)
 }
 
 export function countOccurrences(text: string, needle: string): number {

@@ -338,6 +338,9 @@ function hasActiveTranscript(row: ChatTimelineRow): boolean {
 }
 
 function isPendingQueuedRow(row: RoomSessionDisplayRow): boolean {
+    if ('pending' in row && row.pending !== undefined) {
+        return row.pending
+    }
     return row.id.startsWith('pending-user-') || row.id.startsWith('pending-run-')
 }
 

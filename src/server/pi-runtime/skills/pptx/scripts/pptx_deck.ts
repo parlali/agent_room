@@ -209,7 +209,9 @@ async function createPptx(path: string, slides: SlideInput[]): Promise<void> {
 }
 
 function slidePartNames(zip: JSZip): string[] {
-    return zipFileNames(zip).filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
+    return zipFileNames(zip)
+        .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
+        .sort((left, right) => slideNumber(left) - slideNumber(right))
 }
 
 function editablePartNames(zip: JSZip): string[] {

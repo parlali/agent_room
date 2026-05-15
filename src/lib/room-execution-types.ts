@@ -165,6 +165,7 @@ export interface RunTranscriptRow {
     collapsed: boolean
     items: WorkTranscriptItem[]
     timestamp: number | null
+    pending?: boolean
 }
 
 export type ChatTimelineRow =
@@ -174,6 +175,7 @@ export type ChatTimelineRow =
           seq: number
           message: RoomExecutionMessage
           timestamp: number | null
+          pending?: boolean
       }
     | {
           type: 'assistant_final'

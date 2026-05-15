@@ -36,6 +36,8 @@ function agentRoomSkillPrompt(skills: Skill[]): string[] {
     ]
 }
 
+const cachedAgentRoomSkillPrompt = agentRoomSkillPrompt(agentRoomSkills.skills)
+
 export function createPiResourceLoader(systemPrompt: string | (() => string)): ResourceLoader {
     return {
         getExtensions: () => ({
@@ -59,7 +61,7 @@ export function createPiResourceLoader(systemPrompt: string | (() => string)): R
             agentsFiles: [],
         }),
         getSystemPrompt: () => (typeof systemPrompt === 'function' ? systemPrompt() : systemPrompt),
-        getAppendSystemPrompt: () => agentRoomSkillPrompt(agentRoomSkills.skills),
+        getAppendSystemPrompt: () => cachedAgentRoomSkillPrompt,
         extendResources: () => {},
         reload: async () => {},
     }
