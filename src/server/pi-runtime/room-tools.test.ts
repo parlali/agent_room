@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import { strFromU8, unzipSync } from 'fflate'
 import * as XLSX from 'xlsx'
+import { PDFDocument } from 'pdf-lib'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { __testing, createRoomTools, roomToolNamesForCapabilities } from './room-tools'
 import { createDocumentTools } from './document-tools'
@@ -431,6 +432,20 @@ describe('room Pi tools', () => {
                 path: 'source.pdf',
                 paragraphs: ['Uploaded PDF text'],
             })
+            await executeDocumentTool(config, 'agent_room_pdf', {
+                operation: 'edit',
+                path: 'source.pdf',
+                editsJson: JSON.stringify([
+                    {
+                        type: 'append_text_page',
+                        title: 'Appendix',
+                        paragraphs: ['Added directly to the PDF'],
+                    },
+                ]),
+            })
+            const editedPdf = await PDFDocument.load(
+                await readFile(join(config.paths.workspaceDir, 'source.pdf')),
+            )
             await copyFile(
                 join(config.paths.workspaceDir, 'source.pdf'),
                 join(config.paths.storeDir, 'attachments/session/source.pdf'),
@@ -442,6 +457,7 @@ describe('room Pi tools', () => {
             })
 
             expect(resultText(inspectedDocx.result)).toContain('Uploaded contract text')
+            expect(editedPdf.getPageCount()).toBe(2)
             expect(resultDetails(inspectedDocx.result)).toMatchObject({
                 root: 'store',
                 format: 'docx',

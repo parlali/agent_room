@@ -1,7 +1,9 @@
 import { existsSync, statSync } from 'node:fs'
 import type { SessionEntry } from '@mariozechner/pi-coding-agent'
 import { buildChatTimelineRows } from '#/lib/message-list-model'
+import { emptyRuntimePart } from '#/lib/runtime-message'
 import type {
+    ChatTimelineRow,
     RoomExecutionMessage,
     RoomExecutionThread,
     RoomSessionDisplayRow,
@@ -18,7 +20,7 @@ import {
 import { extractSessionArtifacts } from './session-artifacts'
 import { completedToolCallIds, mapSessionEntry } from './session-entry-mapper'
 import { promptAttachmentMetadataByEntryId } from './prompt-attachments'
-import type { ThreadRecord } from './thread-records'
+import type { PendingUserMessageRecord, ThreadRecord } from './thread-records'
 
 interface SessionDisplayIndex {
     rows: RoomSessionDisplayRow[]
@@ -141,10 +143,57 @@ function buildSessionDisplayIndex(input: {
         messages,
         workingStatuses.has(input.record.status),
         input.thread,
-    ).map((row, seq) => sanitizeDisplayRow(row, seq))
+    )
+    const displayRows = appendPendingUserRows(rows, input.record).map((row, seq) =>
+        sanitizeDisplayRow(row, seq),
+    )
     return {
-        rows,
+        rows: displayRows,
         artifacts: extractSessionArtifacts(input.config, input.entries),
+    }
+}
+
+function appendPendingUserRows(rows: ChatTimelineRow[], record: ThreadRecord): ChatTimelineRow[] {
+    const pendingMessages = record.pendingUserMessages ?? []
+    if (pendingMessages.length === 0) return rows
+    const next = [...rows]
+    for (const pending of pendingMessages) {
+        const userMessage = pendingUserMessage(pending)
+        next.push({
+            type: 'user_message',
+            id: `pending-user-${pending.id}`,
+            seq: next.length,
+            message: userMessage,
+            timestamp: pending.queuedAt,
+        })
+        next.push({
+            type: 'run_transcript',
+            id: `pending-run-${pending.id}`,
+            seq: next.length,
+            runId: pending.runId,
+            status: 'queued',
+            startedAt: pending.queuedAt,
+            runtimeMs: null,
+            collapsed: false,
+            items: [],
+            timestamp: pending.queuedAt,
+        })
+    }
+    return next
+}
+
+function pendingUserMessage(pending: PendingUserMessageRecord): RoomExecutionMessage {
+    return {
+        id: `pending-user-${pending.id}`,
+        role: 'user',
+        text: pending.text,
+        parts: [
+            emptyRuntimePart({
+                type: 'text',
+                text: pending.text,
+            }),
+        ],
+        timestamp: pending.queuedAt,
     }
 }
 
@@ -224,6 +273,9 @@ function displayCacheKey(record: ThreadRecord): string {
         record.status,
         record.activeRunId ?? '',
         record.activeDurationMs,
+        (record.pendingUserMessages ?? [])
+            .map((message) => `${message.id}:${message.queuedAt}`)
+            .join(','),
     ].join(':')
 }
 

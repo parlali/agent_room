@@ -4,7 +4,13 @@ import { defineTool, type ToolDefinition } from '@mariozechner/pi-coding-agent'
 import { Type } from '@mariozechner/pi-ai'
 import { textToolResult } from './tool-helpers'
 import { createDocx, editDocx, inspectDocx } from './document-tools/docx'
-import { createPdf, inspectPdf } from './document-tools/pdf'
+import {
+    createPdf,
+    editPdf,
+    extractPdfText,
+    inspectPdf,
+    normalizePdfEdits,
+} from './document-tools/pdf'
 import { createPptx, editPptx, inspectPptx, normalizeSlides } from './document-tools/pptx'
 import { completeOfficeExportOrPreview, completeOperation } from './document-tools/operation'
 import {
@@ -272,20 +278,27 @@ function createPdfTool(ctx: DocumentToolContext): ToolDefinition {
     return defineTool({
         name: 'agent_room_pdf',
         label: 'PDF',
-        description: 'Create workspace PDF files, and inspect or preview room-local PDF files.',
+        description:
+            'Create workspace PDF files, inspect PDF metadata and text, extract PDF text, and preview room-local PDF files.',
         promptSnippet:
-            'agent_room_pdf creates durable workspace PDF outputs and inspects or renders room-local PDF page previews when requested.',
+            'agent_room_pdf creates and edits durable workspace PDF outputs, extracts text directly from room-local PDFs with operation "extract_text", and renders page previews when visual verification is needed. editsJson accepts [{"type":"append_text_page","title":"...","paragraphs":["..."]}], [{"type":"stamp_text","text":"...","page":1,"x":54,"y":54}], or [{"type":"delete_pages","pages":[2]}]. Use inspect or extract_text for PDF content instead of agent_room_read or shell extraction unless this tool reports that extraction is unavailable.',
         parameters: Type.Object({
             operation: Type.Union([
                 Type.Literal('create'),
                 Type.Literal('inspect'),
+                Type.Literal('edit'),
+                Type.Literal('extract_text'),
                 Type.Literal('preview'),
             ]),
             path: Type.String(),
             root: rootParameter,
             title: Type.Optional(Type.String()),
             paragraphs: Type.Optional(Type.Array(Type.String())),
+            editsJson: Type.Optional(Type.String()),
             outputPath: Type.Optional(Type.String()),
+            pageStart: Type.Optional(Type.Number()),
+            pageEnd: Type.Optional(Type.Number()),
+            maxChars: Type.Optional(Type.Number()),
         }),
         executionMode: 'sequential',
         execute: async (_toolCallId, input, signal) => {
@@ -305,13 +318,48 @@ function createPdfTool(ctx: DocumentToolContext): ToolDefinition {
                 })
             }
             const path = await existingDocumentPath(ctx.config, root, input.path)
-            if (input.operation === 'inspect') {
-                return textToolResult<DocumentToolDetails>(await inspectPdf(path), {
+            if (input.operation === 'edit') {
+                assertWorkspaceMutation(root, input.operation)
+                const count = await editPdf(path, normalizePdfEdits(input.editsJson))
+                return completeOperation(ctx, {
                     path,
-                    root,
                     format: 'pdf',
                     operation: input.operation,
+                    startedAt,
+                    message: `Edited PDF ${relativeToRoot(ctx, root, path)} with ${count} edits`,
+                    root,
+                    mediaPath: path,
                 })
+            }
+            if (input.operation === 'inspect') {
+                return textToolResult<DocumentToolDetails>(
+                    await inspectPdf(ctx, path, {
+                        signal,
+                        maxChars: input.maxChars,
+                    }),
+                    {
+                        path,
+                        root,
+                        format: 'pdf',
+                        operation: input.operation,
+                    },
+                )
+            }
+            if (input.operation === 'extract_text') {
+                return textToolResult<DocumentToolDetails>(
+                    await extractPdfText(ctx, path, {
+                        pageStart: input.pageStart,
+                        pageEnd: input.pageEnd,
+                        maxChars: input.maxChars,
+                        signal,
+                    }),
+                    {
+                        path,
+                        root,
+                        format: 'pdf',
+                        operation: input.operation,
+                    },
+                )
             }
             const hiddenPreview = !input.outputPath
             const previewPath = input.outputPath

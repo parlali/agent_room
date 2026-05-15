@@ -3,6 +3,54 @@ import type { RoomRealtimeEvent, RunTranscriptRow } from '#/lib/room-execution-t
 import { emptyStreamTurnState, reduceRoomStreamEvent, stopStreamTurn } from './stream-state'
 
 describe('stream turn reducer', () => {
+    it('uses server run start time from accepted events', () => {
+        const state = reduceRoomStreamEvent(
+            emptyStreamTurnState,
+            realtimeAt(
+                'run.accepted',
+                {
+                    runId: 'run-1',
+                    startedAt: '2026-05-14T21:00:00.000Z',
+                    startedAtMs: 1_000,
+                },
+                5_000,
+            ),
+        )
+
+        expect(state.startedAt).toBe(1_000)
+        expect(transcriptRow(state).startedAt).toBe(1_000)
+    })
+
+    it('settles provider rejection events as visible transcript errors', () => {
+        const state = reduceRoomStreamEvent(
+            emptyStreamTurnState,
+            realtimeAt(
+                'run.error',
+                {
+                    runId: 'run-1',
+                    message: 'cyber_policy rejected the request',
+                    startedAtMs: 1_000,
+                },
+                4_000,
+            ),
+        )
+        const transcript = transcriptRow(state)
+
+        expect(state).toMatchObject({
+            status: 'error',
+            finished: true,
+        })
+        expect(transcript).toMatchObject({
+            status: 'error',
+            runtimeMs: 3_000,
+        })
+        expect(transcript.items[0]).toMatchObject({
+            type: 'model_text',
+            markdown: 'Run failed: cyber_policy rejected the request',
+            complete: true,
+        })
+    })
+
     it('keeps commentary text ordered around tool activity and final text', () => {
         let state = reduceRoomStreamEvent(
             emptyStreamTurnState,

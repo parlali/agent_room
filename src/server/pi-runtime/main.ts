@@ -411,6 +411,7 @@ function logSessionEventError(error: unknown, event: AgentSessionEvent): void {
 async function handleSessionEvent(record: ThreadRecord, event: AgentSessionEvent): Promise<void> {
     const active = activeThreads.get(record.key)
     await active?.touchRunHeartbeat?.(event.type)
+    const pendingChanged = removeDeliveredPendingUserMessage(record, event)
     updateThreadFromMessages(record)
     if (event.type === 'agent_start' || event.type === 'turn_start') {
         record.status = 'running'
@@ -441,6 +442,45 @@ async function handleSessionEvent(record: ThreadRecord, event: AgentSessionEvent
         sessionKey: record.key,
         event,
     })
+    if (pendingChanged) {
+        await appendRuntimeEvent('thread.pending_messages_changed', {
+            sessionKey: record.key,
+            pendingCount: record.pendingUserMessages?.length ?? 0,
+        })
+        broadcast(record.key, 'thread.pending_messages_changed', {
+            sessionKey: record.key,
+            pendingCount: record.pendingUserMessages?.length ?? 0,
+        })
+    }
+}
+
+function removeDeliveredPendingUserMessage(
+    record: ThreadRecord,
+    event: AgentSessionEvent,
+): boolean {
+    if (event.type !== 'message_end') return false
+    if (event.message.role !== 'user') return false
+    const text = agentMessageText(event.message.content)
+    const pending = record.pendingUserMessages ?? []
+    const index = pending.findIndex((message) => message.text === text)
+    const deliveredIndex = index >= 0 ? index : pending.length > 0 ? 0 : -1
+    if (deliveredIndex < 0) return false
+    record.pendingUserMessages = pending.filter((_, candidate) => candidate !== deliveredIndex)
+    record.updatedAt = Date.now()
+    return true
+}
+
+function agentMessageText(content: unknown): string {
+    if (typeof content === 'string') return content
+    if (!Array.isArray(content)) return ''
+    return content
+        .map((part) => {
+            if (!part || typeof part !== 'object') return ''
+            const value = (part as { text?: unknown }).text
+            return typeof value === 'string' ? value : ''
+        })
+        .filter(Boolean)
+        .join('\n')
 }
 
 function findThread(key: string): ThreadRecord | null {

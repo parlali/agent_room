@@ -75,13 +75,13 @@ const olderSessionRowLimit = 24
 const backgroundOlderRowsDelayMs = 900
 const artifactsAutoOpenDelayMs = 1300
 const artifactPanelStateCache = new Map<string, SessionArtifactPanelState>()
+const streamTurnStateCache = new Map<string, StreamTurnState>()
 
 export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessionKey: string }) {
     const navigate = useNavigate()
     const queryClient = useQueryClient()
     const [draft, setDraft] = useState('')
     const [streamError, setStreamError] = useState<string | null>(null)
-    const [streamTurn, setStreamTurn] = useState<StreamTurnState>(emptyStreamTurnState)
     const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
     const [editingMessage, setEditingMessage] = useState<EditingMessageDraft | null>(null)
     const [artifactStateBySession, setArtifactStateBySession] = useState<
@@ -90,6 +90,10 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const artifactStateKey = useMemo(
         () => sessionArtifactStateKey(roomId, sessionKey),
         [roomId, sessionKey],
+    )
+    const streamStateKey = artifactStateKey
+    const [streamTurn, setStreamTurn] = useState<StreamTurnState>(() =>
+        readCachedStreamTurn(streamStateKey),
     )
     const shellPaintLoggedRef = useRef<string | null>(null)
     const latestPaintLoggedRef = useRef<string | null>(null)
@@ -100,6 +104,16 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const windowQueryKey = useMemo(
         () => roomQueryKey.sessionWindow(roomId, sessionKey),
         [roomId, sessionKey],
+    )
+    const updateStreamTurn = useCallback(
+        (nextState: StreamTurnState | ((current: StreamTurnState) => StreamTurnState)) => {
+            setStreamTurn((current) => {
+                const next = typeof nextState === 'function' ? nextState(current) : nextState
+                cacheStreamTurn(streamStateKey, next)
+                return next
+            })
+        },
+        [streamStateKey],
     )
 
     const executionQuery = useQuery<RoomSessionShellSnapshot>({
@@ -202,7 +216,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
 
     const settleStoppedRun = useCallback(
         (stoppedAt: number) => {
-            setStreamTurn((current) => stopStreamTurn(current, stoppedAt))
+            updateStreamTurn((current) => stopStreamTurn(current, stoppedAt))
             queryClient.setQueryData<RoomSessionShellSnapshot>(queryKey, (current) =>
                 current ? stopSessionInShell(current, sessionKey, stoppedAt) : current,
             )
@@ -212,16 +226,16 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     current ? stopSessionInSidebar(current, sessionKey, stoppedAt) : current,
             )
         },
-        [queryClient, queryKey, roomId, sessionKey],
+        [queryClient, queryKey, roomId, sessionKey, updateStreamTurn],
     )
 
     useEffect(() => {
-        setStreamTurn(emptyStreamTurnState)
+        setStreamTurn(readCachedStreamTurn(streamStateKey))
         setAttachments([])
         setEditingMessage(null)
         shellPaintLoggedRef.current = null
         latestPaintLoggedRef.current = null
-    }, [sessionKey])
+    }, [streamStateKey])
 
     useEffect(() => {
         if (!showArtifacts) return
@@ -302,7 +316,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
 
     useEffect(() => {
         if (streamPersisted) {
-            setStreamTurn(emptyStreamTurnState)
+            updateStreamTurn(emptyStreamTurnState)
             return
         }
         if (!streamTurn.finished || executionQuery.isFetching || streamTurn.rows.length === 0) {
@@ -310,19 +324,20 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         }
         const clearDelayMs = streamTurnHasContent(streamTurn) ? 1500 : 0
         const timer = setTimeout(() => {
-            setStreamTurn(emptyStreamTurnState)
+            updateStreamTurn(emptyStreamTurnState)
         }, clearDelayMs)
         return () => clearTimeout(timer)
-    }, [streamTurn, streamPersisted, executionQuery.isFetching])
+    }, [streamTurn, streamPersisted, executionQuery.isFetching, updateStreamTurn])
 
     const onRealtimeEvent = useCallback(
         (event: RoomRealtimeEvent) => {
-            setStreamTurn((current) => reduceRoomStreamEvent(current, event))
+            updateStreamTurn((current) => reduceRoomStreamEvent(current, event))
             if (
                 event.event === 'thread.renamed' ||
                 event.event === 'thread.title_generated' ||
                 event.event === 'thread.model_changed' ||
                 event.event === 'thread.message_edited' ||
+                event.event === 'thread.pending_messages_changed' ||
                 event.event === 'room.files.changed' ||
                 event.event === 'run.accepted' ||
                 event.event === 'run.error' ||
@@ -335,7 +350,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
             }
         },
-        [queryClient, queryKey, roomId, windowQueryKey],
+        [queryClient, queryKey, roomId, updateStreamTurn, windowQueryKey],
     )
 
     useStreamingRefetch({
@@ -515,7 +530,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         if (sending) return
         const value = draft.trim()
         if (!value && attachments.length === 0) return
-        setStreamTurn(emptyStreamTurnState)
+        updateStreamTurn(emptyStreamTurnState)
         const message = formatMessageWithAttachments(value, attachments)
         sendMutation.mutate(message)
     }
@@ -524,7 +539,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         if (sending || !editingMessage) return
         const value = editingMessage.text.trim()
         if (!value && editingMessage.attachments.length === 0) return
-        setStreamTurn(emptyStreamTurnState)
+        updateStreamTurn(emptyStreamTurnState)
         editMutation.mutate({
             messageId: editingMessage.id,
             message: formatMessageWithAttachments(value, editingMessage.attachments),
@@ -652,6 +667,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             ) : null}
             <div className="relative flex min-h-0 flex-1 overflow-hidden">
                 <MessageList
+                    key={`${roomId}:${sessionKey}`}
                     sessionKey={sessionKey}
                     room={room}
                     rows={rows}
@@ -754,6 +770,18 @@ function defaultArtifactPanelState(): SessionArtifactPanelState {
 
 function sessionArtifactStateKey(roomId: string, sessionKey: string): string {
     return `${roomId}:${sessionKey}`
+}
+
+function readCachedStreamTurn(key: string): StreamTurnState {
+    return streamTurnStateCache.get(key) ?? emptyStreamTurnState
+}
+
+function cacheStreamTurn(key: string, state: StreamTurnState): void {
+    if (state.runId || state.rows.length > 0 || state.status !== 'idle') {
+        streamTurnStateCache.set(key, state)
+        return
+    }
+    streamTurnStateCache.delete(key)
 }
 
 function SessionArtifactsShell({

@@ -71,7 +71,7 @@ export function MessageList({
     const rowVirtualizer = useVirtualizer({
         count: timelineRows.length,
         getScrollElement: () => containerRef.current,
-        getItemKey: (index) => timelineRows[index]?.id ?? index,
+        getItemKey: (index) => timelineRowKey(sessionKey, timelineRows[index], index),
         estimateSize: (index) => estimateTimelineRowSize(timelineRows[index]),
         overscan: 5,
         useAnimationFrameWithResizeObserver: true,
@@ -205,7 +205,7 @@ export function MessageList({
                             item.type === 'user_message' && editingMessage?.id === item.message.id
                         return (
                             <div
-                                key={item.id}
+                                key={timelineRowKey(sessionKey, item, virtualRow.index)}
                                 ref={rowVirtualizer.measureElement}
                                 data-virtual-row
                                 data-index={virtualRow.index}
@@ -255,14 +255,19 @@ export function buildTimelineRows(
     sessionKey: string,
 ): ChatTimelineRow[] {
     const streamRows = stream.rows
-    const persistentRows =
-        streamRows.length > 0 ? persistedRowsBeforeLiveRun(rows, stream.startedAt) : rows
+    const persistentMerge =
+        streamRows.length > 0
+            ? persistedRowsForLiveRun(rows, stream.startedAt)
+            : {
+                  before: rows,
+                  after: [],
+              }
     const fallback =
-        isWorking && streamRows.length === 0 && !persistentRows.some(hasActiveTranscript)
+        isWorking && streamRows.length === 0 && !persistentMerge.before.some(hasActiveTranscript)
             ? [
                   createRunTranscriptRow({
                       id: `run-transcript-pending-${sessionKey}`,
-                      seq: persistentRows.length,
+                      seq: persistentMerge.before.length,
                       runId: `pending-${sessionKey}`,
                       status: 'working',
                       startedAt: null,
@@ -272,24 +277,33 @@ export function buildTimelineRows(
                   }),
               ]
             : []
-    return [...persistentRows, ...streamRows, ...fallback].map((row, seq) => ({
-        ...row,
-        seq,
-    }))
+    return [...persistentMerge.before, ...streamRows, ...persistentMerge.after, ...fallback].map(
+        (row, seq) => ({
+            ...row,
+            seq,
+        }),
+    )
 }
 
-function persistedRowsBeforeLiveRun(
+function persistedRowsForLiveRun(
     rows: RoomSessionDisplayRow[],
     streamStartedAt: number | null,
-): RoomSessionDisplayRow[] {
+): { before: RoomSessionDisplayRow[]; after: RoomSessionDisplayRow[] } {
     const latestUserIndex = findLatestUserRowIndex(rows, streamStartedAt)
     if (latestUserIndex < 0) {
-        return rows.filter((row) => {
+        const filtered = rows.filter((row) => {
             if (row.type === 'run_transcript') return !isActiveRunStatus(row.status)
             return !isCurrentStreamFinalRow(row, streamStartedAt)
         })
+        return {
+            before: filtered,
+            after: [],
+        }
     }
-    return rows.slice(0, latestUserIndex + 1)
+    return {
+        before: rows.slice(0, latestUserIndex + 1),
+        after: rows.slice(latestUserIndex + 1).filter(isPendingQueuedRow),
+    }
 }
 
 function isCurrentStreamFinalRow(
@@ -323,6 +337,10 @@ function hasActiveTranscript(row: ChatTimelineRow): boolean {
     return row.type === 'run_transcript' && isActiveRunStatus(row.status)
 }
 
+function isPendingQueuedRow(row: RoomSessionDisplayRow): boolean {
+    return row.id.startsWith('pending-user-') || row.id.startsWith('pending-run-')
+}
+
 function isActiveRunStatus(status: RunTranscriptRow['status']): boolean {
     return (
         status === 'queued' ||
@@ -330,6 +348,14 @@ function isActiveRunStatus(status: RunTranscriptRow['status']): boolean {
         status === 'working' ||
         status === 'responding'
     )
+}
+
+export function timelineRowKey(
+    sessionKey: string,
+    row: ChatTimelineRow | undefined,
+    index: number,
+): string {
+    return `${sessionKey}:${row?.id ?? `index-${index}`}`
 }
 
 function estimateTimelineRowSize(row: ChatTimelineRow | undefined): number {

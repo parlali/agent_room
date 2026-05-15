@@ -12,13 +12,15 @@ import {
 import type { DocumentToolContext } from './types'
 import { assertExists } from './paths'
 
-async function runWorker(input: {
+export async function runDocumentWorker(input: {
     config: PiRuntimeConfig
     command: string
     args: string[]
     cwd: string
     timeoutMs: number
     signal?: AbortSignal
+    outputLimitBytes?: number
+    outputMode?: 'head' | 'tail'
 }): Promise<string> {
     return await new Promise((resolvePromise, reject) => {
         let settled = false
@@ -77,7 +79,9 @@ async function runWorker(input: {
             finish(new Error(`${input.command} aborted`))
         }
         const append = (chunk: Buffer) => {
-            output = `${output}${chunk.toString('utf8')}`.slice(-12000)
+            const limit = input.outputLimitBytes ?? 12000
+            const next = `${output}${chunk.toString('utf8')}`
+            output = input.outputMode === 'head' ? next.slice(0, limit) : next.slice(-limit)
         }
         timer = setTimeout(() => {
             terminateWithEscalation()
@@ -115,7 +119,7 @@ export async function exportOfficeToPdf(
     await assertExists(inputPath)
     const tempDir = await mkdtemp(join(ctx.config.paths.tmpDir, 'office-export-'))
     try {
-        await runWorker({
+        await runDocumentWorker({
             config: ctx.config,
             command: 'soffice',
             args: [
@@ -150,7 +154,7 @@ export async function renderPdfPreview(
     outputPath: string,
     signal?: AbortSignal,
 ): Promise<void> {
-    await runWorker({
+    await runDocumentWorker({
         config: ctx.config,
         command: 'pdftoppm',
         args: ['-png', '-f', '1', '-singlefile', inputPath, outputPath.replace(/\.png$/i, '')],
