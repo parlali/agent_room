@@ -11,18 +11,20 @@ import {
 } from './web-tools'
 import {
     SearchProviderError,
-    SearchRouter,
-    parseSearxngHtmlResults,
-    searxngSearch,
     type SearchProvider,
     type SearchProviderSearchInput,
     type SearchProviderResponse,
 } from './web-search'
+import { BrowserbaseSearchProvider } from './web-search-browserbase'
+import { SearchRouter } from './web-search-router'
+import { parseSearxngHtmlResults, searxngSearch } from './web-search-searxng'
 import { createTestPiRuntimeConfig } from './test-runtime-defaults'
 import { withToolRunContext } from './tool-run-context'
 
 const originalFetch = globalThis.fetch
 const originalBraveKey = process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY
+const originalBrowserbaseKey = process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY
+const originalWebSocket = globalThis.WebSocket
 
 async function executeWebTool(input: object) {
     const events: Array<{ event: string; payload: unknown }> = []
@@ -98,6 +100,12 @@ describe('web tools', () => {
         } else {
             process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = originalBraveKey
         }
+        if (originalBrowserbaseKey === undefined) {
+            delete process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY
+        } else {
+            process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = originalBrowserbaseKey
+        }
+        globalThis.WebSocket = originalWebSocket
     })
 
     it('parses bounded SearXNG results into canonical search results', () => {
@@ -320,6 +328,96 @@ describe('web tools', () => {
         ])
     })
 
+    it('bounds Browserbase CDP command and cleanup hangs by timeout', async () => {
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
+        const fetchUrls: string[] = []
+        globalThis.fetch = (async (input, init) => {
+            const url = String(input)
+            fetchUrls.push(url)
+            if (url.endsWith('/sessions')) {
+                return new Response(
+                    JSON.stringify({
+                        id: 'session-1',
+                        connectUrl: 'ws://browserbase.test/session-1',
+                    }),
+                    {
+                        status: 200,
+                        headers: {
+                            'content-type': 'application/json',
+                        },
+                    },
+                )
+            }
+            return new Promise<Response>((_resolve, reject) => {
+                const signal = init?.signal
+                const abort = () => {
+                    const error = new Error('aborted')
+                    Object.defineProperty(error, 'name', {
+                        value: 'AbortError',
+                    })
+                    reject(error)
+                }
+                signal?.addEventListener('abort', abort, { once: true })
+                if (signal?.aborted) {
+                    abort()
+                }
+            })
+        }) as typeof fetch
+
+        class HangingWebSocket extends EventTarget {
+            static CONNECTING = 0
+            static OPEN = 1
+            static CLOSING = 2
+            static CLOSED = 3
+            readyState = HangingWebSocket.CONNECTING
+
+            constructor() {
+                super()
+                setTimeout(() => {
+                    this.readyState = HangingWebSocket.OPEN
+                    this.dispatchEvent(new Event('open'))
+                }, 0)
+            }
+
+            send(): void {}
+
+            close(): void {
+                this.readyState = HangingWebSocket.CLOSED
+                this.dispatchEvent(new Event('close'))
+            }
+        }
+        globalThis.WebSocket = HangingWebSocket as unknown as typeof WebSocket
+        const provider = new BrowserbaseSearchProvider()
+        const startedAt = Date.now()
+
+        await expect(
+            provider.search({
+                config: createTestPiRuntimeConfig({
+                    search: {
+                        enabled: false,
+                        browserbase: {
+                            enabled: true,
+                            envKey: 'AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY',
+                            projectId: 'browserbase-project',
+                            timeoutMs: 20,
+                            resultCount: 5,
+                        },
+                    },
+                }),
+                query: 'hanging browserbase search',
+                count: 1,
+            }),
+        ).rejects.toMatchObject({
+            code: 'timeout',
+        })
+
+        expect(Date.now() - startedAt).toBeLessThan(500)
+        expect(fetchUrls).toEqual([
+            'https://api.browserbase.com/v1/sessions',
+            'https://api.browserbase.com/v1/sessions/session-1',
+        ])
+    })
+
     it('routes providers by priority, retries transient failures, and records fallback metadata', async () => {
         const brave = new FakeSearchProvider({
             id: 'brave',
@@ -488,6 +586,69 @@ describe('web tools', () => {
                 code: entry.code,
             })
         }
+    })
+
+    it('does not expose provider response text through model-facing search failures', async () => {
+        process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = 'brave-secret'
+        globalThis.fetch = (async () =>
+            new Response('provider echoed secret browserbase-api-key-value', {
+                status: 401,
+            })) as typeof fetch
+
+        const events: Array<{ event: string; payload: unknown }> = []
+        const tools = createWebTools({
+            config: createTestPiRuntimeConfig({
+                search: {
+                    enabled: false,
+                    brave: {
+                        enabled: true,
+                        envKey: 'AGENT_ROOM_SEARCH_BRAVE_API_KEY',
+                        country: null,
+                        searchLang: null,
+                        safeSearch: 'moderate',
+                        timeoutMs: 10000,
+                        resultCount: 5,
+                    },
+                    browserbase: {
+                        enabled: false,
+                        envKey: null,
+                        projectId: null,
+                        timeoutMs: 10000,
+                        resultCount: 5,
+                    },
+                },
+            }),
+            audit: async (event, payload) => {
+                events.push({ event, payload })
+            },
+        })
+        const tool = tools.find((entry) => entry.name === 'agent_room_web_search')
+        if (!tool) {
+            throw new Error('Missing web search tool')
+        }
+
+        let thrown: unknown = null
+        try {
+            await tool.execute(
+                'call-1',
+                {
+                    query: 'secret failure',
+                    count: 1,
+                } as never,
+                undefined,
+                undefined,
+                {} as never,
+            )
+        } catch (error) {
+            thrown = error
+        }
+
+        expect(thrown).toBeInstanceOf(SearchProviderError)
+        expect(thrown instanceof Error ? thrown.message : String(thrown)).not.toContain(
+            'browserbase-api-key-value',
+        )
+
+        expect(JSON.stringify(events)).not.toContain('browserbase-api-key-value')
     })
 
     it('surfaces backend and fallback metadata from the model-facing web search tool', async () => {

@@ -243,72 +243,71 @@ async function resolveSearchConfigForSave(input: {
     const secretRollbacks: SearchSecretRollback[] = []
     const braveApiKey = input.next.brave.apiKey?.trim() ?? ''
     const browserbaseApiKey = input.next.browserbase.apiKey?.trim() ?? ''
-    const braveSecretId = await resolveProviderSearchSecret({
-        provider: 'brave',
-        enabled: input.next.brave.enabled,
-        apiKey: braveApiKey,
-        currentSecretId: currentBraveSecretId,
-        rollbacks: secretRollbacks,
-    })
-    const browserbaseSecretId = await resolveProviderSearchSecret({
-        provider: 'browserbase',
-        enabled: input.next.browserbase.enabled,
-        apiKey: browserbaseApiKey,
-        currentSecretId: currentBrowserbaseSecretId,
-        rollbacks: secretRollbacks,
-    })
     if (input.next.browserbase.enabled && !input.next.browserbase.projectId?.trim()) {
         throw new Error('Browserbase project ID is required when Browserbase search is enabled')
     }
 
-    const config = normalizeSearchConfig({
-        enabled: input.next.enabled,
-        backendUrl: input.next.backendUrl,
-        defaultResultCount: input.next.defaultResultCount,
-        timeoutMs: input.next.timeoutMs,
-        maxSearchesPerRun: input.next.maxSearchesPerRun,
-        brave: {
-            enabled: input.next.brave.enabled,
-            country: input.next.brave.country,
-            searchLang: input.next.brave.searchLang,
-            safeSearch: input.next.brave.safeSearch,
-            timeoutMs: input.next.brave.timeoutMs,
-            resultCount: input.next.brave.resultCount,
-            secretId: braveSecretId,
-        },
-        browserbase: {
-            enabled: input.next.browserbase.enabled,
-            projectId: input.next.browserbase.projectId,
-            timeoutMs: input.next.browserbase.timeoutMs,
-            resultCount: input.next.browserbase.resultCount,
-            secretId: browserbaseSecretId,
-        },
-    })
-    const persisted = {
-        enabled: config.enabled,
-        backendUrl: config.backendUrl,
-        defaultResultCount: config.defaultResultCount,
-        timeoutMs: config.timeoutMs,
-        maxSearchesPerRun: config.maxSearchesPerRun,
-        brave: {
-            enabled: config.brave.enabled,
-            country: config.brave.country,
-            searchLang: config.brave.searchLang,
-            safeSearch: config.brave.safeSearch,
-            timeoutMs: config.brave.timeoutMs,
-            resultCount: config.brave.resultCount,
-            secretId: braveSecretId,
-        },
-        browserbase: {
-            enabled: config.browserbase.enabled,
-            projectId: config.browserbase.projectId,
-            timeoutMs: config.browserbase.timeoutMs,
-            resultCount: config.browserbase.resultCount,
-            secretId: browserbaseSecretId,
-        },
-    } as const
-
     try {
+        const braveSecretId = await resolveProviderSearchSecret({
+            provider: 'brave',
+            enabled: input.next.brave.enabled,
+            apiKey: braveApiKey,
+            currentSecretId: currentBraveSecretId,
+            rollbacks: secretRollbacks,
+        })
+        const browserbaseSecretId = await resolveProviderSearchSecret({
+            provider: 'browserbase',
+            enabled: input.next.browserbase.enabled,
+            apiKey: browserbaseApiKey,
+            currentSecretId: currentBrowserbaseSecretId,
+            rollbacks: secretRollbacks,
+        })
+        const config = normalizeSearchConfig({
+            enabled: input.next.enabled,
+            backendUrl: input.next.backendUrl,
+            defaultResultCount: input.next.defaultResultCount,
+            timeoutMs: input.next.timeoutMs,
+            maxSearchesPerRun: input.next.maxSearchesPerRun,
+            brave: {
+                enabled: input.next.brave.enabled,
+                country: input.next.brave.country,
+                searchLang: input.next.brave.searchLang,
+                safeSearch: input.next.brave.safeSearch,
+                timeoutMs: input.next.brave.timeoutMs,
+                resultCount: input.next.brave.resultCount,
+                secretId: braveSecretId,
+            },
+            browserbase: {
+                enabled: input.next.browserbase.enabled,
+                projectId: input.next.browserbase.projectId,
+                timeoutMs: input.next.browserbase.timeoutMs,
+                resultCount: input.next.browserbase.resultCount,
+                secretId: browserbaseSecretId,
+            },
+        })
+        const persisted = {
+            enabled: config.enabled,
+            backendUrl: config.backendUrl,
+            defaultResultCount: config.defaultResultCount,
+            timeoutMs: config.timeoutMs,
+            maxSearchesPerRun: config.maxSearchesPerRun,
+            brave: {
+                enabled: config.brave.enabled,
+                country: config.brave.country,
+                searchLang: config.brave.searchLang,
+                safeSearch: config.brave.safeSearch,
+                timeoutMs: config.brave.timeoutMs,
+                resultCount: config.brave.resultCount,
+                secretId: braveSecretId,
+            },
+            browserbase: {
+                enabled: config.browserbase.enabled,
+                projectId: config.browserbase.projectId,
+                timeoutMs: config.browserbase.timeoutMs,
+                resultCount: config.browserbase.resultCount,
+                secretId: browserbaseSecretId,
+            },
+        } as const
         await validateMaterializedSearchProviders({
             searchConfig: persisted as unknown as JsonValue,
             providers: [
@@ -316,12 +315,12 @@ async function resolveSearchConfigForSave(input: {
                 input.next.browserbase.enabled ? 'browserbase' : null,
             ].filter((provider): provider is 'brave' | 'browserbase' => provider !== null),
         })
+
+        return persisted as unknown as JsonValue
     } catch (error) {
         await rollbackSearchSecretWrites(secretRollbacks)
         throw error
     }
-
-    return persisted as unknown as JsonValue
 }
 
 interface SearchSecretRollback {

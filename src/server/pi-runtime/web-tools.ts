@@ -8,19 +8,16 @@ import {
     filterResultsByDomain,
     formatSearchResults,
     normalizeStringArray,
-    SearchRouter,
     type SearchBackendFormat,
     type SearchFallbackStep,
 } from './web-search'
+import { SearchRouter } from './web-search-router'
 import { sanitizeUrlForAudit } from './web-url-safety'
 
-export {
-    normalizeSearxngSafeSearch,
-    parseBraveSearchResults,
-    parseBrowserExtractedSearchResults,
-    parseSearxngResults,
-    type WebSearchResult,
-} from './web-search'
+export { parseBraveSearchResults } from './web-search-brave'
+export { parseBrowserExtractedSearchResults } from './web-search-browserbase'
+export { normalizeSearxngSafeSearch, parseSearxngResults } from './web-search-searxng'
+export { type WebSearchResult } from './web-search'
 export { assertSafeUrl, isBlockedNetworkAddress, sanitizeUrlForAudit } from './web-url-safety'
 
 interface WebToolContext {

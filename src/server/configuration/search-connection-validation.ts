@@ -4,12 +4,9 @@ import { join } from 'node:path'
 import type { JsonValue, SearchProviderId } from '../domain/types'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { getAppEnv } from '../config/env'
-import {
-    BraveSearchProvider,
-    BrowserbaseSearchProvider,
-    SearchProviderError,
-    type SearchProvider,
-} from '../pi-runtime/web-search'
+import { SearchProviderError, type SearchProvider } from '../pi-runtime/web-search'
+import { BraveSearchProvider } from '../pi-runtime/web-search-brave'
+import { BrowserbaseSearchProvider } from '../pi-runtime/web-search-browserbase'
 import { boundedMessage, sanitizeOutput } from './connection-validation-model'
 import { materializeSearchConfig } from './operator-configuration/materialization'
 
