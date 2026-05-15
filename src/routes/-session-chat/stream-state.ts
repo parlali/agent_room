@@ -190,7 +190,8 @@ export function shouldRefetchForRoomEvent(realtime: RoomRealtimeEvent): boolean 
         realtime.event === 'thread.deleted' ||
         realtime.event === 'thread.model_changed' ||
         realtime.event === 'thread.pending_messages_changed' ||
-        realtime.event === 'room.files.changed'
+        realtime.event === 'room.files.changed' ||
+        realtime.event === 'browser.session_changed'
     ) {
         return true
     }

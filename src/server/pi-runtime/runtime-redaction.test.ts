@@ -40,6 +40,7 @@ function testConfig(): PiRuntimeConfig {
             imageGenerationMs: 1000,
             mcpToolMs: 1000,
             shortCommandWaitMs: 1000,
+            browserActionsPerTurn: 50,
         },
         compaction: {
             reserveTokens: 1000,

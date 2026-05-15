@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createTestPiRuntimeConfig } from './test-runtime-defaults'
 import { createPiRuntimeCustomTools, type PiRuntimeSessionInput } from './pi-runtime-session'
+import { BrowserbaseBrowserAutomationManager } from './browserbase-browser'
 import type { ThreadRecord } from './thread-records'
 
 function threadRecord(input: { key: string; kind?: ThreadRecord['kind'] }): ThreadRecord {
@@ -60,6 +61,11 @@ async function withToolInput<T>(
             mcp: false,
         },
     })
+    const browserAutomation = new BrowserbaseBrowserAutomationManager({
+        config,
+        audit: async () => {},
+        broadcast: () => {},
+    })
     const record = threadRecord({ key: `${roomMode}-thread`, kind })
     try {
         return await fn({
@@ -67,6 +73,7 @@ async function withToolInput<T>(
             record,
             systemPrompt: () => '',
             mcpTools: [],
+            browserAutomation,
             audit: async () => {},
             shortText: (value) => value,
             redactString: (value) => value,

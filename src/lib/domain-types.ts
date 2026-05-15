@@ -271,6 +271,7 @@ export interface RoomConfigRecord {
     imageModel: string | null
     imageSecretId: string | null
     cronTimezone: string
+    browserActionBudget: number
     createdAt: Date
     updatedAt: Date
 }
@@ -418,6 +419,7 @@ export interface RunBudgetConfig {
     imageGenerationMs: number
     mcpToolMs: number
     shortCommandWaitMs: number
+    browserActionsPerTurn: number
 }
 
 export interface CapabilityConfig {

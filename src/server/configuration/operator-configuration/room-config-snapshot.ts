@@ -71,6 +71,7 @@ function summarizeRoomConfig(input: {
         imageModel: input.config.imageModel,
         hasImageProviderSecret: input.config.imageSecretId !== null,
         cronTimezone: input.config.cronTimezone,
+        browserActionBudget: input.config.browserActionBudget,
         mcpConnectionIds: input.bindings
             .filter((binding) => binding.enabled)
             .map((binding) => binding.mcpConnectionId),

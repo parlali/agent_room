@@ -22,6 +22,7 @@ const budgets: RunBudgetConfig = {
     imageGenerationMs: 5 * 60 * 1000,
     mcpToolMs: 2 * 60 * 1000,
     shortCommandWaitMs: 5000,
+    browserActionsPerTurn: 50,
 }
 
 describe('run budgets', () => {

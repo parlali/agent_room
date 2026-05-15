@@ -215,6 +215,35 @@ export function CapabilitiesSection({
                     </div>
                 ) : null}
 
+                <div className="rounded-lg border border-border/60 p-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <div className="text-sm font-medium text-foreground">
+                                Browser action budget
+                            </div>
+                        </div>
+                        <div className="w-full sm:w-40">
+                            <Label htmlFor="browser-action-budget" className="sr-only">
+                                Browser action budget
+                            </Label>
+                            <Input
+                                id="browser-action-budget"
+                                type="number"
+                                min={1}
+                                max={200}
+                                value={draft.browserActionBudget}
+                                onChange={(event) =>
+                                    onChange({
+                                        browserActionBudget: clampBrowserActionBudget(
+                                            event.target.valueAsNumber,
+                                        ),
+                                    })
+                                }
+                            />
+                        </div>
+                    </div>
+                </div>
+
                 <div className="flex justify-end">
                     <Button
                         type="button"
@@ -229,6 +258,11 @@ export function CapabilitiesSection({
             </div>
         </Section>
     )
+}
+
+function clampBrowserActionBudget(value: number): number {
+    if (!Number.isFinite(value)) return 50
+    return Math.min(200, Math.max(1, Math.floor(value)))
 }
 
 function capabilityValue(input: {

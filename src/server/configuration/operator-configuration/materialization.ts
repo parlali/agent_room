@@ -531,7 +531,10 @@ export async function materializeRoomConfiguration(input: {
         capabilities,
         search: searchMaterialization.search,
         image,
-        budgets: normalizeBudgets(),
+        budgets: {
+            ...normalizeBudgets(),
+            browserActionsPerTurn: config.browserActionBudget,
+        },
         provider: providerMaterialization.provider,
         entitlements: {
             env: {

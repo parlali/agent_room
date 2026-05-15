@@ -98,6 +98,7 @@ function snapshotWithLimit(messageLimit: number) {
             lastError: null,
         }),
         selectedThreadModelState: () => null,
+        browserSession: () => null,
     })
 
     return {

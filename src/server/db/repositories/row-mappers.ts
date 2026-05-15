@@ -272,6 +272,7 @@ export function mapRoomConfig(row: DbRow): RoomConfigRecord {
         imageModel: nullableValue<string>(row.image_model),
         imageSecretId: nullableValue<string>(row.image_secret_id),
         cronTimezone: String(row.cron_timezone),
+        browserActionBudget: Number(row.browser_action_budget ?? 50),
         createdAt: row.created_at as Date,
         updatedAt: row.updated_at as Date,
     }

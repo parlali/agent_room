@@ -3,6 +3,7 @@ import type {
     RoomExecutionAgent,
     RoomExecutionModelState,
     RoomExecutionMessage,
+    RoomBrowserSessionSnapshot,
     RoomSessionWindow,
     RoomSessionArtifact,
     RoomExecutionThread,
@@ -17,6 +18,7 @@ export interface PiRuntimeSnapshotPayload {
     selectedThreadMessages: RoomExecutionMessage[]
     selectedThreadArtifacts: RoomSessionArtifact[]
     recentActivity: RoomExecutionActivity[]
+    browserSession: RoomBrowserSessionSnapshot | null
 }
 
 export type PiRuntimeSessionWindowPayload = RoomSessionWindow
