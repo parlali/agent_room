@@ -56,10 +56,11 @@ export async function editPdf(path: string, edits: PdfEdit[]): Promise<number> {
             })
             count += 1
         } else if (edit.type === 'delete_pages') {
-            const pages = [
-                ...new Set(edit.pages.map((page) => clampInteger(page, 1, pdf.getPageCount()))),
-            ].sort((a, b) => b - a)
+            const pages = [...new Set(edit.pages)].sort((a, b) => b - a)
             for (const page of pages) {
+                if (page > pdf.getPageCount()) {
+                    throw new Error(`PDF edit delete_pages page ${page} exceeds page count`)
+                }
                 if (pdf.getPageCount() <= 1) {
                     throw new Error('PDF edit cannot delete every page')
                 }
@@ -105,9 +106,22 @@ export function normalizePdfEdits(value: unknown): PdfEdit[] {
             if (!Array.isArray(record.pages) || record.pages.length === 0) {
                 throw new Error(`PDF edit ${index + 1} delete_pages requires pages`)
             }
+            const pages = record.pages.map((page, pageIndex) => {
+                if (
+                    typeof page !== 'number' ||
+                    !Number.isInteger(page) ||
+                    page < 1 ||
+                    page > 10000
+                ) {
+                    throw new Error(
+                        `PDF edit ${index + 1} delete_pages page ${pageIndex + 1} must be an integer from 1 to 10000`,
+                    )
+                }
+                return page
+            })
             return {
                 type: 'delete_pages',
-                pages: record.pages.map((page) => clampInteger(optionalNumber(page), 1, 10000)),
+                pages,
             }
         }
         throw new Error(`Unsupported PDF edit type ${String(record.type)}`)

@@ -519,6 +519,45 @@ describe('room Pi tools', () => {
         })
     })
 
+    it('rejects invalid PDF delete page values instead of coercing them', async () => {
+        await withRoom(async (config) => {
+            await executeDocumentTool(config, 'agent_room_pdf', {
+                operation: 'create',
+                path: 'source.pdf',
+                paragraphs: ['Original PDF text'],
+            })
+
+            await expect(
+                executeDocumentTool(config, 'agent_room_pdf', {
+                    operation: 'edit',
+                    path: 'source.pdf',
+                    editsJson: JSON.stringify([
+                        {
+                            type: 'delete_pages',
+                            pages: ['x'],
+                        },
+                    ]),
+                }),
+            ).rejects.toThrow('PDF edit 1 delete_pages page 1 must be an integer from 1 to 10000')
+            await expect(
+                executeDocumentTool(config, 'agent_room_pdf', {
+                    operation: 'edit',
+                    path: 'source.pdf',
+                    editsJson: JSON.stringify([
+                        {
+                            type: 'delete_pages',
+                            pages: [2],
+                        },
+                    ]),
+                }),
+            ).rejects.toThrow('PDF edit delete_pages page 2 exceeds page count')
+            const pdf = await PDFDocument.load(
+                await readFile(join(config.paths.workspaceDir, 'source.pdf')),
+            )
+            expect(pdf.getPageCount()).toBe(1)
+        })
+    })
+
     it('does not expose office or text-extraction document compatibility tools', async () => {
         await withRoom(async (config) => {
             const names = createDocumentTools({ config, audit: async () => {} }).map(
