@@ -1,5 +1,4 @@
 import type { SearchErrorCode, SearchProviderId } from '../domain/types'
-import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { currentToolRunContext } from './tool-run-context'
 import { BraveSearchProvider } from './web-search-brave'
 import { BrowserbaseSearchProvider } from './web-search-browserbase'
@@ -13,6 +12,7 @@ import {
     type SearchFallbackStep,
     type SearchProvider,
     type SearchProviderSearchInput,
+    type SearchRuntimeConfigScope,
 } from './web-search'
 
 const healthBackoffMs = 60_000
@@ -56,7 +56,7 @@ export class SearchRouter {
         }
     }
 
-    private consumeBudget(config: PiRuntimeConfig, runKey: string): void {
+    private consumeBudget(config: SearchRuntimeConfigScope, runKey: string): void {
         const current = this.runBudgets.get(runKey) ?? { count: 0, updatedAt: Date.now() }
         if (current.count >= config.search.maxSearchesPerRun) {
             throw new SearchProviderError({
@@ -157,6 +157,16 @@ export class SearchRouter {
                     selectedStep.status = 'failed'
                     selectedStep.errorCode = searchError.code
                     selectedStep.reason = searchError.message
+                    if (searchError.code === 'aborted') {
+                        await input.audit?.('search.provider_failed', {
+                            backend: provider.id,
+                            backendLabel: provider.label,
+                            attempts: attempt,
+                            errorCode: searchError.code,
+                            error: searchError.message,
+                        })
+                        throw searchError
+                    }
                     this.recordHealth(provider.id, searchError)
                     if (attempt < maxAttempts && shouldRetry(searchError)) {
                         selectedStep.status = 'retrying'
@@ -289,7 +299,7 @@ function shouldRetry(error: SearchProviderError): boolean {
     return error.retryable && (error.code === 'timeout' || error.code === 'bad_response')
 }
 
-function searchRunKey(config: PiRuntimeConfig): string {
+function searchRunKey(config: SearchRuntimeConfigScope): string {
     const context = currentToolRunContext()
     if (!context) return `${config.runtime.roomId}:adhoc`
     return `${config.runtime.roomId}:${context.sessionKey}:${context.runId}`

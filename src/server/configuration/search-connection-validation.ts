@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { JsonValue, SearchProviderId } from '../domain/types'
-import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { getAppEnv } from '../config/env'
 import { SearchProviderError, type SearchProvider } from '../pi-runtime/web-search'
 import { BraveSearchProvider } from '../pi-runtime/web-search-brave'
@@ -48,7 +47,7 @@ export async function validateMaterializedSearchProviders(input: {
                 roomId: 'search-validation',
             },
             search: materialized.search,
-        } as PiRuntimeConfig
+        }
         for (const providerId of input.providers) {
             const provider = validationProviders[providerId]
             if (!provider.isConfigured(config)) {

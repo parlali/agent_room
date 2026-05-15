@@ -37,6 +37,7 @@ export const searchErrorCodes = [
     'captcha',
     'blocked',
     'timeout',
+    'aborted',
     'bad_response',
     'empty_results',
     'misconfigured',

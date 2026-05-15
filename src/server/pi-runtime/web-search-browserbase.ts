@@ -1,4 +1,3 @@
-import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import {
     assertNonEmptyResults,
     fetchWithTimeout,
@@ -11,6 +10,7 @@ import {
     type SearchProvider,
     type SearchProviderResponse,
     type SearchProviderSearchInput,
+    type SearchRuntimeConfigScope,
     type WebSearchResult,
 } from './web-search'
 
@@ -21,7 +21,7 @@ export class BrowserbaseSearchProvider implements SearchProvider {
     label = 'Browserbase Search'
     priority = 20
 
-    isConfigured(config: PiRuntimeConfig): boolean {
+    isConfigured(config: SearchRuntimeConfigScope): boolean {
         const envKey = config.search.browserbase.envKey
         return config.search.browserbase.enabled && Boolean(envKey && process.env[envKey])
     }

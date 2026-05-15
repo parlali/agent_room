@@ -67,9 +67,9 @@ describe('runtime redaction', () => {
     it('redacts runtime and bearer secrets from nested payloads', () => {
         const previousSearchKey = process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY
         process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = 'search-secret'
-        const { redactPayload, errorMessage } = createRuntimeRedactor(testConfig())
 
         try {
+            const { redactPayload, errorMessage } = createRuntimeRedactor(testConfig())
             expect(
                 redactPayload({
                     runtime: 'runtime-secret',

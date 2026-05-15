@@ -1,5 +1,4 @@
 import type { SearchErrorCode } from '../domain/types'
-import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import {
     assertNonEmptyResults,
     fetchWithTimeout,
@@ -13,6 +12,7 @@ import {
     type SearchProvider,
     type SearchProviderResponse,
     type SearchProviderSearchInput,
+    type SearchRuntimeConfigScope,
     type WebSearchResponse,
     type WebSearchResult,
 } from './web-search'
@@ -208,7 +208,7 @@ function decodeHtmlEntities(value: string): string {
 }
 
 function buildSearxngSearchUrl(input: {
-    config: PiRuntimeConfig
+    config: SearchRuntimeConfigScope
     query: string
     language?: string | null
     freshness?: string | null
@@ -293,7 +293,7 @@ export class SearxngSearchProvider implements SearchProvider {
     label = 'SearXNG'
     priority = 30
 
-    isConfigured(config: PiRuntimeConfig): boolean {
+    isConfigured(config: SearchRuntimeConfigScope): boolean {
         return config.search.enabled && Boolean(config.search.backendUrl)
     }
 

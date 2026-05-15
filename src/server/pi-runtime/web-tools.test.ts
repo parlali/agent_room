@@ -343,6 +343,50 @@ describe('web tools', () => {
         expect(Date.now() - startedAt).toBeLessThan(500)
     })
 
+    it('preserves caller aborts while reading provider response bodies', async () => {
+        process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = 'brave-secret'
+        globalThis.fetch = (async () =>
+            ({
+                ok: true,
+                status: 200,
+                body: {
+                    getReader: () => ({
+                        read: () => new Promise(() => undefined),
+                        cancel: () => Promise.resolve(),
+                        releaseLock: () => undefined,
+                    }),
+                },
+            }) as unknown as Response) as typeof fetch
+        const provider = new BraveSearchProvider()
+        const controller = new AbortController()
+        const promise = provider.search({
+            config: createTestPiRuntimeConfig({
+                search: {
+                    enabled: false,
+                    brave: {
+                        enabled: true,
+                        envKey: 'AGENT_ROOM_SEARCH_BRAVE_API_KEY',
+                        country: null,
+                        searchLang: null,
+                        safeSearch: 'moderate',
+                        timeoutMs: 10000,
+                        resultCount: 5,
+                    },
+                },
+            }),
+            query: 'cancelled body',
+            count: 1,
+            signal: controller.signal,
+        })
+
+        controller.abort()
+
+        await expect(promise).rejects.toMatchObject({
+            code: 'aborted',
+            retryable: false,
+        })
+    })
+
     it('maps Browserbase Search API results into canonical search results', () => {
         const results = parseBrowserbaseSearchResults(
             {
@@ -490,6 +534,44 @@ describe('web tools', () => {
         expect(Date.now() - startedAt).toBeLessThan(500)
     })
 
+    it('preserves caller aborts during provider requests', async () => {
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
+        globalThis.fetch = (async (_input, init) =>
+            new Promise<Response>((_resolve, reject) => {
+                const signal = init?.signal
+                const rejectAbort = () => reject(new DOMException('aborted', 'AbortError'))
+                signal?.addEventListener('abort', rejectAbort, { once: true })
+                if (signal?.aborted) {
+                    rejectAbort()
+                }
+            })) as typeof fetch
+        const provider = new BrowserbaseSearchProvider()
+        const controller = new AbortController()
+        const promise = provider.search({
+            config: createTestPiRuntimeConfig({
+                search: {
+                    enabled: false,
+                    browserbase: {
+                        enabled: true,
+                        envKey: 'AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY',
+                        timeoutMs: 10000,
+                        resultCount: 5,
+                    },
+                },
+            }),
+            query: 'cancelled browserbase search',
+            count: 1,
+            signal: controller.signal,
+        })
+
+        controller.abort()
+
+        await expect(promise).rejects.toMatchObject({
+            code: 'aborted',
+            retryable: false,
+        })
+    })
+
     it('routes providers by priority, retries transient failures, and records fallback metadata', async () => {
         const brave = new FakeSearchProvider({
             id: 'brave',
@@ -563,6 +645,58 @@ describe('web tools', () => {
         expect(response.fallbackChain.map((step) => step.status)).toEqual(['failed', 'complete'])
         expect(audits).toContain('search.provider_retrying')
         expect(audits).toContain('search.provider_completed')
+    })
+
+    it('does not retry or fall back after caller-aborted search', async () => {
+        const brave = new FakeSearchProvider({
+            id: 'brave',
+            label: 'Brave',
+            priority: 10,
+            implementation: () => {
+                throw new SearchProviderError({
+                    code: 'aborted',
+                    providerId: 'brave',
+                    retryable: false,
+                    message: 'Brave search was cancelled',
+                })
+            },
+        })
+        const browserbase = new FakeSearchProvider({
+            id: 'browserbase',
+            label: 'Browserbase',
+            priority: 20,
+            implementation: () => ({
+                results: [
+                    {
+                        title: 'Should not run',
+                        url: 'https://example.com/should-not-run',
+                        snippet: 'Fallback should not run',
+                        engine: 'browserbase',
+                        fetchedAt: '2026-05-03T10:00:00.000Z',
+                        rank: 1,
+                    },
+                ],
+                backendFormat: 'api',
+                fallbackReason: null,
+                degradedReason: null,
+                browserMediated: false,
+            }),
+        })
+        const router = new SearchRouter([browserbase, brave])
+
+        await expect(
+            router.search({
+                config: createTestPiRuntimeConfig(),
+                query: 'cancelled search',
+                count: 1,
+            }),
+        ).rejects.toMatchObject({
+            code: 'aborted',
+            retryable: false,
+        })
+
+        expect(brave.calls).toBe(1)
+        expect(browserbase.calls).toBe(0)
     })
 
     it('deduplicates in-flight queries within a run and enforces search budget', async () => {

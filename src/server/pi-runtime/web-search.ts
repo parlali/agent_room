@@ -1,5 +1,11 @@
-import type { SearchErrorCode, SearchProviderId } from '../domain/types'
-import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import type { SearchErrorCode, SearchProviderId, SearchRuntimeConfig } from '../domain/types'
+
+export interface SearchRuntimeConfigScope {
+    runtime: {
+        roomId: string
+    }
+    search: SearchRuntimeConfig
+}
 
 export type SearchBackendFormat = 'json' | 'html' | 'api' | 'browser'
 
@@ -19,7 +25,7 @@ export interface WebSearchResponse {
 }
 
 export interface SearchProviderSearchInput {
-    config: PiRuntimeConfig
+    config: SearchRuntimeConfigScope
     query: string
     count: number
     language?: string | null
@@ -46,7 +52,7 @@ export interface SearchProvider {
     id: SearchProviderId
     label: string
     priority: number
-    isConfigured: (config: PiRuntimeConfig) => boolean
+    isConfigured: (config: SearchRuntimeConfigScope) => boolean
     search: (input: SearchProviderSearchInput) => Promise<SearchProviderResponse>
 }
 
@@ -263,6 +269,15 @@ function responseBodyTimeoutError(providerId: SearchProviderId): SearchProviderE
     })
 }
 
+function searchAbortedError(providerId: SearchProviderId): SearchProviderError {
+    return new SearchProviderError({
+        code: 'aborted',
+        providerId,
+        retryable: false,
+        message: `${providerId} search was cancelled`,
+    })
+}
+
 function isAbortError(error: unknown): boolean {
     if (!error || typeof error !== 'object') {
         return false
@@ -283,23 +298,28 @@ export async function readResponseTextWithTimeout(input: {
     const reader = body.getReader()
     const decoder = new TextDecoder()
     let timeout: ReturnType<typeof setTimeout> | null = null
-    let rejectAbort: ((error: SearchProviderError) => void) | null = null
-    let aborted = false
+    let rejectRead: ((error: SearchProviderError) => void) | null = null
+    let interrupted = false
     const abortPromise = new Promise<never>((_resolve, reject) => {
-        rejectAbort = reject
+        rejectRead = reject
     })
-    const abort = () => {
-        if (aborted) return
-        aborted = true
-        const error = responseBodyTimeoutError(input.providerId)
+    const interruptRead = (error: SearchProviderError) => {
+        if (interrupted) return
+        interrupted = true
         reader.cancel().catch(() => undefined)
-        rejectAbort?.(error)
+        rejectRead?.(error)
     }
-    timeout = setTimeout(abort, input.timeoutMs)
+    const timeoutAbort = () => {
+        interruptRead(responseBodyTimeoutError(input.providerId))
+    }
+    const externalAbort = () => {
+        interruptRead(searchAbortedError(input.providerId))
+    }
+    timeout = setTimeout(timeoutAbort, input.timeoutMs)
     timeout.unref?.()
-    input.signal?.addEventListener('abort', abort, { once: true })
+    input.signal?.addEventListener('abort', externalAbort, { once: true })
     if (input.signal?.aborted) {
-        abort()
+        externalAbort()
     }
 
     try {
@@ -312,6 +332,7 @@ export async function readResponseTextWithTimeout(input: {
             text += decoder.decode(chunk.value, { stream: true })
         }
         text += decoder.decode()
+        interrupted = true
         return text
     } catch (error) {
         if (error instanceof SearchProviderError) {
@@ -324,7 +345,7 @@ export async function readResponseTextWithTimeout(input: {
             message: `${input.providerId} search response body failed`,
         })
     } finally {
-        input.signal?.removeEventListener('abort', abort)
+        input.signal?.removeEventListener('abort', externalAbort)
         if (timeout) {
             clearTimeout(timeout)
         }
@@ -361,12 +382,19 @@ export async function fetchWithTimeout(input: {
     providerId: SearchProviderId
 }): Promise<Response> {
     const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), input.timeoutMs)
+    let abortReason: 'timeout' | 'external' | null = null
+    const timeout = setTimeout(() => {
+        abortReason ??= 'timeout'
+        controller.abort()
+    }, input.timeoutMs)
     timeout.unref?.()
-    const abort = () => controller.abort()
+    const abort = () => {
+        abortReason ??= 'external'
+        controller.abort()
+    }
     input.signal?.addEventListener('abort', abort, { once: true })
     if (input.signal?.aborted) {
-        controller.abort()
+        abort()
     }
     try {
         return await fetch(input.url, {
@@ -375,6 +403,9 @@ export async function fetchWithTimeout(input: {
         })
     } catch (error) {
         if (isAbortError(error) || controller.signal.aborted) {
+            if (abortReason === 'external' || (abortReason === null && input.signal?.aborted)) {
+                throw searchAbortedError(input.providerId)
+            }
             throw new SearchProviderError({
                 code: 'timeout',
                 providerId: input.providerId,

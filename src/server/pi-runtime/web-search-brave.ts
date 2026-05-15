@@ -1,4 +1,3 @@
-import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import {
     assertNonEmptyResults,
     fetchWithTimeout,
@@ -11,6 +10,7 @@ import {
     type SearchProvider,
     type SearchProviderResponse,
     type SearchProviderSearchInput,
+    type SearchRuntimeConfigScope,
     type WebSearchResult,
 } from './web-search'
 
@@ -63,7 +63,7 @@ export class BraveSearchProvider implements SearchProvider {
     label = 'Brave Search'
     priority = 10
 
-    isConfigured(config: PiRuntimeConfig): boolean {
+    isConfigured(config: SearchRuntimeConfigScope): boolean {
         const envKey = config.search.brave.envKey
         return config.search.brave.enabled && Boolean(envKey && process.env[envKey])
     }
