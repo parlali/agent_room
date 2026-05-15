@@ -17,3 +17,8 @@ The brainstorm has been split into three public OSS work-stream issues. Implemen
 - [x] File Issue 2 (Search reliability) using the template.
 - [x] File Issue 3 (Browser automation) using the template.
 - [x] Replace this document with a short pointer to the three filed issues once they are created.
+
+## Implementation notes
+
+- [x] Issue 2 search implementation keeps one model-facing `agent_room_web_search` tool and routes Brave, Browserbase browser-mediated search, then SearXNG behind typed provider contracts. Browserbase browser-mediated search currently drives Brave Search internally as the provider-owned browser search engine choice.
+- [x] SearXNG engine health records rate-limited and CAPTCHA-blocked engines with short TTL and sends those engines as disabled on later SearXNG requests where supported.

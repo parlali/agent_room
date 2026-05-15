@@ -217,6 +217,46 @@ describe('Pi runtime config materialization', () => {
         }
     })
 
+    it('keeps search credential env keys explicit without storing credential values in config', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'agent-room-pi-profile-'))
+        try {
+            const config = roomConfiguration()
+            config.search = {
+                ...testSearch,
+                brave: {
+                    ...testSearch.brave,
+                    enabled: true,
+                    envKey: 'AGENT_ROOM_SEARCH_BRAVE_API_KEY',
+                },
+            }
+            config.entitlements.env = {
+                AGENT_ROOM_SEARCH_BRAVE_API_KEY: 'brave-secret',
+            }
+
+            const profile = piRuntimeEngineProfile.buildRuntimeProfile({
+                roomId: 'room-1',
+                displayName: 'Room One',
+                port: 31234,
+                token: 'token-token-token-token-token',
+                paths: roomPaths(root),
+                roomConfiguration: config,
+            })
+            const runtimeConfig = profile.config as ReturnType<typeof buildPiRuntimeConfig>
+
+            expect(runtimeConfig.search.brave).toMatchObject({
+                enabled: true,
+                envKey: 'AGENT_ROOM_SEARCH_BRAVE_API_KEY',
+            })
+            expect(JSON.stringify(runtimeConfig)).not.toContain('brave-secret')
+            expect(profile.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY).toBe('brave-secret')
+        } finally {
+            await rm(root, {
+                recursive: true,
+                force: true,
+            })
+        }
+    })
+
     it('allows internally materialized GitHub tokens while keeping user env reserved', async () => {
         const root = await mkdtemp(join(tmpdir(), 'agent-room-pi-profile-'))
         try {

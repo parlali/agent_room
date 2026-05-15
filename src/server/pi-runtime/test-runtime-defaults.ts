@@ -26,6 +26,23 @@ export const testSearch: SearchRuntimeConfig = {
     backendUrl: 'http://127.0.0.1:8888',
     defaultResultCount: 5,
     timeoutMs: 10000,
+    maxSearchesPerRun: 20,
+    brave: {
+        enabled: false,
+        envKey: null,
+        country: null,
+        searchLang: null,
+        safeSearch: 'moderate',
+        timeoutMs: 10000,
+        resultCount: 5,
+    },
+    browserbase: {
+        enabled: false,
+        envKey: null,
+        projectId: null,
+        timeoutMs: 10000,
+        resultCount: 5,
+    },
 }
 
 export const testImage: ImageRuntimeConfig = {

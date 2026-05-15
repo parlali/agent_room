@@ -10,6 +10,7 @@ import {
     roomProviderModes,
     roomSecretPurposes,
     capabilityIds,
+    searchSafeSearchValues,
 } from '#/server/domain/types'
 
 const providerConnectionInputSchema = z.object({
@@ -57,6 +58,23 @@ const appCapabilityInputSchema = z.object({
             backendUrl: z.string().url(),
             defaultResultCount: z.number().int().positive().max(20),
             timeoutMs: z.number().int().positive().max(30000),
+            maxSearchesPerRun: z.number().int().positive().max(100),
+            brave: z.object({
+                enabled: z.boolean(),
+                country: z.string().nullable(),
+                searchLang: z.string().nullable(),
+                safeSearch: z.enum(searchSafeSearchValues),
+                timeoutMs: z.number().int().positive().max(30000),
+                resultCount: z.number().int().positive().max(20),
+                apiKey: z.string().optional(),
+            }),
+            browserbase: z.object({
+                enabled: z.boolean(),
+                projectId: z.string().nullable(),
+                timeoutMs: z.number().int().positive().max(30000),
+                resultCount: z.number().int().positive().max(20),
+                apiKey: z.string().optional(),
+            }),
         })
         .optional(),
     image: z.object({

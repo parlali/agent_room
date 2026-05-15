@@ -10,6 +10,7 @@ import {
     normalizeCapabilityConfig,
     normalizeImageProvider,
     normalizeSearchConfig,
+    searchProviderSecretId,
 } from '../capabilities'
 import { providerRequiresStoredCredential, upperSnake } from '../provider-config'
 import type {
@@ -177,6 +178,14 @@ export function summarizeMcp(record: AppMcpConnectionRecord): McpConnectionSumma
 
 export function summarizeSettings(record: AppSettingsRecord): AppSettingsSummary {
     const search = normalizeSearchConfig(record.searchConfig)
+    const braveSecretId = searchProviderSecretId({
+        config: record.searchConfig,
+        provider: 'brave',
+    })
+    const browserbaseSecretId = searchProviderSecretId({
+        config: record.searchConfig,
+        provider: 'browserbase',
+    })
     const imageConfig = imageConfigRecord(record.imageConfig)
     const imageSecretId = imageConfigSecretId(record.imageConfig)
     return {
@@ -185,7 +194,29 @@ export function summarizeSettings(record: AppSettingsRecord): AppSettingsSummary
         capabilityDefaults: capabilityConfigToJson(
             normalizeCapabilityConfig(record.capabilityDefaults),
         ),
-        search,
+        search: {
+            enabled: search.enabled,
+            backendUrl: search.backendUrl,
+            defaultResultCount: search.defaultResultCount,
+            timeoutMs: search.timeoutMs,
+            maxSearchesPerRun: search.maxSearchesPerRun,
+            brave: {
+                enabled: search.brave.enabled,
+                hasCredential: braveSecretId !== null,
+                country: search.brave.country,
+                searchLang: search.brave.searchLang,
+                safeSearch: search.brave.safeSearch,
+                timeoutMs: search.brave.timeoutMs,
+                resultCount: search.brave.resultCount,
+            },
+            browserbase: {
+                enabled: search.browserbase.enabled,
+                hasCredential: browserbaseSecretId !== null,
+                projectId: search.browserbase.projectId,
+                timeoutMs: search.browserbase.timeoutMs,
+                resultCount: search.browserbase.resultCount,
+            },
+        },
         image: {
             provider: normalizeImageProvider(imageConfig.provider),
             model:

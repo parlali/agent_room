@@ -65,22 +65,34 @@ function testConfig(): PiRuntimeConfig {
 
 describe('runtime redaction', () => {
     it('redacts runtime and bearer secrets from nested payloads', () => {
+        const previousSearchKey = process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY
+        process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = 'search-secret'
         const { redactPayload, errorMessage } = createRuntimeRedactor(testConfig())
 
-        expect(
-            redactPayload({
-                runtime: 'runtime-secret',
+        try {
+            expect(
+                redactPayload({
+                    runtime: 'runtime-secret',
+                    search: 'search-secret',
+                    nested: {
+                        bearer: 'Bearer mcp-secret',
+                    },
+                }),
+            ).toEqual({
+                runtime: '[redacted]',
+                search: '[redacted]',
                 nested: {
-                    bearer: 'Bearer mcp-secret',
+                    bearer: '[redacted]',
                 },
-            }),
-        ).toEqual({
-            runtime: '[redacted]',
-            nested: {
-                bearer: '[redacted]',
-            },
-        })
-        expect(errorMessage(new Error('bad runtime-secret'))).toBe('bad [redacted]')
+            })
+            expect(errorMessage(new Error('bad runtime-secret'))).toBe('bad [redacted]')
+        } finally {
+            if (previousSearchKey === undefined) {
+                delete process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY
+            } else {
+                process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = previousSearchKey
+            }
+        }
     })
 
     it('keeps live payload strings complete while still redacting secrets', () => {

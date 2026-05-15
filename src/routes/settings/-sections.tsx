@@ -61,6 +61,36 @@ import {
 
 export type AppCapabilityDefaults = OperatorConfigSnapshot['settings']['capabilityDefaults']
 export type AppImageProvider = 'none' | 'openai' | 'gemini'
+export type AppSearchSafeSearch =
+    OperatorConfigSnapshot['settings']['search']['brave']['safeSearch']
+
+export interface AppSearchDraft {
+    enabled: boolean
+    backendUrl: string
+    defaultResultCount: number
+    timeoutMs: number
+    maxSearchesPerRun: number
+    brave: {
+        enabled: boolean
+        country: string
+        searchLang: string
+        safeSearch: AppSearchSafeSearch
+        timeoutMs: number
+        resultCount: number
+        apiKey: string
+        hasCredential: boolean
+        replaceApiKey: boolean
+    }
+    browserbase: {
+        enabled: boolean
+        projectId: string
+        timeoutMs: number
+        resultCount: number
+        apiKey: string
+        hasCredential: boolean
+        replaceApiKey: boolean
+    }
+}
 
 export function GitHubAppSection({
     config,
@@ -604,6 +634,7 @@ export function CapabilitiesSection({
     appImageApiKey,
     appImageHasCredential,
     appImageReplaceApiKey,
+    appSearch,
     savePending,
     capabilitiesDirty,
     setCapabilityDefaults,
@@ -612,6 +643,7 @@ export function CapabilitiesSection({
     setAppImageApiKey,
     setAppImageHasCredential,
     setAppImageReplaceApiKey,
+    setAppSearch,
     onSaveCapabilities,
 }: {
     config: OperatorConfigSnapshot | undefined
@@ -621,6 +653,7 @@ export function CapabilitiesSection({
     appImageApiKey: string
     appImageHasCredential: boolean
     appImageReplaceApiKey: boolean
+    appSearch: AppSearchDraft | null
     savePending: boolean
     capabilitiesDirty: boolean
     setCapabilityDefaults: Dispatch<SetStateAction<AppCapabilityDefaults | null>>
@@ -629,14 +662,26 @@ export function CapabilitiesSection({
     setAppImageApiKey: Dispatch<SetStateAction<string>>
     setAppImageHasCredential: Dispatch<SetStateAction<boolean>>
     setAppImageReplaceApiKey: Dispatch<SetStateAction<boolean>>
+    setAppSearch: Dispatch<SetStateAction<AppSearchDraft | null>>
     onSaveCapabilities: () => void
 }) {
+    const updateSearch = (patch: Partial<AppSearchDraft>) =>
+        setAppSearch((current) => (current ? { ...current, ...patch } : current))
+    const updateBrave = (patch: Partial<AppSearchDraft['brave']>) =>
+        setAppSearch((current) =>
+            current ? { ...current, brave: { ...current.brave, ...patch } } : current,
+        )
+    const updateBrowserbase = (patch: Partial<AppSearchDraft['browserbase']>) =>
+        setAppSearch((current) =>
+            current ? { ...current, browserbase: { ...current.browserbase, ...patch } } : current,
+        )
+
     return (
         <Section
             title="Capabilities"
             description="Defaults inherited by rooms unless a room override is set."
         >
-            {!capabilityDefaults ? (
+            {!capabilityDefaults || !appSearch ? (
                 <LoadingRows count={4} />
             ) : (
                 <div className="space-y-4">
@@ -673,6 +718,267 @@ export function CapabilitiesSection({
                                 />
                             </label>
                         ))}
+                    </div>
+                    <div className="rounded-lg border border-border/60 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                            <div>
+                                <div className="text-sm font-medium text-foreground">
+                                    Web search defaults
+                                </div>
+                            </div>
+                            <Switch
+                                checked={appSearch.enabled}
+                                onCheckedChange={(enabled) => updateSearch({ enabled })}
+                                aria-label="Toggle web search backend"
+                            />
+                        </div>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                            <FieldGroup label="SearXNG backend URL" htmlFor="search-backend-url">
+                                <Input
+                                    id="search-backend-url"
+                                    value={appSearch.backendUrl}
+                                    onChange={(event) =>
+                                        updateSearch({ backendUrl: event.target.value })
+                                    }
+                                />
+                            </FieldGroup>
+                            <FieldGroup label="Searches per run" htmlFor="search-max-per-run">
+                                <Input
+                                    id="search-max-per-run"
+                                    type="number"
+                                    min={1}
+                                    max={100}
+                                    value={appSearch.maxSearchesPerRun}
+                                    onChange={(event) =>
+                                        updateSearch({
+                                            maxSearchesPerRun: Number(event.target.value),
+                                        })
+                                    }
+                                />
+                            </FieldGroup>
+                            <FieldGroup label="Default result count" htmlFor="search-result-count">
+                                <Input
+                                    id="search-result-count"
+                                    type="number"
+                                    min={1}
+                                    max={20}
+                                    value={appSearch.defaultResultCount}
+                                    onChange={(event) =>
+                                        updateSearch({
+                                            defaultResultCount: Number(event.target.value),
+                                        })
+                                    }
+                                />
+                            </FieldGroup>
+                            <FieldGroup label="SearXNG timeout" htmlFor="search-timeout-ms">
+                                <Input
+                                    id="search-timeout-ms"
+                                    type="number"
+                                    min={1000}
+                                    max={30000}
+                                    value={appSearch.timeoutMs}
+                                    onChange={(event) =>
+                                        updateSearch({ timeoutMs: Number(event.target.value) })
+                                    }
+                                />
+                            </FieldGroup>
+                        </div>
+                        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                            <div className="rounded-md border border-border/60 p-3">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div className="text-sm font-medium text-foreground">
+                                        Brave Search
+                                    </div>
+                                    <Switch
+                                        checked={appSearch.brave.enabled}
+                                        onCheckedChange={(enabled) => updateBrave({ enabled })}
+                                        aria-label="Toggle Brave Search"
+                                    />
+                                </div>
+                                {appSearch.brave.enabled ? (
+                                    <div className="mt-3 space-y-3">
+                                        <MaskedSecretField
+                                            label="Brave API key"
+                                            id="brave-search-api-key"
+                                            hasCredential={appSearch.brave.hasCredential}
+                                            replace={appSearch.brave.replaceApiKey}
+                                            onToggleReplace={(replaceApiKey) => {
+                                                updateBrave({
+                                                    replaceApiKey,
+                                                    apiKey: replaceApiKey
+                                                        ? appSearch.brave.apiKey
+                                                        : '',
+                                                })
+                                            }}
+                                            value={appSearch.brave.apiKey}
+                                            onChange={(apiKey) => updateBrave({ apiKey })}
+                                            placeholder="Brave Search API key"
+                                        />
+                                        <div className="grid gap-3 sm:grid-cols-2">
+                                            <FieldGroup label="Country" htmlFor="brave-country">
+                                                <Input
+                                                    id="brave-country"
+                                                    value={appSearch.brave.country}
+                                                    onChange={(event) =>
+                                                        updateBrave({
+                                                            country: event.target.value,
+                                                        })
+                                                    }
+                                                    placeholder="US"
+                                                />
+                                            </FieldGroup>
+                                            <FieldGroup
+                                                label="Search language"
+                                                htmlFor="brave-search-lang"
+                                            >
+                                                <Input
+                                                    id="brave-search-lang"
+                                                    value={appSearch.brave.searchLang}
+                                                    onChange={(event) =>
+                                                        updateBrave({
+                                                            searchLang: event.target.value,
+                                                        })
+                                                    }
+                                                    placeholder="en"
+                                                />
+                                            </FieldGroup>
+                                            <FieldGroup
+                                                label="Safe search"
+                                                htmlFor="brave-safe-search"
+                                            >
+                                                <Select
+                                                    value={appSearch.brave.safeSearch}
+                                                    onValueChange={(value) =>
+                                                        updateBrave({
+                                                            safeSearch:
+                                                                value as AppSearchSafeSearch,
+                                                        })
+                                                    }
+                                                >
+                                                    <SelectTrigger
+                                                        id="brave-safe-search"
+                                                        className="w-full"
+                                                    >
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="off">Off</SelectItem>
+                                                        <SelectItem value="moderate">
+                                                            Moderate
+                                                        </SelectItem>
+                                                        <SelectItem value="strict">
+                                                            Strict
+                                                        </SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </FieldGroup>
+                                            <FieldGroup
+                                                label="Result count"
+                                                htmlFor="brave-result-count"
+                                            >
+                                                <Input
+                                                    id="brave-result-count"
+                                                    type="number"
+                                                    min={1}
+                                                    max={20}
+                                                    value={appSearch.brave.resultCount}
+                                                    onChange={(event) =>
+                                                        updateBrave({
+                                                            resultCount: Number(event.target.value),
+                                                        })
+                                                    }
+                                                />
+                                            </FieldGroup>
+                                        </div>
+                                    </div>
+                                ) : null}
+                            </div>
+                            <div className="rounded-md border border-border/60 p-3">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div className="text-sm font-medium text-foreground">
+                                        Browserbase Search
+                                    </div>
+                                    <Switch
+                                        checked={appSearch.browserbase.enabled}
+                                        onCheckedChange={(enabled) =>
+                                            updateBrowserbase({ enabled })
+                                        }
+                                        aria-label="Toggle Browserbase Search"
+                                    />
+                                </div>
+                                {appSearch.browserbase.enabled ? (
+                                    <div className="mt-3 space-y-3">
+                                        <MaskedSecretField
+                                            label="Browserbase API key"
+                                            id="browserbase-search-api-key"
+                                            hasCredential={appSearch.browserbase.hasCredential}
+                                            replace={appSearch.browserbase.replaceApiKey}
+                                            onToggleReplace={(replaceApiKey) => {
+                                                updateBrowserbase({
+                                                    replaceApiKey,
+                                                    apiKey: replaceApiKey
+                                                        ? appSearch.browserbase.apiKey
+                                                        : '',
+                                                })
+                                            }}
+                                            value={appSearch.browserbase.apiKey}
+                                            onChange={(apiKey) => updateBrowserbase({ apiKey })}
+                                            placeholder="Browserbase API key"
+                                        />
+                                        <FieldGroup
+                                            label="Project ID"
+                                            htmlFor="browserbase-project-id"
+                                        >
+                                            <Input
+                                                id="browserbase-project-id"
+                                                value={appSearch.browserbase.projectId}
+                                                onChange={(event) =>
+                                                    updateBrowserbase({
+                                                        projectId: event.target.value,
+                                                    })
+                                                }
+                                            />
+                                        </FieldGroup>
+                                        <div className="grid gap-3 sm:grid-cols-2">
+                                            <FieldGroup
+                                                label="Result count"
+                                                htmlFor="browserbase-result-count"
+                                            >
+                                                <Input
+                                                    id="browserbase-result-count"
+                                                    type="number"
+                                                    min={1}
+                                                    max={20}
+                                                    value={appSearch.browserbase.resultCount}
+                                                    onChange={(event) =>
+                                                        updateBrowserbase({
+                                                            resultCount: Number(event.target.value),
+                                                        })
+                                                    }
+                                                />
+                                            </FieldGroup>
+                                            <FieldGroup
+                                                label="Timeout"
+                                                htmlFor="browserbase-timeout-ms"
+                                            >
+                                                <Input
+                                                    id="browserbase-timeout-ms"
+                                                    type="number"
+                                                    min={1000}
+                                                    max={30000}
+                                                    value={appSearch.browserbase.timeoutMs}
+                                                    onChange={(event) =>
+                                                        updateBrowserbase({
+                                                            timeoutMs: Number(event.target.value),
+                                                        })
+                                                    }
+                                                />
+                                            </FieldGroup>
+                                        </div>
+                                    </div>
+                                ) : null}
+                            </div>
+                        </div>
                     </div>
                     <div className="rounded-lg border border-border/60 p-3">
                         <div className="text-sm font-medium text-foreground">Image defaults</div>

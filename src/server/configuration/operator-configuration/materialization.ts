@@ -37,6 +37,9 @@ import {
     normalizeImageConfig,
     normalizeImageProvider,
     normalizeSearchConfig,
+    searchProviderEnvKey,
+    searchProviderSecretId,
+    withSearchProviderEnvKeys,
 } from '../capabilities'
 import { materializeRoomGitHubBinding } from '../github-app'
 import {
@@ -303,6 +306,65 @@ async function materializeImageSecret(input: {
     }
 }
 
+export async function materializeSearchConfig(input: {
+    searchConfig: AppSettingsRecord['searchConfig']
+    runtimeSecretsDir: string
+    encryptionKey: Buffer
+}): Promise<{
+    search: MaterializedRoomConfiguration['search']
+    entitlements: Pick<MaterializedEntitlements, 'env' | 'secretRefs'>
+}> {
+    const normalized = normalizeSearchConfig(input.searchConfig)
+    const env: Record<string, string> = {}
+    const secretRefs: MaterializedEntitlements['secretRefs'] = []
+    const materializedProviders: {
+        brave?: boolean
+        browserbase?: boolean
+    } = {}
+
+    for (const provider of ['brave', 'browserbase'] as const) {
+        const providerConfig = normalized[provider]
+        if (!providerConfig.enabled) {
+            continue
+        }
+        const secretId = searchProviderSecretId({
+            config: input.searchConfig,
+            provider,
+        })
+        if (!secretId) {
+            continue
+        }
+        const secret = await resolveSecret(secretId)
+        if (!secret) {
+            throw new Error(`${provider} search credential is missing encrypted payload`)
+        }
+        const envKey = searchProviderEnvKey(provider)
+        const plainText = decryptSecretRecord(secret, input.encryptionKey)
+        const secretFilePath = join(input.runtimeSecretsDir, `${envKey.toLowerCase()}.secret`)
+        await writeFile(secretFilePath, plainText, {
+            encoding: 'utf8',
+            mode: 0o600,
+        })
+        await chmod(secretFilePath, 0o600)
+        env[envKey] = plainText
+        secretRefs.push({
+            entitlementId: `app_search:${provider}`,
+            secretId: secret.id,
+            filePath: secretFilePath,
+            envKey,
+        })
+        materializedProviders[provider] = true
+    }
+
+    return {
+        search: withSearchProviderEnvKeys(normalized, materializedProviders),
+        entitlements: {
+            env,
+            secretRefs,
+        },
+    }
+}
+
 async function materializeMcpBindings(input: {
     bindings: RoomMcpBindingRecord[]
     runtimeSecretsDir: string
@@ -408,6 +470,11 @@ export async function materializeRoomConfiguration(input: {
                   env: {},
                   secretRefs: [],
               }
+    const searchMaterialization = await materializeSearchConfig({
+        searchConfig: settings.searchConfig,
+        runtimeSecretsDir: input.runtimeSecretsDir,
+        encryptionKey: env.encryptionKey,
+    })
     const materializedRoomSecrets = roomSecrets.filter(
         (roomSecret) =>
             roomSecret.purpose !== 'provider_api_key' &&
@@ -432,6 +499,7 @@ export async function materializeRoomConfiguration(input: {
         reservedEnvKeys: new Set([
             ...Object.keys(providerMaterialization.entitlements.env),
             ...Object.keys(imageMaterialization.env),
+            ...Object.keys(searchMaterialization.entitlements.env),
         ]),
     })
     const mcpServers = await materializeMcpBindings({
@@ -461,7 +529,7 @@ export async function materializeRoomConfiguration(input: {
         instructions: config.instructions,
         roomMode: config.roomMode,
         capabilities,
-        search: normalizeSearchConfig(settings.searchConfig),
+        search: searchMaterialization.search,
         image,
         budgets: normalizeBudgets(),
         provider: providerMaterialization.provider,
@@ -469,6 +537,7 @@ export async function materializeRoomConfiguration(input: {
             env: {
                 ...providerMaterialization.entitlements.env,
                 ...imageMaterialization.env,
+                ...searchMaterialization.entitlements.env,
                 ...roomSecretMaterialization.env,
             },
             internalEnv: {
@@ -477,6 +546,7 @@ export async function materializeRoomConfiguration(input: {
             secretRefs: [
                 ...providerMaterialization.entitlements.secretRefs,
                 ...imageMaterialization.secretRefs,
+                ...searchMaterialization.entitlements.secretRefs,
                 ...roomSecretMaterialization.secretRefs,
             ],
             mcpServers: capabilities.mcp ? mcpServers : [],

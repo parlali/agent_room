@@ -1,19 +1,103 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
     assertSafeUrl,
+    createWebTools,
     isBlockedNetworkAddress,
     normalizeSearxngSafeSearch,
+    parseBraveSearchResults,
+    parseBrowserExtractedSearchResults,
     parseSearxngResults,
     sanitizeUrlForAudit,
 } from './web-tools'
-import { parseSearxngHtmlResults, searxngSearch } from './web-search'
+import {
+    SearchProviderError,
+    SearchRouter,
+    parseSearxngHtmlResults,
+    searxngSearch,
+    type SearchProvider,
+    type SearchProviderSearchInput,
+    type SearchProviderResponse,
+} from './web-search'
 import { createTestPiRuntimeConfig } from './test-runtime-defaults'
+import { withToolRunContext } from './tool-run-context'
 
 const originalFetch = globalThis.fetch
+const originalBraveKey = process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY
+
+async function executeWebTool(input: object) {
+    const events: Array<{ event: string; payload: unknown }> = []
+    const tools = createWebTools({
+        config: createTestPiRuntimeConfig({
+            search: {
+                brave: {
+                    enabled: true,
+                    envKey: 'AGENT_ROOM_SEARCH_BRAVE_API_KEY',
+                    country: null,
+                    searchLang: null,
+                    safeSearch: 'moderate',
+                    timeoutMs: 10000,
+                    resultCount: 5,
+                },
+            },
+        }),
+        audit: async (event, payload) => {
+            events.push({ event, payload })
+        },
+    })
+    const tool = tools.find((entry) => entry.name === 'agent_room_web_search')
+    if (!tool) {
+        throw new Error('Missing web search tool')
+    }
+    const result = await tool.execute('call-1', input as never, undefined, undefined, {} as never)
+    return {
+        result,
+        events,
+    }
+}
+
+function resultDetails(result: Awaited<ReturnType<typeof executeWebTool>>['result']) {
+    return typeof result.details === 'object' && result.details !== null
+        ? (result.details as Record<string, unknown>)
+        : {}
+}
+
+class FakeSearchProvider implements SearchProvider {
+    id
+    label
+    priority
+    calls = 0
+    private implementation
+
+    constructor(input: {
+        id: SearchProvider['id']
+        label: string
+        priority: number
+        implementation: (input: SearchProviderSearchInput, calls: number) => SearchProviderResponse
+    }) {
+        this.id = input.id
+        this.label = input.label
+        this.priority = input.priority
+        this.implementation = input.implementation
+    }
+
+    isConfigured(): boolean {
+        return true
+    }
+
+    async search(input: SearchProviderSearchInput): Promise<SearchProviderResponse> {
+        this.calls += 1
+        return this.implementation(input, this.calls)
+    }
+}
 
 describe('web tools', () => {
     afterEach(() => {
         globalThis.fetch = originalFetch
+        if (originalBraveKey === undefined) {
+            delete process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY
+        } else {
+            process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = originalBraveKey
+        }
     })
 
     it('parses bounded SearXNG results into canonical search results', () => {
@@ -109,7 +193,7 @@ describe('web tools', () => {
         expect(new URL(calls[0]).searchParams.get('format')).toBe('json')
         expect(new URL(calls[1]).searchParams.has('format')).toBe(false)
         expect(response.backendFormat).toBe('html')
-        expect(response.fallbackReason).toContain('Search backend returned 403')
+        expect(response.fallbackReason).toContain('searxng search blocked returned 403')
         expect(response.results).toEqual([
             {
                 title: 'Example Result',
@@ -120,6 +204,336 @@ describe('web tools', () => {
                 rank: 1,
             },
         ])
+    })
+
+    it('backs off rate-limited SearXNG engines on later routed searches', async () => {
+        const calls: string[] = []
+        globalThis.fetch = (async (input) => {
+            const url = String(input)
+            calls.push(url)
+            const body =
+                calls.length === 1
+                    ? {
+                          results: [
+                              {
+                                  title: 'First',
+                                  url: 'https://example.com/first',
+                                  content: 'First result',
+                                  engines: ['duckduckgo'],
+                              },
+                          ],
+                          unresponsive_engines: [['google', 'rate limit']],
+                      }
+                    : {
+                          results: [
+                              {
+                                  title: 'Second',
+                                  url: 'https://example.com/second',
+                                  content: 'Second result',
+                                  engines: ['duckduckgo'],
+                              },
+                          ],
+                      }
+            return new Response(JSON.stringify(body), {
+                status: 200,
+                headers: {
+                    'content-type': 'application/json',
+                },
+            })
+        }) as typeof fetch
+        const router = new SearchRouter()
+
+        await router.search({
+            config: createTestPiRuntimeConfig(),
+            query: 'first',
+            count: 5,
+        })
+        await router.search({
+            config: createTestPiRuntimeConfig(),
+            query: 'second',
+            count: 5,
+        })
+
+        expect(new URL(calls[1]).searchParams.get('disabled_engines')).toBe('google')
+    })
+
+    it('maps Brave web results into canonical search results', () => {
+        const results = parseBraveSearchResults(
+            {
+                web: {
+                    results: [
+                        {
+                            title: 'Example Domain',
+                            url: 'https://example.com/',
+                            description: 'Primary snippet',
+                            extra_snippets: ['Additional snippet'],
+                        },
+                        {
+                            title: 'Bad',
+                            url: 'file:///tmp/bad',
+                            description: 'ignored',
+                        },
+                    ],
+                },
+            },
+            '2026-05-03T10:00:00.000Z',
+        )
+
+        expect(results).toEqual([
+            {
+                title: 'Example Domain',
+                url: 'https://example.com/',
+                snippet: 'Primary snippet Additional snippet',
+                engine: 'brave',
+                fetchedAt: '2026-05-03T10:00:00.000Z',
+                rank: 1,
+            },
+        ])
+    })
+
+    it('maps Browserbase browser-mediated extracted results into canonical search results', () => {
+        const results = parseBrowserExtractedSearchResults(
+            [
+                {
+                    title: 'Browser result',
+                    url: 'https://example.com/browser',
+                    snippet: 'Found through a browser page',
+                },
+                {
+                    title: 'Ignored',
+                    url: 'about:blank',
+                    snippet: 'ignored',
+                },
+            ],
+            '2026-05-03T10:00:00.000Z',
+        )
+
+        expect(results).toEqual([
+            {
+                title: 'Browser result',
+                url: 'https://example.com/browser',
+                snippet: 'Found through a browser page',
+                engine: 'browserbase:brave',
+                fetchedAt: '2026-05-03T10:00:00.000Z',
+                rank: 1,
+            },
+        ])
+    })
+
+    it('routes providers by priority, retries transient failures, and records fallback metadata', async () => {
+        const brave = new FakeSearchProvider({
+            id: 'brave',
+            label: 'Brave',
+            priority: 10,
+            implementation: () => {
+                throw new SearchProviderError({
+                    code: 'blocked',
+                    providerId: 'brave',
+                    message: 'Brave quota blocked',
+                })
+            },
+        })
+        const browserbase = new FakeSearchProvider({
+            id: 'browserbase',
+            label: 'Browserbase',
+            priority: 20,
+            implementation: (_input, calls) => {
+                if (calls === 1) {
+                    throw new SearchProviderError({
+                        code: 'timeout',
+                        providerId: 'browserbase',
+                        retryable: true,
+                        message: 'Browserbase timed out',
+                    })
+                }
+                return {
+                    results: [
+                        {
+                            title: 'Recovered',
+                            url: 'https://example.com/recovered',
+                            snippet: 'Recovered through fallback',
+                            engine: 'browserbase:test',
+                            fetchedAt: '2026-05-03T10:00:00.000Z',
+                            rank: 1,
+                        },
+                    ],
+                    backendFormat: 'browser',
+                    fallbackReason: null,
+                    degradedReason: null,
+                    browserMediated: true,
+                }
+            },
+        })
+        const searxng = new FakeSearchProvider({
+            id: 'searxng',
+            label: 'SearXNG',
+            priority: 30,
+            implementation: () => {
+                throw new Error('SearXNG should not be reached')
+            },
+        })
+        const router = new SearchRouter([searxng, browserbase, brave])
+        const audits: string[] = []
+
+        const response = await router.search({
+            config: createTestPiRuntimeConfig(),
+            query: 'agent room',
+            count: 5,
+            audit: async (event) => {
+                audits.push(event)
+            },
+        })
+
+        expect(brave.calls).toBe(1)
+        expect(browserbase.calls).toBe(2)
+        expect(searxng.calls).toBe(0)
+        expect(response.backend).toBe('browserbase')
+        expect(response.degraded).toBe(true)
+        expect(response.browserMediated).toBe(true)
+        expect(response.fallbackChain.map((step) => step.status)).toEqual(['failed', 'complete'])
+        expect(audits).toContain('search.provider_retrying')
+        expect(audits).toContain('search.provider_completed')
+    })
+
+    it('deduplicates in-flight queries within a run and enforces search budget', async () => {
+        const provider = new FakeSearchProvider({
+            id: 'searxng',
+            label: 'SearXNG',
+            priority: 30,
+            implementation: () => ({
+                results: [
+                    {
+                        title: 'Result',
+                        url: 'https://example.com/result',
+                        snippet: 'snippet',
+                        engine: 'test',
+                        fetchedAt: '2026-05-03T10:00:00.000Z',
+                        rank: 1,
+                    },
+                ],
+                backendFormat: 'json',
+                fallbackReason: null,
+                degradedReason: null,
+                browserMediated: false,
+            }),
+        })
+        const router = new SearchRouter([provider])
+        const config = createTestPiRuntimeConfig({
+            search: {
+                maxSearchesPerRun: 1,
+            },
+        })
+
+        await withToolRunContext(
+            {
+                sessionKey: 'session-1',
+                runId: 'run-1',
+                signal: new AbortController().signal,
+            },
+            async () => {
+                await Promise.all([
+                    router.search({ config, query: 'same', count: 5 }),
+                    router.search({ config, query: 'same', count: 5 }),
+                ])
+                await expect(
+                    router.search({ config, query: 'different', count: 5 }),
+                ).rejects.toThrow('Web search budget exhausted for this run')
+            },
+        )
+
+        expect(provider.calls).toBe(1)
+    })
+
+    it('classifies Brave auth, quota, and rate-limit responses without empty success', async () => {
+        const statuses = [
+            { status: 401, code: 'misconfigured' },
+            { status: 402, code: 'blocked' },
+            { status: 429, code: 'rate_limited' },
+        ] as const
+        for (const entry of statuses) {
+            globalThis.fetch = (async () =>
+                new Response('provider failure', {
+                    status: entry.status,
+                })) as typeof fetch
+            process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = 'brave-secret'
+            const router = new SearchRouter()
+            await expect(
+                router.search({
+                    config: createTestPiRuntimeConfig({
+                        search: {
+                            brave: {
+                                enabled: true,
+                                envKey: 'AGENT_ROOM_SEARCH_BRAVE_API_KEY',
+                                country: null,
+                                searchLang: null,
+                                safeSearch: 'moderate',
+                                timeoutMs: 10000,
+                                resultCount: 5,
+                            },
+                            browserbase: {
+                                enabled: false,
+                                envKey: null,
+                                projectId: null,
+                                timeoutMs: 10000,
+                                resultCount: 5,
+                            },
+                            backendUrl: 'http://127.0.0.1:9999',
+                            enabled: false,
+                        },
+                    }),
+                    query: `failure ${entry.status}`,
+                    count: 5,
+                }),
+            ).rejects.toMatchObject({
+                code: entry.code,
+            })
+        }
+    })
+
+    it('surfaces backend and fallback metadata from the model-facing web search tool', async () => {
+        process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = 'brave-secret'
+        globalThis.fetch = (async () =>
+            new Response(
+                JSON.stringify({
+                    web: {
+                        results: [
+                            {
+                                title: 'Brave Result',
+                                url: 'https://example.com/brave',
+                                description: 'From Brave',
+                            },
+                        ],
+                    },
+                }),
+                {
+                    status: 200,
+                    headers: {
+                        'content-type': 'application/json',
+                    },
+                },
+            )) as typeof fetch
+
+        const { result, events } = await executeWebTool({
+            query: 'brave result',
+            count: 1,
+        })
+        const details = resultDetails(result)
+
+        expect(details.backend).toBe('brave')
+        expect(details.backendLabel).toBe('Brave Search')
+        expect(details.degraded).toBe(false)
+        expect(details.resultCount).toBe(1)
+        expect(details.fallbackChain).toEqual([
+            {
+                backend: 'brave',
+                backendLabel: 'Brave Search',
+                status: 'complete',
+                attempts: 1,
+                errorCode: null,
+                reason: null,
+            },
+        ])
+        expect(JSON.stringify(events)).not.toContain('brave-secret')
     })
 
     it('blocks local, private, link-local, and metadata network addresses', () => {

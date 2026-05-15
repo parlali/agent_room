@@ -8,11 +8,19 @@ import {
     filterResultsByDomain,
     formatSearchResults,
     normalizeStringArray,
-    searxngSearch,
+    SearchRouter,
+    type SearchBackendFormat,
+    type SearchFallbackStep,
 } from './web-search'
 import { sanitizeUrlForAudit } from './web-url-safety'
 
-export { normalizeSearxngSafeSearch, parseSearxngResults, type WebSearchResult } from './web-search'
+export {
+    normalizeSearxngSafeSearch,
+    parseBraveSearchResults,
+    parseBrowserExtractedSearchResults,
+    parseSearxngResults,
+    type WebSearchResult,
+} from './web-search'
 export { assertSafeUrl, isBlockedNetworkAddress, sanitizeUrlForAudit } from './web-url-safety'
 
 interface WebToolContext {
@@ -30,11 +38,17 @@ interface WebToolDetails {
     modelVisibleTruncated?: boolean
     outputArtifact?: ToolOutputArtifact
     resultCount?: number
-    backendFormat?: 'json' | 'html'
+    backend?: string
+    backendLabel?: string
+    backendFormat?: SearchBackendFormat
+    fallbackChain?: SearchFallbackStep[]
+    degraded?: boolean
+    degradedReason?: string | null
     fallbackReason?: string | null
+    browserMediated?: boolean
 }
 
-function createWebSearchTool(ctx: WebToolContext): ToolDefinition {
+function createWebSearchTool(ctx: WebToolContext, router: SearchRouter): ToolDefinition {
     return defineTool({
         name: 'agent_room_web_search',
         label: 'Web Search',
@@ -58,7 +72,7 @@ function createWebSearchTool(ctx: WebToolContext): ToolDefinition {
                 20,
             )
             try {
-                const search = await searxngSearch({
+                const search = await router.search({
                     config: ctx.config,
                     query: input.query,
                     count: Math.min(20, count + 20),
@@ -67,6 +81,7 @@ function createWebSearchTool(ctx: WebToolContext): ToolDefinition {
                     safeSearch: input.safeSearch,
                     location: input.location,
                     signal,
+                    audit: ctx.audit,
                 })
                 const results = filterResultsByDomain({
                     results: search.results,
@@ -76,14 +91,26 @@ function createWebSearchTool(ctx: WebToolContext): ToolDefinition {
                 await ctx.audit('tool.web_search', {
                     query: input.query,
                     resultCount: results.length,
+                    backend: search.backend,
+                    backendLabel: search.backendLabel,
                     backendFormat: search.backendFormat,
+                    fallbackChain: search.fallbackChain,
+                    degraded: search.degraded,
+                    degradedReason: search.degradedReason,
                     fallbackReason: search.fallbackReason,
+                    browserMediated: search.browserMediated,
                     status: 'complete',
                 })
                 return textToolResult<WebToolDetails>(formatSearchResults(results), {
                     resultCount: results.length,
+                    backend: search.backend,
+                    backendLabel: search.backendLabel,
                     backendFormat: search.backendFormat,
+                    fallbackChain: search.fallbackChain,
+                    degraded: search.degraded,
+                    degradedReason: search.degradedReason,
                     fallbackReason: search.fallbackReason,
+                    browserMediated: search.browserMediated,
                 })
             } catch (error) {
                 await ctx.audit('tool.web_search', {
@@ -176,7 +203,7 @@ function createFetchUrlTool(ctx: WebToolContext): ToolDefinition {
 export function createWebTools(ctx: WebToolContext): ToolDefinition[] {
     const tools: ToolDefinition[] = []
     if (ctx.config.capabilities.webSearch) {
-        tools.push(createWebSearchTool(ctx))
+        tools.push(createWebSearchTool(ctx, new SearchRouter()))
     }
     if (ctx.config.capabilities.urlFetch) {
         tools.push(createFetchUrlTool(ctx))
