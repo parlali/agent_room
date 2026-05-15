@@ -12,8 +12,6 @@ import {
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
-import { strFromU8, unzipSync } from 'fflate'
-import * as XLSX from 'xlsx'
 import { PDFDocument } from 'pdf-lib'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
@@ -454,26 +452,11 @@ describe('room Pi tools', () => {
         })
     })
 
-    it('lets document tools inspect store-backed uploaded files without mutating them', async () => {
+    it('lets PDF tools inspect store-backed uploaded files without mutating them', async () => {
         await withRoom(async (config) => {
             await mkdir(join(config.paths.storeDir, 'attachments/session'), {
                 recursive: true,
             })
-            await executeDocumentTool(config, 'agent_room_docx', {
-                operation: 'create',
-                path: 'source.docx',
-                paragraphs: ['Uploaded contract text'],
-            })
-            await copyFile(
-                join(config.paths.workspaceDir, 'source.docx'),
-                join(config.paths.storeDir, 'attachments/session/source.docx'),
-            )
-            const inspectedDocx = await executeDocumentTool(config, 'agent_room_docx', {
-                operation: 'inspect',
-                root: 'store',
-                path: 'attachments/session/source.docx',
-            })
-
             await executeDocumentTool(config, 'agent_room_pdf', {
                 operation: 'create',
                 path: 'source.pdf',
@@ -503,30 +486,27 @@ describe('room Pi tools', () => {
                 path: 'attachments/session/source.pdf',
             })
 
-            expect(resultText(inspectedDocx.result)).toContain('Uploaded contract text')
             expect(editedPdf.getPageCount()).toBe(2)
-            expect(resultDetails(inspectedDocx.result)).toMatchObject({
-                root: 'store',
-                format: 'docx',
-            })
             expect(resultText(inspectedPdf.result)).toContain('PDF file')
             expect(resultDetails(inspectedPdf.result)).toMatchObject({
                 root: 'store',
                 format: 'pdf',
             })
-            await expect(
-                executeDocumentTool(config, 'agent_room_docx', {
-                    operation: 'edit',
-                    root: 'store',
-                    path: 'attachments/session/source.docx',
-                    replacementsJson: JSON.stringify([
-                        {
-                            oldText: 'Uploaded',
-                            newText: 'Edited',
-                        },
-                    ]),
-                }),
-            ).rejects.toThrow(/workspace/)
+        })
+    })
+
+    it('does not expose office or text-extraction document compatibility tools', async () => {
+        await withRoom(async (config) => {
+            const names = createDocumentTools({ config, audit: async () => {} }).map(
+                (tool) => tool.name,
+            )
+
+            expect(names).toContain('agent_room_read_pdf')
+            expect(names).toContain('agent_room_pdf')
+            expect(names).not.toContain('agent_room_docx')
+            expect(names).not.toContain('agent_room_xlsx')
+            expect(names).not.toContain('agent_room_pptx')
+            expect(names).not.toContain('agent_room_pdf_extract_text')
         })
     })
 
@@ -559,9 +539,6 @@ describe('room Pi tools', () => {
                 ingestionMode: 'native_document',
                 backend: 'anthropic_native_document',
             })
-            expect(
-                createDocumentTools({ config, audit: async () => {} }).map((tool) => tool.name),
-            ).toContain('agent_room_pdf_extract_text')
         })
     })
 
@@ -698,84 +675,6 @@ describe('room Pi tools', () => {
             await expect(
                 readFile(join(config.paths.workspaceDir, 'exports/report-copy.txt'), 'utf8'),
             ).resolves.toBe('artifact body')
-        })
-    })
-
-    it('creates workbook rows and charts and supports direct cell edits', async () => {
-        await withRoom(async (config) => {
-            const workbookJson = JSON.stringify({
-                sheets: [
-                    {
-                        name: 'Verification Data',
-                        data: [
-                            ['Item', 'Quantity', 'Price', 'Total'],
-                            ['Product A', 10, 5.5, '=B2*C2'],
-                            ['Product B', 20, 2.75, '=B3*C3'],
-                            ['Product C', 15, 7, '=B4*C4'],
-                        ],
-                        charts: [
-                            {
-                                type: 'bar',
-                                title: 'Totals',
-                                categories: {
-                                    sheet: 'Verification Data',
-                                    cells: 'A2:A4',
-                                },
-                                series: [
-                                    {
-                                        sheet: 'Verification Data',
-                                        cells: 'D2:D4',
-                                    },
-                                ],
-                                anchor: 'F2',
-                            },
-                        ],
-                    },
-                ],
-            })
-            await executeDocumentTool(config, 'agent_room_xlsx', {
-                operation: 'create',
-                path: 'plan-verification.xlsx',
-                workbookJson,
-            })
-            const inspected = await executeDocumentTool(config, 'agent_room_xlsx', {
-                operation: 'inspect',
-                path: 'plan-verification.xlsx',
-            })
-            expect(resultText(inspected.result)).toContain('Product A')
-
-            await executeDocumentTool(config, 'agent_room_xlsx', {
-                operation: 'edit',
-                path: 'plan-verification.xlsx',
-                replacementsJson: JSON.stringify([
-                    {
-                        sheet: 'Verification Data',
-                        cell: 'B2',
-                        value: 12,
-                    },
-                ]),
-            })
-
-            const workbook = XLSX.readFile(
-                join(config.paths.workspaceDir, 'plan-verification.xlsx'),
-                {
-                    cellFormula: true,
-                },
-            )
-            const sheet = workbook.Sheets['Verification Data']
-            expect(sheet?.['B2']?.v).toBe(12)
-            expect(sheet?.['D2']?.f).toBe('B2*C2')
-            expect(sheet?.['D2']?.v).toBe(66)
-
-            const zip = unzipSync(
-                new Uint8Array(
-                    await readFile(join(config.paths.workspaceDir, 'plan-verification.xlsx')),
-                ),
-            )
-            expect(zip['xl/charts/chart1.xml']).toBeDefined()
-            expect(strFromU8(zip['xl/charts/chart1.xml']!)).toContain('Verification Data')
-            expect(strFromU8(zip['xl/charts/chart1.xml']!)).toContain('A2:A4')
-            expect(strFromU8(zip['xl/worksheets/sheet1.xml']!)).toContain('<drawing ')
         })
     })
 })

@@ -3,8 +3,6 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import type { PDFFont } from 'pdf-lib'
 import { sha256Buffer } from './artifacts'
 import { writeWorkspaceFile } from './paths'
-import type { DocumentToolContext } from './types'
-import { runDocumentWorker } from './worker'
 
 type PdfEdit =
     | {
@@ -116,66 +114,9 @@ export function normalizePdfEdits(value: unknown): PdfEdit[] {
     })
 }
 
-export async function inspectPdf(
-    _ctx: DocumentToolContext,
-    path: string,
-    _input: {
-        signal?: AbortSignal
-        maxChars?: number
-    } = {},
-): Promise<string> {
+export async function inspectPdf(path: string): Promise<string> {
     const buffer = await readFile(path)
     return pdfMetadata(path, buffer)
-}
-
-export async function extractPdfText(
-    ctx: DocumentToolContext,
-    path: string,
-    input: {
-        pageStart?: number
-        pageEnd?: number
-        maxChars?: number
-        signal?: AbortSignal
-    } = {},
-): Promise<string> {
-    const maxChars = clampInteger(input.maxChars, 12000, 100000)
-    const args = ['-layout', '-enc', 'UTF-8']
-    const pageStart = normalizeOptionalPage(input.pageStart)
-    const pageEnd = normalizeOptionalPage(input.pageEnd)
-    if (pageStart !== null) {
-        args.push('-f', String(pageStart))
-    }
-    if (pageEnd !== null) {
-        args.push('-l', String(pageEnd))
-    }
-    if (pageStart !== null && pageEnd !== null && pageEnd < pageStart) {
-        throw new Error('PDF pageEnd must be greater than or equal to pageStart')
-    }
-    args.push(path, '-')
-    const text = await runDocumentWorker({
-        config: ctx.config,
-        command: 'pdftotext',
-        args,
-        cwd: ctx.config.paths.workspaceDir,
-        timeoutMs: ctx.config.budgets.documentWorkerMs,
-        signal: input.signal,
-        outputLimitBytes: maxChars,
-        outputMode: 'head',
-    })
-    const trimmed = text.trim()
-    const range =
-        pageStart === null && pageEnd === null
-            ? 'all pages'
-            : pageEnd === null
-              ? `pages ${pageStart}+`
-              : pageStart === null
-                ? `pages 1-${pageEnd}`
-                : `pages ${pageStart}-${pageEnd}`
-    if (!trimmed) {
-        return `Extracted text (${range}):\n[No extractable text found]`
-    }
-    const truncated = text.length >= maxChars ? '\n\n[Output truncated at maxChars]' : ''
-    return `Extracted text (${range}, ${trimmed.length} chars):\n${trimmed}${truncated}`
 }
 
 function pdfMetadata(path: string, buffer: Buffer): string {
@@ -235,12 +176,6 @@ function drawTextPage(
             y -= 24
         }
     }
-}
-
-function normalizeOptionalPage(value: number | undefined): number | null {
-    if (value === undefined) return null
-    if (!Number.isFinite(value)) return null
-    return Math.max(1, Math.floor(value))
 }
 
 function clampInteger(value: number | undefined, fallback: number, max: number): number {

@@ -5,12 +5,7 @@ import { getModel, type Api, type ImageContent, type Model } from '@mariozechner
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { runDocumentWorker } from './document-tools/worker'
 
-export const pdfIngestionModes = [
-    'native_document',
-    'image_render',
-    'text_extract',
-    'unsupported',
-] as const
+export const pdfIngestionModes = ['native_document', 'image_render', 'unsupported'] as const
 
 export type PdfIngestionMode = (typeof pdfIngestionModes)[number]
 
@@ -284,7 +279,7 @@ export async function materializePdfRead(input: {
             degraded: true,
             degradedReason:
                 degradedReason ??
-                'PDF reading requires Anthropic native PDF input or a vision-capable model for rendered pages. Use agent_room_pdf_extract_text only when text extraction is explicitly acceptable.',
+                'PDF reading requires Anthropic native PDF input or a vision-capable model for rendered pages.',
             backend: 'unsupported',
         }
     }

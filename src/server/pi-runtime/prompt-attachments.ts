@@ -388,7 +388,6 @@ function pdfIngestionRecordFromValue(value: unknown): PdfIngestionRecord | null 
     if (
         ingestionMode !== 'native_document' &&
         ingestionMode !== 'image_render' &&
-        ingestionMode !== 'text_extract' &&
         ingestionMode !== 'unsupported'
     ) {
         return null

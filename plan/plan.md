@@ -22,12 +22,12 @@ The brainstorm has been split into three public OSS work-stream issues. Implemen
 
 - [x] Preserve uploaded PDFs as canonical room-local artifacts and materialize reads from that original file.
 - [x] Add `agent_room_read_pdf` with native Anthropic document routing and rendered page-image routing for other vision-capable models.
-- [x] Keep explicit `agent_room_pdf_extract_text` separate from default PDF reading.
-- [x] Persist and audit PDF ingestion mode as `native_document`, `image_render`, `text_extract`, or `unsupported`.
+- [x] Remove PDF text extraction from the model-facing tool surface so `agent_room_read_pdf` is the canonical PDF read path.
+- [x] Persist and audit PDF ingestion mode as `native_document`, `image_render`, or `unsupported`.
 - [x] Surface PDF ingestion mode in prompt attachment metadata, audit events, tool details, and model-visible attachment summaries.
 - [x] Map Anthropic PDF payloads through Pi provider routing without claiming image-rendered or text-extracted content is native.
 - [x] Ship the repo-owned `office-documents` skill and bundled script for DOCX, XLSX, and PPTX create, inspect, and edit workflows.
 - [x] Package bundled skills into the production build so runtime resource loading resolves the shipped `SKILL.md` and script.
-- [x] Keep existing dedicated DOCX/XLSX/PPTX tools during the transition period while the bundled skill path is introduced (implemented as legacy compatibility tools with the bundled skill as the preferred create, inspect, and edit path).
+- [x] Remove dedicated DOCX/XLSX/PPTX runtime tools so the bundled skill and script are the single create, inspect, and edit implementation.
 - [x] Verify active model changes drive PDF routing, page-range reporting is truthful, and non-contiguous rendered pages stay bounded to selected pages.
 - [x] Verify direct behavior and downstream effects with `bun run check`.
