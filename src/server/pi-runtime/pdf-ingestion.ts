@@ -44,10 +44,25 @@ export const anthropicNativePdfMaxBytes = 32 * 1024 * 1024
 export const anthropicNativePdfMaxPages = 100
 export const defaultPdfRenderMaxPages = 20
 
+/**
+ * Determines whether a media type string identifies a PDF.
+ *
+ * @param mediaType - The media type to test; compared exactly to `'application/pdf'`
+ * @returns `true` if `mediaType` is `'application/pdf'`, `false` otherwise.
+ */
 export function isPdfMediaType(mediaType: string): boolean {
     return mediaType === 'application/pdf'
 }
 
+/**
+ * Determines whether the runtime (model or configured provider) supports Anthropic's native PDF ingestion.
+ *
+ * Checks the provided `model` first; if present, returns `true` when that model's provider is `'anthropic'` and its API is `'anthropic-messages'`. If `model` is not provided, inspects `config.provider` and returns `true` when `sourceProvider` is `'anthropic'`, `api` is `'anthropic-messages'`, and `piProvider` is `'anthropic'`.
+ *
+ * @param config - Runtime configuration used when `model` is not provided
+ * @param model - Optional model descriptor; when present this takes precedence over `config`
+ * @returns `true` if native Anthropic PDF ingestion is supported, `false` otherwise.
+ */
 export function isNativePdfProvider(
     config: PiRuntimeConfig,
     model: Model<Api> | undefined,
@@ -62,10 +77,22 @@ export function isNativePdfProvider(
     )
 }
 
+/**
+ * Determines whether the given model accepts image inputs.
+ *
+ * @param model - The model to inspect; may be `undefined`.
+ * @returns `true` if the model's input types include `'image'`, `false` otherwise.
+ */
 export function modelAcceptsImages(model: Model<Api> | undefined): boolean {
     return Boolean(model?.input.includes('image'))
 }
 
+/**
+ * Determines whether the runtime-configured model accepts image inputs.
+ *
+ * @param config - Runtime configuration used to resolve the built-in model, provider-configured model, and any provider model overrides
+ * @returns `true` if the resolved model's input types include `image`, `false` otherwise
+ */
 export function runtimeModelAcceptsImages(config: PiRuntimeConfig): boolean {
     const builtIn = getModel(config.provider.piProvider as never, config.provider.piModel as never)
     if (builtIn) {
@@ -86,11 +113,23 @@ export function runtimeModelAcceptsImages(config: PiRuntimeConfig): boolean {
     return false
 }
 
+/**
+ * Determines the number of pages in a PDF contained in memory.
+ *
+ * @param bytes - The PDF file bytes
+ * @returns The page count of the PDF
+ */
 export async function readPdfPageCount(bytes: Buffer): Promise<number> {
     const pdf = await PDFDocument.load(bytes)
     return pdf.getPageCount()
 }
 
+/**
+ * Produce an ImageContent object that represents the given PDF bytes as a base64-encoded payload.
+ *
+ * @param bytes - Raw PDF file bytes to encode
+ * @returns An ImageContent with `type: 'image'`, `mimeType: 'application/pdf'`, and `data` set to the base64 encoding of `bytes`
+ */
 export function nativePdfImageContent(bytes: Buffer): ImageContent {
     return {
         type: 'image',
@@ -99,6 +138,20 @@ export function nativePdfImageContent(bytes: Buffer): ImageContent {
     }
 }
 
+/**
+ * Convert a user-supplied page specifier into a validated, bounded PdfPageSelection.
+ *
+ * Parses `pages` (comma-separated integers and ranges like `2` or `3-5`), validates bounds
+ * against `pageCount`, enforces `maxPages`, deduplicates and sorts page numbers, and
+ * produces a human-readable `label` and `truncated` flag when the full-document selection
+ * was limited.
+ *
+ * @param input.pages - Optional page specification string (e.g. `"1,3-5"`). `null` or empty selects the first pages up to `maxPages`.
+ * @param input.pageCount - Total pages in the PDF; must be >= 1.
+ * @param input.maxPages - Maximum number of pages allowed in the returned selection.
+ * @returns A PdfPageSelection with `pages` (1-based ascending page numbers), a `label` describing the selection, and `truncated` indicating whether the selection was limited.
+ * @throws Error when `pageCount < 1`, when the `pages` string contains invalid syntax, empty parts, out-of-range numbers or ranges exceeding `pageCount`, when no pages are selected, or when the selected pages exceed `maxPages`.
+ */
 export function normalizePdfPageSelection(input: {
     pages?: string | null
     pageCount: number
@@ -157,6 +210,17 @@ export function normalizePdfPageSelection(input: {
     }
 }
 
+/**
+ * Renders the specified PDF pages to PNG images and returns them as base64-encoded image contents in ascending page order.
+ *
+ * Renders each page in `selection.pages` using an external document worker, reads the produced PNG files, and returns an array of `ImageContent` entries (mimeType `image/png`) corresponding to the requested pages.
+ *
+ * @param input.config - Runtime configuration used for temp paths, workspace, and document worker timeouts
+ * @param input.path - Filesystem path to the PDF to render
+ * @param input.selection - Selected pages (1-based) to render; the function returns images in ascending order of these pages
+ * @returns An array of `ImageContent` objects containing base64-encoded PNGs for each requested page, ordered by page number
+ * @throws Error If the renderer does not produce an image for every requested page (message: 'PDF page rendering did not produce every requested page')
+ */
 export async function renderPdfPageImages(input: {
     config: PiRuntimeConfig
     path: string
@@ -211,6 +275,19 @@ export async function renderPdfPageImages(input: {
     }
 }
 
+/**
+ * Determine the best PDF ingestion strategy and produce the materialized content payload and metadata.
+ *
+ * @param input - Input parameters controlling materialization
+ * @param input.config - Runtime configuration used to determine provider/model capabilities and temp/workspace paths
+ * @param input.path - Filesystem path to the PDF to read (used when `bytes` is not provided)
+ * @param input.pages - Optional page selection string (e.g., "1,3-5"); when omitted, a default selection is used
+ * @param input.bytes - Optional preloaded PDF bytes to use instead of reading from `path`
+ * @param input.model - Optional model descriptor used to decide native vs. image rendering eligibility
+ * @param input.signal - Optional AbortSignal to cancel rendering operations
+ * @param input.renderImages - Optional custom page-rendering function (defaults to `renderPdfPageImages`)
+ * @returns A `PdfReadMaterialization` describing the chosen ingestion mode (`native_document`, `image_render`, or `unsupported`), the produced content (native PDF payload or rendered PNG images), page counts and selection labels, degradation status and reason, and the backend identifier.
+ */
 export async function materializePdfRead(input: {
     config: PiRuntimeConfig
     path: string

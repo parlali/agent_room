@@ -51,6 +51,12 @@ export interface ThreadIndexFile {
     threads: ThreadRecord[]
 }
 
+/**
+ * Normalize a partial thread record into a complete ThreadRecord with defaults and validated fields.
+ *
+ * @param record - Partial thread record containing required identity, title, status, and timestamps; optional fields will be coerced or validated.
+ * @returns A normalized ThreadRecord where optional fields are set to sensible defaults (null, 0, or normalized enums), `titleSource` is restricted to `'generated' | 'manual' | 'initial'`, durations are finite numbers, `kind` is normalized to `'main' | 'subagent' | 'deep_work'`, and `pendingUserMessages` is validated and normalized.
+ */
 export function normalizeThreadRecord(
     record: Partial<ThreadRecord> & {
         key: string
@@ -135,6 +141,12 @@ export function deepWorkAgentId(record: ThreadRecord): string {
     return record.deepWorkRunId ? `deep_work:${record.deepWorkRunId}` : `deep_work:${record.key}`
 }
 
+/**
+ * Selects the agent identifier corresponding to a thread's role.
+ *
+ * @param record - The thread record whose `kind` and identifiers determine the agent id
+ * @returns The agent identifier: `main` for main threads, `subagent:{id}` for subagent threads, or `deep_work:{id}` for deep work threads
+ */
 export function threadAgentId(record: ThreadRecord): string {
     if (record.kind === 'subagent') {
         return subagentAgentId(record)
@@ -145,6 +157,12 @@ export function threadAgentId(record: ThreadRecord): string {
     return 'main'
 }
 
+/**
+ * Validate and normalize an unknown input into a list of pending user message records.
+ *
+ * @param value - The input to validate, expected to be an array of objects representing pending user messages.
+ * @returns An array of `PendingUserMessageRecord` entries constructed from valid items in `value`; invalid or malformed items are omitted. The `runKind` field is normalized to one of `scheduled`, `subagent`, `deep_work`, or `maintenance`, defaulting to `manual` when missing or unrecognized.
+ */
 function normalizePendingUserMessages(value: unknown): PendingUserMessageRecord[] {
     if (!Array.isArray(value)) return []
     return value.flatMap((item): PendingUserMessageRecord[] => {

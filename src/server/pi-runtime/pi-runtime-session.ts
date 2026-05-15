@@ -129,6 +129,17 @@ export function createPiRuntimeCustomTools(input: PiRuntimeSessionInput): ToolDe
     ]
 }
 
+/**
+ * Create and configure an AgentSession for the provided PI runtime thread record.
+ *
+ * Initializes auth and model registries, opens or creates the session manager, applies persisted
+ * model/state decisions, registers a payload rewrite handler for native PDF attachments, and
+ * configures session runtime toggles (auto-compaction and auto-retry).
+ *
+ * @param input - Runtime inputs and helpers required to build the session (configuration, thread record, prompt/tools, observability, and thread/tooling operations)
+ * @returns The configured AgentSession ready for use
+ * @throws Error if the configured PI model (provider/model) is not available in the model registry
+ */
 export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Promise<AgentSession> {
     const { config, record } = input
     const authStorage = AuthStorage.create(config.paths.authPath)

@@ -54,6 +54,17 @@ function toolCallNamesFromEntry(entry: SessionEntry): string[] {
     })
 }
 
+/**
+ * Summarizes tool-call activity across session entries into categorized counters.
+ *
+ * Produces a RunToolActivityCounts object that aggregates:
+ * - total tool calls, separate counts for memory reads and writes,
+ * - a non-memory tool call total, and
+ * - per-category counters (research, workspace read/write, command, artifact, document (PDF), image, orchestration, MCP, and other).
+ *
+ * @param entries - The session entries to inspect for tool-call blocks
+ * @returns A RunToolActivityCounts object with aggregated counters for the observed tool activity
+ */
 export function summarizeRunToolActivity(entries: readonly SessionEntry[]): RunToolActivityCounts {
     const counts = emptyToolActivityCounts()
     for (const entry of entries) {

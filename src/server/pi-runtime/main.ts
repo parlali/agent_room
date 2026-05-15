@@ -408,6 +408,14 @@ function logSessionEventError(error: unknown, event: AgentSessionEvent): void {
     console.error(`Session event handler failed for ${event.type}`, error)
 }
 
+/**
+ * Handle a session-level event for a thread: update thread metadata, persist changes, and emit runtime events.
+ *
+ * Updates the thread record (status, lastError, activeRunId, updated timestamp via updateThreadFromMessages), touches the active thread heartbeat, removes any delivered pending user message, persists the thread index, appends the received event to the runtime event log, and broadcasts the event to listeners. If a pending user message was removed, additionally emits and broadcasts a `thread.pending_messages_changed` event with the updated pending count.
+ *
+ * @param record - The thread record to update
+ * @param event - The session event received from the AgentSession
+ */
 async function handleSessionEvent(record: ThreadRecord, event: AgentSessionEvent): Promise<void> {
     const active = activeThreads.get(record.key)
     await active?.touchRunHeartbeat?.(event.type)
@@ -454,6 +462,18 @@ async function handleSessionEvent(record: ThreadRecord, event: AgentSessionEvent
     }
 }
 
+/**
+ * Remove a delivered pending user message from a thread record when the session reports a user message end.
+ *
+ * If `event` is a `'message_end'` for a user message, attempts to match the message text exactly against
+ * `record.pendingUserMessages`. If a match is found that entry is removed; if no match is found but there
+ * are pending messages, the first pending message is assumed delivered and removed. Updates `record.pendingUserMessages`
+ * and sets `record.updatedAt` to the current timestamp when a removal occurs.
+ *
+ * @param record - The thread record containing `pendingUserMessages` to update
+ * @param event - The session event to inspect for a delivered user message
+ * @returns `true` if a pending user message was removed, `false` otherwise.
+ */
 function removeDeliveredPendingUserMessage(
     record: ThreadRecord,
     event: AgentSessionEvent,
@@ -470,6 +490,17 @@ function removeDeliveredPendingUserMessage(
     return true
 }
 
+/**
+ * Extracts plain text from an agent message content payload.
+ *
+ * When `content` is a string, it is returned unchanged. When `content` is an array,
+ * each element is expected to be an object that may contain a `text` field; the
+ * function concatenates all string `text` values with `\n`. For any other shape,
+ * returns an empty string.
+ *
+ * @param content - Message content (string or array of parts with optional `text` fields)
+ * @returns The extracted and concatenated text, or an empty string if none
+ */
 function agentMessageText(content: unknown): string {
     if (typeof content === 'string') return content
     if (!Array.isArray(content)) return ''
@@ -483,6 +514,12 @@ function agentMessageText(content: unknown): string {
         .join('\n')
 }
 
+/**
+ * Look up a thread record by its unique key.
+ *
+ * @param key - The thread's unique key
+ * @returns The matching ThreadRecord, or `null` if no thread has the given key
+ */
 function findThread(key: string): ThreadRecord | null {
     return threadIndex.threads.find((thread) => thread.key === key) ?? null
 }

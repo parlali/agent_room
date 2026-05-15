@@ -81,6 +81,13 @@ function runtimeContextSection(config: PiRuntimeConfig, budget: ContextBudget, n
     ].join('\n')
 }
 
+/**
+ * Provides guidance for handling attachments (images, PDFs, Office files, and other file types) within the room runtime.
+ *
+ * The returned instructions specify: use direct visual input for images and avoid shell/OCR/conversion utilities; prefer native PDF input when supported otherwise use rendered page images for vision-capable models and fall back to `agent_room_read_pdf` for room-local PDF paths while reporting limitations; use the bundled `docx`, `xlsx`, and `pptx` skills via `agent_room_shell` for Office formats; treat other non-image/non-PDF files as room-local references and inspect them with the appropriate file/document/skill/shell tools only as needed; and stop and report clearly if an attachment cannot be accessed.
+ *
+ * @returns The composed instruction string for attachment handling
+ */
 function attachmentHandlingInstruction(): string {
     return [
         'Attached images are provided as direct visual input; use that input for image understanding.',
@@ -153,6 +160,11 @@ function modeInstructions(config: PiRuntimeConfig): string {
     ].join('\n')
 }
 
+/**
+ * Build the complete system prompt for an agent room by combining room identity, runtime context and budget, behavioral and policy instructions, mode-specific guidance, internal state/harness guidance, enabled capabilities/tools, MCP server summaries, and optional operator-provided instructions.
+ *
+ * @param config - Runtime configuration for the agent room used to determine provider budgets, enabled capabilities/tools, mode-specific instructions, internal state, MCP servers, and operator instructions.
+ * @returns The assembled system prompt text, truncated to the computed system prompt character budget.
 export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promise<string> {
     const budget = contextBudgetForProvider(config)
     const internalState = await buildInternalStateSummary(config)

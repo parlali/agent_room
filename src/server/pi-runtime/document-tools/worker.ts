@@ -8,6 +8,19 @@ import {
 } from '../shell-sandbox'
 import type { DocumentToolContext } from './types'
 
+/**
+ * Run a command inside a bounded sandboxed environment and capture its combined stdout/stderr.
+ *
+ * @param input.config - Runtime configuration used to build the bounded process environment (provides paths and identifiers).
+ * @param input.command - Executable to run.
+ * @param input.args - Arguments passed to the executable.
+ * @param input.cwd - Working directory for the spawned process.
+ * @param input.timeoutMs - Maximum time in milliseconds before the process is terminated.
+ * @param input.signal - Optional AbortSignal that aborts the run when triggered.
+ * @param input.outputLimitBytes - Optional maximum number of bytes to retain from the captured output (default: 12000).
+ * @param input.outputMode - If `'head'`, retain the leading `outputLimitBytes` bytes; if `'tail'`, retain the trailing `outputLimitBytes` bytes.
+ * @returns The combined stdout and stderr produced by the command, truncated according to `outputLimitBytes` and `outputMode`.
+ */
 export async function runDocumentWorker(input: {
     config: PiRuntimeConfig
     command: string
@@ -98,6 +111,11 @@ export async function runDocumentWorker(input: {
     })
 }
 
+/**
+ * Determine the sandbox identity used for worker shell processes.
+ *
+ * @returns The ShellSandboxIdentity containing the uid (if available), sandbox allowance flags, and environment context to apply when spawning worker processes.
+ */
 function currentWorkerSandboxIdentity(): ShellSandboxIdentity {
     return resolveShellSandboxIdentity({
         nodeEnv: process.env.NODE_ENV,
@@ -106,6 +124,14 @@ function currentWorkerSandboxIdentity(): ShellSandboxIdentity {
     })
 }
 
+/**
+ * Create a PNG preview of the first page of a PDF and ensure the output file is writable.
+ *
+ * @param ctx - Document tool context providing configuration and workspace paths.
+ * @param inputPath - Filesystem path to the source PDF.
+ * @param outputPath - Filesystem path for the resulting PNG (will be created or overwritten).
+ * @param signal - Optional AbortSignal to cancel the operation.
+ */
 export async function renderPdfPreview(
     ctx: DocumentToolContext,
     inputPath: string,

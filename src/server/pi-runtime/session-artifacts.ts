@@ -44,6 +44,13 @@ const writeToolNames = new Set([
 
 const readToolNames = new Set(['agent_room_read', 'agent_room_pdf', 'agent_room_read_pdf'])
 
+/**
+ * Create a stable artifact identifier by combining the artifact surface and its relative path.
+ *
+ * @param surface - The artifact surface (e.g., `store` or `workspace`)
+ * @param relativePath - The normalized relative path of the artifact
+ * @returns The artifact identifier in the form `surface:relativePath`
+ */
 function artifactId(surface: ArtifactSurface, relativePath: string): string {
     return `${surface}:${relativePath}`
 }

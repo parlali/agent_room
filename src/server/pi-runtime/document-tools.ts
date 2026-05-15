@@ -26,6 +26,13 @@ function relativeToRoot(ctx: DocumentToolContext, root: ToolRoot, path: string):
     return relative(rootPath(ctx.config, root), path)
 }
 
+/**
+ * Enforces that a PDF write operation targets the workspace root.
+ *
+ * @param root - The resolved tool root (expected 'workspace' for writable operations)
+ * @param operation - The write operation being attempted (e.g., 'create', 'edit')
+ * @throws Error if `root` is not 'workspace'; the error message instructs copying the file into the workspace before editing
+ */
 function assertWorkspaceMutation(root: ToolRoot, operation: string): void {
     if (root === 'workspace') return
     throw new Error(
@@ -33,6 +40,13 @@ function assertWorkspaceMutation(root: ToolRoot, operation: string): void {
     )
 }
 
+/**
+ * Produce a tool definition that provides PDF workspace operations: create durable PDFs, inspect PDF metadata, apply edits, and render room-local previews.
+ *
+ * The returned tool operates within the configured workspace/store roots and enforces workspace-only mutations for write operations.
+ *
+ * @returns A ToolDefinition implementing `create | inspect | edit | preview` operations for PDF files, wired to the environment's path resolution, preview rendering, and PDF processing utilities.
+ */
 function createPdfTool(ctx: DocumentToolContext): ToolDefinition {
     return defineTool({
         name: 'agent_room_pdf',
@@ -126,6 +140,17 @@ function createPdfTool(ctx: DocumentToolContext): ToolDefinition {
     })
 }
 
+/**
+ * Creates a tool definition that reads a room-local PDF using the configured highest-fidelity provider path.
+ *
+ * The tool accepts `path`, optional `root`, and optional `pages` parameters and returns content where the first text block
+ * summarizes how the PDF was materialized (native document input, rendered images, or unsupported mode) followed by the
+ * materialized PDF content blocks. The tool also produces a `details` object containing the source path, root, format,
+ * operation, ingestion mode, backend, page counts/selection, input block count, and any degradation status and reason.
+ *
+ * @param ctx - Tool construction context containing configuration and audit facilities
+ * @returns A ToolDefinition for the "Read PDF" room-local PDF reader
+ */
 function createReadPdfTool(ctx: DocumentToolContext): ToolDefinition {
     return defineTool({
         name: 'agent_room_read_pdf',
@@ -188,6 +213,12 @@ function createReadPdfTool(ctx: DocumentToolContext): ToolDefinition {
     })
 }
 
+/**
+ * Create the set of document tool definitions enabled by the runtime configuration.
+ *
+ * @param ctx - The document tool execution context containing configuration and helpers
+ * @returns An array of ToolDefinition objects for the available document tools; returns an empty array when PDF capability is disabled
+ */
 export function createDocumentTools(ctx: DocumentToolContext): ToolDefinition[] {
     const tools: ToolDefinition[] = []
     if (ctx.config.capabilities.pdf) {

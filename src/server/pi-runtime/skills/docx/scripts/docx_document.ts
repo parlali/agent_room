@@ -46,6 +46,18 @@ interface TableInspection {
 
 const documentNamespace = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 
+/**
+ * Coerce an arbitrary value into a normalized DocxContent structure.
+ *
+ * The input may be any value; when it is an object, this function extracts
+ * `title`, `paragraphs`, and `tables` and converts them to the expected types.
+ *
+ * @param value - The input to normalize; may be any value or an object containing `title`, `paragraphs`, and/or `tables`.
+ * @returns A `DocxContent` where:
+ *  - `title` is the trimmed string from `value.title` or `''` if missing or not a string;
+ *  - `paragraphs` is an array of strings (each item coerced via `String`) or an empty array;
+ *  - `tables` is an array of tables, where each table is an array of rows, each row is an array of cell strings; non-array rows become single-cell rows, non-array tables become empty tables, and all cell values are coerced to strings.
+ */
 function normalizeContent(value: unknown): DocxContent {
     const record = isRecord(value) ? value : {}
     const paragraphs = Array.isArray(record.paragraphs)
@@ -71,6 +83,12 @@ function normalizeContent(value: unknown): DocxContent {
     }
 }
 
+/**
+ * Escape XML special characters in a string.
+ *
+ * @param value - Input text to escape for inclusion in XML
+ * @returns The input string with XML-special characters replaced: `&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`, `"` → `&quot;`
+ */
 function escapeXml(value: string): string {
     return value
         .replaceAll('&', '&amp;')
@@ -79,11 +97,26 @@ function escapeXml(value: string): string {
         .replaceAll('"', '&quot;')
 }
 
+/**
+ * Create a WordprocessingML paragraph (`<w:p>`) containing the given text and optional paragraph style.
+ *
+ * The returned XML preserves whitespace in the text and escapes XML special characters.
+ *
+ * @param text - The paragraph text
+ * @param style - Optional paragraph style name to include as a `w:pStyle` value
+ * @returns An XML string representing a `<w:p>` element with the text (and `w:pStyle` when `style` is provided)
+ */
 function paragraphXml(text: string, style?: string): string {
     const styleXml = style ? `<w:pPr><w:pStyle w:val="${escapeXml(style)}"/></w:pPr>` : ''
     return `<w:p>${styleXml}<w:r><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`
 }
 
+/**
+ * Builds a WordprocessingML table XML fragment from rows of cell text.
+ *
+ * @param rows - Array of table rows; each row is an array of cell text values
+ * @returns A string containing the `<w:tbl>` XML for the provided rows and cells
+ */
 function tableXml(rows: string[][]): string {
     const rowXml = rows
         .map((row) => {
@@ -101,6 +134,12 @@ function tableXml(rows: string[][]): string {
     return `<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/></w:tblPr>${rowXml}</w:tbl>`
 }
 
+/**
+ * Build the XML for the Word document body (word/document.xml) from structured content.
+ *
+ * @param content - The document content: `title`, `paragraphs`, and `tables`
+ * @returns A complete `word/document.xml` XML string containing the document body and section properties
+ */
 function createDocumentXml(content: DocxContent): string {
     const body: string[] = []
     if (content.title) {
@@ -120,6 +159,11 @@ function createDocumentXml(content: DocxContent): string {
     ].join('')
 }
 
+/**
+ * Produce the minimal WordprocessingML styles XML used in generated DOCX files.
+ *
+ * @returns A string containing the contents of word/styles.xml that defines the `Normal` and `Title` paragraph styles in the WordprocessingML namespace.
+ */
 function createStylesXml(): string {
     return [
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
@@ -130,6 +174,15 @@ function createStylesXml(): string {
     ].join('')
 }
 
+/**
+ * Create a minimal DOCX file at the given filesystem path from structured `DocxContent`.
+ *
+ * Writes the required OpenXML package parts (document, styles, relationships and basic metadata)
+ * into a ZIP archive and saves it to `path`.
+ *
+ * @param path - Filesystem path where the resulting .docx archive will be written
+ * @param content - Document content (title, paragraphs, tables) used to generate `word/document.xml`
+ */
 async function createDocx(path: string, content: DocxContent): Promise<void> {
     const zip = new JSZip()
     writeZipText(
@@ -182,12 +235,28 @@ async function createDocx(path: string, content: DocxContent): Promise<void> {
     await saveZip(zip, path)
 }
 
+/**
+ * Identify WordprocessingML "story" part file names inside a DOCX ZIP.
+ *
+ * @param zip - The JSZip archive representing the DOCX package
+ * @returns The matching part paths (e.g. `word/document.xml`, `word/header1.xml`)
+ */
 function docxStoryPartNames(zip: JSZip): string[] {
     return zipFileNames(zip).filter((name) =>
         /^word\/(document|header\d+|footer\d+|footnotes|endnotes|comments.*)\.xml$/.test(name),
     )
 }
 
+/**
+ * Extracts text content, paragraph metadata, and table cell data from a DOCX file.
+ *
+ * @param path - Filesystem path to the DOCX file to inspect
+ * @returns An object containing:
+ *  - `text`: all extracted paragraph lines joined with `\n` (each line formatted as `"{part}#p{index}{ optional style }: {text}"`)
+ *  - `paragraphs`: an array of `ParagraphInspection` entries with `part`, 1-based `index`, `style` (or `null`), and `text`
+ *  - `tables`: an array of `TableInspection` entries with `part`, 1-based `index`, and `rows` (2D array of cell text)
+ *  - `partsScanned`: the list of DOCX story part names that were scanned (e.g., `word/document.xml`, headers/footers, footnotes)
+ */
 async function inspectDocx(path: string): Promise<Record<string, unknown>> {
     const zip = await loadZip(path)
     const paragraphs: ParagraphInspection[] = []
@@ -235,6 +304,14 @@ async function inspectDocx(path: string): Promise<Record<string, unknown>> {
     }
 }
 
+/**
+ * Apply a set of text replacements to all Word "story" parts inside a DOCX file and save the updated archive.
+ *
+ * @param path - Filesystem path to the DOCX file to edit
+ * @param replacementsJson - JSON string describing replacements (normalized by `normalizeReplacements`)
+ * @returns The total number of individual replacements performed
+ * @throws If no replacement text is found and applied
+ */
 async function editDocx(path: string, replacementsJson: string | undefined): Promise<number> {
     const replacements = normalizeReplacements(replacementsJson)
     const zip = await loadZip(path)
@@ -261,6 +338,13 @@ async function editDocx(path: string, replacementsJson: string | undefined): Pro
     return replacementCount
 }
 
+/**
+ * Parse CLI arguments and execute the requested DOCX operation (`create`, `inspect`, or `edit`), emitting a JSON result.
+ *
+ * Performs workspace and path resolution as required, creates or updates DOCX files for `create`/`edit`, or inspects existing DOCX for `inspect`, and prints a JSON summary to stdout.
+ *
+ * @throws If the operation is not `create`, `inspect`, or `edit`. 
+ */
 async function main(): Promise<void> {
     const command = parseCommand(process.argv.slice(2))
     const root = optionalOption(command.options, 'root', 'workspace')

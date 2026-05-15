@@ -77,6 +77,15 @@ const artifactsAutoOpenDelayMs = 1300
 const artifactPanelStateCache = new Map<string, SessionArtifactPanelState>()
 const streamTurnStateCache = new Map<string, StreamTurnState>()
 
+/**
+ * Render the chat pane for a specific room session, including header, message timeline, artifacts panel, and composer.
+ *
+ * Renders session state from server queries, manages local UI state (draft, attachments, editing, artifact panel, stream turn), subscribes to realtime events, and wires mutations for sending, editing, attaching files, aborting runs, and renaming the session.
+ *
+ * @param roomId - Identifier of the room containing the session
+ * @param sessionKey - Key identifying the session (thread) within the room
+ * @returns The composed chat pane UI for the specified room session
+ */
 export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessionKey: string }) {
     const navigate = useNavigate()
     const queryClient = useQueryClient()
@@ -768,14 +777,33 @@ function defaultArtifactPanelState(): SessionArtifactPanelState {
     }
 }
 
+/**
+ * Create a stable key for storing artifact panel state for a session.
+ *
+ * @returns A string key in the format `roomId:sessionKey` suitable for session-level artifact state caching
+ */
 function sessionArtifactStateKey(roomId: string, sessionKey: string): string {
     return `${roomId}:${sessionKey}`
 }
 
+/**
+ * Retrieve the cached stream turn state for a given cache key.
+ *
+ * @param key - The cache key identifying a session's stream turn (typically `${roomId}:${sessionKey}`)
+ * @returns The stored `StreamTurnState` for `key`, or `emptyStreamTurnState` if none is cached
+ */
 function readCachedStreamTurn(key: string): StreamTurnState {
     return streamTurnStateCache.get(key) ?? emptyStreamTurnState
 }
 
+/**
+ * Persist or remove a session's stream-turn state in the module-level cache.
+ *
+ * Stores `state` under `key` when the state is non-empty or active (has a `runId`, has rows, or its `status` is not `"idle"`); otherwise removes any cached entry for `key`.
+ *
+ * @param key - Identifier for the session's stream-turn cache entry (typically derived from room and session keys)
+ * @param state - The StreamTurnState to persist or evaluate for removal
+ */
 function cacheStreamTurn(key: string, state: StreamTurnState): void {
     if (state.runId || state.rows.length > 0 || state.status !== 'idle') {
         streamTurnStateCache.set(key, state)
@@ -784,6 +812,17 @@ function cacheStreamTurn(key: string, state: StreamTurnState): void {
     streamTurnStateCache.delete(key)
 }
 
+/**
+ * Renders the session artifacts side panel for desktop and mobile, including lazy loading, mount/open performance recording, and a desktop resize handle.
+ *
+ * @param roomId - The room identifier used for performance recording and panel context
+ * @param sessionKey - The session identifier used for performance recording and panel context
+ * @param artifacts - Artifact entries for the session to show in the panel
+ * @param state - Current artifact panel state (open/loaded/selected width)
+ * @param open - Whether the panel is currently open
+ * @param onChangeState - Callback to apply partial updates to the panel state
+ * @returns The artifacts panel React element (desktop and mobile variants)
+ */
 function SessionArtifactsShell({
     roomId,
     sessionKey,

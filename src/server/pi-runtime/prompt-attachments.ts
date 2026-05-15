@@ -134,6 +134,19 @@ function looksLikeImageAttachment(attachment: RoomAttachment, mediaType: string)
     return /\.(png|jpe?g|gif|webp|bmp|tiff?|heic|heif|svg)(\s|$|[?#])/i.test(lower)
 }
 
+/**
+ * Resolve a room attachment to a safe filesystem path, read and fingerprint its bytes, infer its media type, and produce a materialized attachment including model-ready content or PDF ingestion metadata.
+ *
+ * @param model - Optional model to consider when materializing PDF content (may affect ingestion mode and rendering).
+ * @param renderImages - PDF render callback used when producing page-image content for PDFs.
+ * @returns A MaterializedAttachment containing:
+ *  - `attachment`: canonicalized RoomAttachment (ensures `name` and `byteLength`),
+ *  - `path`: absolute filesystem path,
+ *  - `byteLength`, `mediaType`, and `sha256`,
+ *  - `content`: an array of image inputs when applicable (empty for unsupported non-PDF files),
+ *  - `ingestion`: when the file is a PDF, a PdfIngestionRecord describing ingestionMode, page counts/selection, inputBlocks, and any degradation details.
+ * @throws If the resolved path does not point to a regular file.
+ */
 async function materializeAttachment(
     config: PiRuntimeConfig,
     attachment: RoomAttachment,
@@ -202,6 +215,12 @@ async function materializeAttachment(
     }
 }
 
+/**
+ * Validate that all attachments that appear to be images include materialized image content.
+ *
+ * @param attachments - The list of materialized attachments to check
+ * @throws Error if any attachment appears to be an image but has no materialized `content`
+ */
 function assertSupportedImageAttachments(attachments: MaterializedAttachment[]): void {
     const unsupportedImage = attachments.find(
         (attachment) =>
@@ -214,6 +233,14 @@ function assertSupportedImageAttachments(attachments: MaterializedAttachment[]):
     )
 }
 
+/**
+ * Validates that a selected model can accept the given image inputs.
+ *
+ * @param model - The selected model to validate against, or `undefined` if none is selected.
+ * @param images - Array of image inputs intended for the model; validation runs only when this array is non-empty.
+ * @throws If `images` is non-empty and `model` is `undefined`.
+ * @throws If `images` is non-empty and `model` does not accept image inputs (error message includes the model provider/id and its accepted input list).
+ */
 function assertModelAcceptsImages(model: Model<Api> | undefined, images: ImageContent[]): void {
     if (images.length === 0) return
     if (!model) {
@@ -226,6 +253,12 @@ function assertModelAcceptsImages(model: Model<Api> | undefined, images: ImageCo
     }
 }
 
+/**
+ * Builds a shell-style reference describing where the attachment is stored in the room environment.
+ *
+ * @param attachment - A materialized attachment whose `attachment.surface` and `attachment.relativePath` are used to construct the reference
+ * @returns A single-line string in the form `root=<surface> path="<relativePath>" shellPath="<envVar>/<relativePath>"` where `<envVar>` is `$AGENT_ROOM_STORE_DIR` for `store` surfaces and `$AGENT_ROOM_WORKSPACE_DIR` for others
+ */
 function diskReference(attachment: MaterializedAttachment): string {
     const rootVariable =
         attachment.attachment.surface === 'store'
@@ -238,6 +271,13 @@ function diskReference(attachment: MaterializedAttachment): string {
     ].join(' ')
 }
 
+/**
+ * Build a single-line, human-readable summary describing a materialized room attachment.
+ *
+ * @param attachment - The resolved attachment with computed metadata (`mediaType`, `byteLength`, `sha256`, optional `content` and optional PDF `ingestion`)
+ * @param index - Zero-based index of the attachment used for a 1-based label in the summary
+ * @returns A textual summary that includes the attachment kind (PDF/Image/File), name, media type, formatted size, sha256, and either PDF ingestion details (mode, pages, degraded reason when present) or whether the file was provided as direct image input or is available as a room-local file
+ */
 function attachmentSummaryLine(attachment: MaterializedAttachment, index: number): string {
     const kind = attachment.ingestion ? 'PDF' : attachment.content.length > 0 ? 'Image' : 'File'
     const base = [
@@ -292,6 +332,18 @@ function promptTextForAttachments(text: string, attachments: MaterializedAttachm
     return `${body}\n\nAttached files:\n${summary}`
 }
 
+/**
+ * Prepare a prompt by resolving and serializing room attachments, producing text, model-ready images, and attachment metadata.
+ *
+ * @param input.config - Runtime configuration used to locate and read room-stored files.
+ * @param input.model - Optional model descriptor used to validate whether the model accepts image inputs and to guide PDF ingestion behavior.
+ * @param input.message - Original message text that may include room attachment references; used as the prompt base and to generate a human-readable attachment summary when attachments are present.
+ * @param input.renderPdfPageImages - Optional override function used to render PDF pages to images for ingestion.
+ * @returns A PreparedPrompt containing:
+ *  - `text`: the prompt text with an appended attachment summary when attachments exist,
+ *  - `images` (optional): flattened model-ready image inputs extracted from attachments,
+ *  - `metadata` (optional): original attachment text, the canonicalized room attachments, and any PDF ingestion records collected during materialization.
+ */
 export async function preparePromptWithAttachments(input: {
     config: PiRuntimeConfig
     model: Model<Api> | undefined
@@ -361,6 +413,12 @@ function roomAttachmentFromValue(value: unknown): RoomAttachment | null {
     }
 }
 
+/**
+ * Parses a raw value into PromptAttachmentMetadata when it represents valid prompt attachment metadata.
+ *
+ * @param value - A decoded/unknown value expected to be a record with optional `text` (string), `attachments` (array of room-attachment-like objects), and optional `ingestions` (array of PDF ingestion records).
+ * @returns A `PromptAttachmentMetadata` object when `value` contains at least one valid attachment; `null` otherwise.
+ */
 export function promptAttachmentMetadataFromValue(value: unknown): PromptAttachmentMetadata | null {
     if (!isRecord(value)) return null
     const text = typeof value.text === 'string' ? value.text : ''
@@ -382,6 +440,18 @@ export function promptAttachmentMetadataFromValue(value: unknown): PromptAttachm
     }
 }
 
+/**
+ * Parse and validate a PDF ingestion record from an arbitrary value.
+ *
+ * Accepts a generic input and, if it conforms to the expected shape, returns a
+ * normalized `PdfIngestionRecord` with defaults and strict type checks; otherwise returns `null`.
+ *
+ * @param value - The unknown value to parse (typically from deserialized session/custom data)
+ * @returns A `PdfIngestionRecord` when `value` is a valid record with an `ingestionMode` of
+ * `native_document`, `image_render`, or `unsupported`; `null` otherwise. Numeric fields are accepted
+ * only when finite (`pageCount`, `inputBlocks`); string fields are coerced to `''` or `null`
+ * according to presence; `degraded` is `true` only if the input value is strictly `true`.
+ */
 function pdfIngestionRecordFromValue(value: unknown): PdfIngestionRecord | null {
     if (!isRecord(value)) return null
     const ingestionMode = value.ingestionMode

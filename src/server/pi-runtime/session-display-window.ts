@@ -128,6 +128,17 @@ export function createSessionWindowStore(input: SessionWindowStoreInput) {
     }
 }
 
+/**
+ * Builds the complete display index for a session thread, producing ordered sanitized timeline rows and extracted artifacts.
+ *
+ * The result includes pending queued user messages (and their associated run transcript rows) appended to the timeline, with each row sanitized and assigned a stable sequence number.
+ *
+ * @param config - Runtime configuration used when extracting artifacts
+ * @param record - Thread record containing session metadata and any pending user messages
+ * @param thread - Execution thread context for the session
+ * @param entries - Raw session entries to be mapped into timeline messages
+ * @returns An object with `rows`: the ordered, sanitized display rows with assigned `seq` values, and `artifacts`: artifacts extracted from the provided entries
+ */
 function buildSessionDisplayIndex(input: {
     config: PiRuntimeConfig
     record: ThreadRecord
@@ -153,6 +164,15 @@ function buildSessionDisplayIndex(input: {
     }
 }
 
+/**
+ * Append any pending queued user messages (and their corresponding queued run transcript rows) to the given timeline.
+ *
+ * If `record.pendingUserMessages` is empty or missing, the original `rows` array is returned unchanged; otherwise a new array is returned with, for each pending message, a `user_message` row followed by a `run_transcript` row appended.
+ *
+ * @param rows - The existing chat timeline rows
+ * @param record - The thread record containing `pendingUserMessages`
+ * @returns A timeline rows array augmented with pending user message and run transcript rows, or the original `rows` if none are pending
+ */
 function appendPendingUserRows(rows: ChatTimelineRow[], record: ThreadRecord): ChatTimelineRow[] {
     const pendingMessages = record.pendingUserMessages ?? []
     if (pendingMessages.length === 0) return rows
@@ -182,6 +202,12 @@ function appendPendingUserRows(rows: ChatTimelineRow[], record: ThreadRecord): C
     return next
 }
 
+/**
+ * Creates a display-ready `RoomExecutionMessage` for a pending queued user message.
+ *
+ * @param pending - The pending user message record to convert
+ * @returns A `RoomExecutionMessage` with an `id` prefixed by `pending-user-`, `role` set to `user`, the original `text`, a single text `part` reflecting the pending text, and `timestamp` taken from `pending.queuedAt`
+ */
 function pendingUserMessage(pending: PendingUserMessageRecord): RoomExecutionMessage {
     return {
         id: `pending-user-${pending.id}`,
@@ -197,6 +223,15 @@ function pendingUserMessage(pending: PendingUserMessageRecord): RoomExecutionMes
     }
 }
 
+/**
+ * Normalizes a display row for public consumption and assigns its sequence number.
+ *
+ * If the row is a message row (`user_message`, `assistant_final`, or `system`), runtime fields inside its message parts are redacted; for other row types only the `seq` field is updated.
+ *
+ * @param row - The original display row
+ * @param seq - The sequence index to assign to the returned row
+ * @returns The input row with `seq` set to `seq` and, for message rows, a sanitized `message`
+ */
 function sanitizeDisplayRow(row: RoomSessionDisplayRow, seq: number): RoomSessionDisplayRow {
     if (row.type === 'user_message' || row.type === 'assistant_final' || row.type === 'system') {
         return {
@@ -264,6 +299,16 @@ function clampLimit(limitRows: number): number {
     return Math.max(1, Math.min(maxWindowRows, Math.floor(limitRows)))
 }
 
+/**
+ * Compute a cache invalidation key for a thread's display index.
+ *
+ * The returned key encodes the session file path, file cache metadata, record update time,
+ * status, active run identifier, active duration, and the list of pending user message
+ * id:queuedAt pairs so that changes to any of those invalidate cached indexes.
+ *
+ * @param record - ThreadRecord containing session and thread metadata used to build the key
+ * @returns A colon-separated string formed from session file, file cache key, updatedAt, status, activeRunId (or empty), activeDurationMs, and comma-separated `id:queuedAt` pairs for pending user messages
+ */
 function displayCacheKey(record: ThreadRecord): string {
     const fileKey = fileCacheKey(record.sessionFile)
     return [

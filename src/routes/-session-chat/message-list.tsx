@@ -18,6 +18,29 @@ import type { StreamTurnState } from './stream-state'
 import { streamTurnHasContent } from './stream-state'
 import { cn } from '#/lib/utils'
 
+/**
+ * Render a virtualized, scrollable chat timeline that supports streaming updates, loading older messages, transcript collapsing, and in-place message editing.
+ *
+ * @param sessionKey - Stable key for the current chat session; used to generate stable virtual row keys and client telemetry.
+ * @param room - Room metadata used for rendering and telemetry (e.g., displayName, roomId).
+ * @param rows - Persisted session rows to display (will be merged with `stream` rows).
+ * @param totalRows - Total number of rows in the session (used for performance telemetry).
+ * @param stream - Current streaming turn state; streaming rows are merged into the timeline when present.
+ * @param isWorking - Whether a live run is currently producing content; affects fallback row insertion.
+ * @param loadingInitialRows - When true, shows an initial loading state for the timeline.
+ * @param hasOlderRows - When true, indicates there are earlier rows to load and shows a top hint; triggers `onLoadOlderRows` when scrolled near the top.
+ * @param loadingOlderRows - When true, shows the "loading earlier messages" indicator while older rows are being fetched.
+ * @param onLoadOlderRows - Callback invoked to load older rows (pagination).
+ * @param canEditMessages - Enables per-row editing controls when true.
+ * @param editingMessage - Current editing draft, or `null` when no message is being edited.
+ * @param editPending - When true, indicates the edit submission is in progress.
+ * @param onEditMessage - Begin editing the provided draft.
+ * @param onChangeEditingMessageText - Update the text of the current editing draft.
+ * @param onSubmitEditingMessage - Submit the current editing draft.
+ * @param onCancelEditingMessage - Cancel the current editing session.
+ *
+ * @returns The React element tree for the virtualized message list.
+ */
 export function MessageList({
     sessionKey,
     room,
@@ -248,6 +271,15 @@ export function MessageList({
     )
 }
 
+/**
+ * Constructs the ordered list of timeline rows for rendering by merging persisted rows, live stream rows, and an optional fallback pending transcript, and assigns each row a sequential `seq` index.
+ *
+ * @param rows - Persisted display rows from the session's conversation history.
+ * @param stream - Current stream turn state (including `rows` and `startedAt`) used to place live stream rows within the timeline.
+ * @param isWorking - True when a run is currently in progress; may cause a synthetic pending `run_transcript` row to be appended when there are no live stream rows and no active transcript.
+ * @param sessionKey - Session-scoped key used to generate stable identifiers for any synthetic fallback rows.
+ * @returns The merged array of `ChatTimelineRow` ready for virtualization and rendering, with each row's `seq` set to its index in the returned array.
+ */
 export function buildTimelineRows(
     rows: RoomSessionDisplayRow[],
     stream: StreamTurnState,
@@ -285,6 +317,15 @@ export function buildTimelineRows(
     )
 }
 
+/**
+ * Split persisted display rows into `before` and `after` segments around the most recent user message relevant to a live stream.
+ *
+ * When no relevant user message is found, `before` contains persisted rows that are not part of an active run transcript or the current stream's finalized assistant output, and `after` is empty. When a relevant user message is found, `before` contains all rows up to and including that message, and `after` contains subsequent rows that are pending or queued.
+ *
+ * @param rows - Persisted display rows from the session timeline
+ * @param streamStartedAt - Timestamp when the live stream started, or `null` if there is no active stream
+ * @returns An object with `before` (rows to render before live/stream rows) and `after` (pending/queued rows to render after live/stream rows)
+ */
 function persistedRowsForLiveRun(
     rows: RoomSessionDisplayRow[],
     streamStartedAt: number | null,
@@ -306,6 +347,13 @@ function persistedRowsForLiveRun(
     }
 }
 
+/**
+ * Determines whether an `assistant_final` timeline row belongs to the current stream's finalized output.
+ *
+ * @param row - The timeline row to evaluate
+ * @param streamStartedAt - The stream start timestamp (milliseconds) or `null` if no stream is active
+ * @returns `true` if `streamStartedAt` is not `null`, `row.type` is `'assistant_final'`, `row.timestamp` is not `null`, and `row.timestamp` is greater than or equal to `streamStartedAt`; `false` otherwise.
+ */
 function isCurrentStreamFinalRow(
     row: RoomSessionDisplayRow,
     streamStartedAt: number | null,
@@ -333,14 +381,32 @@ function findLatestUserRowIndex(
     return -1
 }
 
+/**
+ * Determines whether a timeline row represents a run transcript that is currently active.
+ *
+ * @param row - The timeline row to evaluate
+ * @returns `true` if `row.type` is `"run_transcript"` and its `status` is one of `queued`, `thinking`, `working`, or `responding`; `false` otherwise.
+ */
 function hasActiveTranscript(row: ChatTimelineRow): boolean {
     return row.type === 'run_transcript' && isActiveRunStatus(row.status)
 }
 
+/**
+ * Determines whether a timeline row represents a locally pending queued user or run entry.
+ *
+ * @param row - The timeline row to inspect.
+ * @returns `true` if the row's id indicates a pending user or run item, `false` otherwise.
+ */
 function isPendingQueuedRow(row: RoomSessionDisplayRow): boolean {
     return row.id.startsWith('pending-user-') || row.id.startsWith('pending-run-')
 }
 
+/**
+ * Determines whether a run transcript status indicates an active run.
+ *
+ * @param status - The run transcript status to test
+ * @returns `true` if `status` is `'queued'`, `'thinking'`, `'working'`, or `'responding'`, `false` otherwise
+ */
 function isActiveRunStatus(status: RunTranscriptRow['status']): boolean {
     return (
         status === 'queued' ||
@@ -350,6 +416,14 @@ function isActiveRunStatus(status: RunTranscriptRow['status']): boolean {
     )
 }
 
+/**
+ * Produce a stable per-session key for a timeline row.
+ *
+ * @param sessionKey - Session identifier used as the key prefix
+ * @param row - The timeline row; if undefined or missing `id`, `index` is used instead
+ * @param index - Fallback index used when `row` is undefined or has no `id`
+ * @returns The string key in the form `"{sessionKey}:{row.id}"` or `"{sessionKey}:index-{index}"`
+ */
 export function timelineRowKey(
     sessionKey: string,
     row: ChatTimelineRow | undefined,
@@ -358,6 +432,15 @@ export function timelineRowKey(
     return `${sessionKey}:${row?.id ?? `index-${index}`}`
 }
 
+/**
+ * Estimate the vertical height (in pixels) that a timeline row will occupy for virtualization.
+ *
+ * @param row - The timeline row to estimate; pass `undefined` when estimating a default/placeholder row.
+ * @returns The estimated height in pixels:
+ * - For `run_transcript`: `44` if collapsed, otherwise `min(520, 56 + items.length * 36)`.
+ * - For `assistant_final` or `user_message`: `min(900, 64 + estimatedLines * 24)`, where `estimatedLines` is `max(1, ceil(text.length / 84))`.
+ * - For other row types: `48`.
+ */
 function estimateTimelineRowSize(row: ChatTimelineRow | undefined): number {
     if (!row) return 112
     if (row.type === 'run_transcript') {

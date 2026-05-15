@@ -15,6 +15,12 @@ export type AgentRoomToolCategory =
     | 'mcp'
     | 'other'
 
+/**
+ * Map an agent room tool name to its corresponding AgentRoomToolCategory.
+ *
+ * @param name - The tool name to categorize; may be `null`.
+ * @returns The matching `AgentRoomToolCategory`. Returns `'other'` if `name` is `null` or does not match a known tool.
+ */
 export function categorizeAgentRoomTool(name: string | null): AgentRoomToolCategory {
     if (!name) return 'other'
     if (name === 'agent_room_memory_read') return 'memory_read'

@@ -39,6 +39,12 @@ const drawingNamespace = 'http://schemas.openxmlformats.org/drawingml/2006/main'
 const relationshipsNamespace = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 const packageRelationshipsNamespace = 'http://schemas.openxmlformats.org/package/2006/relationships'
 
+/**
+ * Escape XML special characters in a string.
+ *
+ * @param value - Input text to escape for safe inclusion in XML content
+ * @returns The input string with `&`, `<`, `>`, and `"` replaced by `&amp;`, `&lt;`, `&gt;`, and `&quot;`
+ */
 function escapeXml(value: string): string {
     return value
         .replaceAll('&', '&amp;')
@@ -47,6 +53,12 @@ function escapeXml(value: string): string {
         .replaceAll('"', '&quot;')
 }
 
+/**
+ * Normalize arbitrary input into a consistent array of slide descriptors.
+ *
+ * @param value - Input that may be an object with a `slides` property or an array of slide-like records.
+ * @returns An array of `SlideInput` objects where each item has a string `title` (falls back to `Slide {n}`) and a `bullets` array of strings; if input is empty returns a single slide titled `Untitled` with no bullets.
+ */
 function normalizeSlides(value: unknown): SlideInput[] {
     const source = isRecord(value) ? value.slides : value
     const slides =
@@ -62,6 +74,12 @@ function normalizeSlides(value: unknown): SlideInput[] {
     })
 }
 
+/**
+ * Create a DrawingML `<p:txBody>` fragment representing the given paragraph lines.
+ *
+ * @param lines - Array of paragraph text lines to include in the text body
+ * @returns A string containing the `<p:txBody>` XML with each line wrapped in `<a:p><a:r><a:t>…</a:t></a:r></a:p>`, or an empty paragraph element when `lines` is empty
+ */
 function textBodyXml(lines: string[]): string {
     const paragraphs = lines
         .map((line) => `<a:p><a:r><a:t>${escapeXml(line)}</a:t></a:r></a:p>`)
@@ -75,6 +93,20 @@ function textBodyXml(lines: string[]): string {
     ].join('')
 }
 
+/**
+ * Builds a PPTX shape XML fragment representing a slide placeholder.
+ *
+ * @param input - Configuration for the shape
+ * @param input.id - Numeric shape id written to `p:cNvPr`
+ * @param input.name - Human-readable shape name (will be XML-escaped)
+ * @param input.placeholderType - Placeholder type attribute (e.g., "title", "body")
+ * @param input.x - Horizontal offset (EMU) for the shape's transform
+ * @param input.y - Vertical offset (EMU) for the shape's transform
+ * @param input.cx - Width (EMU) for the shape's transform
+ * @param input.cy - Height (EMU) for the shape's transform
+ * @param input.lines - Lines of text to include in the shape's text body
+ * @returns The XML string for a `<p:sp>` shape element including non-visual properties, transform, and text body
+ */
 function shapeXml(input: {
     id: number
     name: string
@@ -100,6 +132,13 @@ function shapeXml(input: {
     ].join('')
 }
 
+/**
+ * Build the XML for a single PPTX slide part.
+ *
+ * @param slide - Slide content with `title` and `bullets` to render into the slide
+ * @param index - Zero-based slide index used to derive stable element IDs within the slide
+ * @returns The complete XML string for the slide part (suitable for writing to ppt/slides/slideN.xml)
+ */
 function slideXml(slide: SlideInput, index: number): string {
     return [
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
@@ -133,6 +172,15 @@ function slideXml(slide: SlideInput, index: number): string {
     ].join('')
 }
 
+/**
+ * Create a minimal PPTX package from the given slides and write it to the specified filesystem path.
+ *
+ * Writes a ZIP-based PPTX containing the required package parts (content types, relationships, presentation,
+ * per-slide XML parts, and minimal document properties) and one slide part per entry in `slides`.
+ *
+ * @param path - Output file path where the generated .pptx will be saved
+ * @param slides - Array of slide inputs; each entry provides the slide title and bullet lines to include in that slide
+ */
 async function createPptx(path: string, slides: SlideInput[]): Promise<void> {
     const zip = new JSZip()
     const slideOverrides = slides
@@ -208,21 +256,47 @@ async function createPptx(path: string, slides: SlideInput[]): Promise<void> {
     await saveZip(zip, path)
 }
 
+/**
+ * List slide part entry names in a PPTX ZIP archive.
+ *
+ * @param zip - The JSZip archive representing the package
+ * @returns Array of ZIP entry names matching `ppt/slides/slide<N>.xml`
+ */
 function slidePartNames(zip: JSZip): string[] {
     return zipFileNames(zip).filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
 }
 
+/**
+ * List ZIP entry names corresponding to editable slide and notes parts in a PPTX package.
+ *
+ * @returns An array of ZIP entry paths for slide and notes XML parts (e.g. "ppt/slides/slide1.xml", "ppt/notesSlides/notesSlide1.xml").
+ */
 function editablePartNames(zip: JSZip): string[] {
     return zipFileNames(zip).filter((name) =>
         /^ppt\/(slides\/slide\d+|notesSlides\/notesSlide\d+)\.xml$/.test(name),
     )
 }
 
+/**
+ * Extracts the trailing numeric slide index from a PPTX part filename.
+ *
+ * @param part - ZIP entry path or filename (e.g., `ppt/slides/slide3.xml`)
+ * @returns The parsed numeric suffix from the filename (for example, `3` for `slide3.xml`), or `0` if no trailing number is found
+ */
 function slideNumber(part: string): number {
     const match = /(\d+)\.xml$/.exec(part)
     return match ? Number(match[1]) : 0
 }
 
+/**
+ * Extracts text from slide parts and summarizes available PPTX parts.
+ *
+ * @param path - Filesystem path to the .pptx file to inspect
+ * @returns An object containing:
+ *  - `text`: a newline-joined string of per-slide paragraph lines and summary counts,
+ *  - `slides`: an array of SlideInspection objects `{ part, slide, paragraphs }`,
+ *  - `notes`, `charts`, `media`, `layouts`, `masters`: arrays of matching ZIP entry names for each part category
+ */
 async function inspectPptx(path: string): Promise<Record<string, unknown>> {
     const zip = await loadZip(path)
     const slides: SlideInspection[] = []
@@ -274,6 +348,14 @@ async function inspectPptx(path: string): Promise<Record<string, unknown>> {
     }
 }
 
+/**
+ * Apply text replacements across editable PPTX parts and write the updated file.
+ *
+ * @param path - Filesystem path to the .pptx file to modify
+ * @param replacementsJson - JSON string describing replacement rules (see normalizeReplacements)
+ * @returns The total number of text replacements performed across all edited parts
+ * @throws Error if no replacement text was found and nothing was changed
+ */
 async function editPptx(path: string, replacementsJson: string | undefined): Promise<number> {
     const replacements = normalizeReplacements(replacementsJson)
     const zip = await loadZip(path)
@@ -300,6 +382,16 @@ async function editPptx(path: string, replacementsJson: string | undefined): Pro
     return replacementCount
 }
 
+/**
+ * Parse CLI arguments and execute a PPTX operation (`create`, `inspect`, or `edit`).
+ *
+ * Depending on the chosen operation:
+ * - For `create`: ensure the workspace, resolve the target path, create a PPTX from provided slide data, ensure parent directories, and print a JSON summary.
+ * - For `inspect`: resolve the input path, extract inspection details from the PPTX, and print a JSON report including extracted text and part counts.
+ * - For `edit`: ensure the workspace, resolve the target path, apply text replacements to editable PPTX parts, and print a JSON summary including the total replacement count.
+ *
+ * If the operation is not one of `create`, `inspect`, or `edit`, the command fails with an error.
+ */
 async function main(): Promise<void> {
     const command = parseCommand(process.argv.slice(2))
     const root = optionalOption(command.options, 'root', 'workspace')

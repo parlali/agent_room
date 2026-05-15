@@ -48,6 +48,12 @@ function payloadRecord(payload: unknown): Record<string, unknown> {
         : {}
 }
 
+/**
+ * Map a runtime event name to the corresponding usage event kind for tool events.
+ *
+ * @param event - The runtime event name (for example, `"tool.image_generate"` or `"tool.pdf"`).
+ * @returns `'image'` for `"tool.image_generate"`, `'document_worker'` for `"tool.pdf"`, `'tool'` for other events that start with `"tool."`, or `null` if the event is not a tool event.
+ */
 function usageKindForRuntimeEvent(event: string): UsageEventKind | null {
     if (!event.startsWith('tool.')) {
         return null

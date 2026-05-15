@@ -77,6 +77,18 @@ export function streamTurnHasContent(state: StreamTurnState): boolean {
     })
 }
 
+/**
+ * Update a streamed-turn state in response to a room realtime event.
+ *
+ * Processes the incoming `realtime` event and returns an updated `StreamTurnState`
+ * reflecting changes such as run acceptance (initializes a transcript), run completion
+ * or error (finalizes the turn), assistant message updates/ends, tool execution activity,
+ * agent/turn start, and turn end. Events not recognized by the reducer return the input state unchanged.
+ *
+ * @param state - Current stream turn state to reduce
+ * @param realtime - Room realtime event driving the state transition
+ * @returns The new `StreamTurnState` after applying the realtime event (may be the same object if no change)
+ */
 export function reduceRoomStreamEvent(
     state: StreamTurnState,
     realtime: RoomRealtimeEvent,
@@ -177,6 +189,12 @@ export function reduceRoomStreamEvent(
     return state
 }
 
+/**
+ * Determines whether a realtime room event should trigger a full refetch of room data.
+ *
+ * @param realtime - The realtime event to evaluate
+ * @returns `true` if the event requires refetching room data, `false` otherwise
+ */
 export function shouldRefetchForRoomEvent(realtime: RoomRealtimeEvent): boolean {
     if (
         realtime.event === 'run.finished' ||
@@ -197,6 +215,15 @@ export function shouldRefetchForRoomEvent(realtime: RoomRealtimeEvent): boolean 
     return false
 }
 
+/**
+ * Finalizes an ongoing streamed assistant turn by marking it stopped.
+ *
+ * If the turn is already finished the state is returned unchanged. If there are no transcript rows the empty stream turn state is returned. Otherwise the turn is finalized with status `'stopped'` and its runtime is recorded using `stoppedAt`.
+ *
+ * @param state - Current stream turn state
+ * @param stoppedAt - Timestamp (ms since epoch) when the turn was stopped
+ * @returns The updated stream turn state with the turn finalized or an unchanged/empty state as described
+ */
 export function stopStreamTurn(state: StreamTurnState, stoppedAt: number): StreamTurnState {
     if (state.finished) return state
     if (state.rows.length === 0) return emptyStreamTurnState
@@ -204,6 +231,15 @@ export function stopStreamTurn(state: StreamTurnState, stoppedAt: number): Strea
     return finishStreamTurn(state, 'stopped', runtimeMs, stoppedAt)
 }
 
+/**
+ * Incorporates a run-level error event into the stream turn state and finalizes the turn.
+ *
+ * Ensures a transcript exists (creating one if needed), writes a run error message into the transcript when possible, computes runtime duration, and returns the updated StreamTurnState with status set to `'error'` and the turn finished.
+ *
+ * @param state - Current stream turn state to update
+ * @param realtime - Realtime event payload describing the run error and metadata (e.g., timestamps, runId, durationMs)
+ * @returns The new StreamTurnState reflecting the recorded run error and finalized turn status
+ */
 function reduceRunError(state: StreamTurnState, realtime: RoomRealtimeEvent): StreamTurnState {
     const payload = isRecord(realtime.payload) ? realtime.payload : {}
     const runId =
@@ -256,6 +292,18 @@ function reduceRunError(state: StreamTurnState, realtime: RoomRealtimeEvent): St
     return finishStreamTurn(withError, 'error', runtimeMs, realtime.receivedAt)
 }
 
+/**
+ * Process an assistant message update and apply its changes to the current stream turn state.
+ *
+ * Handles thinking, tool call, and text assistant events by delegating to the appropriate helpers,
+ * updating transcript rows, tool activity, and overall turn status as needed. Unrecognized or
+ * malformed assistant events are ignored and the state is returned unchanged.
+ *
+ * @param state - The current streamed turn state to update
+ * @param event - The runtime event object containing `assistantMessageEvent`
+ * @param updatedAt - Timestamp (ms) used to mark produced/updated transcript rows
+ * @returns The new StreamTurnState reflecting any modifications produced by the assistant event
+ */
 function reduceMessageUpdate(
     state: StreamTurnState,
     event: Record<string, unknown>,
@@ -1013,12 +1061,29 @@ function liveTextItemId(
         : `model-text-${turnIndex}-${source}-${contentIndex}`
 }
 
+/**
+ * Create a stable `assistant_final` row id for a streamed turn.
+ *
+ * @param turnIndex - The turn's index within the stream (0-based).
+ * @param contentIndex - The content block index within the turn, or `null` when unknown.
+ * @returns The row id string in the form `stream-final-<turnIndex>-<contentIndex>`; when `contentIndex` is `null` the suffix `unknown` is used instead.
+ */
 function liveFinalRowId(turnIndex: number, contentIndex: number | null): string {
     return contentIndex === null
         ? `stream-final-${turnIndex}-unknown`
         : `stream-final-${turnIndex}-${contentIndex}`
 }
 
+/**
+ * Derives a start timestamp from a runtime payload or falls back to a provided timestamp.
+ *
+ * Checks `payload.startedAtMs` (number), then `payload.startedAt` (number), then parses
+ * `payload.startedAt` if it's a string. If none yield a finite numeric timestamp, returns `fallback`.
+ *
+ * @param payload - Runtime payload that may contain `startedAtMs` or `startedAt` fields
+ * @param fallback - Timestamp in milliseconds to return when the payload contains no valid start time
+ * @returns The start time in milliseconds extracted from the payload, or `fallback` if extraction fails
+ */
 function runStartedAtFromPayload(payload: Record<string, unknown>, fallback: number): number {
     if (typeof payload.startedAtMs === 'number' && Number.isFinite(payload.startedAtMs)) {
         return payload.startedAtMs
@@ -1033,6 +1098,12 @@ function runStartedAtFromPayload(payload: Record<string, unknown>, fallback: num
     return fallback
 }
 
+/**
+ * Builds a user-facing error message describing a failed run from a realtime payload.
+ *
+ * @param payload - Realtime payload that may contain `message` or `error` string fields
+ * @returns The formatted error message: `Run failed: <detail>` when a non-empty `message` or `error` is present, otherwise `Run failed before the model returned a response.`
+ */
 function runErrorMessageFromPayload(payload: Record<string, unknown>): string {
     const detail =
         typeof payload.message === 'string' && payload.message.trim()
@@ -1043,6 +1114,11 @@ function runErrorMessageFromPayload(payload: Record<string, unknown>): string {
     return detail ? `Run failed: ${detail}` : 'Run failed before the model returned a response.'
 }
 
+/**
+ * Check whether a value is a non-null, non-array object.
+ *
+ * @returns `true` if `value` is a non-null object and not an array, `false` otherwise.
+ */
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

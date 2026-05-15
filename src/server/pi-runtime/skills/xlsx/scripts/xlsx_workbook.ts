@@ -65,6 +65,12 @@ const spreadsheetNamespace = 'http://schemas.openxmlformats.org/spreadsheetml/20
 const relationshipsNamespace = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 const packageRelationshipsNamespace = 'http://schemas.openxmlformats.org/package/2006/relationships'
 
+/**
+ * Escape XML special characters in a string.
+ *
+ * @param value - The input text to escape
+ * @returns The input with `&`, `<`, `>`, and `"` replaced by `&amp;`, `&lt;`, `&gt;`, and `&quot;` respectively
+ */
 function escapeXml(value: string): string {
     return value
         .replaceAll('&', '&amp;')
@@ -73,6 +79,14 @@ function escapeXml(value: string): string {
         .replaceAll('"', '&quot;')
 }
 
+/**
+ * Normalize various input shapes into a consistent array of sheet descriptors for workbook creation.
+ *
+ * Accepts either an object with a `sheets` property or a direct array of sheet-like entries. Each sheet entry may be a record with `name` and either `rows` or `data`; rows may be arrays or scalar values. When the source is missing or an empty array, produces a single sheet named "Sheet 1" containing one empty cell.
+ *
+ * @param value - Input describing sheets: an object with a `sheets` array, or an array of sheet-like records/values.
+ * @returns An array of `SheetInput` where each item has a `name` (trimmed to at most 31 characters) and `rows` (an array of rows, each row normalized to an array of cell values).
+ */
 function normalizeSheets(value: unknown): SheetInput[] {
     const source = isRecord(value) ? value.sheets : value
     const sheets =
@@ -91,6 +105,12 @@ function normalizeSheets(value: unknown): SheetInput[] {
     })
 }
 
+/**
+ * Convert a zero-based column index to Excel-style column letters.
+ *
+ * @param index - Zero-based column index (0 => "A")
+ * @returns The corresponding column name (e.g., 0 -> "A", 25 -> "Z", 26 -> "AA")
+ */
 function columnName(index: number): string {
     let value = ''
     let current = index + 1
@@ -102,6 +122,12 @@ function columnName(index: number): string {
     return value
 }
 
+/**
+ * Convert Excel-style column letters to a zero-based column index.
+ *
+ * @param column - Column letters (e.g., "A", "Z", "AA"); case-insensitive
+ * @returns The zero-based column index (`0` for "A", `25` for "Z", `26` for "AA")
+ */
 function columnIndex(column: string): number {
     let value = 0
     for (const character of column.toUpperCase()) {
@@ -110,6 +136,13 @@ function columnIndex(column: string): number {
     return value - 1
 }
 
+/**
+ * Parse an Excel cell address into its column letters, numeric row, and normalized form.
+ *
+ * @param address - Cell address in A1 notation (e.g., "B3", "AA12"); whitespace is trimmed.
+ * @returns An object with `column` (uppercase letters), `row` (numeric row index), and `normalized` (e.g., `"A1"`).
+ * @throws If `address` is not a valid A1-style cell address.
+ */
 function splitAddress(address: string): { column: string; row: number; normalized: string } {
     const match = /^([A-Za-z]+)([1-9][0-9]*)$/.exec(address.trim())
     if (!match) {
@@ -124,6 +157,13 @@ function splitAddress(address: string): { column: string; row: number; normalize
     }
 }
 
+/**
+ * Generate a SpreadsheetML `<c>` element for a single worksheet cell.
+ *
+ * @param address - The cell address (e.g., "A1") to use in the `r` attribute
+ * @param value - Cell content: booleans become `t="b"` with `<v>1|0>`, finite numbers become numeric `<v>`, strings starting with `=` become a formula `<f>` (formula text omits the leading `=`), and all other values become an inline string (`t="inlineStr"`) with XML-escaped text
+ * @returns The XML string for the `<c>` element representing the cell at `address`
+ */
 function cellXml(address: string, value: unknown): string {
     if (typeof value === 'boolean') {
         return `<c r="${address}" t="b"><v>${value ? 1 : 0}</v></c>`
@@ -138,6 +178,12 @@ function cellXml(address: string, value: unknown): string {
     return `<c r="${address}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(text)}</t></is></c>`
 }
 
+/**
+ * Generate a SpreadsheetML worksheet XML document for the provided rows.
+ *
+ * @param rows - Matrix of cell values; each element is a row (array) of cell values (booleans, numbers, strings, formulas, or null/undefined)
+ * @returns The worksheet XML as a string, including a `<dimension>` that spans from `A1` to the last column/row and a `<sheetData>` section with the rows and cells
+ */
 function createWorksheetXml(rows: unknown[][]): string {
     const rowXml = rows
         .map((row, rowIndex) => {
@@ -160,6 +206,15 @@ function createWorksheetXml(rows: unknown[][]): string {
     ].join('')
 }
 
+/**
+ * Creates a minimal `.xlsx` file at the given path containing the provided sheets.
+ *
+ * Writes the required OOXML package parts (content types, package/workbook relationships, workbook, styles)
+ * and one worksheet part per sheet, using the sheet names and row data supplied.
+ *
+ * @param path - Filesystem path where the `.xlsx` file will be written
+ * @param sheets - Array of sheet descriptors; each entry provides a sheet `name` and `rows` (cells)
+ */
 async function createXlsx(path: string, sheets: SheetInput[]): Promise<void> {
     const zip = new JSZip()
     writeZipText(
@@ -227,6 +282,13 @@ async function createXlsx(path: string, sheets: SheetInput[]): Promise<void> {
     await saveZip(zip, path)
 }
 
+/**
+ * Normalize an OOXML relationship target path relative to a base path.
+ *
+ * @param base - The base path to prepend for relative targets (e.g., "xl").
+ * @param target - The relationship target as found in the .rels file.
+ * @returns The normalized package path: if `target` starts with `/` the leading slash is removed; if `target` starts with `xl/` it is returned unchanged; otherwise `base` and `target` are joined and any duplicate slashes are collapsed.
+ */
 function relationshipTarget(base: string, target: string): string {
     if (target.startsWith('/')) {
         return target.slice(1)
@@ -237,6 +299,17 @@ function relationshipTarget(base: string, target: string): string {
     return `${base}/${target}`.replaceAll('//', '/')
 }
 
+/**
+ * Resolve worksheet parts and their ZIP targets from an XLSX archive.
+ *
+ * If the workbook and its relationships are present, returns sheets declared in the workbook
+ * whose relationship IDs map to worksheet file targets; sheets without a mapped target are skipped.
+ * If the workbook or its rels file is missing, enumerates worksheet files in the ZIP and
+ * returns them as `Sheet 1`, `Sheet 2`, …
+ *
+ * @param zip - The JSZip archive representing the .xlsx package
+ * @returns An array of sheet descriptors where each item contains the sheet `name` and the worksheet XML `target` path inside the ZIP
+ */
 async function workbookSheets(zip: JSZip): Promise<SheetPart[]> {
     const workbookXml = await readZipText(zip, 'xl/workbook.xml')
     const relsXml = await readZipText(zip, 'xl/_rels/workbook.xml.rels')
@@ -273,6 +346,12 @@ async function workbookSheets(zip: JSZip): Promise<SheetPart[]> {
         .filter((sheet): sheet is SheetPart => sheet !== null)
 }
 
+/**
+ * Extracts the workbook's shared string table from the ZIP and returns the shared strings in document order.
+ *
+ * @param zip - The JSZip archive representing the .xlsx package
+ * @returns An array of shared string values (each is the concatenation of all `<t>` nodes within an `<si>`); returns an empty array if the shared strings part is missing
+ */
 async function sharedStrings(zip: JSZip): Promise<string[]> {
     const xml = await readZipText(zip, 'xl/sharedStrings.xml')
     if (!xml) {
@@ -286,6 +365,13 @@ async function sharedStrings(zip: JSZip): Promise<string[]> {
     )
 }
 
+/**
+ * Builds a lookup of workbook cell format entries to their number format id and resolved format code.
+ *
+ * Reads `xl/styles.xml` and maps each `<xf>` entry under `<cellXfs>` by its index to an object containing the `numFmtId` and the corresponding format code (from custom formats or built-in formats). If `xl/styles.xml` is absent or contains no `<cellXfs>`, an empty map is returned.
+ *
+ * @returns A map keyed by the `<xf>` index as a string; each value is an object with `id` (the `numFmtId`) and `code` (the format code string, or `null` if not found).
+ */
 async function workbookStyles(
     zip: JSZip,
 ): Promise<Map<string, { id: string; code: string | null }>> {
@@ -317,6 +403,11 @@ async function workbookStyles(
     return styles
 }
 
+/**
+ * Provides common built-in Excel number format IDs mapped to their format code strings.
+ *
+ * @returns A Map where each key is a built-in `numFmtId` (as a string) and each value is the corresponding format code (for example, `'14' -> 'm/d/yy'`).
+ */
 function builtInNumberFormats(): Map<string, string> {
     return new Map([
         ['0', 'General'],
@@ -333,6 +424,26 @@ function builtInNumberFormats(): Map<string, string> {
     ])
 }
 
+/**
+ * Produces a CellInspection object describing the contents and metadata of a worksheet `<c>` XML element.
+ *
+ * Determines the cell's address, resolved value, formula (if present), and style. The returned `value` is:
+ * - a string that begins with `=` when the cell contains a formula;
+ * - the concatenation of `<t>` text nodes for inline strings;
+ * - a resolved shared string when `t="s"`;
+ * - a boolean when `t="b"`;
+ * - a JavaScript `number` when the cell's `<v>` text parses to a finite number;
+ * - `null` for empty text values.
+ *
+ * @param cell - The `<c>` XML element for the cell.
+ * @param strings - Shared strings array used to resolve `t="s"` cell values (indexed by the `<v>` text).
+ * @returns A `CellInspection` containing:
+ * - `address`: the `r` attribute of the cell (or empty string),
+ * - `value`: the resolved cell value (string | number | boolean | null),
+ * - `formula`: the formula text including a leading `=` when present, otherwise `null`,
+ * - `style`: the cell `s` attribute if present,
+ * - `numberFormatId` and `numberFormat`: set to `null` (to be populated later).
+ */
 function cellValue(cell: XmlElement, strings: string[]): CellInspection {
     const formula = firstElementByLocalName(cell, 'f')?.textContent ?? null
     const type = cell.getAttribute('t')
@@ -366,6 +477,15 @@ function cellValue(cell: XmlElement, strings: string[]): CellInspection {
     }
 }
 
+/**
+ * Inspects an `.xlsx` file and extracts sheet-level cell data, merged ranges, and chart part paths.
+ *
+ * @param path - Filesystem path to the `.xlsx` file to inspect
+ * @returns An object with:
+ *  - `text`: a human-readable multiline summary of sheets and cells,
+ *  - `sheets`: an array of sheet inspection objects (name, cells, mergedCells),
+ *  - `charts`: an array of chart part file paths found in the package
+ */
 async function inspectXlsx(path: string): Promise<Record<string, unknown>> {
     const zip = await loadZip(path)
     const strings = await sharedStrings(zip)
@@ -412,6 +532,16 @@ async function inspectXlsx(path: string): Promise<Record<string, unknown>> {
     }
 }
 
+/**
+ * Normalize a JSON-encoded edits payload into a validated array of workbook edit objects.
+ *
+ * Parses `value` as a JSON array of edit entries and validates each entry's shape:
+ * each entry must be an object with a `cell` string (Excel address) and may include
+ * `sheet`, `value`, and `formula`. The returned edits use a normalized cell address.
+ *
+ * @param value - A JSON string encoding an array of edit objects (or `undefined` to treat as `[]`)
+ * @returns An array of `WorkbookEdit` with `sheet` (optional), `cell` (normalized A1 address), `value`, and `formula`
+ */
 function normalizeEdits(value: string | undefined): WorkbookEdit[] {
     const raw = parseJson<unknown>(value, [])
     if (!Array.isArray(raw)) {
@@ -436,6 +566,12 @@ function normalizeEdits(value: string | undefined): WorkbookEdit[] {
     })
 }
 
+/**
+ * Return the worksheet's `<sheetData>` element, creating and appending one if it does not exist.
+ *
+ * @returns The existing or newly created `<sheetData>` XmlElement
+ * @throws If the provided document has no root worksheet element
+ */
 function ensureSheetData(document: XmlDocument): XmlElement {
     const existing = firstElementByLocalName(document, 'sheetData')
     if (existing) {
@@ -453,6 +589,14 @@ function ensureSheetData(document: XmlDocument): XmlElement {
     })
 }
 
+/**
+ * Get or create the <row> element for the given row number in the worksheet's <sheetData>.
+ *
+ * @param document - The XML document used to create a new element when needed
+ * @param sheetData - The `<sheetData>` element that should contain the row
+ * @param rowNumber - The 1-based row number to find or create
+ * @returns The `<row>` element whose `r` attribute equals `rowNumber`
+ */
 function ensureRow(document: XmlDocument, sheetData: XmlElement, rowNumber: number): XmlElement {
     const existing = directElementsByLocalName(sheetData, 'row').find(
         (row) => row.getAttribute('r') === String(rowNumber),
@@ -466,6 +610,14 @@ function ensureRow(document: XmlDocument, sheetData: XmlElement, rowNumber: numb
     return row
 }
 
+/**
+ * Get or create the `<c>` cell element for the specified cell address within a row.
+ *
+ * @param document - XML document used to create new elements when needed
+ * @param row - The `<row>` element to search for or append the cell to
+ * @param address - The cell address (e.g., `A1`) to match or create
+ * @returns The `<c>` cell element for `address`, created and appended to `row` if missing
+ */
 function ensureCell(document: XmlDocument, row: XmlElement, address: string): XmlElement {
     const existing = directElementsByLocalName(row, 'c').find(
         (cell) => cell.getAttribute('r') === address,
@@ -479,6 +631,16 @@ function ensureCell(document: XmlDocument, row: XmlElement, address: string): Xm
     return cell
 }
 
+/**
+ * Update a worksheet `<c>` element to represent the provided edit.
+ *
+ * Clears existing child nodes of `cell`, preserves its `s` (style) attribute if present,
+ * and writes either a formula, boolean, numeric, or inline string value according to `edit`.
+ *
+ * @param document - The XML document containing `cell`.
+ * @param cell - The `<c>` element to modify.
+ * @param edit - Edit describing the new cell content. If `edit.formula` is provided, it is written as a formula (a leading `=` is removed if present). Otherwise `edit.value` is written as a boolean (`t="b"` with `1`/`0`), a finite number (`<v>`), or an inline string (`t="inlineStr"` with preserved whitespace).
+ */
 function applyCellValue(document: XmlDocument, cell: XmlElement, edit: WorkbookEdit): void {
     const style = cell.getAttribute('s')
     clearChildren(cell)
@@ -535,6 +697,15 @@ function applyCellValue(document: XmlDocument, cell: XmlElement, edit: WorkbookE
     setElementText(text, String(edit.value ?? ''))
 }
 
+/**
+ * Update the worksheet `<dimension>` element so its `ref` spans from `A1` to the furthest occupied cell.
+ *
+ * If the document contains no cells, no changes are made. The function computes the maximum column and row
+ * among all `<c r="...">` cells and sets the `ref` attribute to `A1:{Column}{Row}` (e.g., `A1:Z10`) on the
+ * first `<dimension>` element found.
+ *
+ * @param document - The worksheet XML document to modify in-place
+ */
 function updateDimension(document: XmlDocument): void {
     const cells = elementsByLocalName(document, 'c')
         .map((cell) => cell.getAttribute('r') || '')
@@ -551,6 +722,17 @@ function updateDimension(document: XmlDocument): void {
     }
 }
 
+/**
+ * Apply a sequence of cell edits to an existing `.xlsx` file, writing modifications back into the package.
+ *
+ * @param path - Filesystem path to the `.xlsx` package to modify
+ * @param editsJson - JSON string representing an array of edit objects; each object must include `cell` (address like `A1`) and may include `sheet` (sheet name), `value`, or `formula`
+ * @returns The number of edits that were applied
+ * @throws If the parsed edits array is empty
+ * @throws If the workbook contains no sheets
+ * @throws If a referenced sheet cannot be found
+ * @throws If a worksheet XML part for a referenced sheet cannot be read
+ */
 async function editXlsx(path: string, editsJson: string | undefined): Promise<number> {
     const edits = normalizeEdits(editsJson)
     if (edits.length === 0) {
@@ -594,6 +776,14 @@ async function editXlsx(path: string, editsJson: string | undefined): Promise<nu
     return editCount
 }
 
+/**
+ * CLI entrypoint that parses arguments and performs create, inspect, or edit operations on `.xlsx` workbooks.
+ *
+ * Parses command-line options, resolves workspace paths, and dispatches:
+ * - create: writes a new workbook from provided sheet data and prints operation details as JSON
+ * - inspect: reads a workbook and prints an inspection report as JSON
+ * - edit: applies JSON-described edits to a workbook and prints the edit count as JSON
+ */
 async function main(): Promise<void> {
     const command = parseCommand(process.argv.slice(2))
     const root = optionalOption(command.options, 'root', 'workspace')

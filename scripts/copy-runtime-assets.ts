@@ -2,6 +2,12 @@ import { cp, mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+/**
+ * Copy runtime skill assets from the project source into the distribution assets, replacing any existing targets.
+ *
+ * Copies files from `<root>/src/server/pi-runtime/skills` into `<root>/dist/server/assets/skills`, removes the legacy `<root>/dist/server/skills` directory if present, and ensures the target directory exists before copying.
+ *
+ * @param root - Project root directory; defaults to `process.cwd()`.
 export async function copyRuntimeAssets(root = process.cwd()): Promise<void> {
     const source = join(root, 'src/server/pi-runtime/skills')
     const target = join(root, 'dist/server/assets/skills')
