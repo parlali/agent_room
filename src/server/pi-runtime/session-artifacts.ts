@@ -39,19 +39,10 @@ const writeToolNames = new Set([
     'agent_room_write',
     'agent_room_edit',
     'agent_room_artifact_export',
-    'agent_room_docx',
-    'agent_room_xlsx',
-    'agent_room_pptx',
     'agent_room_pdf',
 ])
 
-const readToolNames = new Set([
-    'agent_room_read',
-    'agent_room_docx',
-    'agent_room_xlsx',
-    'agent_room_pptx',
-    'agent_room_pdf',
-])
+const readToolNames = new Set(['agent_room_read', 'agent_room_pdf', 'agent_room_read_pdf'])
 
 function artifactId(surface: ArtifactSurface, relativePath: string): string {
     return `${surface}:${relativePath}`

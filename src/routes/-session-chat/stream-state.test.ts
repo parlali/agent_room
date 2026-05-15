@@ -51,6 +51,46 @@ describe('stream turn reducer', () => {
         })
     })
 
+    it('ignores late terminal errors once the turn is finished', () => {
+        let state = reduceRoomStreamEvent(
+            emptyStreamTurnState,
+            realtimeAt(
+                'run.accepted',
+                {
+                    runId: 'run-1',
+                    startedAtMs: 1_000,
+                },
+                1_000,
+            ),
+        )
+        state = reduceRoomStreamEvent(
+            state,
+            realtimeAt(
+                'run.finished',
+                {
+                    runId: 'run-1',
+                },
+                2_000,
+            ),
+        )
+
+        const after = reduceRoomStreamEvent(
+            state,
+            realtimeAt(
+                'run.error',
+                {
+                    runId: 'run-1',
+                    message: 'late failure',
+                },
+                3_000,
+            ),
+        )
+
+        expect(after).toBe(state)
+        expect(after.status).toBe('complete')
+        expect(transcriptRow(after).items).toEqual([])
+    })
+
     it('keeps commentary text ordered around tool activity and final text', () => {
         let state = reduceRoomStreamEvent(
             emptyStreamTurnState,

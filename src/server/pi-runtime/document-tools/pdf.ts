@@ -3,8 +3,6 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import type { PDFFont } from 'pdf-lib'
 import { sha256Buffer } from './artifacts'
 import { writeWorkspaceFile } from './paths'
-import type { DocumentToolContext } from './types'
-import { runDocumentWorker } from './worker'
 
 type PdfEdit =
     | {
@@ -58,10 +56,11 @@ export async function editPdf(path: string, edits: PdfEdit[]): Promise<number> {
             })
             count += 1
         } else if (edit.type === 'delete_pages') {
-            const pages = [
-                ...new Set(edit.pages.map((page) => clampInteger(page, 1, pdf.getPageCount()))),
-            ].sort((a, b) => b - a)
+            const pages = [...new Set(edit.pages)].sort((a, b) => b - a)
             for (const page of pages) {
+                if (page > pdf.getPageCount()) {
+                    throw new Error(`PDF edit delete_pages page ${page} exceeds page count`)
+                }
                 if (pdf.getPageCount() <= 1) {
                     throw new Error('PDF edit cannot delete every page')
                 }
@@ -107,84 +106,31 @@ export function normalizePdfEdits(value: unknown): PdfEdit[] {
             if (!Array.isArray(record.pages) || record.pages.length === 0) {
                 throw new Error(`PDF edit ${index + 1} delete_pages requires pages`)
             }
+            const pages = record.pages.map((page, pageIndex) => {
+                if (
+                    typeof page !== 'number' ||
+                    !Number.isInteger(page) ||
+                    page < 1 ||
+                    page > 10000
+                ) {
+                    throw new Error(
+                        `PDF edit ${index + 1} delete_pages page ${pageIndex + 1} must be an integer from 1 to 10000`,
+                    )
+                }
+                return page
+            })
             return {
                 type: 'delete_pages',
-                pages: record.pages.map((page) => clampInteger(optionalNumber(page), 1, 10000)),
+                pages,
             }
         }
         throw new Error(`Unsupported PDF edit type ${String(record.type)}`)
     })
 }
 
-export async function inspectPdf(
-    ctx: DocumentToolContext,
-    path: string,
-    input: {
-        signal?: AbortSignal
-        maxChars?: number
-    } = {},
-): Promise<string> {
+export async function inspectPdf(path: string): Promise<string> {
     const buffer = await readFile(path)
-    const metadata = pdfMetadata(path, buffer)
-    try {
-        const extracted = await extractPdfText(ctx, path, {
-            maxChars: input.maxChars ?? 12000,
-            signal: input.signal,
-        })
-        return `${metadata}\n\n${extracted}`
-    } catch (error) {
-        return `${metadata}\n\nText extraction unavailable: ${error instanceof Error ? error.message : String(error)}`
-    }
-}
-
-export async function extractPdfText(
-    ctx: DocumentToolContext,
-    path: string,
-    input: {
-        pageStart?: number
-        pageEnd?: number
-        maxChars?: number
-        signal?: AbortSignal
-    } = {},
-): Promise<string> {
-    const maxChars = clampInteger(input.maxChars, 12000, 100000)
-    const args = ['-layout', '-enc', 'UTF-8']
-    const pageStart = normalizeOptionalPage(input.pageStart)
-    const pageEnd = normalizeOptionalPage(input.pageEnd)
-    if (pageStart !== null) {
-        args.push('-f', String(pageStart))
-    }
-    if (pageEnd !== null) {
-        args.push('-l', String(pageEnd))
-    }
-    if (pageStart !== null && pageEnd !== null && pageEnd < pageStart) {
-        throw new Error('PDF pageEnd must be greater than or equal to pageStart')
-    }
-    args.push(path, '-')
-    const text = await runDocumentWorker({
-        config: ctx.config,
-        command: 'pdftotext',
-        args,
-        cwd: ctx.config.paths.workspaceDir,
-        timeoutMs: ctx.config.budgets.documentWorkerMs,
-        signal: input.signal,
-        outputLimitBytes: maxChars,
-        outputMode: 'head',
-    })
-    const trimmed = text.trim()
-    const range =
-        pageStart === null && pageEnd === null
-            ? 'all pages'
-            : pageEnd === null
-              ? `pages ${pageStart}+`
-              : pageStart === null
-                ? `pages 1-${pageEnd}`
-                : `pages ${pageStart}-${pageEnd}`
-    if (!trimmed) {
-        return `Extracted text (${range}):\n[No extractable text found]`
-    }
-    const truncated = text.length >= maxChars ? '\n\n[Output truncated at maxChars]' : ''
-    return `Extracted text (${range}, ${trimmed.length} chars):\n${trimmed}${truncated}`
+    return pdfMetadata(path, buffer)
 }
 
 function pdfMetadata(path: string, buffer: Buffer): string {
@@ -246,12 +192,6 @@ function drawTextPage(
     }
 }
 
-function normalizeOptionalPage(value: number | undefined): number | null {
-    if (value === undefined) return null
-    if (!Number.isFinite(value)) return null
-    return Math.max(1, Math.floor(value))
-}
-
 function clampInteger(value: number | undefined, fallback: number, max: number): number {
     if (value === undefined || !Number.isFinite(value)) return fallback
     return Math.max(1, Math.min(max, Math.floor(value)))
@@ -262,11 +202,21 @@ function optionalNumber(value: unknown): number | undefined {
 }
 
 function parseJsonArray(value: unknown): unknown[] {
-    if (Array.isArray(value)) return value
-    if (typeof value !== 'string' || !value.trim()) return []
+    if (Array.isArray(value)) {
+        if (value.length === 0) {
+            throw new Error('PDF edits must contain at least one edit')
+        }
+        return value
+    }
+    if (typeof value !== 'string' || !value.trim()) {
+        throw new Error('Missing or empty PDF edits JSON')
+    }
     const parsed = JSON.parse(value) as unknown
     if (!Array.isArray(parsed)) {
         throw new Error('PDF edits must be a JSON array')
+    }
+    if (parsed.length === 0) {
+        throw new Error('PDF edits must contain at least one edit')
     }
     return parsed
 }

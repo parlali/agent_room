@@ -88,7 +88,7 @@ function assertPromptMetadataCanBePersisted(active: ActiveThread): void {
 
 function addPendingUserMessage(record: ThreadRecord, message: PendingUserMessageRecord): void {
     const current = record.pendingUserMessages ?? []
-    if (current.some((candidate) => candidate.id === message.id)) return
+    if (current.some((candidate) => candidate.messageId === message.messageId)) return
     record.pendingUserMessages = [...current, message]
     record.updatedAt = Math.max(record.updatedAt, message.queuedAt)
 }
@@ -99,6 +99,32 @@ function removePendingUserMessage(record: ThreadRecord, runId: string): void {
     if (next.length === current.length) return
     record.pendingUserMessages = next
     record.updatedAt = Date.now()
+}
+
+async function appendAttachmentIngestionEvents(input: {
+    dependencies: RuntimeRunnerDependencies
+    record: ThreadRecord
+    runId: string
+    preparedPrompt: PreparedPrompt
+}): Promise<void> {
+    const ingestions = input.preparedPrompt.metadata?.ingestions ?? []
+    for (const ingestion of ingestions) {
+        await input.dependencies.appendRuntimeEvent('attachment.pdf_ingested', {
+            sessionKey: input.record.key,
+            runId: input.runId,
+            attachmentId: ingestion.attachmentId,
+            name: ingestion.name,
+            relativePath: ingestion.relativePath,
+            mediaType: ingestion.mediaType,
+            ingestionMode: ingestion.ingestionMode,
+            pageCount: ingestion.pageCount,
+            pages: ingestion.pages,
+            requestedPages: ingestion.requestedPages,
+            inputBlocks: ingestion.inputBlocks,
+            degraded: ingestion.degraded,
+            degradedReason: ingestion.degradedReason,
+        })
+    }
 }
 
 function appendFailedPromptMessages(
@@ -363,13 +389,19 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                         runId: input.runId,
                         signal: abortController.signal,
                     },
-                    () => {
+                    async () => {
                         if (preparedPrompt.metadata) {
                             active.session.sessionManager.appendCustomEntry(
                                 promptAttachmentMetadataType,
                                 preparedPrompt.metadata,
                             )
                         }
+                        await appendAttachmentIngestionEvents({
+                            dependencies,
+                            record: input.record,
+                            runId: input.runId,
+                            preparedPrompt,
+                        })
                         return active.session.prompt(
                             preparedPrompt.text,
                             active.session.isStreaming
@@ -511,7 +543,7 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
         const active = await dependencies.getActiveThread(input.record)
         if (!input.editMessageId) {
             addPendingUserMessage(input.record, {
-                id: input.runId,
+                messageId: input.runId,
                 runId: input.runId,
                 runKind:
                     input.runKind ??

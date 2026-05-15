@@ -112,7 +112,7 @@ export function reduceRoomStreamEvent(
         }
     }
 
-    if (state.finished && state.status === 'stopped') {
+    if (state.finished) {
         return state
     }
 

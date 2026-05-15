@@ -58,6 +58,7 @@ import { createRuntimeModelState } from './runtime-model-state'
 import { cleanManualThreadTitle, createThreadTitleGenerator } from './runtime-title-generator'
 import { promptAttachmentMetadataByEntryId } from './prompt-attachments'
 import { createSessionEventQueue } from './session-event-queue'
+import { removeDeliveredPendingUserMessage } from './pending-user-messages'
 
 const configPath = process.env.AGENT_ROOM_PI_RUNTIME_CONFIG_PATH
 if (!configPath) {
@@ -411,36 +412,38 @@ function logSessionEventError(error: unknown, event: AgentSessionEvent): void {
 async function handleSessionEvent(record: ThreadRecord, event: AgentSessionEvent): Promise<void> {
     const active = activeThreads.get(record.key)
     await active?.touchRunHeartbeat?.(event.type)
-    const pendingChanged = removeDeliveredPendingUserMessage(record, event)
+    const deliveredPending = removeDeliveredPendingUserMessage(record, event)
+    const pendingChanged = deliveredPending.changed
+    const eventForLog = deliveredPending.event
     updateThreadFromMessages(record)
-    if (event.type === 'agent_start' || event.type === 'turn_start') {
+    if (eventForLog.type === 'agent_start' || eventForLog.type === 'turn_start') {
         record.status = 'running'
     }
-    if (event.type === 'compaction_start') {
+    if (eventForLog.type === 'compaction_start') {
         record.status = 'compacting'
     }
-    if (event.type === 'compaction_end') {
-        record.status = event.errorMessage
+    if (eventForLog.type === 'compaction_end') {
+        record.status = eventForLog.errorMessage
             ? 'error'
             : active?.session.isStreaming || active?.session.isCompacting
               ? 'running'
               : 'idle'
-        record.lastError = event.errorMessage ? redactString(event.errorMessage) : null
+        record.lastError = eventForLog.errorMessage ? redactString(eventForLog.errorMessage) : null
     }
-    if (event.type === 'agent_end') {
+    if (eventForLog.type === 'agent_end') {
         const latestError = latestAssistantErrorMessage(record)
         record.status = latestError ? 'error' : 'idle'
         record.lastError = latestError
         record.activeRunId = null
     }
     await persistThreadIndex()
-    await appendRuntimeEvent(event.type, {
+    await appendRuntimeEvent(eventForLog.type, {
         sessionKey: record.key,
-        event,
+        event: eventForLog,
     })
-    broadcast(record.key, event.type, {
+    broadcast(record.key, eventForLog.type, {
         sessionKey: record.key,
-        event,
+        event: eventForLog,
     })
     if (pendingChanged) {
         await appendRuntimeEvent('thread.pending_messages_changed', {
@@ -452,35 +455,6 @@ async function handleSessionEvent(record: ThreadRecord, event: AgentSessionEvent
             pendingCount: record.pendingUserMessages?.length ?? 0,
         })
     }
-}
-
-function removeDeliveredPendingUserMessage(
-    record: ThreadRecord,
-    event: AgentSessionEvent,
-): boolean {
-    if (event.type !== 'message_end') return false
-    if (event.message.role !== 'user') return false
-    const text = agentMessageText(event.message.content)
-    const pending = record.pendingUserMessages ?? []
-    const index = pending.findIndex((message) => message.text === text)
-    const deliveredIndex = index >= 0 ? index : pending.length > 0 ? 0 : -1
-    if (deliveredIndex < 0) return false
-    record.pendingUserMessages = pending.filter((_, candidate) => candidate !== deliveredIndex)
-    record.updatedAt = Date.now()
-    return true
-}
-
-function agentMessageText(content: unknown): string {
-    if (typeof content === 'string') return content
-    if (!Array.isArray(content)) return ''
-    return content
-        .map((part) => {
-            if (!part || typeof part !== 'object') return ''
-            const value = (part as { text?: unknown }).text
-            return typeof value === 'string' ? value : ''
-        })
-        .filter(Boolean)
-        .join('\n')
 }
 
 function findThread(key: string): ThreadRecord | null {

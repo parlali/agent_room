@@ -12,6 +12,13 @@ import type { RoomFileSurface } from '#/lib/room-file-types'
 import { formatBytes } from '#/lib/format'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { assertPathInsideRoot } from '../security/path-boundary'
+import {
+    isPdfMediaType,
+    materializePdfRead,
+    modelAcceptsImages,
+    renderPdfPageImages,
+    type PdfIngestionRecord,
+} from './pdf-ingestion'
 import { isRecord } from './runtime-redaction'
 
 export const promptAttachmentMetadataType = 'agent_room.prompt_attachments.v1'
@@ -19,6 +26,7 @@ export const promptAttachmentMetadataType = 'agent_room.prompt_attachments.v1'
 export interface PromptAttachmentMetadata {
     text: string
     attachments: RoomAttachment[]
+    ingestions: PdfIngestionRecord[]
 }
 
 export interface PreparedPrompt {
@@ -27,13 +35,16 @@ export interface PreparedPrompt {
     metadata?: PromptAttachmentMetadata
 }
 
+type RenderPdfPageImages = typeof renderPdfPageImages
+
 interface MaterializedAttachment {
     attachment: RoomAttachment
     path: string
     byteLength: number
     mediaType: string
     sha256: string
-    image?: ImageContent
+    content: ImageContent[]
+    ingestion?: PdfIngestionRecord
 }
 
 const supportedImageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
@@ -126,6 +137,8 @@ function looksLikeImageAttachment(attachment: RoomAttachment, mediaType: string)
 async function materializeAttachment(
     config: PiRuntimeConfig,
     attachment: RoomAttachment,
+    model: Model<Api> | undefined,
+    renderImages: RenderPdfPageImages,
 ): Promise<MaterializedAttachment> {
     const path = await resolveAttachmentPath(config, attachment)
     const fileStat = await stat(path)
@@ -135,31 +148,64 @@ async function materializeAttachment(
     const bytes = await readFile(path)
     const mediaType = inferMediaType(path, bytes)
     const sha256 = createHash('sha256').update(bytes).digest('hex')
-    const image = supportedImageTypes.has(mediaType)
-        ? {
-              type: 'image' as const,
-              data: bytes.toString('base64'),
-              mimeType: mediaType,
-          }
-        : undefined
-    return {
-        attachment: {
-            ...attachment,
-            name: attachment.name || basename(path),
+    const canonicalAttachment = {
+        ...attachment,
+        name: attachment.name || basename(path),
+        byteLength: fileStat.size,
+    }
+    if (isPdfMediaType(mediaType)) {
+        const pdf = await materializePdfRead({
+            config,
+            path,
+            bytes,
+            model,
+            renderImages,
+        })
+        return {
+            attachment: canonicalAttachment,
+            path,
             byteLength: fileStat.size,
-        },
+            mediaType,
+            sha256,
+            content: pdf.content,
+            ingestion: {
+                attachmentId: attachment.id,
+                name: canonicalAttachment.name,
+                relativePath: attachment.relativePath,
+                mediaType,
+                ingestionMode: pdf.mode,
+                pageCount: pdf.pageCount,
+                pages: pdf.selectedPages.label,
+                requestedPages: pdf.requestedPages,
+                inputBlocks: pdf.content.length,
+                degraded: pdf.degraded,
+                degradedReason: pdf.degradedReason,
+            },
+        }
+    }
+    const content = supportedImageTypes.has(mediaType)
+        ? [
+              {
+                  type: 'image' as const,
+                  data: bytes.toString('base64'),
+                  mimeType: mediaType,
+              },
+          ]
+        : []
+    return {
+        attachment: canonicalAttachment,
         path,
         byteLength: fileStat.size,
         mediaType,
         sha256,
-        image,
+        content,
     }
 }
 
 function assertSupportedImageAttachments(attachments: MaterializedAttachment[]): void {
     const unsupportedImage = attachments.find(
         (attachment) =>
-            !attachment.image &&
+            attachment.content.length === 0 &&
             looksLikeImageAttachment(attachment.attachment, attachment.mediaType),
     )
     if (!unsupportedImage) return
@@ -173,7 +219,7 @@ function assertModelAcceptsImages(model: Model<Api> | undefined, images: ImageCo
     if (!model) {
         throw new Error('Attached images require a selected multimodal model')
     }
-    if (!model.input.includes('image')) {
+    if (!modelAcceptsImages(model)) {
         throw new Error(
             `Attached images require a multimodal model, but ${model.provider}/${model.id} only accepts ${model.input.join(', ') || 'unknown'} input`,
         )
@@ -193,13 +239,48 @@ function diskReference(attachment: MaterializedAttachment): string {
 }
 
 function attachmentSummaryLine(attachment: MaterializedAttachment, index: number): string {
+    const kind = attachment.ingestion ? 'PDF' : attachment.content.length > 0 ? 'Image' : 'File'
     const base = [
-        `${attachment.image ? 'Image' : 'File'} attachment ${index + 1}: ${attachment.attachment.name}`,
+        `${kind} attachment ${index + 1}: ${attachment.attachment.name}`,
         `type ${attachment.mediaType}`,
         `size ${formatBytes(attachment.byteLength)}`,
         `sha256 ${attachment.sha256}`,
     ]
-    if (attachment.image) {
+    if (attachment.ingestion?.ingestionMode === 'native_document') {
+        return [
+            ...base,
+            `provided as native PDF document input (${attachment.ingestion.pages})`,
+            attachment.ingestion.degraded && attachment.ingestion.degradedReason
+                ? `degraded: ${attachment.ingestion.degradedReason}`
+                : null,
+        ]
+            .filter((part): part is string => part !== null)
+            .join(', ')
+    }
+    if (attachment.ingestion?.ingestionMode === 'image_render') {
+        return [
+            ...base,
+            `provided as rendered PDF page images (${attachment.ingestion.pages})`,
+            attachment.ingestion.degraded && attachment.ingestion.degradedReason
+                ? `degraded: ${attachment.ingestion.degradedReason}`
+                : null,
+        ]
+            .filter((part): part is string => part !== null)
+            .join(', ')
+    }
+    if (attachment.ingestion?.ingestionMode === 'unsupported') {
+        return [
+            ...base,
+            `PDF content was not provided to the model (${attachment.ingestion.pages})`,
+            attachment.ingestion.degradedReason
+                ? `unsupported: ${attachment.ingestion.degradedReason}`
+                : null,
+            `available as room-local file ${diskReference(attachment)}`,
+        ]
+            .filter((part): part is string => part !== null)
+            .join(', ')
+    }
+    if (attachment.content.length > 0) {
         return [...base, 'provided as direct image input'].join(', ')
     }
     return [...base, `available as room-local file ${diskReference(attachment)}`].join(', ')
@@ -215,6 +296,7 @@ export async function preparePromptWithAttachments(input: {
     config: PiRuntimeConfig
     model: Model<Api> | undefined
     message: string
+    renderPdfPageImages?: RenderPdfPageImages
 }): Promise<PreparedPrompt> {
     const parsed = parseRoomMessageAttachments(input.message)
     if (parsed.attachments.length === 0) {
@@ -224,21 +306,30 @@ export async function preparePromptWithAttachments(input: {
     }
 
     const materialized = await Promise.all(
-        parsed.attachments.map((attachment) => materializeAttachment(input.config, attachment)),
+        parsed.attachments.map((attachment) =>
+            materializeAttachment(
+                input.config,
+                attachment,
+                input.model,
+                input.renderPdfPageImages ?? renderPdfPageImages,
+            ),
+        ),
     )
     assertSupportedImageAttachments(materialized)
-    const images = materialized
-        .map((attachment) => attachment.image)
-        .filter((image): image is ImageContent => image !== undefined)
+    const images = materialized.flatMap((attachment) => attachment.content)
     assertModelAcceptsImages(input.model, images)
 
     const attachments = materialized.map((attachment) => attachment.attachment)
+    const ingestions = materialized
+        .map((attachment) => attachment.ingestion)
+        .filter((ingestion): ingestion is PdfIngestionRecord => ingestion !== undefined)
     return {
         text: promptTextForAttachments(parsed.text, materialized),
         images,
         metadata: {
             text: parsed.text,
             attachments,
+            ingestions,
         },
     }
 }
@@ -279,9 +370,50 @@ export function promptAttachmentMetadataFromValue(value: unknown): PromptAttachm
               .filter((attachment): attachment is RoomAttachment => attachment !== null)
         : []
     if (attachments.length === 0) return null
+    const ingestions = Array.isArray(value.ingestions)
+        ? value.ingestions
+              .map(pdfIngestionRecordFromValue)
+              .filter((ingestion): ingestion is PdfIngestionRecord => ingestion !== null)
+        : []
     return {
         text,
         attachments,
+        ingestions,
+    }
+}
+
+function pdfIngestionRecordFromValue(value: unknown): PdfIngestionRecord | null {
+    if (!isRecord(value)) return null
+    const ingestionMode = value.ingestionMode
+    if (
+        ingestionMode !== 'native_document' &&
+        ingestionMode !== 'image_render' &&
+        ingestionMode !== 'unsupported'
+    ) {
+        return null
+    }
+    const attachmentId = typeof value.attachmentId === 'string' ? value.attachmentId : ''
+    const name = typeof value.name === 'string' ? value.name : ''
+    const relativePath = typeof value.relativePath === 'string' ? value.relativePath : ''
+    const mediaType = typeof value.mediaType === 'string' ? value.mediaType : 'application/pdf'
+    return {
+        attachmentId,
+        name,
+        relativePath,
+        mediaType,
+        ingestionMode,
+        pageCount:
+            typeof value.pageCount === 'number' && Number.isFinite(value.pageCount)
+                ? value.pageCount
+                : null,
+        pages: typeof value.pages === 'string' ? value.pages : null,
+        requestedPages: typeof value.requestedPages === 'string' ? value.requestedPages : null,
+        inputBlocks:
+            typeof value.inputBlocks === 'number' && Number.isFinite(value.inputBlocks)
+                ? value.inputBlocks
+                : 0,
+        degraded: value.degraded === true,
+        degradedReason: typeof value.degradedReason === 'string' ? value.degradedReason : null,
     }
 }
 

@@ -161,14 +161,15 @@ function appendPendingUserRows(rows: ChatTimelineRow[], record: ThreadRecord): C
         const userMessage = pendingUserMessage(pending)
         next.push({
             type: 'user_message',
-            id: `pending-user-${pending.id}`,
+            id: `pending-user-${pending.messageId}`,
             seq: next.length,
             message: userMessage,
             timestamp: pending.queuedAt,
+            pending: true,
         })
         next.push({
             type: 'run_transcript',
-            id: `pending-run-${pending.id}`,
+            id: `pending-run-${pending.messageId}`,
             seq: next.length,
             runId: pending.runId,
             status: 'queued',
@@ -177,6 +178,7 @@ function appendPendingUserRows(rows: ChatTimelineRow[], record: ThreadRecord): C
             collapsed: false,
             items: [],
             timestamp: pending.queuedAt,
+            pending: true,
         })
     }
     return next
@@ -184,7 +186,7 @@ function appendPendingUserRows(rows: ChatTimelineRow[], record: ThreadRecord): C
 
 function pendingUserMessage(pending: PendingUserMessageRecord): RoomExecutionMessage {
     return {
-        id: `pending-user-${pending.id}`,
+        id: `pending-user-${pending.messageId}`,
         role: 'user',
         text: pending.text,
         parts: [
@@ -274,7 +276,7 @@ function displayCacheKey(record: ThreadRecord): string {
         record.activeRunId ?? '',
         record.activeDurationMs,
         (record.pendingUserMessages ?? [])
-            .map((message) => `${message.id}:${message.queuedAt}`)
+            .map((message) => `${message.messageId}:${message.queuedAt}`)
             .join(','),
     ].join(':')
 }
