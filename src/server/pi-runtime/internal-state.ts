@@ -1,4 +1,5 @@
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { boundTextByChars } from './bounded-text'
 import { ensureMemory, readMemory } from './memory'
 
 export interface InternalStateSummary {
@@ -21,14 +22,11 @@ export async function buildInternalStateSummary(
 ): Promise<InternalStateSummary> {
     await ensureMemory(config)
     const snapshot = await readMemory(config)
-    const text =
-        snapshot.brief.length <= internalStatePolicy.maxInjectedBytes
-            ? snapshot.brief
-            : `${snapshot.brief.slice(0, internalStatePolicy.maxInjectedBytes)}\n[truncated]`
+    const bounded = boundTextByChars(snapshot.brief, internalStatePolicy.maxInjectedBytes)
     return {
-        text,
+        text: bounded.text,
         byteLength: Buffer.byteLength(snapshot.brief),
         maxBytes: internalStatePolicy.maxInjectedBytes,
-        truncated: snapshot.brief.length > internalStatePolicy.maxInjectedBytes,
+        truncated: bounded.truncated,
     }
 }

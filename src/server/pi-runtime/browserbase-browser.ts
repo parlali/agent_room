@@ -21,6 +21,7 @@ import {
     maxBrowserActionBudget,
     maxToolTextChars,
 } from './browserbase-browser-types'
+import { boundTextByChars } from './bounded-text'
 import {
     browserbaseTimeoutSeconds,
     createBrowserbaseSession,
@@ -526,8 +527,8 @@ export class BrowserbaseBrowserAutomationManager {
                 const active = this.requireActiveSession(context)
                 const result = await readTextFromActivePage(active, selector, context.signal)
                 const metadata = await this.refreshMetadata(context.signal, actionBudget, context)
-                const bounded = boundText(result.text, maxToolTextChars)
-                const auditText = boundText(result.text, maxAuditTextChars)
+                const bounded = boundTextByChars(result.text, maxToolTextChars)
+                const auditText = boundTextByChars(result.text, maxAuditTextChars)
                 await this.auditAction(context, 'complete', {
                     sessionId: active.browserbaseSessionId,
                     selector,
@@ -1098,18 +1099,5 @@ function imageBrowserResult(
             },
         ],
         details,
-    }
-}
-
-function boundText(value: string, maxChars: number): { text: string; truncated: boolean } {
-    if (value.length <= maxChars) {
-        return {
-            text: value,
-            truncated: false,
-        }
-    }
-    return {
-        text: `${value.slice(0, maxChars)}...[truncated]`,
-        truncated: true,
     }
 }

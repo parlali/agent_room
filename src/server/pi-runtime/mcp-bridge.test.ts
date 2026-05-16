@@ -388,7 +388,12 @@ describe('Agent Room MCP bridge', () => {
             })
 
             const result = await executeTool(tools[0]!, { text: 'ignored' })
-            expect(Buffer.byteLength(resultText(result))).toBeLessThanOrEqual(128014)
+            expect(Buffer.byteLength(resultText(result))).toBeLessThanOrEqual(128000)
+            expect(result).toMatchObject({
+                details: {
+                    outputTruncated: true,
+                },
+            })
             await closeMcpConnections()
 
             await expect(

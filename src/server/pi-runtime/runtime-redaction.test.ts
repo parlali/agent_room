@@ -108,7 +108,7 @@ describe('runtime redaction', () => {
         })
 
         expect(bounded).toEqual({
-            content: `${'a'.repeat(4000)}...[truncated]`,
+            content: 'a'.repeat(4000),
         })
         expect(unbounded).toEqual({
             content: `${'a'.repeat(4100)} [redacted]`,
