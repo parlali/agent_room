@@ -52,4 +52,5 @@ The brainstorm has been split into three public OSS work-stream issues. Implemen
 - [x] PR review hardening redacts transient CDP connection URLs, lets close release sessions after action-budget exhaustion, audits validation and automatic release paths, and splits Browserbase API, CDP, page actions, tool registration, utilities, and lifecycle management into focused modules.
 - [x] Expand Browserbase automation tests to cover each action tool, auth/quota failures, invalid-input audit paths, replacement/runtime/idle release audit events, close-after-budget-exhaustion, and connect-failure redaction.
 - [x] Follow-up PR review hardening aligns direct REST session creation with the Browserbase REST `browserSettings.timeout` shape, bounds the CDP WebSocket handshake, and retries automatic release after transient Browserbase release failures.
+- [x] Follow-up cleanup hardening retries created-but-not-active sessions after open failure and performs immediate bounded runtime-shutdown release retries before SIGTERM cleanup continues.
 - [x] Verify direct behavior and downstream effects with focused Browserbase automation tests and `bun run check`.

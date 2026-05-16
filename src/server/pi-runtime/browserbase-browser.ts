@@ -53,6 +53,8 @@ export { createBrowserAutomationTools } from './browserbase-tools'
 const automaticReleaseRetryDelayMs = 30000
 const maxAutomaticReleaseAttempts = 3
 
+type AutomaticReleaseRetryMode = 'scheduled' | 'immediate'
+
 export class BrowserbaseBrowserAutomationManager {
     private config: BrowserAutomationManagerInput['config']
     private audit: BrowserAutomationManagerInput['audit']
@@ -565,6 +567,7 @@ export class BrowserbaseBrowserAutomationManager {
             await this.releaseActiveSession({
                 reason,
                 failOnProviderError: false,
+                retryMode: reason === 'runtime_shutdown' ? 'immediate' : 'scheduled',
             })
         })
     }
@@ -777,27 +780,75 @@ export class BrowserbaseBrowserAutomationManager {
         sessionId: string
         actionBudget: RoomBrowserActionBudgetSnapshot
     }): Promise<void> {
+        for (let attempt = 1; attempt <= maxAutomaticReleaseAttempts; attempt += 1) {
+            const released = await this.releaseBrowserbaseProviderSession({
+                sessionId: input.sessionId,
+                sessionKey: input.context.sessionKey,
+                runId: input.context.runId,
+                reason: 'open_failed',
+                actionBudget: input.actionBudget,
+                attempt,
+                auditLifecycle: true,
+            })
+            if (released.ok) {
+                return
+            }
+        }
+        await this.auditSessionRelease('failed', {
+            sessionKey: input.context.sessionKey,
+            runId: input.context.runId,
+            sessionId: input.sessionId,
+            reason: 'open_failed',
+            attempt: maxAutomaticReleaseAttempts,
+            error: 'Browserbase release retry limit reached',
+            actionBudget: input.actionBudget,
+        })
+    }
+
+    private async releaseBrowserbaseProviderSession(input: {
+        sessionId: string
+        sessionKey: string | null
+        runId: string | null
+        reason: string
+        actionBudget?: RoomBrowserActionBudgetSnapshot | null
+        attempt: number
+        auditLifecycle: boolean
+    }): Promise<{ ok: true } | { ok: false; message: string }> {
         try {
             await releaseBrowserbaseSession({
                 apiKey: this.apiKey(),
                 sessionId: input.sessionId,
             })
-            await this.auditSessionRelease('complete', {
-                sessionKey: input.context.sessionKey,
-                runId: input.context.runId,
-                sessionId: input.sessionId,
-                reason: 'open_failed',
-                actionBudget: input.actionBudget,
-            })
         } catch (error) {
-            await this.auditSessionRelease('failed', {
-                sessionKey: input.context.sessionKey,
-                runId: input.context.runId,
+            const message = browserErrorMessage(error)
+            if (input.auditLifecycle) {
+                await this.auditSessionRelease('failed', {
+                    sessionKey: input.sessionKey,
+                    runId: input.runId,
+                    sessionId: input.sessionId,
+                    reason: input.reason,
+                    attempt: input.attempt,
+                    error: message,
+                    actionBudget: input.actionBudget ?? null,
+                })
+            }
+            return {
+                ok: false,
+                message,
+            }
+        }
+        if (input.auditLifecycle) {
+            await this.auditSessionRelease('complete', {
+                sessionKey: input.sessionKey,
+                runId: input.runId,
                 sessionId: input.sessionId,
-                reason: 'open_failed',
-                error: browserErrorMessage(error),
-                actionBudget: input.actionBudget,
+                reason: input.reason,
+                attempt: input.attempt,
+                actionBudget: input.actionBudget ?? null,
             })
+        }
+        return {
+            ok: true,
         }
     }
 
@@ -807,6 +858,7 @@ export class BrowserbaseBrowserAutomationManager {
         actionBudget?: RoomBrowserActionBudgetSnapshot | null
         failOnProviderError: boolean
         attempt?: number
+        retryMode?: AutomaticReleaseRetryMode
     }): Promise<string | null> {
         const active = this.active
         if (!active) {
@@ -815,13 +867,16 @@ export class BrowserbaseBrowserAutomationManager {
         }
         const auditLifecycle = input.reason !== 'tool_close'
         const attempt = input.attempt ?? 1
-        try {
-            await releaseBrowserbaseSession({
-                apiKey: this.apiKey(),
-                sessionId: active.browserbaseSessionId,
-            })
-        } catch (error) {
-            const message = browserErrorMessage(error)
+        const released = await this.releaseBrowserbaseProviderSession({
+            sessionId: active.browserbaseSessionId,
+            sessionKey: input.context?.sessionKey ?? active.sessionKey,
+            runId: input.context?.runId ?? null,
+            reason: input.reason,
+            actionBudget: input.actionBudget ?? null,
+            attempt,
+            auditLifecycle,
+        })
+        if (!released.ok) {
             this.setSnapshot({
                 status: 'error',
                 sessionId: active.browserbaseSessionId,
@@ -832,21 +887,28 @@ export class BrowserbaseBrowserAutomationManager {
                 openedAt: active.openedAt,
                 updatedAt: this.now(),
                 actionBudget: input.actionBudget ?? this.snapshotValue?.actionBudget ?? null,
-                message,
+                message: released.message,
             })
-            if (auditLifecycle) {
+            if (input.failOnProviderError) {
+                throw new Error(released.message)
+            }
+            if ((input.retryMode ?? 'scheduled') === 'immediate') {
+                if (attempt < maxAutomaticReleaseAttempts) {
+                    return this.releaseActiveSession({
+                        ...input,
+                        attempt: attempt + 1,
+                    })
+                }
                 await this.auditSessionRelease('failed', {
                     sessionKey: input.context?.sessionKey ?? active.sessionKey,
                     runId: input.context?.runId ?? null,
                     sessionId: active.browserbaseSessionId,
                     reason: input.reason,
                     attempt,
-                    error: message,
+                    error: 'Browserbase release retry limit reached',
                     actionBudget: input.actionBudget ?? null,
                 })
-            }
-            if (input.failOnProviderError) {
-                throw new Error(message)
+                return active.browserbaseSessionId
             }
             this.scheduleAutomaticReleaseRetry({
                 ...input,
@@ -870,16 +932,6 @@ export class BrowserbaseBrowserAutomationManager {
             actionBudget: input.actionBudget ?? this.snapshotValue?.actionBudget ?? null,
             message: input.reason,
         })
-        if (auditLifecycle) {
-            await this.auditSessionRelease('complete', {
-                sessionKey: input.context?.sessionKey ?? active.sessionKey,
-                runId: input.context?.runId ?? null,
-                sessionId: active.browserbaseSessionId,
-                reason: input.reason,
-                attempt,
-                actionBudget: input.actionBudget ?? null,
-            })
-        }
         return active.browserbaseSessionId
     }
 
@@ -890,6 +942,7 @@ export class BrowserbaseBrowserAutomationManager {
         failOnProviderError: boolean
         attempt: number
         sessionId: string
+        retryMode?: AutomaticReleaseRetryMode
     }): void {
         if (input.failOnProviderError) {
             return

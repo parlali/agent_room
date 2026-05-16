@@ -701,6 +701,50 @@ describe('Browserbase browser automation', () => {
         expect(serialized).toContain('Browser CDP connection timed out')
     })
 
+    it('retries release for a created session after open fails before it becomes active', async () => {
+        vi.useFakeTimers()
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
+        const { fetchCalls } = installBrowserbaseFakes({
+            neverOpenWebSocket: true,
+            releaseStatus: 500,
+            releaseFailures: 1,
+        })
+        const { manager, events } = createManager()
+
+        const opened = manager.open(
+            {
+                action: 'open',
+                toolCallId: 'call-1',
+                sessionKey: 'thread-1',
+                runId: 'run-1',
+            },
+            {
+                url: 'https://93.184.216.34/start',
+            },
+        )
+        const openedExpectation = expect(opened).rejects.toThrow('Browser CDP connection timed out')
+        await vi.advanceTimersByTimeAsync(0)
+        await vi.advanceTimersByTimeAsync(15000)
+        await openedExpectation
+
+        expect(
+            fetchCalls.filter(
+                (call) =>
+                    call.method === 'POST' &&
+                    call.url === 'https://api.browserbase.com/v1/sessions/bb-session-1',
+            ),
+        ).toHaveLength(2)
+        const releaseAudit = events
+            .filter((event) => event.event === 'browser.session_release')
+            .map((event) => payloadText(event.payload))
+            .join('\n')
+        expect(releaseAudit).toContain('"reason":"open_failed"')
+        expect(releaseAudit).toContain('"attempt":1')
+        expect(releaseAudit).toContain('"attempt":2')
+        expect(releaseAudit).toContain('"status":"failed"')
+        expect(releaseAudit).toContain('"status":"complete"')
+    })
+
     it('audits replacement, idle, and shutdown release paths', async () => {
         process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
         installBrowserbaseFakes()
@@ -789,6 +833,46 @@ describe('Browserbase browser automation', () => {
             .filter((event) => event.event === 'browser.session_release')
             .map((event) => payloadText(event.payload))
             .join('\n')
+        expect(releaseAudit).toContain('"attempt":1')
+        expect(releaseAudit).toContain('"attempt":2')
+        expect(releaseAudit).toContain('"status":"complete"')
+    })
+
+    it('retries runtime shutdown release immediately before closeAll resolves', async () => {
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
+        const { fetchCalls } = installBrowserbaseFakes({
+            releaseStatus: 500,
+            releaseFailures: 1,
+        })
+        const { manager, events } = createManager()
+        const context = {
+            action: 'open' as const,
+            toolCallId: 'call-1',
+            sessionKey: 'thread-1',
+            runId: 'run-1',
+        }
+        await manager.open(context, {
+            url: 'https://93.184.216.34/start',
+        })
+
+        await manager.closeAll('runtime_shutdown')
+
+        expect(manager.snapshot()).toMatchObject({
+            status: 'closed',
+            sessionId: 'bb-session-1',
+        })
+        expect(
+            fetchCalls.filter(
+                (call) =>
+                    call.method === 'POST' &&
+                    call.url === 'https://api.browserbase.com/v1/sessions/bb-session-1',
+            ),
+        ).toHaveLength(2)
+        const releaseAudit = events
+            .filter((event) => event.event === 'browser.session_release')
+            .map((event) => payloadText(event.payload))
+            .join('\n')
+        expect(releaseAudit).toContain('"reason":"runtime_shutdown"')
         expect(releaseAudit).toContain('"attempt":1')
         expect(releaseAudit).toContain('"attempt":2')
         expect(releaseAudit).toContain('"status":"complete"')
