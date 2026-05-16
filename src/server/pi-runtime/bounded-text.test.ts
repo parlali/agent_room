@@ -22,4 +22,19 @@ describe('bounded text', () => {
         })
         expect(Buffer.byteLength(result.text, 'utf8')).toBeLessThanOrEqual(3)
     })
+
+    it('clips by utf8 bytes without splitting surrogate pairs', () => {
+        expect(boundTextByUtf8Bytes('😀a', 3)).toEqual({
+            text: '',
+            truncated: true,
+        })
+        expect(boundTextByUtf8Bytes('😀a', 4)).toEqual({
+            text: '😀',
+            truncated: true,
+        })
+        expect(boundTextByUtf8Bytes('😀a', 5)).toEqual({
+            text: '😀a',
+            truncated: false,
+        })
+    })
 })

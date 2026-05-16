@@ -137,10 +137,39 @@ describe('internal agent state', () => {
 
             expect(summary.text).toContain('Room memory brief')
             expect(summary.text).toContain('Operator prefers short answers')
-            expect(summary.text.length).toBeLessThanOrEqual(internalStatePolicy.maxInjectedBytes)
+            expect(Buffer.byteLength(summary.text, 'utf8')).toBeLessThanOrEqual(
+                internalStatePolicy.maxInjectedBytes,
+            )
             await expect(
                 readFile(join(config.paths.workspaceDir, 'memory.md'), 'utf8'),
             ).rejects.toThrow()
+        })
+    })
+
+    it('caps the injected summary by bytes for multi-byte text', async () => {
+        await withRoom(async (config) => {
+            await ensureInternalState(config)
+            const previous = await readMemory(config)
+            await replaceMemory({
+                config,
+                memory: {
+                    ...previous.memory,
+                    doNotForget: [
+                        {
+                            id: 'multi-byte',
+                            text: 'é'.repeat(11900),
+                            createdAt: new Date().toISOString(),
+                        },
+                    ],
+                },
+                expectedHash: previous.hash,
+            })
+            const summary = await buildInternalStateSummary(config)
+
+            expect(summary.byteLength).toBe(Buffer.byteLength(summary.text, 'utf8'))
+            expect(summary.byteLength).toBeLessThanOrEqual(summary.maxBytes)
+            expect(summary.maxBytes).toBe(internalStatePolicy.maxInjectedBytes)
+            expect(summary.truncated).toBe(true)
         })
     })
 

@@ -23,18 +23,18 @@ export function boundTextByUtf8Bytes(value: string, maxBytes: number): BoundedTe
             truncated: false,
         }
     }
-    let low = 0
-    let high = value.length
-    while (low < high) {
-        const mid = Math.ceil((low + high) / 2)
-        if (Buffer.byteLength(value.slice(0, mid), 'utf8') <= maxBytes) {
-            low = mid
-        } else {
-            high = mid - 1
+    let bytes = 0
+    let end = 0
+    for (const char of value) {
+        const nextBytes = bytes + Buffer.byteLength(char, 'utf8')
+        if (nextBytes > maxBytes) {
+            break
         }
+        bytes = nextBytes
+        end += char.length
     }
     return {
-        text: value.slice(0, low),
+        text: value.slice(0, end),
         truncated: true,
     }
 }
