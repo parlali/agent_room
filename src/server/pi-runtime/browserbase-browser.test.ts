@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
     BrowserbaseBrowserAutomationManager,
     createBrowserAutomationTools,
@@ -75,6 +75,8 @@ function installBrowserbaseFakes(
         connectUrl?: string
         failWebSocket?: boolean
         liveUrl?: string
+        neverOpenWebSocket?: boolean
+        releaseFailures?: number
         releaseStatus?: number
         sessionCreateStatus?: number
         state?: FakeBrowserState
@@ -88,6 +90,7 @@ function installBrowserbaseFakes(
     }
     const fetchCalls: FetchCall[] = []
     let sessionCount = 0
+    let releaseFailuresRemaining = input.releaseFailures ?? null
     globalThis.fetch = (async (request, init) => {
         const url = String(request)
         const body = init?.body ? JSON.parse(String(init.body)) : null
@@ -136,7 +139,13 @@ function installBrowserbaseFakes(
             })
         }
         if (url.includes('/sessions/bb-session-') && init?.method === 'POST') {
-            if (input.releaseStatus) {
+            if (
+                input.releaseStatus &&
+                (releaseFailuresRemaining === null || releaseFailuresRemaining > 0)
+            ) {
+                if (releaseFailuresRemaining !== null) {
+                    releaseFailuresRemaining -= 1
+                }
                 return Response.json(
                     {
                         error: 'release failed',
@@ -168,10 +177,12 @@ function installBrowserbaseFakes(
             }
             this.url = url
             FakeWebSocket.instances.push(this)
-            queueMicrotask(() => {
-                this.readyState = 1
-                this.dispatchEvent(new Event('open'))
-            })
+            if (!input.neverOpenWebSocket) {
+                queueMicrotask(() => {
+                    this.readyState = 1
+                    this.dispatchEvent(new Event('open'))
+                })
+            }
         }
 
         send(raw: string): void {
@@ -311,6 +322,7 @@ function payloadText(payload: unknown): string {
 
 describe('Browserbase browser automation', () => {
     afterEach(() => {
+        vi.useRealTimers()
         globalThis.fetch = originalFetch
         globalThis.WebSocket = originalWebSocket
         if (originalBrowserbaseKey === undefined) {
@@ -396,7 +408,9 @@ describe('Browserbase browser automation', () => {
         expect(fetchCalls[0]?.apiKey).toBe('browserbase-secret')
         expect(fetchCalls[0]?.body).toEqual({
             keepAlive: true,
-            timeout: 660,
+            browserSettings: {
+                timeout: 660,
+            },
         })
         const audit = events.map((event) => payloadText(event.payload)).join('\n')
         expect(audit).not.toContain('browserbase-secret')
@@ -646,6 +660,47 @@ describe('Browserbase browser automation', () => {
         })
     })
 
+    it('times out a stalled Browserbase WebSocket handshake and releases the created session', async () => {
+        vi.useFakeTimers()
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
+        const { fetchCalls } = installBrowserbaseFakes({
+            connectUrl: 'wss://connect.browserbase.test/session-secret?token=secret-token',
+            neverOpenWebSocket: true,
+        })
+        const { manager, events } = createManager()
+
+        const opened = manager.open(
+            {
+                action: 'open',
+                toolCallId: 'call-1',
+                sessionKey: 'thread-1',
+                runId: 'run-1',
+            },
+            {
+                url: 'https://93.184.216.34/start',
+            },
+        )
+        const openedExpectation = expect(opened).rejects.toThrow('Browser CDP connection timed out')
+        await vi.advanceTimersByTimeAsync(0)
+        await vi.advanceTimersByTimeAsync(15000)
+
+        await openedExpectation
+        expect(fetchCalls.at(-1)).toMatchObject({
+            method: 'POST',
+            url: 'https://api.browserbase.com/v1/sessions/bb-session-1',
+            body: {
+                status: 'REQUEST_RELEASE',
+            },
+        })
+        const serialized = payloadText({
+            events,
+            snapshot: manager.snapshot(),
+        })
+        expect(serialized).not.toContain('connect.browserbase.test')
+        expect(serialized).not.toContain('session-secret')
+        expect(serialized).toContain('Browser CDP connection timed out')
+    })
+
     it('audits replacement, idle, and shutdown release paths', async () => {
         process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
         installBrowserbaseFakes()
@@ -688,6 +743,54 @@ describe('Browserbase browser automation', () => {
         expect(releaseAudit).toContain('"reason":"replaced"')
         expect(releaseAudit).toContain('"reason":"runtime_shutdown"')
         expect(releaseAudit).toContain('"reason":"idle_timeout"')
+        expect(releaseAudit).toContain('"status":"complete"')
+    })
+
+    it('retries automatic release after a transient Browserbase release failure', async () => {
+        vi.useFakeTimers()
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
+        const { fetchCalls } = installBrowserbaseFakes({
+            releaseStatus: 500,
+            releaseFailures: 1,
+        })
+        const { manager, events } = createManager()
+        const context = {
+            action: 'open' as const,
+            toolCallId: 'call-1',
+            sessionKey: 'thread-1',
+            runId: 'run-1',
+        }
+        await manager.open(context, {
+            url: 'https://93.184.216.34/start',
+        })
+
+        await manager.closeAll('idle_timeout')
+
+        expect(manager.snapshot()).toMatchObject({
+            status: 'error',
+            sessionId: 'bb-session-1',
+        })
+        expect(payloadText(events)).toContain('"reason":"idle_timeout"')
+        expect(payloadText(events)).toContain('"status":"failed"')
+        await vi.advanceTimersByTimeAsync(30000)
+
+        expect(manager.snapshot()).toMatchObject({
+            status: 'closed',
+            sessionId: 'bb-session-1',
+        })
+        expect(
+            fetchCalls.filter(
+                (call) =>
+                    call.method === 'POST' &&
+                    call.url === 'https://api.browserbase.com/v1/sessions/bb-session-1',
+            ),
+        ).toHaveLength(2)
+        const releaseAudit = events
+            .filter((event) => event.event === 'browser.session_release')
+            .map((event) => payloadText(event.payload))
+            .join('\n')
+        expect(releaseAudit).toContain('"attempt":1')
+        expect(releaseAudit).toContain('"attempt":2')
         expect(releaseAudit).toContain('"status":"complete"')
     })
 

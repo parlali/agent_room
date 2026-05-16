@@ -50,6 +50,9 @@ import { sanitizeUrlForAudit } from './web-url-safety'
 
 export { createBrowserAutomationTools } from './browserbase-tools'
 
+const automaticReleaseRetryDelayMs = 30000
+const maxAutomaticReleaseAttempts = 3
+
 export class BrowserbaseBrowserAutomationManager {
     private config: BrowserAutomationManagerInput['config']
     private audit: BrowserAutomationManagerInput['audit']
@@ -60,6 +63,7 @@ export class BrowserbaseBrowserAutomationManager {
     private runBudgets = new Map<string, BrowserActionBudgetState>()
     private idleCloseTimer: ReturnType<typeof setTimeout> | null = null
     private heartbeatTimer: ReturnType<typeof setInterval> | null = null
+    private releaseRetryTimer: ReturnType<typeof setTimeout> | null = null
     private queue = Promise.resolve()
 
     constructor(input: BrowserAutomationManagerInput) {
@@ -762,6 +766,10 @@ export class BrowserbaseBrowserAutomationManager {
             clearInterval(this.heartbeatTimer)
             this.heartbeatTimer = null
         }
+        if (this.releaseRetryTimer) {
+            clearTimeout(this.releaseRetryTimer)
+            this.releaseRetryTimer = null
+        }
     }
 
     private async releaseCreatedSessionAfterOpenFailure(input: {
@@ -798,6 +806,7 @@ export class BrowserbaseBrowserAutomationManager {
         context?: Pick<BrowserAutomationToolContext, 'action' | 'sessionKey' | 'runId'>
         actionBudget?: RoomBrowserActionBudgetSnapshot | null
         failOnProviderError: boolean
+        attempt?: number
     }): Promise<string | null> {
         const active = this.active
         if (!active) {
@@ -805,6 +814,7 @@ export class BrowserbaseBrowserAutomationManager {
             return null
         }
         const auditLifecycle = input.reason !== 'tool_close'
+        const attempt = input.attempt ?? 1
         try {
             await releaseBrowserbaseSession({
                 apiKey: this.apiKey(),
@@ -830,6 +840,7 @@ export class BrowserbaseBrowserAutomationManager {
                     runId: input.context?.runId ?? null,
                     sessionId: active.browserbaseSessionId,
                     reason: input.reason,
+                    attempt,
                     error: message,
                     actionBudget: input.actionBudget ?? null,
                 })
@@ -837,6 +848,11 @@ export class BrowserbaseBrowserAutomationManager {
             if (input.failOnProviderError) {
                 throw new Error(message)
             }
+            this.scheduleAutomaticReleaseRetry({
+                ...input,
+                attempt: attempt + 1,
+                sessionId: active.browserbaseSessionId,
+            })
             return active.browserbaseSessionId
         }
         active.cdp.close()
@@ -860,10 +876,49 @@ export class BrowserbaseBrowserAutomationManager {
                 runId: input.context?.runId ?? null,
                 sessionId: active.browserbaseSessionId,
                 reason: input.reason,
+                attempt,
                 actionBudget: input.actionBudget ?? null,
             })
         }
         return active.browserbaseSessionId
+    }
+
+    private scheduleAutomaticReleaseRetry(input: {
+        reason: string
+        context?: Pick<BrowserAutomationToolContext, 'action' | 'sessionKey' | 'runId'>
+        actionBudget?: RoomBrowserActionBudgetSnapshot | null
+        failOnProviderError: boolean
+        attempt: number
+        sessionId: string
+    }): void {
+        if (input.failOnProviderError) {
+            return
+        }
+        if (input.attempt > maxAutomaticReleaseAttempts) {
+            void this.auditSessionRelease('failed', {
+                sessionKey: input.context?.sessionKey ?? this.active?.sessionKey ?? null,
+                runId: input.context?.runId ?? null,
+                sessionId: input.sessionId,
+                reason: input.reason,
+                attempt: input.attempt - 1,
+                error: 'Browserbase release retry limit reached',
+                actionBudget: input.actionBudget ?? null,
+            })
+            return
+        }
+        if (this.releaseRetryTimer) {
+            clearTimeout(this.releaseRetryTimer)
+        }
+        this.releaseRetryTimer = setTimeout(() => {
+            this.releaseRetryTimer = null
+            void this.enqueue(async () => {
+                if (this.active?.browserbaseSessionId !== input.sessionId) {
+                    return
+                }
+                await this.releaseActiveSession(input)
+            })
+        }, automaticReleaseRetryDelayMs)
+        this.releaseRetryTimer.unref?.()
     }
 }
 

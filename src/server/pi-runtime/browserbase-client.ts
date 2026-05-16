@@ -32,7 +32,9 @@ export async function createBrowserbaseSession(input: {
         method: 'POST',
         body: {
             keepAlive: true,
-            timeout: input.timeoutSeconds,
+            browserSettings: {
+                timeout: input.timeoutSeconds,
+            },
         },
         signal: input.signal,
     })

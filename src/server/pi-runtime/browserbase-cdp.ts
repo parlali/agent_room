@@ -54,11 +54,18 @@ export class BrowserCdpConnection {
         }
         const connection = new BrowserCdpConnection(socket, input.commandTimeoutMs)
         try {
-            await connection.waitForOpen(input.signal)
+            await connection.waitForOpen({
+                signal: input.signal,
+                timeoutMs: input.commandTimeoutMs,
+            })
             return connection
         } catch (error) {
             connection.close()
-            if (error instanceof Error && error.message === 'Browser action was cancelled') {
+            if (
+                error instanceof Error &&
+                (error.message === 'Browser action was cancelled' ||
+                    error.message === 'Browser CDP connection timed out')
+            ) {
                 throw error
             }
             throw new Error('Browser CDP connection failed')
@@ -188,16 +195,24 @@ export class BrowserCdpConnection {
         }
     }
 
-    private waitForOpen(signal?: AbortSignal): Promise<void> {
+    private waitForOpen(input: { signal?: AbortSignal; timeoutMs: number }): Promise<void> {
         if (this.socket.readyState === 1) {
             return Promise.resolve()
         }
         return new Promise((resolve, reject) => {
+            let timedOut = false
+            const timeout = setTimeout(() => {
+                timedOut = true
+                cleanup()
+                reject(new Error('Browser CDP connection timed out'))
+            }, input.timeoutMs)
+            timeout.unref?.()
             const cleanup = () => {
+                clearTimeout(timeout)
                 this.socket.removeEventListener('open', open)
                 this.socket.removeEventListener('close', close)
                 this.socket.removeEventListener('error', close)
-                signal?.removeEventListener('abort', abort)
+                input.signal?.removeEventListener('abort', abort)
             }
             const open = () => {
                 cleanup()
@@ -205,7 +220,13 @@ export class BrowserCdpConnection {
             }
             const close = () => {
                 cleanup()
-                reject(new Error('Browser CDP connection failed'))
+                reject(
+                    new Error(
+                        timedOut
+                            ? 'Browser CDP connection timed out'
+                            : 'Browser CDP connection failed',
+                    ),
+                )
             }
             const abort = () => {
                 cleanup()
@@ -214,8 +235,8 @@ export class BrowserCdpConnection {
             this.socket.addEventListener('open', open, { once: true })
             this.socket.addEventListener('close', close, { once: true })
             this.socket.addEventListener('error', close, { once: true })
-            signal?.addEventListener('abort', abort, { once: true })
-            if (signal?.aborted) {
+            input.signal?.addEventListener('abort', abort, { once: true })
+            if (input.signal?.aborted) {
                 abort()
             }
         })

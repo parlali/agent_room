@@ -49,6 +49,7 @@ The brainstorm has been split into three public OSS work-stream issues. Implemen
 - [x] Add a per-room browser action budget that materializes into the Pi runtime and fails closed when exhausted.
 - [x] Surface the active browser session through the runtime snapshot and chat view live panel without logging Browserbase `connectUrl` or live inspector URLs in audit events.
 - [x] Audit browser actions with bounded, sanitized payloads and keep typed runtime, snapshot, settings, and persisted config contracts canonical.
-- [x] PR review hardening sends Browserbase session `timeout` at the documented top-level field, redacts transient CDP connection URLs, lets close release sessions after action-budget exhaustion, audits validation and automatic release paths, and splits Browserbase API, CDP, page actions, tool registration, utilities, and lifecycle management into focused modules.
+- [x] PR review hardening redacts transient CDP connection URLs, lets close release sessions after action-budget exhaustion, audits validation and automatic release paths, and splits Browserbase API, CDP, page actions, tool registration, utilities, and lifecycle management into focused modules.
 - [x] Expand Browserbase automation tests to cover each action tool, auth/quota failures, invalid-input audit paths, replacement/runtime/idle release audit events, close-after-budget-exhaustion, and connect-failure redaction.
+- [x] Follow-up PR review hardening aligns direct REST session creation with the Browserbase REST `browserSettings.timeout` shape, bounds the CDP WebSocket handshake, and retries automatic release after transient Browserbase release failures.
 - [x] Verify direct behavior and downstream effects with focused Browserbase automation tests and `bun run check`.
