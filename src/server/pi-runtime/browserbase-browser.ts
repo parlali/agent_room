@@ -60,12 +60,13 @@ export class BrowserbaseBrowserAutomationManager {
     private audit: BrowserAutomationManagerInput['audit']
     private broadcast: BrowserAutomationManagerInput['broadcast']
     private now: () => number
-    private active: ActiveBrowserSession | null = null
-    private snapshotValue: RoomBrowserSessionSnapshot | null = null
+    private activeBySession = new Map<string, ActiveBrowserSession>()
+    private snapshotsBySession = new Map<string, RoomBrowserSessionSnapshot>()
     private runBudgets = new Map<string, BrowserActionBudgetState>()
-    private idleCloseTimer: ReturnType<typeof setTimeout> | null = null
-    private heartbeatTimer: ReturnType<typeof setInterval> | null = null
-    private releaseRetryTimer: ReturnType<typeof setTimeout> | null = null
+    private idleCloseTimers = new Map<string, ReturnType<typeof setTimeout>>()
+    private heartbeatTimers = new Map<string, ReturnType<typeof setInterval>>()
+    private releaseRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+    private latestSnapshotSessionKey: string | null = null
     private queue = Promise.resolve()
 
     constructor(input: BrowserAutomationManagerInput) {
@@ -80,8 +81,13 @@ export class BrowserbaseBrowserAutomationManager {
         return this.config.search.browserbase.enabled && Boolean(envKey && process.env[envKey])
     }
 
-    snapshot(): RoomBrowserSessionSnapshot | null {
-        return this.snapshotValue
+    snapshot(sessionKey?: string | null): RoomBrowserSessionSnapshot | null {
+        if (sessionKey) {
+            return this.snapshotsBySession.get(sessionKey) ?? null
+        }
+        return this.latestSnapshotSessionKey
+            ? (this.snapshotsBySession.get(this.latestSnapshotSessionKey) ?? null)
+            : null
     }
 
     async open(
@@ -141,7 +147,7 @@ export class BrowserbaseBrowserAutomationManager {
                     runId: context.runId,
                     openedAt: this.now(),
                 }
-                this.active = active
+                this.activeBySession.set(context.sessionKey, active)
                 await navigateActivePage(active, requestedUrl, context.signal)
                 const metadata = await readPageMetadata(active, context.signal)
                 const debug = await getBrowserbaseDebugUrls({
@@ -161,8 +167,8 @@ export class BrowserbaseBrowserAutomationManager {
                     actionBudget,
                     message: null,
                 })
-                this.scheduleIdleClose()
-                this.scheduleHeartbeat()
+                this.scheduleIdleClose(context.sessionKey)
+                this.scheduleHeartbeat(context.sessionKey)
                 await this.auditAction(context, 'complete', {
                     sessionId: session.id,
                     requestedUrl: sanitizeUrlForAudit(requestedUrl),
@@ -177,11 +183,15 @@ export class BrowserbaseBrowserAutomationManager {
                         metadata.title ? `Title: ${metadata.title}` : null,
                         `Action budget: ${actionBudget.used}/${actionBudget.max}`,
                     ],
-                    this.details('open', actionBudget),
+                    this.details(context.sessionKey, 'open', actionBudget),
                 )
             } catch (error) {
                 const message = browserErrorMessage(error, [createdSession?.connectUrl])
-                if (createdSession && this.active?.browserbaseSessionId !== createdSession.id) {
+                const activeForSession = this.activeBySession.get(context.sessionKey)
+                if (
+                    createdSession &&
+                    activeForSession?.browserbaseSessionId !== createdSession.id
+                ) {
                     createdCdp?.close()
                     await this.releaseCreatedSessionAfterOpenFailure({
                         context,
@@ -197,15 +207,16 @@ export class BrowserbaseBrowserAutomationManager {
                     })
                 }
                 if (lifecycleTouched || createdSession) {
-                    const active = this.active
+                    const active = this.activeBySession.get(context.sessionKey)
+                    const current = this.snapshotsBySession.get(context.sessionKey)
                     this.setSnapshot({
                         status: 'error',
                         sessionId: active?.browserbaseSessionId ?? null,
                         sessionKey: active?.sessionKey ?? context.sessionKey,
-                        pageUrl: this.snapshotValue?.pageUrl ?? null,
-                        pageTitle: this.snapshotValue?.pageTitle ?? null,
-                        liveUrl: active ? (this.snapshotValue?.liveUrl ?? null) : null,
-                        openedAt: this.snapshotValue?.openedAt ?? this.now(),
+                        pageUrl: current?.pageUrl ?? null,
+                        pageTitle: current?.pageTitle ?? null,
+                        liveUrl: active ? (current?.liveUrl ?? null) : null,
+                        openedAt: current?.openedAt ?? this.now(),
                         updatedAt: this.now(),
                         actionBudget,
                         message,
@@ -228,7 +239,6 @@ export class BrowserbaseBrowserAutomationManager {
                 actionBudget,
             })
             try {
-                this.assertActiveSessionOwner(context)
                 const released = await this.releaseActiveSession({
                     reason: 'tool_close',
                     context,
@@ -246,7 +256,7 @@ export class BrowserbaseBrowserAutomationManager {
                             : 'No active Browserbase session was open',
                         `Action budget: ${actionBudget.used}/${actionBudget.max}`,
                     ],
-                    this.details('close', actionBudget),
+                    this.details(context.sessionKey, 'close', actionBudget),
                 )
             } catch (error) {
                 const message = browserErrorMessage(error)
@@ -289,7 +299,7 @@ export class BrowserbaseBrowserAutomationManager {
                         metadata.title ? `Title: ${metadata.title}` : null,
                         `Action budget: ${actionBudget.used}/${actionBudget.max}`,
                     ],
-                    this.details('navigate', actionBudget),
+                    this.details(context.sessionKey, 'navigate', actionBudget),
                 )
             } catch (error) {
                 const message = browserErrorMessage(error)
@@ -335,7 +345,7 @@ export class BrowserbaseBrowserAutomationManager {
                         metadata.url ? `URL: ${sanitizeUrlForAudit(metadata.url)}` : null,
                         `Action budget: ${actionBudget.used}/${actionBudget.max}`,
                     ],
-                    this.details('click', actionBudget),
+                    this.details(context.sessionKey, 'click', actionBudget),
                 )
             } catch (error) {
                 const message = browserErrorMessage(error)
@@ -396,7 +406,7 @@ export class BrowserbaseBrowserAutomationManager {
                         target.label ? `Element: ${target.label}` : null,
                         `Action budget: ${actionBudget.used}/${actionBudget.max}`,
                     ],
-                    this.details('type', actionBudget, {
+                    this.details(context.sessionKey, 'type', actionBudget, {
                         textLength,
                     }),
                 )
@@ -452,7 +462,7 @@ export class BrowserbaseBrowserAutomationManager {
                         `Amount: ${amount}`,
                         `Action budget: ${actionBudget.used}/${actionBudget.max}`,
                     ],
-                    this.details('scroll', actionBudget),
+                    this.details(context.sessionKey, 'scroll', actionBudget),
                 )
             } catch (error) {
                 const message = browserErrorMessage(error)
@@ -493,7 +503,7 @@ export class BrowserbaseBrowserAutomationManager {
                         `Action budget: ${actionBudget.used}/${actionBudget.max}`,
                     ],
                     screenshot.data,
-                    this.details('screenshot', actionBudget, {
+                    this.details(context.sessionKey, 'screenshot', actionBudget, {
                         imageBytes: screenshot.bytes,
                     }),
                 )
@@ -547,7 +557,7 @@ export class BrowserbaseBrowserAutomationManager {
                         '',
                         bounded.text,
                     ],
-                    this.details('read_text', actionBudget, {
+                    this.details(context.sessionKey, 'read_text', actionBudget, {
                         textLength: result.text.length,
                         truncated: bounded.truncated,
                     }),
@@ -566,11 +576,14 @@ export class BrowserbaseBrowserAutomationManager {
 
     async closeAll(reason = 'runtime_shutdown'): Promise<void> {
         await this.enqueue(async () => {
-            await this.releaseActiveSession({
-                reason,
-                failOnProviderError: false,
-                retryMode: reason === 'runtime_shutdown' ? 'immediate' : 'scheduled',
-            })
+            for (const sessionKey of [...this.activeBySession.keys()]) {
+                await this.releaseActiveSession({
+                    reason,
+                    sessionKey,
+                    failOnProviderError: false,
+                    retryMode: reason === 'runtime_shutdown' ? 'immediate' : 'scheduled',
+                })
+            }
         })
     }
 
@@ -595,21 +608,12 @@ export class BrowserbaseBrowserAutomationManager {
     private requireActiveSession(
         context?: Pick<BrowserAutomationToolContext, 'sessionKey'>,
     ): ActiveBrowserSession {
-        if (!this.active || this.snapshotValue?.status !== 'open') {
+        const active = context ? this.activeBySession.get(context.sessionKey) : null
+        const snapshot = context ? this.snapshotsBySession.get(context.sessionKey) : null
+        if (!active || snapshot?.status !== 'open') {
             throw new Error('No active Browserbase session is open')
         }
-        if (context && this.active.sessionKey !== context.sessionKey) {
-            throw new Error('Active Browserbase session belongs to another chat session')
-        }
-        return this.active
-    }
-
-    private assertActiveSessionOwner(
-        context: Pick<BrowserAutomationToolContext, 'sessionKey'>,
-    ): void {
-        if (this.active && this.active.sessionKey !== context.sessionKey) {
-            throw new Error('Active Browserbase session belongs to another chat session')
-        }
+        return active
     }
 
     private async consumeActionBudget(
@@ -665,12 +669,15 @@ export class BrowserbaseBrowserAutomationManager {
     }
 
     private setSnapshot(next: RoomBrowserSessionSnapshot): void {
-        this.snapshotValue = next
+        if (next.sessionKey) {
+            this.snapshotsBySession.set(next.sessionKey, next)
+            this.latestSnapshotSessionKey = next.sessionKey
+        }
         this.notifySnapshot(next)
     }
 
     private notifySnapshot(snapshot: RoomBrowserSessionSnapshot | null): void {
-        const sessionKey = snapshot?.sessionKey ?? this.active?.sessionKey ?? '__room__'
+        const sessionKey = snapshot?.sessionKey ?? '__room__'
         this.broadcast(sessionKey, 'browser.session_changed', {
             sessionKey: snapshot?.sessionKey ?? null,
             status: snapshot?.status ?? 'closed',
@@ -714,7 +721,7 @@ export class BrowserbaseBrowserAutomationManager {
     ): Promise<PageMetadata> {
         const active = this.requireActiveSession(context)
         const metadata = await readPageMetadata(active, signal)
-        const current = this.snapshotValue
+        const current = this.snapshotsBySession.get(context.sessionKey)
         this.setSnapshot({
             status: 'open',
             sessionId: active.browserbaseSessionId,
@@ -727,16 +734,17 @@ export class BrowserbaseBrowserAutomationManager {
             actionBudget,
             message: null,
         })
-        this.scheduleIdleClose()
+        this.scheduleIdleClose(context.sessionKey)
         return metadata
     }
 
     private details(
+        sessionKey: string,
         action: BrowserToolAction,
         actionBudget: RoomBrowserActionBudgetSnapshot | null,
         extra: Partial<BrowserToolDetails> = {},
     ): BrowserToolDetails {
-        const snapshot = this.snapshotValue
+        const snapshot = this.snapshot(sessionKey)
         return {
             action,
             status: snapshot?.status ?? 'closed',
@@ -749,45 +757,63 @@ export class BrowserbaseBrowserAutomationManager {
         }
     }
 
-    private scheduleIdleClose(): void {
-        if (this.idleCloseTimer) {
-            clearTimeout(this.idleCloseTimer)
+    private scheduleIdleClose(sessionKey: string): void {
+        const existing = this.idleCloseTimers.get(sessionKey)
+        if (existing) {
+            clearTimeout(existing)
         }
-        this.idleCloseTimer = setTimeout(() => {
+        const timer = setTimeout(() => {
             void this.enqueue(() =>
                 this.releaseActiveSession({
                     reason: 'idle_timeout',
+                    sessionKey,
                     failOnProviderError: false,
                 }),
             )
         }, this.config.budgets.idleTimeoutMs)
-        this.idleCloseTimer.unref?.()
+        timer.unref?.()
+        this.idleCloseTimers.set(sessionKey, timer)
     }
 
-    private scheduleHeartbeat(): void {
-        if (this.heartbeatTimer) {
-            clearInterval(this.heartbeatTimer)
+    private scheduleHeartbeat(sessionKey: string): void {
+        const existing = this.heartbeatTimers.get(sessionKey)
+        if (existing) {
+            clearInterval(existing)
         }
-        this.heartbeatTimer = setInterval(() => {
-            const active = this.active
+        const timer = setInterval(() => {
+            const active = this.activeBySession.get(sessionKey)
             if (!active) return
             void readPageMetadata(active, undefined).catch(() => undefined)
         }, cdpHeartbeatMs)
-        this.heartbeatTimer.unref?.()
+        timer.unref?.()
+        this.heartbeatTimers.set(sessionKey, timer)
     }
 
-    private clearTimers(): void {
-        if (this.idleCloseTimer) {
-            clearTimeout(this.idleCloseTimer)
-            this.idleCloseTimer = null
+    private clearTimers(sessionKey?: string): void {
+        if (!sessionKey) {
+            for (const key of new Set([
+                ...this.idleCloseTimers.keys(),
+                ...this.heartbeatTimers.keys(),
+                ...this.releaseRetryTimers.keys(),
+            ])) {
+                this.clearTimers(key)
+            }
+            return
         }
-        if (this.heartbeatTimer) {
-            clearInterval(this.heartbeatTimer)
-            this.heartbeatTimer = null
+        const idle = this.idleCloseTimers.get(sessionKey)
+        if (idle) {
+            clearTimeout(idle)
+            this.idleCloseTimers.delete(sessionKey)
         }
-        if (this.releaseRetryTimer) {
-            clearTimeout(this.releaseRetryTimer)
-            this.releaseRetryTimer = null
+        const heartbeat = this.heartbeatTimers.get(sessionKey)
+        if (heartbeat) {
+            clearInterval(heartbeat)
+            this.heartbeatTimers.delete(sessionKey)
+        }
+        const releaseRetry = this.releaseRetryTimers.get(sessionKey)
+        if (releaseRetry) {
+            clearTimeout(releaseRetry)
+            this.releaseRetryTimers.delete(sessionKey)
         }
     }
 
@@ -871,14 +897,19 @@ export class BrowserbaseBrowserAutomationManager {
     private async releaseActiveSession(input: {
         reason: string
         context?: Pick<BrowserAutomationToolContext, 'action' | 'sessionKey' | 'runId'>
+        sessionKey?: string
         actionBudget?: RoomBrowserActionBudgetSnapshot | null
         failOnProviderError: boolean
         attempt?: number
         retryMode?: AutomaticReleaseRetryMode
     }): Promise<string | null> {
-        const active = this.active
+        const sessionKey = input.context?.sessionKey ?? input.sessionKey
+        if (!sessionKey) {
+            return null
+        }
+        const active = this.activeBySession.get(sessionKey)
         if (!active) {
-            this.clearTimers()
+            this.clearTimers(sessionKey)
             return null
         }
         const auditLifecycle = input.reason !== 'tool_close'
@@ -893,16 +924,17 @@ export class BrowserbaseBrowserAutomationManager {
             auditLifecycle,
         })
         if (!released.ok) {
+            const current = this.snapshotsBySession.get(sessionKey)
             this.setSnapshot({
                 status: 'error',
                 sessionId: active.browserbaseSessionId,
                 sessionKey: active.sessionKey,
-                pageUrl: this.snapshotValue?.pageUrl ?? null,
-                pageTitle: this.snapshotValue?.pageTitle ?? null,
-                liveUrl: this.snapshotValue?.liveUrl ?? null,
+                pageUrl: current?.pageUrl ?? null,
+                pageTitle: current?.pageTitle ?? null,
+                liveUrl: current?.liveUrl ?? null,
                 openedAt: active.openedAt,
                 updatedAt: this.now(),
-                actionBudget: input.actionBudget ?? this.snapshotValue?.actionBudget ?? null,
+                actionBudget: input.actionBudget ?? current?.actionBudget ?? null,
                 message: released.message,
             })
             if (input.failOnProviderError) {
@@ -936,18 +968,19 @@ export class BrowserbaseBrowserAutomationManager {
             return active.browserbaseSessionId
         }
         active.cdp.close()
-        this.active = null
-        this.clearTimers()
+        this.activeBySession.delete(sessionKey)
+        this.clearTimers(sessionKey)
+        const current = this.snapshotsBySession.get(sessionKey)
         this.setSnapshot({
             status: 'closed',
             sessionId: active.browserbaseSessionId,
             sessionKey: active.sessionKey,
-            pageUrl: this.snapshotValue?.pageUrl ?? null,
-            pageTitle: this.snapshotValue?.pageTitle ?? null,
+            pageUrl: current?.pageUrl ?? null,
+            pageTitle: current?.pageTitle ?? null,
             liveUrl: null,
             openedAt: active.openedAt,
             updatedAt: this.now(),
-            actionBudget: input.actionBudget ?? this.snapshotValue?.actionBudget ?? null,
+            actionBudget: input.actionBudget ?? current?.actionBudget ?? null,
             message: input.reason,
         })
         return active.browserbaseSessionId
@@ -979,19 +1012,30 @@ export class BrowserbaseBrowserAutomationManager {
             })
             return
         }
-        if (this.releaseRetryTimer) {
-            clearTimeout(this.releaseRetryTimer)
+        const sessionKey = input.sessionKey
+        if (!sessionKey) {
+            return
         }
-        this.releaseRetryTimer = setTimeout(() => {
-            this.releaseRetryTimer = null
+        const existing = this.releaseRetryTimers.get(sessionKey)
+        if (existing) {
+            clearTimeout(existing)
+        }
+        const timer = setTimeout(() => {
+            this.releaseRetryTimers.delete(sessionKey)
             void this.enqueue(async () => {
-                if (this.active?.browserbaseSessionId !== input.sessionId) {
+                if (
+                    this.activeBySession.get(sessionKey)?.browserbaseSessionId !== input.sessionId
+                ) {
                     return
                 }
-                await this.releaseActiveSession(input)
+                await this.releaseActiveSession({
+                    ...input,
+                    sessionKey,
+                })
             })
         }, automaticReleaseRetryDelayMs)
-        this.releaseRetryTimer.unref?.()
+        timer.unref?.()
+        this.releaseRetryTimers.set(sessionKey, timer)
     }
 }
 

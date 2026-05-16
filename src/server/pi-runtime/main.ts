@@ -733,7 +733,7 @@ function snapshot(input: { selectedThreadKey?: string | null; messageLimit?: num
         readThreadArtifacts,
         compactionStats,
         selectedThreadModelState,
-        browserSession: () => browserAutomation.snapshot(),
+        browserSession: (sessionKey) => browserAutomation.snapshot(sessionKey),
     })
 }
 

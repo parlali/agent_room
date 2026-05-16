@@ -22,7 +22,7 @@ interface RuntimeSnapshotInput {
     readThreadArtifacts: (record: ThreadRecord) => RoomSessionArtifact[]
     compactionStats: (record: ThreadRecord) => RoomExecutionThread['compaction']
     selectedThreadModelState: (record: ThreadRecord) => RoomExecutionModelState | null
-    browserSession: () => RoomBrowserSessionSnapshot | null
+    browserSession: (sessionKey: string | null) => RoomBrowserSessionSnapshot | null
 }
 
 export function mapThread(
@@ -123,6 +123,6 @@ export function buildRuntimeSnapshot(input: RuntimeSnapshotInput): PiRuntimeSnap
                 estimatedCostUsd: thread.estimatedCostUsd,
             }),
         ),
-        browserSession: input.browserSession(),
+        browserSession: input.browserSession(selectedThreadKey),
     }
 }

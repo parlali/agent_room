@@ -44,7 +44,7 @@ The brainstorm has been split into three public OSS work-stream issues. Implemen
 ## Issue 3 implementation notes
 
 - [x] Add Browserbase-backed room browser tools for open, close, navigate, click, type, scroll, screenshot, and read-text actions.
-- [x] Keep one Browserbase browser session per room, release previous sessions before replacement, and close idle/runtime-shutdown sessions through Browserbase `REQUEST_RELEASE`.
+- [x] Keep Browserbase browser sessions scoped to chat sessions inside each room, replace only an existing browser for the same chat session, and close idle/runtime-shutdown sessions through Browserbase `REQUEST_RELEASE`. (Updated from the original room-level wording after review clarified concurrent same-room sessions must not interfere.)
 - [x] Register browser tools only when the room has Browserbase configured and the materialized Browserbase API key is present.
 - [x] Add a per-room browser action budget that materializes into the Pi runtime and fails closed when exhausted.
 - [x] Surface the active browser session through the runtime snapshot and chat view live panel without logging Browserbase `connectUrl` or live inspector URLs in audit events.
@@ -53,5 +53,5 @@ The brainstorm has been split into three public OSS work-stream issues. Implemen
 - [x] Expand Browserbase automation tests to cover each action tool, auth/quota failures, invalid-input audit paths, replacement/runtime/idle release audit events, close-after-budget-exhaustion, and connect-failure redaction.
 - [x] Follow-up PR review hardening aligns direct REST session creation with the Browserbase REST `browserSettings.timeout` shape, bounds the CDP WebSocket handshake, and retries automatic release after transient Browserbase release failures.
 - [x] Follow-up cleanup hardening retries created-but-not-active sessions after open failure and performs immediate bounded runtime-shutdown release retries before SIGTERM cleanup continues.
-- [x] Follow-up session-boundary hardening keeps one active browser per room but binds control and close operations to the chat session that opened it; another session must explicitly open and replace the room browser before it can control one.
+- [x] Follow-up session-boundary hardening stores active Browserbase sessions, snapshots, idle timers, heartbeat timers, and retry timers by chat session key so separate same-room sessions can open, use, and clean up browsers independently.
 - [x] Verify direct behavior and downstream effects with focused Browserbase automation tests and `bun run check`.

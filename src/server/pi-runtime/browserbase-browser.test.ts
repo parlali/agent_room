@@ -169,6 +169,7 @@ function installBrowserbaseFakes(
         static instances: FakeWebSocket[] = []
         readyState = 0
         url: string
+        browserState: FakeBrowserState
 
         constructor(url: string) {
             super()
@@ -176,6 +177,12 @@ function installBrowserbaseFakes(
                 throw new Error(`Cannot connect to ${url}`)
             }
             this.url = url
+            this.browserState = {
+                url: state.url,
+                title: state.title,
+                text: state.text,
+                sent: state.sent,
+            }
             FakeWebSocket.instances.push(this)
             if (!input.neverOpenWebSocket) {
                 queueMicrotask(() => {
@@ -192,7 +199,7 @@ function installBrowserbaseFakes(
                 params?: Record<string, unknown>
             }
             state.sent.push(message)
-            const result = cdpResult(message, state)
+            const result = cdpResult(message, this.browserState)
             queueMicrotask(() => {
                 this.emitMessage(
                     JSON.stringify({
@@ -564,7 +571,7 @@ describe('Browserbase browser automation', () => {
         }
     })
 
-    it('keeps active browser control bound to the owning chat session', async () => {
+    it('keeps browser sessions independent for separate chat sessions in the same room', async () => {
         process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
         const { fetchCalls } = installBrowserbaseFakes()
         const { manager } = createManager()
@@ -584,25 +591,6 @@ describe('Browserbase browser automation', () => {
             url: 'https://93.184.216.34/first',
         })
 
-        await expect(
-            manager.navigate(secondSession, {
-                url: 'https://93.184.216.34/second',
-            }),
-        ).rejects.toThrow('Active Browserbase session belongs to another chat session')
-        await expect(
-            manager.close({
-                ...secondSession,
-                action: 'close',
-            }),
-        ).rejects.toThrow('Active Browserbase session belongs to another chat session')
-        expect(
-            fetchCalls.filter(
-                (call) =>
-                    call.method === 'POST' &&
-                    call.url === 'https://api.browserbase.com/v1/sessions/bb-session-1',
-            ),
-        ).toHaveLength(0)
-
         await manager.open(
             {
                 ...secondSession,
@@ -613,25 +601,68 @@ describe('Browserbase browser automation', () => {
                 url: 'https://93.184.216.34/second',
             },
         )
-        expect(manager.snapshot()).toMatchObject({
+        expect(manager.snapshot('thread-1')).toMatchObject({
+            status: 'open',
+            sessionId: 'bb-session-1',
+            sessionKey: 'thread-1',
+        })
+        expect(manager.snapshot('thread-2')).toMatchObject({
             status: 'open',
             sessionId: 'bb-session-2',
             sessionKey: 'thread-2',
         })
-        await expect(
-            manager.readText(
-                {
-                    ...firstSession,
-                    action: 'read_text',
-                    toolCallId: 'call-4',
-                },
-                {},
+        expect(
+            fetchCalls.filter(
+                (call) =>
+                    call.method === 'POST' &&
+                    call.url === 'https://api.browserbase.com/v1/sessions/bb-session-1',
             ),
-        ).rejects.toThrow('Active Browserbase session belongs to another chat session')
+        ).toHaveLength(0)
+
+        await manager.navigate(
+            {
+                ...firstSession,
+                action: 'navigate',
+                toolCallId: 'call-4',
+            },
+            {
+                url: 'https://93.184.216.34/first-next',
+            },
+        )
+        await manager.readText(
+            {
+                ...secondSession,
+                action: 'read_text',
+                toolCallId: 'call-5',
+            },
+            {},
+        )
+        expect(manager.snapshot('thread-1')).toMatchObject({
+            sessionId: 'bb-session-1',
+            pageUrl: 'https://93.184.216.34/first-next',
+        })
+        expect(manager.snapshot('thread-2')).toMatchObject({
+            sessionId: 'bb-session-2',
+            pageUrl: 'https://93.184.216.34/second',
+        })
+
         await manager.close({
             ...secondSession,
             action: 'close',
-            toolCallId: 'call-5',
+            toolCallId: 'call-6',
+        })
+        expect(manager.snapshot('thread-1')).toMatchObject({
+            status: 'open',
+            sessionId: 'bb-session-1',
+        })
+        expect(manager.snapshot('thread-2')).toMatchObject({
+            status: 'closed',
+            sessionId: 'bb-session-2',
+        })
+        await manager.close({
+            ...firstSession,
+            action: 'close',
+            toolCallId: 'call-7',
         })
     })
 
