@@ -48,7 +48,10 @@ import {
     proactiveCompactionContextBytes,
 } from './session-context-budget'
 import { createPiRuntimeSession } from './pi-runtime-session'
-import { BrowserbaseBrowserAutomationManager } from './browserbase-browser'
+import {
+    BrowserbaseBrowserAutomationManager,
+    browserbaseRuntimeShutdownGraceMs,
+} from './browserbase-browser'
 import { createRuntimeEventBus } from './runtime-event-bus'
 import { buildRuntimeSnapshot, mapThread } from './runtime-snapshot'
 import { createSessionWindowStore } from './session-display-window'
@@ -794,7 +797,7 @@ process.on('SIGTERM', () => {
             })
         })
     })
-    setTimeout(() => process.exit(0), 5000).unref()
+    setTimeout(() => process.exit(0), browserbaseRuntimeShutdownGraceMs).unref()
 })
 
 server.listen(config.runtime.port, config.runtime.bindHost, () => {

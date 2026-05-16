@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
     BrowserbaseBrowserAutomationManager,
+    browserbaseRuntimeShutdownGraceMs,
+    browserbaseRuntimeShutdownReleaseRequestTimeoutMs,
     createBrowserAutomationTools,
 } from './browserbase-browser'
 import { createTestPiRuntimeConfig } from './test-runtime-defaults'
@@ -77,6 +79,7 @@ function installBrowserbaseFakes(
         liveUrl?: string
         neverOpenWebSocket?: boolean
         releaseFailures?: number
+        releaseStalls?: boolean
         releaseStatus?: number
         sessionCreateStatus?: number
         state?: FakeBrowserState
@@ -139,6 +142,16 @@ function installBrowserbaseFakes(
             })
         }
         if (url.includes('/sessions/bb-session-') && init?.method === 'POST') {
+            if (input.releaseStalls) {
+                return new Promise<Response>((_resolve, reject) => {
+                    const fail = () => reject(new Error('aborted'))
+                    if (init.signal?.aborted) {
+                        fail()
+                        return
+                    }
+                    init.signal?.addEventListener('abort', fail, { once: true })
+                })
+            }
             if (
                 input.releaseStatus &&
                 (releaseFailuresRemaining === null || releaseFailuresRemaining > 0)
@@ -978,6 +991,68 @@ describe('Browserbase browser automation', () => {
         expect(releaseAudit).toContain('"attempt":1')
         expect(releaseAudit).toContain('"attempt":2')
         expect(releaseAudit).toContain('"status":"complete"')
+    })
+
+    it('bounds stalled runtime shutdown release attempts for all active sessions', async () => {
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
+        const { fetchCalls } = installBrowserbaseFakes({
+            releaseStalls: true,
+        })
+        const { manager, events } = createManager()
+        await manager.open(
+            {
+                action: 'open',
+                toolCallId: 'call-1',
+                sessionKey: 'thread-1',
+                runId: 'run-1',
+            },
+            {
+                url: 'https://93.184.216.34/first',
+            },
+        )
+        await manager.open(
+            {
+                action: 'open',
+                toolCallId: 'call-2',
+                sessionKey: 'thread-2',
+                runId: 'run-2',
+            },
+            {
+                url: 'https://93.184.216.34/second',
+            },
+        )
+
+        vi.useFakeTimers()
+        const closed = manager.closeAll('runtime_shutdown')
+        await vi.advanceTimersByTimeAsync(0)
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            await vi.advanceTimersByTimeAsync(browserbaseRuntimeShutdownReleaseRequestTimeoutMs)
+        }
+        await closed
+
+        const releaseCalls = fetchCalls.filter(
+            (call) => call.method === 'POST' && call.url.includes('/sessions/bb-session-'),
+        )
+        expect(releaseCalls).toHaveLength(6)
+        expect(manager.snapshot('thread-1')).toMatchObject({
+            status: 'error',
+            sessionId: 'bb-session-1',
+            message: 'Browserbase request timed out',
+        })
+        expect(manager.snapshot('thread-2')).toMatchObject({
+            status: 'error',
+            sessionId: 'bb-session-2',
+            message: 'Browserbase request timed out',
+        })
+        expect(browserbaseRuntimeShutdownGraceMs).toBeGreaterThan(
+            browserbaseRuntimeShutdownReleaseRequestTimeoutMs * 3,
+        )
+        const releaseAudit = events
+            .filter((event) => event.event === 'browser.session_release')
+            .map((event) => payloadText(event.payload))
+            .join('\n')
+        expect(releaseAudit).toContain('"reason":"runtime_shutdown"')
+        expect(releaseAudit).toContain('Browserbase release retry limit reached')
     })
 
     it('closes the active Browserbase session through REQUEST_RELEASE', async () => {

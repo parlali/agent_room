@@ -54,4 +54,5 @@ The brainstorm has been split into three public OSS work-stream issues. Implemen
 - [x] Follow-up PR review hardening aligns direct REST session creation with the Browserbase REST `browserSettings.timeout` shape, bounds the CDP WebSocket handshake, and retries automatic release after transient Browserbase release failures.
 - [x] Follow-up cleanup hardening retries created-but-not-active sessions after open failure and performs immediate bounded runtime-shutdown release retries before SIGTERM cleanup continues.
 - [x] Follow-up session-boundary hardening stores active Browserbase sessions, snapshots, idle timers, heartbeat timers, and retry timers by chat session key so separate same-room sessions can open, use, and clean up browsers independently.
+- [x] Follow-up shutdown hardening uses a shorter runtime-shutdown Browserbase release timeout, releases active chat sessions in parallel, and aligns SIGTERM forced-exit grace with the bounded release retry window.
 - [x] Verify direct behavior and downstream effects with focused Browserbase automation tests and `bun run check`.

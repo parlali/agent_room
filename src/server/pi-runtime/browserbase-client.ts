@@ -77,6 +77,7 @@ export async function getBrowserbaseDebugUrls(input: {
 export async function releaseBrowserbaseSession(input: {
     apiKey: string
     sessionId: string
+    requestTimeoutMs?: number
     signal?: AbortSignal
 }): Promise<void> {
     await browserbaseJsonRequest({
@@ -86,6 +87,7 @@ export async function releaseBrowserbaseSession(input: {
         body: {
             status: 'REQUEST_RELEASE',
         },
+        requestTimeoutMs: input.requestTimeoutMs,
         signal: input.signal,
     })
 }
@@ -109,10 +111,12 @@ async function browserbaseJsonRequest(input: {
     url: string
     method: 'GET' | 'POST'
     body?: unknown
+    requestTimeoutMs?: number
     signal?: AbortSignal
 }): Promise<unknown> {
     const response = await fetchWithAbort({
         url: input.url,
+        timeoutMs: input.requestTimeoutMs ?? cdpCommandTimeoutMs,
         signal: input.signal,
         init: {
             method: input.method,
@@ -130,6 +134,7 @@ async function browserbaseJsonRequest(input: {
     }
     const text = await readBrowserbaseResponseTextWithAbort({
         response,
+        timeoutMs: input.requestTimeoutMs ?? cdpCommandTimeoutMs,
         signal: input.signal,
     })
     if (!text.trim()) {
@@ -144,6 +149,7 @@ async function browserbaseJsonRequest(input: {
 
 async function readBrowserbaseResponseTextWithAbort(input: {
     response: Response
+    timeoutMs: number
     signal?: AbortSignal
 }): Promise<string> {
     const body = input.response.body
@@ -167,7 +173,7 @@ async function readBrowserbaseResponseTextWithAbort(input: {
     }
     const timeout = setTimeout(() => {
         interruptRead('Browserbase response body timed out', true)
-    }, cdpCommandTimeoutMs)
+    }, input.timeoutMs)
     timeout.unref?.()
     const abort = () => {
         interruptRead('Browser action was cancelled', false)
@@ -213,6 +219,7 @@ async function readBrowserbaseResponseTextWithAbort(input: {
 async function fetchWithAbort(input: {
     url: string
     init: RequestInit
+    timeoutMs: number
     signal?: AbortSignal
 }): Promise<Response> {
     const controller = new AbortController()
@@ -220,7 +227,7 @@ async function fetchWithAbort(input: {
     const timeout = setTimeout(() => {
         timedOut = true
         controller.abort()
-    }, cdpCommandTimeoutMs)
+    }, input.timeoutMs)
     timeout.unref?.()
     const abort = () => controller.abort()
     input.signal?.addEventListener('abort', abort, { once: true })

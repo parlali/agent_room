@@ -52,6 +52,9 @@ export { createBrowserAutomationTools } from './browserbase-tools'
 
 const automaticReleaseRetryDelayMs = 30000
 const maxAutomaticReleaseAttempts = 3
+export const browserbaseRuntimeShutdownReleaseRequestTimeoutMs = 3000
+export const browserbaseRuntimeShutdownGraceMs =
+    maxAutomaticReleaseAttempts * browserbaseRuntimeShutdownReleaseRequestTimeoutMs + 10000
 
 type AutomaticReleaseRetryMode = 'scheduled' | 'immediate'
 
@@ -576,14 +579,20 @@ export class BrowserbaseBrowserAutomationManager {
 
     async closeAll(reason = 'runtime_shutdown'): Promise<void> {
         await this.enqueue(async () => {
-            for (const sessionKey of [...this.activeBySession.keys()]) {
-                await this.releaseActiveSession({
-                    reason,
-                    sessionKey,
-                    failOnProviderError: false,
-                    retryMode: reason === 'runtime_shutdown' ? 'immediate' : 'scheduled',
-                })
-            }
+            const runtimeShutdown = reason === 'runtime_shutdown'
+            await Promise.all(
+                [...this.activeBySession.keys()].map((sessionKey) =>
+                    this.releaseActiveSession({
+                        reason,
+                        sessionKey,
+                        failOnProviderError: false,
+                        retryMode: runtimeShutdown ? 'immediate' : 'scheduled',
+                        releaseRequestTimeoutMs: runtimeShutdown
+                            ? browserbaseRuntimeShutdownReleaseRequestTimeoutMs
+                            : undefined,
+                    }),
+                ),
+            )
         })
     }
 
@@ -855,11 +864,13 @@ export class BrowserbaseBrowserAutomationManager {
         actionBudget?: RoomBrowserActionBudgetSnapshot | null
         attempt: number
         auditLifecycle: boolean
+        releaseRequestTimeoutMs?: number
     }): Promise<{ ok: true } | { ok: false; message: string }> {
         try {
             await releaseBrowserbaseSession({
                 apiKey: this.apiKey(),
                 sessionId: input.sessionId,
+                requestTimeoutMs: input.releaseRequestTimeoutMs,
             })
         } catch (error) {
             const message = browserErrorMessage(error)
@@ -902,6 +913,7 @@ export class BrowserbaseBrowserAutomationManager {
         failOnProviderError: boolean
         attempt?: number
         retryMode?: AutomaticReleaseRetryMode
+        releaseRequestTimeoutMs?: number
     }): Promise<string | null> {
         const sessionKey = input.context?.sessionKey ?? input.sessionKey
         if (!sessionKey) {
@@ -922,6 +934,7 @@ export class BrowserbaseBrowserAutomationManager {
             actionBudget: input.actionBudget ?? null,
             attempt,
             auditLifecycle,
+            releaseRequestTimeoutMs: input.releaseRequestTimeoutMs,
         })
         if (!released.ok) {
             const current = this.snapshotsBySession.get(sessionKey)
@@ -996,6 +1009,7 @@ export class BrowserbaseBrowserAutomationManager {
         sessionKey: string | null
         runId: string | null
         retryMode?: AutomaticReleaseRetryMode
+        releaseRequestTimeoutMs?: number
     }): void {
         if (input.failOnProviderError) {
             return
