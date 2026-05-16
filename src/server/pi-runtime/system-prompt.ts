@@ -160,10 +160,8 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
         config.instructions.trim(),
         MAX_OPERATOR_INSTRUCTIONS_CHARS,
     )
-    const browserbaseEnvKey = config.search.browserbase.envKey
     const browserAutomationEnabled =
-        config.search.browserbase.enabled &&
-        Boolean(browserbaseEnvKey && process.env[browserbaseEnvKey])
+        config.search.browserbase.enabled && Boolean(config.search.browserbase.envKey)
     const enabledRoomTools = roomToolNamesForCapabilities(config.roomMode, config.capabilities)
     const enabledTools = [...internalStateToolNames, ...enabledRoomTools]
     const enabledCapabilities = [

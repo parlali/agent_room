@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
-import { ArrowLeftIcon, FilesIcon, Loader2Icon, PencilIcon } from 'lucide-react'
+import { ArrowLeftIcon, FilesIcon, Loader2Icon, MonitorIcon, PencilIcon } from 'lucide-react'
 
 import { RoomGlyph, StateBadge } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
@@ -28,7 +28,10 @@ export function ChatHeader({
     showArtifacts,
     artifactsCount,
     artifactsOpen,
+    showBrowserSession,
+    browserSessionOpen,
     onToggleArtifacts,
+    onToggleBrowserSession,
     onBack,
     onRename,
     renaming,
@@ -43,7 +46,10 @@ export function ChatHeader({
     showArtifacts: boolean
     artifactsCount: number
     artifactsOpen: boolean
+    showBrowserSession: boolean
+    browserSessionOpen: boolean
     onToggleArtifacts: () => void
+    onToggleBrowserSession: () => void
     onBack: () => void
     onRename: (title: string) => Promise<unknown>
     renaming: boolean
@@ -128,6 +134,20 @@ export function ChatHeader({
                                     {artifactsCount}
                                 </span>
                             ) : null}
+                        </Button>
+                    ) : null}
+                    {showBrowserSession ? (
+                        <Button
+                            type="button"
+                            variant={browserSessionOpen ? 'secondary' : 'ghost'}
+                            size="sm"
+                            onClick={onToggleBrowserSession}
+                            aria-pressed={browserSessionOpen}
+                            aria-expanded={browserSessionOpen}
+                            aria-label="Toggle browser session"
+                        >
+                            <MonitorIcon />
+                            <span className="hidden sm:inline">Browser</span>
                         </Button>
                     ) : null}
                     <StateBadge

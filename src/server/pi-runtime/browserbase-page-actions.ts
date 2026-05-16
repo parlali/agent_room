@@ -75,7 +75,7 @@ export async function navigateActivePage(
     url: string,
     signal?: AbortSignal,
 ): Promise<void> {
-    await active.cdp.command(
+    const response = await active.cdp.command(
         'Page.navigate',
         {
             url,
@@ -83,6 +83,13 @@ export async function navigateActivePage(
         active.pageSessionId,
         signal,
     )
+    const result = asRecord(response)
+    if (typeof result?.errorText === 'string' && result.errorText) {
+        throw new Error(`Browser navigation failed for ${url}: ${result.errorText}`)
+    }
+    if (result?.isDownload === true) {
+        throw new Error(`Browser navigation started a download instead of loading ${url}`)
+    }
     await waitForPageReady(active, signal)
 }
 
@@ -314,8 +321,13 @@ async function waitForPageReady(active: ActiveBrowserSession, signal?: AbortSign
         if (ready) {
             return
         }
-        await delay(pageReadyPollMs, signal)
+        const remainingMs = deadline - Date.now()
+        if (remainingMs <= 0) {
+            break
+        }
+        await delay(Math.min(pageReadyPollMs, remainingMs), signal)
     }
+    throw new Error('Browser page did not become ready before timeout')
 }
 
 async function evaluateInPage<T>(

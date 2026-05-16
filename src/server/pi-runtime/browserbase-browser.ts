@@ -111,11 +111,7 @@ export class BrowserbaseBrowserAutomationManager {
                     actionBudget,
                 })
                 lifecycleTouched = true
-                await this.releaseActiveSession({
-                    reason: 'replaced',
-                    context,
-                    failOnProviderError: true,
-                })
+                await this.releaseRoomSessionsForReplacement(context, actionBudget)
                 this.setSnapshot({
                     status: 'opening',
                     sessionId: null,
@@ -997,6 +993,21 @@ export class BrowserbaseBrowserAutomationManager {
             message: input.reason,
         })
         return active.browserbaseSessionId
+    }
+
+    private async releaseRoomSessionsForReplacement(
+        context: Pick<BrowserAutomationToolContext, 'action' | 'sessionKey' | 'runId'>,
+        actionBudget: RoomBrowserActionBudgetSnapshot,
+    ): Promise<void> {
+        for (const sessionKey of [...this.activeBySession.keys()]) {
+            await this.releaseActiveSession({
+                reason: 'replaced',
+                context: sessionKey === context.sessionKey ? context : undefined,
+                sessionKey,
+                actionBudget,
+                failOnProviderError: true,
+            })
+        }
     }
 
     private scheduleAutomaticReleaseRetry(input: {

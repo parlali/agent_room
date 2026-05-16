@@ -78,6 +78,9 @@ function installBrowserbaseFakes(
         failWebSocket?: boolean
         liveUrl?: string
         neverOpenWebSocket?: boolean
+        navigateResult?: unknown
+        onReadyStateCheck?: () => void
+        readyStateResults?: boolean[]
         releaseFailures?: number
         releaseStalls?: boolean
         releaseStatus?: number
@@ -92,6 +95,7 @@ function installBrowserbaseFakes(
         sent: [],
     }
     const fetchCalls: FetchCall[] = []
+    const readyStateResults = [...(input.readyStateResults ?? [])]
     let sessionCount = 0
     let releaseFailuresRemaining = input.releaseFailures ?? null
     globalThis.fetch = (async (request, init) => {
@@ -212,7 +216,11 @@ function installBrowserbaseFakes(
                 params?: Record<string, unknown>
             }
             state.sent.push(message)
-            const result = cdpResult(message, this.browserState)
+            const result = cdpResult(message, this.browserState, {
+                navigateResult: input.navigateResult,
+                onReadyStateCheck: input.onReadyStateCheck,
+                readyStateResults,
+            })
             queueMicrotask(() => {
                 this.emitMessage(
                     JSON.stringify({
@@ -248,6 +256,11 @@ function installBrowserbaseFakes(
 function cdpResult(
     message: { method: string; params?: Record<string, unknown> },
     state: FakeBrowserState,
+    input: {
+        navigateResult?: unknown
+        onReadyStateCheck?: () => void
+        readyStateResults: boolean[]
+    },
 ): unknown {
     if (message.method === 'Target.getTargets') {
         return {
@@ -268,14 +281,16 @@ function cdpResult(
     if (message.method === 'Page.navigate') {
         state.url = String(message.params?.url ?? state.url)
         state.title = 'Example Page'
-        return {}
+        return input.navigateResult ?? {}
     }
     if (message.method === 'Runtime.evaluate') {
         const expression = String(message.params?.expression ?? '')
         if (expression.includes('document.readyState')) {
+            input.onReadyStateCheck?.()
             return {
                 result: {
-                    value: true,
+                    value:
+                        input.readyStateResults.length > 0 ? input.readyStateResults.shift() : true,
                 },
             }
         }
@@ -584,7 +599,7 @@ describe('Browserbase browser automation', () => {
         }
     })
 
-    it('keeps browser sessions independent for separate chat sessions in the same room', async () => {
+    it('replaces the existing room Browserbase session when a new chat session opens', async () => {
         process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
         const { fetchCalls } = installBrowserbaseFakes()
         const { manager } = createManager()
@@ -615,9 +630,10 @@ describe('Browserbase browser automation', () => {
             },
         )
         expect(manager.snapshot('thread-1')).toMatchObject({
-            status: 'open',
+            status: 'closed',
             sessionId: 'bb-session-1',
             sessionKey: 'thread-1',
+            liveUrl: null,
         })
         expect(manager.snapshot('thread-2')).toMatchObject({
             status: 'open',
@@ -625,39 +641,13 @@ describe('Browserbase browser automation', () => {
             sessionKey: 'thread-2',
         })
         expect(
-            fetchCalls.filter(
+            fetchCalls.some(
                 (call) =>
                     call.method === 'POST' &&
-                    call.url === 'https://api.browserbase.com/v1/sessions/bb-session-1',
+                    call.url === 'https://api.browserbase.com/v1/sessions/bb-session-1' &&
+                    payloadText(call.body).includes('"status":"REQUEST_RELEASE"'),
             ),
-        ).toHaveLength(0)
-
-        await manager.navigate(
-            {
-                ...firstSession,
-                action: 'navigate',
-                toolCallId: 'call-4',
-            },
-            {
-                url: 'https://93.184.216.34/first-next',
-            },
-        )
-        await manager.readText(
-            {
-                ...secondSession,
-                action: 'read_text',
-                toolCallId: 'call-5',
-            },
-            {},
-        )
-        expect(manager.snapshot('thread-1')).toMatchObject({
-            sessionId: 'bb-session-1',
-            pageUrl: 'https://93.184.216.34/first-next',
-        })
-        expect(manager.snapshot('thread-2')).toMatchObject({
-            sessionId: 'bb-session-2',
-            pageUrl: 'https://93.184.216.34/second',
-        })
+        ).toBe(true)
 
         await manager.close({
             ...secondSession,
@@ -665,17 +655,12 @@ describe('Browserbase browser automation', () => {
             toolCallId: 'call-6',
         })
         expect(manager.snapshot('thread-1')).toMatchObject({
-            status: 'open',
+            status: 'closed',
             sessionId: 'bb-session-1',
         })
         expect(manager.snapshot('thread-2')).toMatchObject({
             status: 'closed',
             sessionId: 'bb-session-2',
-        })
-        await manager.close({
-            ...firstSession,
-            action: 'close',
-            toolCallId: 'call-7',
         })
     })
 
@@ -737,6 +722,122 @@ describe('Browserbase browser automation', () => {
 
         expect(payloadText(events)).toContain(message)
         expect(payloadText(events)).not.toContain('browserbase-secret')
+    })
+
+    it('fails closed and releases the created session when navigation fails', async () => {
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
+        const { fetchCalls } = installBrowserbaseFakes({
+            navigateResult: {
+                errorText: 'net::ERR_NAME_NOT_RESOLVED',
+            },
+        })
+        const { manager, events } = createManager()
+
+        await expect(
+            manager.open(
+                {
+                    action: 'open',
+                    toolCallId: 'call-1',
+                    sessionKey: 'thread-1',
+                    runId: 'run-1',
+                },
+                {
+                    url: 'https://93.184.216.34/start',
+                },
+            ),
+        ).rejects.toThrow('Browser navigation failed for https://93.184.216.34/start')
+
+        expect(fetchCalls.at(-1)).toMatchObject({
+            method: 'POST',
+            url: 'https://api.browserbase.com/v1/sessions/bb-session-1',
+            body: {
+                status: 'REQUEST_RELEASE',
+            },
+        })
+        expect(manager.snapshot()).toMatchObject({
+            status: 'error',
+            sessionId: null,
+        })
+        expect(payloadText(events)).toContain('net::ERR_NAME_NOT_RESOLVED')
+    })
+
+    it('fails closed and releases the created session when readiness polling times out', async () => {
+        const originalDateNow = Date.now
+        let fakeNow = new Date('2026-05-16T00:00:00.000Z').getTime()
+        Date.now = () => fakeNow
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
+        const { fetchCalls } = installBrowserbaseFakes({
+            onReadyStateCheck: () => {
+                fakeNow += 10001
+            },
+            readyStateResults: [false],
+        })
+        const { manager } = createManager()
+
+        try {
+            await expect(
+                manager.open(
+                    {
+                        action: 'open',
+                        toolCallId: 'call-1',
+                        sessionKey: 'thread-1',
+                        runId: 'run-1',
+                    },
+                    {
+                        url: 'https://93.184.216.34/start',
+                    },
+                ),
+            ).rejects.toThrow('Browser page did not become ready before timeout')
+
+            expect(fetchCalls.at(-1)).toMatchObject({
+                method: 'POST',
+                url: 'https://api.browserbase.com/v1/sessions/bb-session-1',
+                body: {
+                    status: 'REQUEST_RELEASE',
+                },
+            })
+            expect(manager.snapshot()).toMatchObject({
+                status: 'error',
+                sessionId: null,
+                message: 'Browser page did not become ready before timeout',
+            })
+        } finally {
+            Date.now = originalDateNow
+        }
+    })
+
+    it('fails closed and releases the created session when navigation starts a download', async () => {
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
+        const { fetchCalls } = installBrowserbaseFakes({
+            navigateResult: {
+                isDownload: true,
+            },
+        })
+        const { manager } = createManager()
+
+        await expect(
+            manager.open(
+                {
+                    action: 'open',
+                    toolCallId: 'call-1',
+                    sessionKey: 'thread-1',
+                    runId: 'run-1',
+                },
+                {
+                    url: 'https://93.184.216.34/start',
+                },
+            ),
+        ).rejects.toThrow(
+            'Browser navigation started a download instead of loading https://93.184.216.34/start',
+        )
+
+        expect(fetchCalls.at(-1)).toMatchObject({
+            method: 'POST',
+            url: 'https://api.browserbase.com/v1/sessions/bb-session-1',
+            body: {
+                status: 'REQUEST_RELEASE',
+            },
+        })
     })
 
     it('redacts Browserbase connection URLs from connect failures, audit payloads, and snapshots', async () => {
@@ -993,7 +1094,7 @@ describe('Browserbase browser automation', () => {
         expect(releaseAudit).toContain('"status":"complete"')
     })
 
-    it('bounds stalled runtime shutdown release attempts for all active sessions', async () => {
+    it('bounds stalled runtime shutdown release attempts for the active session', async () => {
         process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
         const { fetchCalls } = installBrowserbaseFakes({
             releaseStalls: true,
@@ -1010,17 +1111,6 @@ describe('Browserbase browser automation', () => {
                 url: 'https://93.184.216.34/first',
             },
         )
-        await manager.open(
-            {
-                action: 'open',
-                toolCallId: 'call-2',
-                sessionKey: 'thread-2',
-                runId: 'run-2',
-            },
-            {
-                url: 'https://93.184.216.34/second',
-            },
-        )
 
         vi.useFakeTimers()
         const closed = manager.closeAll('runtime_shutdown')
@@ -1033,15 +1123,10 @@ describe('Browserbase browser automation', () => {
         const releaseCalls = fetchCalls.filter(
             (call) => call.method === 'POST' && call.url.includes('/sessions/bb-session-'),
         )
-        expect(releaseCalls).toHaveLength(6)
+        expect(releaseCalls).toHaveLength(3)
         expect(manager.snapshot('thread-1')).toMatchObject({
             status: 'error',
             sessionId: 'bb-session-1',
-            message: 'Browserbase request timed out',
-        })
-        expect(manager.snapshot('thread-2')).toMatchObject({
-            status: 'error',
-            sessionId: 'bb-session-2',
             message: 'Browserbase request timed out',
         })
         expect(browserbaseRuntimeShutdownGraceMs).toBeGreaterThan(
