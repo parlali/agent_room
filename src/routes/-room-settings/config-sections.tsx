@@ -92,6 +92,7 @@ export function ConfigSections({
                         input.imageProvider === 'inherit' ? null : input.imageModel.trim() || null,
                     imageApiKey: input.imageApiKey || undefined,
                     cronTimezone: input.cronTimezone,
+                    browserActionBudget: input.browserActionBudget,
                     mcpConnectionIds: input.mcpConnectionIds,
                     githubEnabled: input.roomMode === 'programmer' && input.githubEnabled,
                     githubInstallationId:

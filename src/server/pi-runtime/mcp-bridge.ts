@@ -5,6 +5,7 @@ import { defineTool, type ToolDefinition } from '@mariozechner/pi-coding-agent'
 import { Type } from '@mariozechner/pi-ai'
 import type { MaterializedMcpServer } from '../domain/types'
 import { buildBoundedProcessEnv, disableImplicitEnvFileForCommand } from '../security/process-env'
+import { boundTextByUtf8Bytes } from './bounded-text'
 import { combineAbortSignals, currentToolRunSignal } from './tool-run-context'
 
 interface ConnectedMcpServer {
@@ -34,14 +35,6 @@ function redact(value: string, secrets: string[]): string {
         }
     }
     return output
-}
-
-function boundText(value: string): string {
-    const bytes = Buffer.byteLength(value)
-    if (bytes <= maxMcpOutputBytes) {
-        return value
-    }
-    return `${Buffer.from(value).subarray(0, maxMcpOutputBytes).toString('utf8')}...[truncated]`
 }
 
 function resultToText(value: unknown): string {
@@ -190,17 +183,21 @@ function createMcpTool(input: {
                         timeout: 60000,
                     },
                 )
-                const text = boundText(redact(resultToText(result), input.connected.redactions))
+                const bounded = boundTextByUtf8Bytes(
+                    redact(resultToText(result), input.connected.redactions),
+                    maxMcpOutputBytes,
+                )
                 return {
                     content: [
                         {
                             type: 'text',
-                            text,
+                            text: bounded.text,
                         },
                     ],
                     details: {
                         serverId: input.connected.server.id,
                         toolName: input.sourceName,
+                        outputTruncated: bounded.truncated,
                     },
                 }
             } catch (error) {

@@ -177,6 +177,7 @@ export async function getRoomExecutionSnapshot(input: {
                 capabilities: buildRoomExecutionCapabilities(true),
                 ...payload,
                 selectedThreadArtifacts: payload.selectedThreadArtifacts ?? [],
+                browserSession: payload.browserSession ?? null,
             },
         })
         readStateMs = elapsedPerformanceMs(readStateStartedAt)

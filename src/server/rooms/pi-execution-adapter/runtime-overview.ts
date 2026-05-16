@@ -55,5 +55,6 @@ export function emptySnapshot(input: {
         selectedThreadMessages: [],
         selectedThreadArtifacts: [],
         recentActivity: [],
+        browserSession: null,
     }
 }

@@ -44,6 +44,7 @@ export interface ConfigDraft {
     imageModel: string
     imageApiKey: string
     cronTimezone: string
+    browserActionBudget: number
     mcpConnectionIds: string[]
     githubEnabled: boolean
     githubInstallationId: string
@@ -84,6 +85,7 @@ export function configFromSnapshot(snapshot: RoomConfigSnapshot): ConfigDraft {
         imageModel: snapshot.config.imageModel ?? '',
         imageApiKey: '',
         cronTimezone: snapshot.config.cronTimezone || 'UTC',
+        browserActionBudget: snapshot.config.browserActionBudget || 50,
         mcpConnectionIds: [...snapshot.config.mcpConnectionIds],
         githubEnabled: snapshot.config.github.enabled,
         githubInstallationId: snapshot.config.github.installationId ?? '',
@@ -119,6 +121,7 @@ export function configsEqual(a: ConfigDraft, b: ConfigDraft): boolean {
         a.imageModel === b.imageModel &&
         a.imageApiKey === b.imageApiKey &&
         a.cronTimezone === b.cronTimezone &&
+        a.browserActionBudget === b.browserActionBudget &&
         arraysEqual(a.mcpConnectionIds, b.mcpConnectionIds) &&
         a.githubEnabled === b.githubEnabled &&
         a.githubInstallationId === b.githubInstallationId &&

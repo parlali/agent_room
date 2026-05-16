@@ -70,6 +70,34 @@ describe('Pi runtime snapshot payload shaping', () => {
         expect(result.messageReads).toBe(1)
         expect(result.artifactReads).toBe(1)
     })
+
+    it('requests browser session state for the selected session only', () => {
+        const selectedKeys: Array<string | null> = []
+        buildRuntimeSnapshot({
+            config: minimalConfig(),
+            records: [record],
+            selectedThreadKey: 'session-a',
+            messageLimit: 0,
+            findThread: (key) => (key === record.key ? record : null),
+            readThreadMessages: () => [],
+            readThreadArtifacts: () => [],
+            compactionStats: () => ({
+                enabled: false,
+                compacting: false,
+                count: 0,
+                lastCompactedAt: null,
+                lastTokensBefore: null,
+                lastError: null,
+            }),
+            selectedThreadModelState: () => null,
+            browserSession: (sessionKey) => {
+                selectedKeys.push(sessionKey)
+                return null
+            },
+        })
+
+        expect(selectedKeys).toEqual(['session-a'])
+    })
 })
 
 function snapshotWithLimit(messageLimit: number) {
@@ -98,6 +126,7 @@ function snapshotWithLimit(messageLimit: number) {
             lastError: null,
         }),
         selectedThreadModelState: () => null,
+        browserSession: () => null,
     })
 
     return {

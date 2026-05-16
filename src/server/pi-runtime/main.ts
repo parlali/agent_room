@@ -48,6 +48,10 @@ import {
     proactiveCompactionContextBytes,
 } from './session-context-budget'
 import { createPiRuntimeSession } from './pi-runtime-session'
+import {
+    BrowserbaseBrowserAutomationManager,
+    browserbaseRuntimeShutdownGraceMs,
+} from './browserbase-browser'
 import { createRuntimeEventBus } from './runtime-event-bus'
 import { buildRuntimeSnapshot, mapThread } from './runtime-snapshot'
 import { createSessionWindowStore } from './session-display-window'
@@ -97,6 +101,11 @@ const { broadcast, createEventStream, createRoomEventStream } = createRuntimeEve
 const appendRuntimeEvent = createRuntimeEventAppender({
     config,
     redactPayload,
+    broadcast,
+})
+const browserAutomation = new BrowserbaseBrowserAutomationManager({
+    config,
+    audit: appendRuntimeEvent,
     broadcast,
 })
 const {
@@ -333,6 +342,7 @@ async function createPiSession(record: ThreadRecord): Promise<AgentSession> {
         record,
         systemPrompt: () => systemPrompt,
         mcpTools,
+        browserAutomation,
         audit: appendRuntimeEvent,
         shortText,
         redactString,
@@ -726,6 +736,7 @@ function snapshot(input: { selectedThreadKey?: string | null; messageLimit?: num
         readThreadArtifacts,
         compactionStats,
         selectedThreadModelState,
+        browserSession: (sessionKey) => browserAutomation.snapshot(sessionKey),
     })
 }
 
@@ -777,14 +788,16 @@ process.on('SIGTERM', () => {
         active.unsubscribe?.()
         active.session.dispose()
     }
-    void cleanupBackgroundCommands(config).finally(() => {
-        void closeMcpConnections().finally(() => {
-            server.close(() => {
-                process.exit(0)
+    void browserAutomation.closeAll().finally(() => {
+        void cleanupBackgroundCommands(config).finally(() => {
+            void closeMcpConnections().finally(() => {
+                server.close(() => {
+                    process.exit(0)
+                })
             })
         })
     })
-    setTimeout(() => process.exit(0), 5000).unref()
+    setTimeout(() => process.exit(0), browserbaseRuntimeShutdownGraceMs).unref()
 })
 
 server.listen(config.runtime.port, config.runtime.bindHost, () => {

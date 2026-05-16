@@ -80,7 +80,8 @@ export function invalidateRoomCachesForEvent(input: {
         input.event.event === 'thread.forked' ||
         input.event.event === 'thread.model_changed' ||
         input.event.event === 'run.finished' ||
-        input.event.event === 'agent_end'
+        input.event.event === 'agent_end' ||
+        input.event.event === 'browser.session_changed'
     ) {
         invalidateRoomSummary()
     }
@@ -108,7 +109,8 @@ export function invalidateRoomCachesForEvent(input: {
         input.event.event === 'thread.renamed' ||
         input.event.event === 'thread.title_generated' ||
         input.event.event === 'thread.model_changed' ||
-        input.event.event === 'room.files.changed'
+        input.event.event === 'room.files.changed' ||
+        input.event.event === 'browser.session_changed'
     ) {
         void input.queryClient.invalidateQueries({
             queryKey: roomQueryKey.sessionShell(input.roomId, sessionKey),

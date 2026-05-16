@@ -1,4 +1,5 @@
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { boundTextByChars } from './bounded-text'
 
 const maxRedactedStringChars = 4000
 const maxRedactedArrayItems = 100
@@ -39,10 +40,7 @@ function redactionSecrets(config: PiRuntimeConfig): string[] {
 }
 
 function boundRuntimeString(value: string): string {
-    if (value.length <= maxRedactedStringChars) {
-        return value
-    }
-    return `${value.slice(0, maxRedactedStringChars)}...[truncated]`
+    return boundTextByChars(value, maxRedactedStringChars).text
 }
 
 export function createRuntimeRedactor(config: PiRuntimeConfig) {
@@ -77,7 +75,7 @@ export function createRuntimeRedactor(config: PiRuntimeConfig) {
             return value ?? null
         }
         if (depth > 8) {
-            return '[truncated]'
+            return null
         }
         if (Array.isArray(value)) {
             return value

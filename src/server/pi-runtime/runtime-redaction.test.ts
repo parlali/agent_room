@@ -40,6 +40,7 @@ function testConfig(): PiRuntimeConfig {
             imageGenerationMs: 1000,
             mcpToolMs: 1000,
             shortCommandWaitMs: 1000,
+            browserActionsPerTurn: 50,
         },
         compaction: {
             reserveTokens: 1000,
@@ -107,7 +108,7 @@ describe('runtime redaction', () => {
         })
 
         expect(bounded).toEqual({
-            content: `${'a'.repeat(4000)}...[truncated]`,
+            content: 'a'.repeat(4000),
         })
         expect(unbounded).toEqual({
             content: `${'a'.repeat(4100)} [redacted]`,

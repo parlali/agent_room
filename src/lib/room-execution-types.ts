@@ -243,6 +243,25 @@ export interface RoomExecutionActivity {
     estimatedCostUsd: number | null
 }
 
+export interface RoomBrowserActionBudgetSnapshot {
+    runId: string | null
+    used: number
+    max: number
+}
+
+export interface RoomBrowserSessionSnapshot {
+    status: 'opening' | 'open' | 'closing' | 'closed' | 'error'
+    sessionId: string | null
+    sessionKey: string | null
+    pageUrl: string | null
+    pageTitle: string | null
+    liveUrl: string | null
+    openedAt: number | null
+    updatedAt: number | null
+    actionBudget: RoomBrowserActionBudgetSnapshot | null
+    message: string | null
+}
+
 export interface RoomExecutionSnapshot {
     room: RoomRuntimeOverview
     executionState: 'connected' | 'unavailable' | 'error'
@@ -256,6 +275,7 @@ export interface RoomExecutionSnapshot {
     selectedThreadMessages: RoomExecutionMessage[]
     selectedThreadArtifacts: RoomSessionArtifact[]
     recentActivity: RoomExecutionActivity[]
+    browserSession: RoomBrowserSessionSnapshot | null
 }
 
 export interface RoomSummarySnapshot {
@@ -285,6 +305,7 @@ export interface RoomSessionShellSnapshot {
     selectedThread: RoomExecutionThread | null
     selectedThreadModel: RoomExecutionModelState | null
     recentActivity: RoomExecutionActivity[]
+    browserSession: RoomBrowserSessionSnapshot | null
 }
 
 export interface RoomThreadSendResult {

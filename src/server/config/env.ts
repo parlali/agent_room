@@ -82,6 +82,7 @@ const rawEnvSchema = z.object({
         .positive()
         .default(2 * 60 * 1000),
     AGENT_ROOM_SHORT_COMMAND_WAIT_MS: z.coerce.number().int().positive().default(5000),
+    AGENT_ROOM_BROWSER_ACTIONS_PER_TURN: z.coerce.number().int().positive().max(200).default(50),
 })
 
 const generatedBootstrapSchema = z.object({
@@ -126,6 +127,7 @@ export interface AppEnv {
         imageGenerationMs: number
         mcpToolMs: number
         shortCommandWaitMs: number
+        browserActionsPerTurn: number
     }
 }
 
@@ -288,6 +290,7 @@ export function getAppEnv(): AppEnv {
             imageGenerationMs: data.AGENT_ROOM_IMAGE_GENERATION_TIMEOUT_MS,
             mcpToolMs: data.AGENT_ROOM_MCP_TOOL_TIMEOUT_MS,
             shortCommandWaitMs: data.AGENT_ROOM_SHORT_COMMAND_WAIT_MS,
+            browserActionsPerTurn: data.AGENT_ROOM_BROWSER_ACTIONS_PER_TURN,
         },
     }
 

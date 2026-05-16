@@ -40,3 +40,19 @@ The brainstorm has been split into three public OSS work-stream issues. Implemen
 - [x] PR review hardening removes provider response bodies from model-visible search failure metadata and rolls back search credential writes on rejected settings saves.
 - [x] Follow-up hardening bounds provider response body reads after headers arrive, including Brave JSON, SearXNG JSON/HTML, Browserbase Search JSON, and provider error bodies.
 - [x] Search implementation is split into shared contracts/helpers, SearXNG, Brave, Browserbase, and router modules so provider parsing and routing state each have focused ownership.
+
+## Issue 3 implementation notes
+
+- [x] Add Browserbase-backed room browser tools for open, close, navigate, click, type, scroll, screenshot, and read-text actions.
+- [x] Keep Browserbase browser sessions scoped to chat sessions inside each room, replace only an existing browser for the same chat session, and close idle/runtime-shutdown sessions through Browserbase `REQUEST_RELEASE`. (Updated from the original room-level wording after review clarified concurrent same-room sessions must not interfere.)
+- [x] Register browser tools only when the room has Browserbase configured and the materialized Browserbase API key is present.
+- [x] Add a per-room browser action budget that materializes into the Pi runtime and fails closed when exhausted.
+- [x] Surface the active browser session through the runtime snapshot and chat view live panel without logging Browserbase `connectUrl` or live inspector URLs in audit events.
+- [x] Audit browser actions with bounded, sanitized payloads and keep typed runtime, snapshot, settings, and persisted config contracts canonical.
+- [x] PR review hardening redacts transient CDP connection URLs, lets close release sessions after action-budget exhaustion, audits validation and automatic release paths, and splits Browserbase API, CDP, page actions, tool registration, utilities, and lifecycle management into focused modules.
+- [x] Expand Browserbase automation tests to cover each action tool, auth/quota failures, invalid-input audit paths, replacement/runtime/idle release audit events, close-after-budget-exhaustion, and connect-failure redaction.
+- [x] Follow-up PR review hardening aligns direct REST session creation with the Browserbase REST `browserSettings.timeout` shape, bounds the CDP WebSocket handshake, and retries automatic release after transient Browserbase release failures.
+- [x] Follow-up cleanup hardening retries created-but-not-active sessions after open failure and performs immediate bounded runtime-shutdown release retries before SIGTERM cleanup continues.
+- [x] Follow-up session-boundary hardening stores active Browserbase sessions, snapshots, idle timers, heartbeat timers, and retry timers by chat session key so separate same-room sessions can open, use, and clean up browsers independently.
+- [x] Follow-up shutdown hardening uses a shorter runtime-shutdown Browserbase release timeout, releases active chat sessions in parallel, and aligns SIGTERM forced-exit grace with the bounded release retry window.
+- [x] Verify direct behavior and downstream effects with focused Browserbase automation tests and `bun run check`.

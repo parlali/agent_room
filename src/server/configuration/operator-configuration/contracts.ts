@@ -67,6 +67,7 @@ export const roomConfigSaveSchema = z.object({
     imageModel: z.string().trim().nullable().optional(),
     imageApiKey: z.string().optional(),
     cronTimezone: z.string().trim().min(1).default('UTC'),
+    browserActionBudget: z.number().int().min(1).max(200).default(50),
     mcpConnectionIds: z.array(z.string().uuid()).default([]),
     githubEnabled: z.boolean().default(false),
     githubInstallationId: z.string().nullable().optional(),
@@ -278,6 +279,7 @@ export interface RoomConfigSnapshot {
         imageModel: string | null
         hasImageProviderSecret: boolean
         cronTimezone: string
+        browserActionBudget: number
         mcpConnectionIds: string[]
         github: GitHubRoomBindingSummary
     }

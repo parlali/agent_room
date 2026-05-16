@@ -405,6 +405,7 @@ export const getRoomSessionShellServer = createServerFn({ method: 'GET' })
             selectedThread,
             selectedThreadModel: snapshot.selectedThreadModel,
             recentActivity: snapshot.recentActivity,
+            browserSession: snapshot.browserSession ?? null,
         }
     })
 

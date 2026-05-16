@@ -1,4 +1,5 @@
 import type { MemoryItem, RoomMemory } from './memory-model'
+import { boundTextByChars } from './bounded-text'
 
 const maxBriefChars = 12000
 
@@ -37,5 +38,5 @@ export function renderMemoryBrief(memory: RoomMemory): string {
         ...sectionLines('Do not forget', memory.doNotForget),
     ].filter(Boolean)
     const text = lines.join('\n')
-    return text.length <= maxBriefChars ? text : `${text.slice(0, maxBriefChars)}\n[truncated]`
+    return boundTextByChars(text, maxBriefChars).text
 }

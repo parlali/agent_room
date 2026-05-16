@@ -353,6 +353,7 @@ export const roomConfigRepository = {
         imageModel: string | null
         imageSecretId: string | null
         cronTimezone: string
+        browserActionBudget: number
     }): Promise<RoomConfigRecord> {
         const rows = await sql`
             INSERT INTO room_configs (
@@ -371,6 +372,7 @@ export const roomConfigRepository = {
                 image_model,
                 image_secret_id,
                 cron_timezone,
+                browser_action_budget,
                 created_at,
                 updated_at
             )
@@ -390,6 +392,7 @@ export const roomConfigRepository = {
                 ${input.imageModel},
                 ${input.imageSecretId},
                 ${input.cronTimezone},
+                ${input.browserActionBudget},
                 now(),
                 now()
             )
@@ -409,6 +412,7 @@ export const roomConfigRepository = {
                 image_model = excluded.image_model,
                 image_secret_id = excluded.image_secret_id,
                 cron_timezone = excluded.cron_timezone,
+                browser_action_budget = excluded.browser_action_budget,
                 updated_at = now()
             RETURNING *
         `

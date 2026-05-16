@@ -1,5 +1,6 @@
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { buildAgentHarnessPrompt } from './agent-harness'
+import { boundTextByChars } from './bounded-text'
 import { buildInternalStateSummary } from './internal-state'
 import { internalStateToolNames } from './internal-state-tools'
 import { roomToolNamesForCapabilities } from './room-tools'
@@ -20,16 +21,7 @@ function boundedText(
     text: string
     truncated: boolean
 } {
-    if (input.length <= maxChars) {
-        return {
-            text: input,
-            truncated: false,
-        }
-    }
-    return {
-        text: input.slice(0, maxChars),
-        truncated: true,
-    }
+    return boundTextByChars(input, maxChars)
 }
 
 export function contextBudgetForProvider(config: PiRuntimeConfig): ContextBudget {
@@ -160,11 +152,14 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
         config.instructions.trim(),
         MAX_OPERATOR_INSTRUCTIONS_CHARS,
     )
+    const browserAutomationEnabled =
+        config.search.browserbase.enabled && Boolean(config.search.browserbase.envKey)
     const enabledRoomTools = roomToolNamesForCapabilities(config.roomMode, config.capabilities)
     const enabledTools = [...internalStateToolNames, ...enabledRoomTools]
     const enabledCapabilities = [
         config.capabilities.webSearch ? 'web search' : null,
         config.capabilities.urlFetch ? 'direct URL fetch' : null,
+        browserAutomationEnabled ? 'Browserbase browser automation' : null,
         config.capabilities.documents ? 'DOCX documents' : null,
         config.capabilities.spreadsheets ? 'XLSX spreadsheets' : null,
         config.capabilities.presentations ? 'PPTX presentations' : null,
@@ -196,13 +191,7 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
 
     if (operatorInstructions.text) {
         sections.push(
-            [
-                'Operator instructions:',
-                operatorInstructions.text,
-                operatorInstructions.truncated ? '[truncated]' : '',
-            ]
-                .filter(Boolean)
-                .join('\n'),
+            ['Operator instructions:', operatorInstructions.text].filter(Boolean).join('\n'),
         )
     }
 

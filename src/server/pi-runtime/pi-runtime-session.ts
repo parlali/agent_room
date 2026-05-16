@@ -16,6 +16,10 @@ import type { createMcpTools } from './mcp-bridge'
 import { createInternalStateTools } from './internal-state-tools'
 import { createRoomTools } from './room-tools'
 import { createWebTools } from './web-tools'
+import {
+    createBrowserAutomationTools,
+    type BrowserbaseBrowserAutomationManager,
+} from './browserbase-browser'
 import { createDocumentTools } from './document-tools'
 import { createImageTools } from './image-tools'
 import { createSubagentTool } from './subagent-tool'
@@ -29,6 +33,7 @@ export interface PiRuntimeSessionInput {
     record: ThreadRecord
     systemPrompt: () => string
     mcpTools: Awaited<ReturnType<typeof createMcpTools>>
+    browserAutomation: BrowserbaseBrowserAutomationManager
     audit: (event: string, payload: unknown) => Promise<void>
     shortText: (value: string, length?: number) => string
     redactString: (value: string) => string
@@ -82,6 +87,11 @@ export function createPiRuntimeCustomTools(input: PiRuntimeSessionInput): ToolDe
         ...createWebTools({
             config,
             audit: input.audit,
+        }),
+        ...createBrowserAutomationTools({
+            config,
+            record,
+            browserAutomation: input.browserAutomation,
         }),
         ...createDocumentTools({
             config,

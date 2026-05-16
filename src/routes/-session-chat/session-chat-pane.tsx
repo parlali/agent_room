@@ -2,7 +2,7 @@ import { Link, useNavigate } from '@tanstack/react-router'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
-import { MessageSquareIcon } from 'lucide-react'
+import { ExternalLinkIcon, MessageSquareIcon, MonitorIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { AttentionBanner, EmptyState } from '#/components/agent-room'
@@ -29,6 +29,7 @@ import {
 import type {
     ChatTimelineRow,
     RoomExecutionActivity,
+    RoomBrowserSessionSnapshot,
     RoomExecutionMessage,
     RoomExecutionThread,
     RoomRealtimeEvent,
@@ -149,6 +150,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 selectedThread,
                 selectedThreadModel: null,
                 recentActivity: sidebar.recentActivity,
+                browserSession: null,
             }
         },
         staleTime: roomQueryPolicy.hotStaleMs,
@@ -181,6 +183,20 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const artifacts = windowQuery.data?.pages[0]?.artifacts ?? []
     const totalRows = windowQuery.data?.pages[0]?.totalRows ?? rows.length
     const showArtifacts = room?.roomMode !== 'programmer'
+    const browserSession = snapshot?.browserSession ?? null
+    const browserSessionAvailable =
+        Boolean(browserSession && browserSession.status !== 'closed') &&
+        (!browserSession?.sessionKey || browserSession.sessionKey === sessionKey)
+    const browserSessionPanelKey = browserSession
+        ? [
+              browserSession.sessionKey ?? '__room__',
+              browserSession.sessionId ?? '__pending__',
+              String(browserSession.openedAt),
+          ].join(':')
+        : null
+    const [closedBrowserPanelKey, setClosedBrowserPanelKey] = useState<string | null>(null)
+    const browserSessionOpen =
+        browserSessionAvailable && browserSessionPanelKey !== closedBrowserPanelKey
     const selectedThread = snapshot?.selectedThread ?? null
     const artifactState =
         artifactStateBySession.get(artifactStateKey) ?? defaultArtifactPanelState()
@@ -339,6 +355,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 event.event === 'thread.message_edited' ||
                 event.event === 'thread.pending_messages_changed' ||
                 event.event === 'room.files.changed' ||
+                event.event === 'browser.session_changed' ||
                 event.event === 'run.accepted' ||
                 event.event === 'run.error' ||
                 event.event === 'run.finished' ||
@@ -613,12 +630,17 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 showArtifacts={showArtifacts}
                 artifactsCount={artifacts.length}
                 artifactsOpen={artifactsOpen}
+                showBrowserSession={browserSessionAvailable}
+                browserSessionOpen={browserSessionOpen}
                 onToggleArtifacts={() =>
                     updateArtifactState(artifactStateKey, {
                         open: !artifactState.open,
                         loaded: true,
                     })
                 }
+                onToggleBrowserSession={() => {
+                    setClosedBrowserPanelKey(browserSessionOpen ? browserSessionPanelKey : null)
+                }}
                 onBack={() => {
                     void navigate({ to: '/rooms/$roomId', params: { roomId } })
                 }}
@@ -694,6 +716,13 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     onSubmitEditingMessage={submitEditedMessage}
                     onCancelEditingMessage={cancelEditingMessage}
                 />
+                {browserSessionAvailable && browserSession ? (
+                    <BrowserSessionShell
+                        browserSession={browserSession}
+                        open={browserSessionOpen}
+                        onClose={() => setClosedBrowserPanelKey(browserSessionPanelKey)}
+                    />
+                ) : null}
                 {showArtifacts ? (
                     <SessionArtifactsShell
                         roomId={roomId}
@@ -730,6 +759,145 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             />
         </div>
     )
+}
+
+function BrowserSessionShell({
+    browserSession,
+    open,
+    onClose,
+}: {
+    browserSession: RoomBrowserSessionSnapshot
+    open: boolean
+    onClose: () => void
+}) {
+    const title = browserSession.pageTitle?.trim() || 'Browser'
+    const urlLabel = browserSession.pageUrl ? formatBrowserUrl(browserSession.pageUrl) : null
+    const budget = browserSession.actionBudget
+    const canFrame = browserSession.status === 'open' && browserSession.liveUrl
+
+    return (
+        <>
+            <aside
+                className="hidden shrink-0 overflow-hidden border-l border-border/60 bg-background transition-[width] duration-200 ease-out xl:flex xl:flex-col"
+                style={{ width: open ? '28rem' : 0 }}
+                aria-hidden={!open}
+            >
+                <BrowserSessionHeader
+                    title={title}
+                    urlLabel={urlLabel}
+                    browserSession={browserSession}
+                    budget={budget}
+                />
+                <BrowserSessionFrame browserSession={browserSession} canFrame={Boolean(canFrame)} />
+            </aside>
+            <aside
+                className={`absolute inset-y-0 right-0 z-20 flex w-full max-w-lg transform flex-col overflow-hidden border-l border-border/60 bg-background shadow-xl transition-transform duration-200 ease-out xl:hidden ${open ? 'translate-x-0' : 'pointer-events-none translate-x-full'}`}
+                aria-hidden={!open}
+            >
+                <BrowserSessionHeader
+                    title={title}
+                    urlLabel={urlLabel}
+                    browserSession={browserSession}
+                    budget={budget}
+                    onClose={onClose}
+                />
+                <BrowserSessionFrame browserSession={browserSession} canFrame={Boolean(canFrame)} />
+            </aside>
+        </>
+    )
+}
+
+function BrowserSessionHeader({
+    title,
+    urlLabel,
+    browserSession,
+    budget,
+    onClose,
+}: {
+    title: string
+    urlLabel: string | null
+    browserSession: RoomBrowserSessionSnapshot
+    budget: RoomBrowserSessionSnapshot['actionBudget']
+    onClose?: () => void
+}) {
+    return (
+        <div className="flex min-h-14 items-center gap-3 border-b border-border/60 px-3 py-2">
+            <div className="flex size-8 shrink-0 items-center justify-center rounded border border-border/70 bg-muted/50 text-muted-foreground">
+                <MonitorIcon className="size-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-sm font-medium text-foreground">{title}</span>
+                    <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[0.625rem] uppercase text-muted-foreground">
+                        {browserSession.status}
+                    </span>
+                </div>
+                <div className="flex min-w-0 items-center gap-2 text-[0.6875rem] text-muted-foreground">
+                    {urlLabel ? <span className="truncate">{urlLabel}</span> : null}
+                    {budget ? (
+                        <span className="shrink-0">
+                            {budget.used}/{budget.max}
+                        </span>
+                    ) : null}
+                </div>
+            </div>
+            {browserSession.liveUrl ? (
+                <Button asChild variant="ghost" size="icon-sm" aria-label="Open browser session">
+                    <a href={browserSession.liveUrl} target="_blank" rel="noreferrer">
+                        <ExternalLinkIcon />
+                    </a>
+                </Button>
+            ) : null}
+            {onClose ? (
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="xl:hidden"
+                    aria-label="Close browser session panel"
+                    onClick={onClose}
+                >
+                    <XIcon />
+                </Button>
+            ) : null}
+        </div>
+    )
+}
+
+function BrowserSessionFrame({
+    browserSession,
+    canFrame,
+}: {
+    browserSession: RoomBrowserSessionSnapshot
+    canFrame: boolean
+}) {
+    if (!canFrame || !browserSession.liveUrl) {
+        return (
+            <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
+                {browserSession.message ?? browserSession.status}
+            </div>
+        )
+    }
+
+    return (
+        <iframe
+            title="Browser session"
+            src={browserSession.liveUrl}
+            className="min-h-0 flex-1 border-0 bg-muted"
+            referrerPolicy="no-referrer"
+            sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts allow-downloads"
+            allow="clipboard-read; clipboard-write; fullscreen"
+        />
+    )
+}
+
+function formatBrowserUrl(value: string): string {
+    try {
+        const url = new URL(value)
+        return `${url.origin}${url.pathname}${url.search ? '?...' : ''}${url.hash ? '#...' : ''}`
+    } catch {
+        return value
+    }
 }
 
 function streamTurnPersisted(streamTurn: StreamTurnState, rows: ChatTimelineRow[]): boolean {

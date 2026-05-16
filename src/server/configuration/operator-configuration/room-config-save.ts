@@ -239,6 +239,7 @@ export async function saveRoomConfig(
         imageModel: imageProvider ? imageModel : null,
         imageSecretId,
         cronTimezone: input.cronTimezone,
+        browserActionBudget: input.browserActionBudget,
     })
 
     await roomMcpBindingRepository.replaceForRoom(
@@ -280,6 +281,7 @@ export async function saveRoomConfig(
                 .map(([key]) => key),
             imageProvider: config.imageProvider,
             hasImageProviderSecret: config.imageSecretId !== null,
+            browserActionBudget: config.browserActionBudget,
         },
     })
 
