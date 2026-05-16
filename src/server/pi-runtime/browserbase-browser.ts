@@ -22,10 +22,8 @@ import {
     maxToolTextChars,
 } from './browserbase-browser-types'
 import {
-    bestLiveUrl,
     browserbaseTimeoutSeconds,
     createBrowserbaseSession,
-    getBrowserbaseDebugUrls,
     releaseBrowserbaseSession,
     type BrowserbaseSessionResponse,
 } from './browserbase-client'
@@ -149,18 +147,13 @@ export class BrowserbaseBrowserAutomationManager {
                 this.activeBySession.set(context.sessionKey, active)
                 await navigateActivePage(active, requestedUrl, context.signal)
                 const metadata = await readPageMetadata(active, context.signal)
-                const debug = await getBrowserbaseDebugUrls({
-                    apiKey,
-                    sessionId: session.id,
-                    signal: context.signal,
-                })
                 this.setSnapshot({
                     status: 'open',
                     sessionId: session.id,
                     sessionKey: context.sessionKey,
                     pageUrl: metadata.url,
                     pageTitle: metadata.title,
-                    liveUrl: bestLiveUrl(debug),
+                    liveUrl: null,
                     openedAt: active.openedAt,
                     updatedAt: this.now(),
                     actionBudget,

@@ -399,7 +399,7 @@ describe('Browserbase browser automation', () => {
         ])
     })
 
-    it('opens a Browserbase session, exposes snapshot live state, and keeps secrets out of audit payloads', async () => {
+    it('opens a Browserbase session and keeps secrets out of audit payloads and snapshots', async () => {
         process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
         const { fetchCalls } = installBrowserbaseFakes()
         const { manager, events, broadcasts } = createManager()
@@ -427,18 +427,17 @@ describe('Browserbase browser automation', () => {
         expect(result.details).toMatchObject({
             action: 'open',
             sessionId: 'bb-session-1',
-            liveSessionAvailable: true,
+            liveSessionAvailable: false,
         })
         expect(manager.snapshot()).toMatchObject({
             status: 'open',
             sessionId: 'bb-session-1',
             sessionKey: 'thread-1',
             pageUrl: 'https://93.184.216.34/start?token=query#hash',
-            liveUrl: 'https://browserbase.test/live/live-secret',
+            liveUrl: null,
         })
         expect(fetchCalls.map((call) => [call.method, call.url])).toEqual([
             ['POST', 'https://api.browserbase.com/v1/sessions'],
-            ['GET', 'https://api.browserbase.com/v1/sessions/bb-session-1/debug'],
         ])
         expect(fetchCalls[0]?.apiKey).toBe('browserbase-secret')
         expect(fetchCalls[0]?.body).toEqual({
@@ -452,6 +451,7 @@ describe('Browserbase browser automation', () => {
         expect(audit).not.toContain('connect.browserbase.test')
         expect(audit).not.toContain('live-secret')
         expect(audit).toContain('https://93.184.216.34/start?[redacted]#[redacted]')
+        expect(payloadText(manager.snapshot())).not.toContain('live-secret')
         expect(broadcasts.some((entry) => entry.event === 'browser.session_changed')).toBe(true)
         expect(payloadText(broadcasts)).not.toContain('live-secret')
     })
