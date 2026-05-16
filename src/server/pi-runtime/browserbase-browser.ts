@@ -138,6 +138,7 @@ export class BrowserbaseBrowserAutomationManager {
                     cdp,
                     pageSessionId,
                     sessionKey: context.sessionKey,
+                    runId: context.runId,
                     openedAt: this.now(),
                 }
                 this.active = active
@@ -227,6 +228,7 @@ export class BrowserbaseBrowserAutomationManager {
                 actionBudget,
             })
             try {
+                this.assertActiveSessionOwner(context)
                 const released = await this.releaseActiveSession({
                     reason: 'tool_close',
                     context,
@@ -270,9 +272,9 @@ export class BrowserbaseBrowserAutomationManager {
                     requestedUrl: sanitizeUrlForAudit(url),
                     actionBudget,
                 })
-                const active = this.requireActiveSession()
+                const active = this.requireActiveSession(context)
                 await navigateActivePage(active, url, context.signal)
-                const metadata = await this.refreshMetadata(context.signal, actionBudget)
+                const metadata = await this.refreshMetadata(context.signal, actionBudget, context)
                 await this.auditAction(context, 'complete', {
                     sessionId: active.browserbaseSessionId,
                     requestedUrl: sanitizeUrlForAudit(url),
@@ -314,9 +316,9 @@ export class BrowserbaseBrowserAutomationManager {
                     selector,
                     actionBudget,
                 })
-                const active = this.requireActiveSession()
+                const active = this.requireActiveSession(context)
                 const target = await clickActivePage(active, selector, context.signal)
-                const metadata = await this.refreshMetadata(context.signal, actionBudget)
+                const metadata = await this.refreshMetadata(context.signal, actionBudget, context)
                 await this.auditAction(context, 'complete', {
                     sessionId: active.browserbaseSessionId,
                     selector,
@@ -368,14 +370,14 @@ export class BrowserbaseBrowserAutomationManager {
                     clear,
                     actionBudget,
                 })
-                const active = this.requireActiveSession()
+                const active = this.requireActiveSession(context)
                 const target = await typeInActivePage(active, {
                     selector,
                     text,
                     clear,
                     signal: context.signal,
                 })
-                const metadata = await this.refreshMetadata(context.signal, actionBudget)
+                const metadata = await this.refreshMetadata(context.signal, actionBudget, context)
                 await this.auditAction(context, 'complete', {
                     sessionId: active.browserbaseSessionId,
                     selector,
@@ -428,13 +430,13 @@ export class BrowserbaseBrowserAutomationManager {
                     amount,
                     actionBudget,
                 })
-                const active = this.requireActiveSession()
+                const active = this.requireActiveSession(context)
                 await scrollActivePage(active, {
                     direction,
                     amount,
                     signal: context.signal,
                 })
-                const metadata = await this.refreshMetadata(context.signal, actionBudget)
+                const metadata = await this.refreshMetadata(context.signal, actionBudget, context)
                 await this.auditAction(context, 'complete', {
                     sessionId: active.browserbaseSessionId,
                     direction,
@@ -472,9 +474,9 @@ export class BrowserbaseBrowserAutomationManager {
                 actionBudget,
             })
             try {
-                const active = this.requireActiveSession()
+                const active = this.requireActiveSession(context)
                 const screenshot = await screenshotActivePage(active, context.signal)
-                const metadata = await this.refreshMetadata(context.signal, actionBudget)
+                const metadata = await this.refreshMetadata(context.signal, actionBudget, context)
                 await this.auditAction(context, 'complete', {
                     sessionId: active.browserbaseSessionId,
                     pageUrl: metadata.url ? sanitizeUrlForAudit(metadata.url) : null,
@@ -519,9 +521,9 @@ export class BrowserbaseBrowserAutomationManager {
                     selector,
                     actionBudget,
                 })
-                const active = this.requireActiveSession()
+                const active = this.requireActiveSession(context)
                 const result = await readTextFromActivePage(active, selector, context.signal)
-                const metadata = await this.refreshMetadata(context.signal, actionBudget)
+                const metadata = await this.refreshMetadata(context.signal, actionBudget, context)
                 const bounded = boundText(result.text, maxToolTextChars)
                 const auditText = boundText(result.text, maxAuditTextChars)
                 await this.auditAction(context, 'complete', {
@@ -590,11 +592,24 @@ export class BrowserbaseBrowserAutomationManager {
         return apiKey
     }
 
-    private requireActiveSession(): ActiveBrowserSession {
+    private requireActiveSession(
+        context?: Pick<BrowserAutomationToolContext, 'sessionKey'>,
+    ): ActiveBrowserSession {
         if (!this.active || this.snapshotValue?.status !== 'open') {
             throw new Error('No active Browserbase session is open')
         }
+        if (context && this.active.sessionKey !== context.sessionKey) {
+            throw new Error('Active Browserbase session belongs to another chat session')
+        }
         return this.active
+    }
+
+    private assertActiveSessionOwner(
+        context: Pick<BrowserAutomationToolContext, 'sessionKey'>,
+    ): void {
+        if (this.active && this.active.sessionKey !== context.sessionKey) {
+            throw new Error('Active Browserbase session belongs to another chat session')
+        }
     }
 
     private async consumeActionBudget(
@@ -695,8 +710,9 @@ export class BrowserbaseBrowserAutomationManager {
     private async refreshMetadata(
         signal: AbortSignal | undefined,
         actionBudget: RoomBrowserActionBudgetSnapshot,
+        context: Pick<BrowserAutomationToolContext, 'sessionKey'>,
     ): Promise<PageMetadata> {
-        const active = this.requireActiveSession()
+        const active = this.requireActiveSession(context)
         const metadata = await readPageMetadata(active, signal)
         const current = this.snapshotValue
         this.setSnapshot({
@@ -869,8 +885,8 @@ export class BrowserbaseBrowserAutomationManager {
         const attempt = input.attempt ?? 1
         const released = await this.releaseBrowserbaseProviderSession({
             sessionId: active.browserbaseSessionId,
-            sessionKey: input.context?.sessionKey ?? active.sessionKey,
-            runId: input.context?.runId ?? null,
+            sessionKey: active.sessionKey,
+            runId: active.runId,
             reason: input.reason,
             actionBudget: input.actionBudget ?? null,
             attempt,
@@ -900,8 +916,8 @@ export class BrowserbaseBrowserAutomationManager {
                     })
                 }
                 await this.auditSessionRelease('failed', {
-                    sessionKey: input.context?.sessionKey ?? active.sessionKey,
-                    runId: input.context?.runId ?? null,
+                    sessionKey: active.sessionKey,
+                    runId: active.runId,
                     sessionId: active.browserbaseSessionId,
                     reason: input.reason,
                     attempt,
@@ -914,6 +930,8 @@ export class BrowserbaseBrowserAutomationManager {
                 ...input,
                 attempt: attempt + 1,
                 sessionId: active.browserbaseSessionId,
+                sessionKey: active.sessionKey,
+                runId: active.runId,
             })
             return active.browserbaseSessionId
         }
@@ -942,6 +960,8 @@ export class BrowserbaseBrowserAutomationManager {
         failOnProviderError: boolean
         attempt: number
         sessionId: string
+        sessionKey: string | null
+        runId: string | null
         retryMode?: AutomaticReleaseRetryMode
     }): void {
         if (input.failOnProviderError) {
@@ -949,8 +969,8 @@ export class BrowserbaseBrowserAutomationManager {
         }
         if (input.attempt > maxAutomaticReleaseAttempts) {
             void this.auditSessionRelease('failed', {
-                sessionKey: input.context?.sessionKey ?? this.active?.sessionKey ?? null,
-                runId: input.context?.runId ?? null,
+                sessionKey: input.sessionKey,
+                runId: input.runId,
                 sessionId: input.sessionId,
                 reason: input.reason,
                 attempt: input.attempt - 1,

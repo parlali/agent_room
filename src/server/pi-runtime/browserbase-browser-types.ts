@@ -49,6 +49,7 @@ export interface ActiveBrowserSession {
     cdp: BrowserCdpConnection
     pageSessionId: string
     sessionKey: string
+    runId: string
     openedAt: number
 }
 

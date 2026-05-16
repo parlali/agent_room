@@ -564,6 +564,77 @@ describe('Browserbase browser automation', () => {
         }
     })
 
+    it('keeps active browser control bound to the owning chat session', async () => {
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
+        const { fetchCalls } = installBrowserbaseFakes()
+        const { manager } = createManager()
+        const firstSession = {
+            action: 'open' as const,
+            toolCallId: 'call-1',
+            sessionKey: 'thread-1',
+            runId: 'run-1',
+        }
+        const secondSession = {
+            action: 'navigate' as const,
+            toolCallId: 'call-2',
+            sessionKey: 'thread-2',
+            runId: 'run-2',
+        }
+        await manager.open(firstSession, {
+            url: 'https://93.184.216.34/first',
+        })
+
+        await expect(
+            manager.navigate(secondSession, {
+                url: 'https://93.184.216.34/second',
+            }),
+        ).rejects.toThrow('Active Browserbase session belongs to another chat session')
+        await expect(
+            manager.close({
+                ...secondSession,
+                action: 'close',
+            }),
+        ).rejects.toThrow('Active Browserbase session belongs to another chat session')
+        expect(
+            fetchCalls.filter(
+                (call) =>
+                    call.method === 'POST' &&
+                    call.url === 'https://api.browserbase.com/v1/sessions/bb-session-1',
+            ),
+        ).toHaveLength(0)
+
+        await manager.open(
+            {
+                ...secondSession,
+                action: 'open',
+                toolCallId: 'call-3',
+            },
+            {
+                url: 'https://93.184.216.34/second',
+            },
+        )
+        expect(manager.snapshot()).toMatchObject({
+            status: 'open',
+            sessionId: 'bb-session-2',
+            sessionKey: 'thread-2',
+        })
+        await expect(
+            manager.readText(
+                {
+                    ...firstSession,
+                    action: 'read_text',
+                    toolCallId: 'call-4',
+                },
+                {},
+            ),
+        ).rejects.toThrow('Active Browserbase session belongs to another chat session')
+        await manager.close({
+            ...secondSession,
+            action: 'close',
+            toolCallId: 'call-5',
+        })
+    })
+
     it('audits invalid input failures after budget consumption without exposing raw invalid values', async () => {
         process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
         installBrowserbaseFakes()
