@@ -27,7 +27,6 @@ import {
 import { writeRuntimeFileMetadata } from './runtime-materializer'
 import { ensureRoomFilesystemLayout } from './room-paths'
 import { getRuntimeEngineProfile } from './runtime-engine-profile'
-import { runtimeSandboxSpawnCommand } from './runtime-sandbox-identity'
 
 const startupHealthPollIntervalMs = 500
 const startupHealthTimeoutMs = 30_000
@@ -302,12 +301,7 @@ async function startRoomProcessUnlocked(room: RoomRecord): Promise<void> {
         const startedAt = metadataForMaterialization.startedAt ?? new Date()
         const materialized = await materializeRoomRuntime(room, metadataForMaterialization)
 
-        const sandboxedCommand = runtimeSandboxSpawnCommand(
-            command.command,
-            command.args,
-            materialized.sandbox,
-        )
-        const child = spawn(sandboxedCommand.command, sandboxedCommand.args, {
+        const child = spawn(command.command, command.args, {
             cwd: paths.workspaceDir,
             env: buildBoundedProcessEnv(materialized.env),
             stdio: 'pipe',

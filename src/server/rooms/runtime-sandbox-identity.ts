@@ -7,6 +7,8 @@ import type { RoomPaths, RoomRuntimeMetadataRecord, RuntimeSandboxIdentity } fro
 
 const execFileAsync = promisify(execFile)
 const nologinShell = '/usr/sbin/nologin'
+const sandboxIdBase = 200_000
+const sandboxIdRange = 400_000_000
 
 interface PasswdEntry {
     name: string
@@ -40,6 +42,12 @@ export function deterministicRoomSandboxName(roomId: string): string {
     return `ar-${hash}`
 }
 
+export function deterministicRoomSandboxNumericId(roomId: string): number {
+    const hash = createHash('sha256').update(roomId).digest()
+    const offset = hash.readUInt32BE(0) % sandboxIdRange
+    return sandboxIdBase + offset
+}
+
 async function execAccountCommand(command: string, args: string[]): Promise<string | null> {
     try {
         const result = await execFileAsync(command, args, {
@@ -51,9 +59,7 @@ async function execAccountCommand(command: string, args: string[]): Promise<stri
     }
 }
 
-async function lookupUser(userName: string): Promise<PasswdEntry | null> {
-    const output = await execAccountCommand('getent', ['passwd', userName])
-    if (!output) return null
+function parsePasswdEntry(output: string): PasswdEntry | null {
     const [name, , uidText, gidText] = output.split(':')
     const uid = parseId(uidText ?? '')
     const gid = parseId(gidText ?? '')
@@ -65,9 +71,19 @@ async function lookupUser(userName: string): Promise<PasswdEntry | null> {
     }
 }
 
-async function lookupGroup(groupName: string): Promise<GroupEntry | null> {
-    const output = await execAccountCommand('getent', ['group', groupName])
+async function lookupUser(userName: string): Promise<PasswdEntry | null> {
+    const output = await execAccountCommand('getent', ['passwd', userName])
     if (!output) return null
+    return parsePasswdEntry(output)
+}
+
+async function lookupUserByUid(uid: number): Promise<PasswdEntry | null> {
+    const output = await execAccountCommand('getent', ['passwd', String(uid)])
+    if (!output) return null
+    return parsePasswdEntry(output)
+}
+
+function parseGroupEntry(output: string): GroupEntry | null {
     const [name, , gidText] = output.split(':')
     const gid = parseId(gidText ?? '')
     if (!name || gid === null) return null
@@ -77,11 +93,35 @@ async function lookupGroup(groupName: string): Promise<GroupEntry | null> {
     }
 }
 
-async function ensureGroup(groupName: string): Promise<GroupEntry> {
-    const existing = await lookupGroup(groupName)
-    if (existing) return existing
+async function lookupGroup(groupName: string): Promise<GroupEntry | null> {
+    const output = await execAccountCommand('getent', ['group', groupName])
+    if (!output) return null
+    return parseGroupEntry(output)
+}
 
-    await execFileAsync('groupadd', ['--system', groupName])
+async function lookupGroupByGid(gid: number): Promise<GroupEntry | null> {
+    const output = await execAccountCommand('getent', ['group', String(gid)])
+    if (!output) return null
+    return parseGroupEntry(output)
+}
+
+async function ensureGroup(groupName: string, gid: number): Promise<GroupEntry> {
+    const existing = await lookupGroup(groupName)
+    if (existing) {
+        if (existing.gid !== gid) {
+            throw new Error(`Sandbox group ${groupName} has gid ${existing.gid}, expected ${gid}`)
+        }
+        return existing
+    }
+
+    const existingByGid = await lookupGroupByGid(gid)
+    if (existingByGid && existingByGid.name !== groupName) {
+        throw new Error(
+            `Sandbox gid ${gid} is already used by group ${existingByGid.name}, expected ${groupName}`,
+        )
+    }
+
+    await execFileAsync('groupadd', ['--system', '--gid', String(gid), groupName])
     const created = await lookupGroup(groupName)
     if (!created) {
         throw new Error(`Failed to create sandbox group ${groupName}`)
@@ -93,12 +133,30 @@ async function ensureUser(input: {
     userName: string
     groupName: string
     homeDir: string
+    uid: number
+    gid: number
 }): Promise<PasswdEntry> {
     const existing = await lookupUser(input.userName)
-    if (existing) return existing
+    if (existing) {
+        if (existing.uid !== input.uid || existing.gid !== input.gid) {
+            throw new Error(
+                `Sandbox user ${input.userName} has uid/gid ${existing.uid}/${existing.gid}, expected ${input.uid}/${input.gid}`,
+            )
+        }
+        return existing
+    }
+
+    const existingByUid = await lookupUserByUid(input.uid)
+    if (existingByUid && existingByUid.name !== input.userName) {
+        throw new Error(
+            `Sandbox uid ${input.uid} is already used by user ${existingByUid.name}, expected ${input.userName}`,
+        )
+    }
 
     await execFileAsync('useradd', [
         '--system',
+        '--uid',
+        String(input.uid),
         '--gid',
         input.groupName,
         '--home-dir',
@@ -139,7 +197,18 @@ export async function materializeRuntimeSandboxIdentity(input: {
     roomId: string
     current: RoomRuntimeMetadataRecord
     paths: RoomPaths
+    sandboxRequired: boolean
 }): Promise<RuntimeSandboxIdentity> {
+    if (!input.sandboxRequired) {
+        return {
+            mode: 'disabled',
+            uid: null,
+            gid: null,
+            userName: null,
+            groupName: null,
+        }
+    }
+
     if (testUnsafeSandboxAllowed()) {
         return {
             mode: 'test-unsafe',
@@ -157,13 +226,18 @@ export async function materializeRuntimeSandboxIdentity(input: {
     }
 
     const defaultName = deterministicRoomSandboxName(input.roomId)
+    const defaultNumericId = deterministicRoomSandboxNumericId(input.roomId)
     const userName = input.current.sandboxUserName ?? defaultName
     const groupName = input.current.sandboxGroupName ?? defaultName
-    const group = await ensureGroup(groupName)
+    const uid = input.current.sandboxUid ?? defaultNumericId
+    const gid = input.current.sandboxGid ?? uid
+    const group = await ensureGroup(groupName, gid)
     const user = await ensureUser({
         userName,
         groupName,
         homeDir: input.paths.engineStateDir,
+        uid,
+        gid: group.gid,
     })
     if (user.gid !== group.gid) {
         throw new Error(`Sandbox user ${userName} is not bound to sandbox group ${groupName}`)
@@ -206,34 +280,29 @@ export async function applyRuntimeSandboxFilesystemOwnership(
     identity: RuntimeSandboxIdentity,
 ): Promise<void> {
     if (identity.mode !== 'per-room') return
+    const homeDir = join(paths.engineStateDir, 'home')
+    const tmpDir = join(paths.engineStateDir, 'tmp')
     await Promise.all([
-        mkdir(paths.roomRootDir, { recursive: true, mode: 0o700 }),
+        mkdir(paths.roomRootDir, { recursive: true, mode: 0o711 }),
         mkdir(paths.runtimeDir, { recursive: true, mode: 0o700 }),
         mkdir(paths.runtimeSecretsDir, { recursive: true, mode: 0o700 }),
-        mkdir(paths.engineStateDir, { recursive: true, mode: 0o700 }),
+        mkdir(paths.engineStateDir, { recursive: true, mode: 0o711 }),
         mkdir(paths.workspaceDir, { recursive: true, mode: 0o700 }),
         mkdir(paths.storeDir, { recursive: true, mode: 0o700 }),
+        mkdir(homeDir, { recursive: true, mode: 0o700 }),
+        mkdir(tmpDir, { recursive: true, mode: 0o700 }),
+    ])
+    await Promise.all([
+        chmod(paths.roomRootDir, 0o711),
+        chmod(paths.runtimeDir, 0o700),
+        chmod(paths.runtimeSecretsDir, 0o700),
+        chmod(paths.engineStateDir, 0o711),
     ])
     await Promise.all(
-        [
-            paths.roomRootDir,
-            paths.runtimeDir,
-            paths.runtimeSecretsDir,
-            paths.engineStateDir,
-            paths.workspaceDir,
-            paths.storeDir,
-        ].map((path) => chownTree(path, identity.uid, identity.gid)),
+        [paths.workspaceDir, paths.storeDir, homeDir, tmpDir].map((path) =>
+            chownTree(path, identity.uid, identity.gid),
+        ),
     )
-}
-
-export async function ensureRuntimeSandboxFile(
-    path: string,
-    identity: RuntimeSandboxIdentity,
-): Promise<void> {
-    await chmod(path, 0o600)
-    if (identity.mode === 'per-room') {
-        await chown(path, identity.uid, identity.gid)
-    }
 }
 
 function shouldWrapSandboxCommand(identity: RuntimeSandboxIdentity): boolean {
@@ -290,5 +359,6 @@ export function runtimeSandboxShellCommand(
 
 export const __testing = {
     deterministicRoomSandboxName,
+    deterministicRoomSandboxNumericId,
     assertPersistedIdentityMatches,
 }

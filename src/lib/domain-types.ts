@@ -512,6 +512,13 @@ export type RuntimeSandboxIdentity =
           userName: null
           groupName: null
       }
+    | {
+          mode: 'disabled'
+          uid: null
+          gid: null
+          userName: null
+          groupName: null
+      }
 
 export interface RuntimeHealthSnapshot {
     roomId: string

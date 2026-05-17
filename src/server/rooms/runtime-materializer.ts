@@ -14,9 +14,14 @@ import { getRuntimeEngineProfile } from './runtime-engine-profile'
 import type { PiRuntimeConfig } from './pi-runtime-config'
 import {
     applyRuntimeSandboxFilesystemOwnership,
-    ensureRuntimeSandboxFile,
     materializeRuntimeSandboxIdentity,
 } from './runtime-sandbox-identity'
+import {
+    ensureBackendOnlyDirectory,
+    ensureBackendOnlyFile,
+    ensureBackendOnlyTree,
+} from './runtime-file-ownership'
+import { runtimeWritableToolsEnabled } from './runtime-sandbox-policy'
 
 function renderEnvFile(input: Record<string, string>): string {
     const lines: string[] = []
@@ -69,7 +74,7 @@ export async function writeRuntimeFileMetadata(
         encoding: 'utf8',
         mode: 0o600,
     })
-    await chmod(path, 0o600)
+    await ensureBackendOnlyFile(path)
 }
 
 export async function materializeRuntime(input: {
@@ -86,12 +91,19 @@ export async function materializeRuntime(input: {
 }> {
     const runtimeEngineProfile = getRuntimeEngineProfile()
     const paths = await ensureRoomFilesystemLayout(input.room.id)
+    await Promise.all([
+        ensureBackendOnlyDirectory(paths.runtimeDir),
+        ensureBackendOnlyDirectory(paths.runtimeLogsDir),
+        ensureBackendOnlyDirectory(paths.runtimeSecretsDir),
+    ])
     const token = await ensureToken(paths.runtimeTokenPath)
+    await ensureBackendOnlyFile(paths.runtimeTokenPath)
     await removeStaleRuntimeSecrets(paths.runtimeSecretsDir)
     const roomConfiguration = await materializeRoomConfiguration({
         roomId: input.room.id,
         runtimeSecretsDir: paths.runtimeSecretsDir,
     })
+    await ensureBackendOnlyTree(paths.runtimeSecretsDir)
 
     const port = input.runtimeMetadata.port
     if (port === null) {
@@ -101,6 +113,7 @@ export async function materializeRuntime(input: {
         roomId: input.room.id,
         current: input.runtimeMetadata,
         paths,
+        sandboxRequired: runtimeWritableToolsEnabled(roomConfiguration.capabilities),
     })
     await applyRuntimeSandboxFilesystemOwnership(paths, sandbox)
 
@@ -132,12 +145,12 @@ export async function materializeRuntime(input: {
         encoding: 'utf8',
         mode: 0o600,
     })
-    await ensureRuntimeSandboxFile(paths.runtimeConfigPath, sandbox)
+    await ensureBackendOnlyFile(paths.runtimeConfigPath)
     await writeFile(paths.runtimeEnvPath, renderEnvFile(runtimeProfile.env), {
         encoding: 'utf8',
         mode: 0o600,
     })
-    await ensureRuntimeSandboxFile(paths.runtimeEnvPath, sandbox)
+    await ensureBackendOnlyFile(paths.runtimeEnvPath)
     await writeRuntimeFileMetadata(paths.runtimeMetadataPath, runtimeMetadata)
     return {
         port,

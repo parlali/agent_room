@@ -213,6 +213,7 @@ describe('room Pi tools', () => {
     it('uses Pi grep behavior for ignore-aware bounded workspace search', async () => {
         await withRoom(async (config) => {
             await writeFile(join(config.paths.workspaceDir, '.gitignore'), 'vendor/\n', 'utf8')
+            await writeFile(join(config.paths.workspaceDir, '.ignore'), 'vendor/\n', 'utf8')
             await mkdir(join(config.paths.workspaceDir, 'src'), {
                 recursive: true,
             })

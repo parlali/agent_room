@@ -23,3 +23,6 @@ jobs:
 
             - name: Check
               run: bun run check
+
+            - name: Root sandbox isolation check
+              run: docker run --rm --user 0:0 -v "$PWD":/work -w /work oven/bun:1.3.13 bun run vitest run src/server/rooms/runtime-sandbox-identity.test.ts

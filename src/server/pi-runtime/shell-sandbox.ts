@@ -6,9 +6,14 @@ import {
 } from '../rooms/runtime-sandbox-identity'
 import type { RuntimeSandboxIdentity } from '../domain/types'
 
-export type ShellSandboxIdentity = RuntimeSandboxIdentity
+export type ShellSandboxIdentity = Extract<
+    RuntimeSandboxIdentity,
+    { mode: 'per-room' } | { mode: 'test-unsafe' }
+>
 
-function assertRuntimeSandboxIdentity(identity: RuntimeSandboxIdentity): void {
+function assertRuntimeSandboxIdentity(
+    identity: RuntimeSandboxIdentity,
+): asserts identity is ShellSandboxIdentity {
     if (identity.mode === 'test-unsafe') {
         if (
             process.env.NODE_ENV === 'test' &&
@@ -19,12 +24,7 @@ function assertRuntimeSandboxIdentity(identity: RuntimeSandboxIdentity): void {
         throw new Error('Unsafe unsandboxed runtime identity is only available in tests')
     }
 
-    if (
-        Number.isInteger(identity.uid) &&
-        identity.uid > 0 &&
-        Number.isInteger(identity.gid) &&
-        identity.gid > 0
-    ) {
+    if (identity.mode === 'per-room' && identity.uid > 0 && identity.gid > 0) {
         return
     }
 

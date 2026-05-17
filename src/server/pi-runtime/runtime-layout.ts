@@ -1,16 +1,11 @@
 import { chmod, mkdir } from 'node:fs/promises'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { runtimeWritableToolsEnabled } from '../rooms/runtime-sandbox-policy'
 import { ensureInternalState } from './internal-state'
 import { ensureShellWritableDirectory } from './shell-sandbox'
 
 export async function ensureRuntimeLayout(config: PiRuntimeConfig): Promise<void> {
-    const writableToolsEnabled =
-        config.capabilities.shellCoding ||
-        config.capabilities.documents ||
-        config.capabilities.spreadsheets ||
-        config.capabilities.presentations ||
-        config.capabilities.pdf ||
-        config.capabilities.images
+    const writableToolsEnabled = runtimeWritableToolsEnabled(config.capabilities)
     await Promise.all([
         mkdir(config.paths.stateDir, { recursive: true, mode: 0o700 }),
         mkdir(config.paths.sessionsDir, { recursive: true, mode: 0o700 }),

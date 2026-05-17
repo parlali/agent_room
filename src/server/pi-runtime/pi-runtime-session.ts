@@ -14,6 +14,7 @@ import type { PiRuntimeThreadCreatePayload } from './protocol'
 import { createPiResourceLoader } from './resource-loader'
 import type { createMcpTools } from './mcp-bridge'
 import { createInternalStateTools } from './internal-state-tools'
+import { createNativeWorkspaceTools } from './native-workspace-tools'
 import { createRoomTools, nativeWorkspaceToolNamesForCapabilities } from './room-tools'
 import { createWebTools } from './web-tools'
 import {
@@ -74,6 +75,10 @@ export interface PiRuntimeSessionInput {
 export function createPiRuntimeCustomTools(input: PiRuntimeSessionInput): ToolDefinition[] {
     const { config, record } = input
     return [
+        ...createNativeWorkspaceTools({
+            config,
+            audit: input.audit,
+        }),
         ...createInternalStateTools({
             config,
             audit: input.audit,
