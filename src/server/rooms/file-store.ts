@@ -9,6 +9,10 @@ import type {
 } from '#/lib/room-file-types'
 import { assertPathInsideRoot } from '../security/path-boundary'
 import { getRoomPaths } from './room-paths'
+import {
+    ensureMaterializedRuntimeSandboxDirectory,
+    ensureMaterializedRuntimeSandboxFile,
+} from './runtime-sandbox-identity'
 
 export type {
     RoomDirectoryListing,
@@ -412,6 +416,8 @@ export async function writeRoomUploadedFile(input: {
     })
     const name = sanitizeUploadName(input.fileName)
     const path = assertInside(join(directory.path, name), directory.root)
+    const paths = getRoomPaths(input.roomId)
+    await ensureMaterializedRuntimeSandboxDirectory(paths, directory.path)
     try {
         await lstat(path)
         throw new Error(`File already exists: ${toDisplayPath(relative(directory.root, path))}`)
@@ -421,6 +427,7 @@ export async function writeRoomUploadedFile(input: {
                 flag: 'wx',
                 mode: 0o600,
             })
+            await ensureMaterializedRuntimeSandboxFile(paths, path)
         } else {
             throw error
         }

@@ -23,7 +23,6 @@ export async function runDocumentWorker(input: {
             env: buildBoundedProcessEnv({
                 HOME: input.config.paths.homeDir,
                 TMPDIR: input.config.paths.tmpDir,
-                AGENT_ROOM_ROOM_ID: input.config.runtime.roomId,
                 AGENT_ROOM_WORKSPACE_DIR: input.config.paths.workspaceDir,
                 AGENT_ROOM_STORE_DIR: input.config.paths.storeDir,
             }),

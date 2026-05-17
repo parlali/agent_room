@@ -1,6 +1,6 @@
 import { constants as fsConstants } from 'node:fs'
-import { access, readFile, realpath } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join, relative } from 'node:path'
+import { access, lstat, readFile, realpath } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join } from 'node:path'
 import {
     createEditToolDefinition,
     createFindToolDefinition,
@@ -44,35 +44,76 @@ function workspacePath(config: PiRuntimeConfig, path: string): string {
     )
 }
 
-async function workspaceAuditPath(
-    config: PiRuntimeConfig,
-    path: string | null,
-): Promise<string | null> {
-    if (!path) {
-        return null
-    }
-    try {
-        const candidate = workspacePath(config, path)
-        const base = await realpath(config.paths.workspaceDir)
-        try {
-            return assertPathInsideRoot(await realpath(candidate), base, () => candidate)
-        } catch {
-            try {
-                return assertPathInsideRoot(
-                    join(await realpath(dirname(candidate)), basename(candidate)),
-                    base,
-                    () => candidate,
-                )
-            } catch {
-                return assertPathInsideRoot(
-                    join(base, relative(config.paths.workspaceDir, candidate)),
-                    base,
-                    () => candidate,
-                )
+async function nearestExistingParent(path: string): Promise<{
+    existingParent: string
+    missingParts: string[]
+}> {
+    const missingParts: string[] = []
+    let current = path
+    while (true) {
+        const stat = await lstat(current).catch((error: unknown) => {
+            if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+                return null
+            }
+            throw error
+        })
+        if (stat) {
+            return {
+                existingParent: current,
+                missingParts,
             }
         }
+        missingParts.unshift(basename(current))
+        const parent = dirname(current)
+        if (parent === current) {
+            throw new Error(`Path parent does not exist: ${path}`)
+        }
+        current = parent
+    }
+}
+
+async function resolveWorkspaceToolPath(config: PiRuntimeConfig, path: string): Promise<string> {
+    const candidate = workspacePath(config, path)
+    const base = await realpath(config.paths.workspaceDir)
+    try {
+        return assertPathInsideRoot(await realpath(candidate), base, () => candidate)
     } catch {
-        return null
+        const { existingParent, missingParts } = await nearestExistingParent(candidate)
+        const canonicalParent = assertPathInsideRoot(
+            await realpath(existingParent),
+            base,
+            () => candidate,
+        )
+        return assertPathInsideRoot(join(canonicalParent, ...missingParts), base, () => candidate)
+    }
+}
+
+async function resolveInputPath(config: PiRuntimeConfig, input: unknown): Promise<string | null> {
+    const path = inputPath(input)
+    return path ? await resolveWorkspaceToolPath(config, path) : null
+}
+
+function rewriteInputPath(input: unknown, path: string | null): unknown {
+    if (!path || !input || typeof input !== 'object' || Array.isArray(input)) {
+        return input
+    }
+    return {
+        ...(input as Record<string, unknown>),
+        path,
+    }
+}
+
+async function boundedInput(
+    config: PiRuntimeConfig,
+    input: unknown,
+): Promise<{
+    input: unknown
+    path: string | null
+}> {
+    const path = await resolveInputPath(config, input)
+    return {
+        input: rewriteInputPath(input, path),
+        path,
     }
 }
 
@@ -120,9 +161,16 @@ function wrapNativeWorkspaceTool(
     return {
         ...tool,
         execute: async (toolCallId, input, signal, onUpdate, toolContext) => {
-            const path = await workspaceAuditPath(ctx.config, inputPath(input))
+            const bounded = await boundedInput(ctx.config, input)
+            const path = bounded.path
             const before = writableNativeTools.has(tool.name) ? await readExisting(path) : null
-            const result = await tool.execute(toolCallId, input, signal, onUpdate, toolContext)
+            const result = await tool.execute(
+                toolCallId,
+                bounded.input,
+                signal,
+                onUpdate,
+                toolContext,
+            )
             const after = writableNativeTools.has(tool.name)
                 ? await ensureWritableResult(ctx.config, path)
                 : null

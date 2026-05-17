@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmod, chown, lchown, lstat, mkdir, readdir } from 'node:fs/promises'
+import { chmod, chown, lchown, lstat, mkdir, readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { RoomPaths, RoomRuntimeMetadataRecord, RuntimeSandboxIdentity } from '../domain/types'
@@ -9,6 +9,7 @@ const execFileAsync = promisify(execFile)
 const nologinShell = '/usr/sbin/nologin'
 const sandboxIdBase = 200_000
 const sandboxIdRange = 400_000_000
+const sandboxIdCandidateLimit = 128
 
 interface PasswdEntry {
     name: string
@@ -42,8 +43,9 @@ export function deterministicRoomSandboxName(roomId: string): string {
     return `ar-${hash}`
 }
 
-export function deterministicRoomSandboxNumericId(roomId: string): number {
-    const hash = createHash('sha256').update(roomId).digest()
+export function deterministicRoomSandboxNumericId(roomId: string, attempt = 0): number {
+    const material = attempt === 0 ? roomId : `${roomId}:${attempt}`
+    const hash = createHash('sha256').update(material).digest()
     const offset = hash.readUInt32BE(0) % sandboxIdRange
     return sandboxIdBase + offset
 }
@@ -173,6 +175,65 @@ async function ensureUser(input: {
     return created
 }
 
+async function existingNamedIdentity(
+    userName: string,
+    groupName: string,
+): Promise<RuntimeSandboxIdentity | null> {
+    const [user, group] = await Promise.all([lookupUser(userName), lookupGroup(groupName)])
+    if (!user || !group || user.gid !== group.gid) {
+        return null
+    }
+    return {
+        mode: 'per-room',
+        uid: user.uid,
+        gid: group.gid,
+        userName: user.name,
+        groupName: group.name,
+    }
+}
+
+async function sandboxNumericIdAvailable(input: {
+    uid: number
+    gid: number
+    userName: string
+    groupName: string
+}): Promise<boolean> {
+    const [user, group] = await Promise.all([
+        lookupUserByUid(input.uid),
+        lookupGroupByGid(input.gid),
+    ])
+    return (!user || user.name === input.userName) && (!group || group.name === input.groupName)
+}
+
+async function createSandboxIdentity(input: {
+    userName: string
+    groupName: string
+    homeDir: string
+    uid: number
+    gid: number
+}): Promise<RuntimeSandboxIdentity> {
+    const group = await ensureGroup(input.groupName, input.gid)
+    const user = await ensureUser({
+        userName: input.userName,
+        groupName: input.groupName,
+        homeDir: input.homeDir,
+        uid: input.uid,
+        gid: group.gid,
+    })
+    if (user.gid !== group.gid) {
+        throw new Error(
+            `Sandbox user ${input.userName} is not bound to sandbox group ${input.groupName}`,
+        )
+    }
+    return {
+        mode: 'per-room',
+        uid: user.uid,
+        gid: group.gid,
+        userName: user.name,
+        groupName: group.name,
+    }
+}
+
 function assertPersistedIdentityMatches(
     current: RoomRuntimeMetadataRecord,
     identity: RuntimeSandboxIdentity,
@@ -190,6 +251,58 @@ function assertPersistedIdentityMatches(
                 `Persisted sandbox ${label} does not match the OS account for this room`,
             )
         }
+    }
+}
+
+function materializedSandboxIdentity(value: unknown): RuntimeSandboxIdentity | null {
+    if (!value || typeof value !== 'object') return null
+    const record = value as Record<string, unknown>
+    if (
+        record.mode === 'per-room' &&
+        typeof record.uid === 'number' &&
+        typeof record.gid === 'number' &&
+        typeof record.userName === 'string' &&
+        typeof record.groupName === 'string'
+    ) {
+        return {
+            mode: 'per-room',
+            uid: record.uid,
+            gid: record.gid,
+            userName: record.userName,
+            groupName: record.groupName,
+        }
+    }
+    if (record.mode === 'test-unsafe') {
+        return {
+            mode: 'test-unsafe',
+            uid: null,
+            gid: null,
+            userName: null,
+            groupName: null,
+        }
+    }
+    if (record.mode === 'disabled') {
+        return {
+            mode: 'disabled',
+            uid: null,
+            gid: null,
+            userName: null,
+            groupName: null,
+        }
+    }
+    return null
+}
+
+export async function readMaterializedRuntimeSandboxIdentity(
+    paths: RoomPaths,
+): Promise<RuntimeSandboxIdentity | null> {
+    try {
+        const raw = JSON.parse(await readFile(paths.runtimeMetadataPath, 'utf8')) as {
+            sandbox?: unknown
+        }
+        return materializedSandboxIdentity(raw.sandbox)
+    } catch {
+        return null
     }
 }
 
@@ -226,32 +339,54 @@ export async function materializeRuntimeSandboxIdentity(input: {
     }
 
     const defaultName = deterministicRoomSandboxName(input.roomId)
-    const defaultNumericId = deterministicRoomSandboxNumericId(input.roomId)
     const userName = input.current.sandboxUserName ?? defaultName
     const groupName = input.current.sandboxGroupName ?? defaultName
-    const uid = input.current.sandboxUid ?? defaultNumericId
-    const gid = input.current.sandboxGid ?? uid
-    const group = await ensureGroup(groupName, gid)
-    const user = await ensureUser({
-        userName,
-        groupName,
-        homeDir: input.paths.engineStateDir,
-        uid,
-        gid: group.gid,
-    })
-    if (user.gid !== group.gid) {
-        throw new Error(`Sandbox user ${userName} is not bound to sandbox group ${groupName}`)
+
+    if (input.current.sandboxUid !== null || input.current.sandboxGid !== null) {
+        const uid = input.current.sandboxUid ?? deterministicRoomSandboxNumericId(input.roomId)
+        const gid = input.current.sandboxGid ?? uid
+        const identity = await createSandboxIdentity({
+            userName,
+            groupName,
+            homeDir: input.paths.engineStateDir,
+            uid,
+            gid,
+        })
+        assertPersistedIdentityMatches(input.current, identity)
+        return identity
     }
 
-    const identity: RuntimeSandboxIdentity = {
-        mode: 'per-room',
-        uid: user.uid,
-        gid: group.gid,
-        userName: user.name,
-        groupName: group.name,
+    const existing = await existingNamedIdentity(userName, groupName)
+    if (existing) {
+        assertPersistedIdentityMatches(input.current, existing)
+        return existing
     }
-    assertPersistedIdentityMatches(input.current, identity)
-    return identity
+
+    for (let attempt = 0; attempt < sandboxIdCandidateLimit; attempt += 1) {
+        const uid = deterministicRoomSandboxNumericId(input.roomId, attempt)
+        const gid = uid
+        if (
+            !(await sandboxNumericIdAvailable({
+                uid,
+                gid,
+                userName,
+                groupName,
+            }))
+        ) {
+            continue
+        }
+        const identity = await createSandboxIdentity({
+            userName,
+            groupName,
+            homeDir: input.paths.engineStateDir,
+            uid,
+            gid,
+        })
+        assertPersistedIdentityMatches(input.current, identity)
+        return identity
+    }
+
+    throw new Error(`No available sandbox UID/GID candidate for room ${input.roomId}`)
 }
 
 async function chownPath(path: string, uid: number, gid: number): Promise<void> {
@@ -303,6 +438,36 @@ export async function applyRuntimeSandboxFilesystemOwnership(
             chownTree(path, identity.uid, identity.gid),
         ),
     )
+}
+
+export async function ensureMaterializedRuntimeSandboxFile(
+    paths: RoomPaths,
+    path: string,
+): Promise<void> {
+    await chmod(path, 0o600)
+    const identity = await readMaterializedRuntimeSandboxIdentity(paths)
+    if (
+        identity?.mode === 'per-room' &&
+        typeof process.getuid === 'function' &&
+        process.getuid() === 0
+    ) {
+        await chownPath(path, identity.uid, identity.gid)
+    }
+}
+
+export async function ensureMaterializedRuntimeSandboxDirectory(
+    paths: RoomPaths,
+    path: string,
+): Promise<void> {
+    await chmod(path, 0o700)
+    const identity = await readMaterializedRuntimeSandboxIdentity(paths)
+    if (
+        identity?.mode === 'per-room' &&
+        typeof process.getuid === 'function' &&
+        process.getuid() === 0
+    ) {
+        await chownPath(path, identity.uid, identity.gid)
+    }
 }
 
 function shouldWrapSandboxCommand(identity: RuntimeSandboxIdentity): boolean {

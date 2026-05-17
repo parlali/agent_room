@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -8,6 +8,8 @@ import {
     __testing,
     applyRuntimeSandboxFilesystemOwnership,
     deterministicRoomSandboxName,
+    ensureMaterializedRuntimeSandboxDirectory,
+    ensureMaterializedRuntimeSandboxFile,
     materializeRuntimeSandboxIdentity,
     runtimeSandboxShellCommand,
 } from './runtime-sandbox-identity'
@@ -120,6 +122,7 @@ describe('runtime sandbox identity', () => {
         expect(numericId).toBeGreaterThanOrEqual(200_000)
         expect(numericId).toBeLessThan(400_200_000)
         expect(__testing.deterministicRoomSandboxNumericId('room-1')).toBe(numericId)
+        expect(__testing.deterministicRoomSandboxNumericId('room-1', 1)).not.toBe(numericId)
         expect(__testing.deterministicRoomSandboxNumericId('room-2')).not.toBe(numericId)
     })
 
@@ -175,6 +178,7 @@ describe('runtime sandbox identity', () => {
         'denies same-room runtime secrets and cross-room shell access by Unix permissions',
         async () => {
             const dataRoot = await mkdtemp(join(tmpdir(), 'agent-room-sandbox-'))
+            await chmod(dataRoot, 0o711)
             const roomA = `sandbox-a-${Date.now()}`
             const roomB = `sandbox-b-${Date.now()}`
             try {
@@ -210,6 +214,20 @@ describe('runtime sandbox identity', () => {
                 await Promise.all(
                     sameRoomRuntimeFiles.map((path) => writeOwnerOnlyFile(path, 'secret\n')),
                 )
+                await writeOwnerOnlyFile(
+                    pathsA.runtimeMetadataPath,
+                    `${JSON.stringify({
+                        sandbox: identityA,
+                    })}\n`,
+                )
+                const sameRoomUploadPath = join(pathsA.storeDir, 'uploads', 'upload.txt')
+                await writeOwnerOnlyFile(sameRoomUploadPath, 'upload\n')
+                await ensureMaterializedRuntimeSandboxDirectory(pathsA, dirname(sameRoomUploadPath))
+                await ensureMaterializedRuntimeSandboxFile(pathsA, sameRoomUploadPath)
+                const uploadDirectoryStat = await stat(dirname(sameRoomUploadPath))
+                const uploadFileStat = await stat(sameRoomUploadPath)
+                expect(uploadDirectoryStat.uid).toBe(identityA.uid)
+                expect(uploadFileStat.uid).toBe(identityA.uid)
 
                 const crossRoomDirs = [
                     pathsB.workspaceDir,
@@ -254,6 +272,13 @@ describe('runtime sandbox identity', () => {
                         command: `cat ${JSON.stringify(path)}`,
                     })
                 }
+                const uploadRead = await runAs({
+                    identity: identityA,
+                    cwd: pathsA.workspaceDir,
+                    command: `cat ${JSON.stringify(sameRoomUploadPath)}`,
+                })
+                expect(uploadRead.output).toBe('upload\n')
+                expect(uploadRead.exitCode).toBe(0)
 
                 for (const dir of crossRoomDirs) {
                     await expectDenied({

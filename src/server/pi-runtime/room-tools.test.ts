@@ -258,13 +258,15 @@ describe('room Pi tools', () => {
             process.env.OPENAI_API_KEY = 'agent-room-secret'
             try {
                 const shell = await executeRoomTool(config, 'shell', {
-                    command: 'printf "%s|%s|%s" "$PWD" "$HOME" "$OPENAI_API_KEY"',
+                    command:
+                        'printf "%s|%s|%s|%s" "$PWD" "$HOME" "$OPENAI_API_KEY" "$AGENT_ROOM_ROOM_ID"',
                     timeoutMs: 1000,
                 })
 
                 expect(resultText(shell.result)).toContain(config.paths.workspaceDir)
                 expect(resultText(shell.result)).toContain(config.paths.homeDir)
                 expect(resultText(shell.result)).not.toContain('agent-room-secret')
+                expect(resultText(shell.result)).not.toContain(config.runtime.roomId)
                 expect(resultDetails(shell.result).exitCode).toBe(0)
                 expect(resultDetails(shell.result).sandboxMode).toBe('test-unsafe')
                 expect(shell.events.some((event) => event.event === 'tool.shell')).toBe(true)
@@ -594,9 +596,9 @@ describe('room Pi tools', () => {
             expect(manifest).toMatchObject({
                 sourcePath: 'report.txt',
                 mediaType: 'text/plain',
-                sessionKey: 'thread-1',
-                runId: 'run-1',
             })
+            expect(manifest).not.toHaveProperty('sessionKey')
+            expect(manifest).not.toHaveProperty('runId')
             await expect(
                 readFile(join(config.paths.workspaceDir, 'exports/report-copy.txt'), 'utf8'),
             ).resolves.toBe('artifact body')

@@ -40,7 +40,11 @@ export async function ensureBackendOnlyFile(path: string): Promise<void> {
 
 export async function ensureBackendOnlyTree(path: string): Promise<void> {
     const stat = await lstat(path)
-    if (stat.isDirectory() && !stat.isSymbolicLink()) {
+    if (stat.isSymbolicLink()) {
+        await chownToBackend(path)
+        return
+    }
+    if (stat.isDirectory()) {
         const entries = await readdir(path, {
             withFileTypes: true,
         })

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -204,5 +204,43 @@ describe('Pi runtime session tools', () => {
                 }),
             }),
         )
+    })
+
+    it('denies native workspace tool paths outside the workspace before execution', async () => {
+        await withToolInput('programmer', async (input) => {
+            const outsidePath = join(input.config.paths.roomRootDir, 'outside.txt')
+            await writeFile(outsidePath, 'outside', 'utf8')
+            const tools = createPiRuntimeCustomTools(input)
+            const read = tools.find((tool) => tool.name === 'read')
+            const write = tools.find((tool) => tool.name === 'write')
+            if (!read || !write) {
+                throw new Error('Missing native workspace tools')
+            }
+
+            await expect(
+                read.execute(
+                    'call-read',
+                    {
+                        path: outsidePath,
+                    },
+                    undefined,
+                    undefined,
+                    {} as never,
+                ),
+            ).rejects.toThrow(/escapes workspace/)
+            await expect(
+                write.execute(
+                    'call-write',
+                    {
+                        path: outsidePath,
+                        content: 'overwritten',
+                    },
+                    undefined,
+                    undefined,
+                    {} as never,
+                ),
+            ).rejects.toThrow(/escapes workspace/)
+            await expect(readFile(outsidePath, 'utf8')).resolves.toBe('outside')
+        })
     })
 })

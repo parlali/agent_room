@@ -55,7 +55,6 @@ function commandEnv(config: PiRuntimeConfig): NodeJS.ProcessEnv {
     return buildBoundedProcessEnv({
         HOME: config.paths.homeDir,
         TMPDIR: config.paths.tmpDir,
-        AGENT_ROOM_ROOM_ID: config.runtime.roomId,
         AGENT_ROOM_WORKSPACE_DIR: config.paths.workspaceDir,
         AGENT_ROOM_STORE_DIR: config.paths.storeDir,
     })

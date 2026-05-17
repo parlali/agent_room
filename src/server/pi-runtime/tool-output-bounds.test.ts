@@ -31,34 +31,46 @@ describe('tool output bounds', () => {
         await ensureTestPiRuntimeDirectories(config)
         const controller = new AbortController()
         const text = `${'a'.repeat(modelVisibleToolOutputMaxBytes)}${'b'.repeat(1000)}`
+        const previousUnsandboxedShell = process.env.AGENT_ROOM_UNSAFE_ALLOW_UNSANDBOXED_SHELL
+        process.env.AGENT_ROOM_UNSAFE_ALLOW_UNSANDBOXED_SHELL = '1'
 
-        const result = await withToolRunContext(
-            {
-                sessionKey: 'session-1',
-                runId: 'run-1',
-                signal: controller.signal,
-            },
-            () =>
-                boundToolOutput({
-                    config,
-                    text,
-                    label: 'fetch-large-json',
-                    extension: 'txt',
-                }),
-        )
+        try {
+            const result = await withToolRunContext(
+                {
+                    sessionKey: 'session-1',
+                    runId: 'run-1',
+                    signal: controller.signal,
+                },
+                () =>
+                    boundToolOutput({
+                        config,
+                        text,
+                        label: 'fetch-large-json',
+                        extension: 'txt',
+                    }),
+            )
 
-        expect(result.modelVisibleTruncated).toBe(true)
-        expect(result.text).toContain('[Tool output truncated for model context]')
-        expect(result.text.length).toBeLessThan(text.length)
-        expect(result.outputArtifact).toMatchObject({
-            root: 'store',
-            byteLength: Buffer.byteLength(text),
-            modelVisibleByteLength: modelVisibleToolOutputMaxBytes,
-        })
-        const savedPath = join(config.paths.storeDir, result.outputArtifact!.path)
-        await expect(readFile(savedPath, 'utf8')).resolves.toBe(text)
-        await expect(stat(savedPath)).resolves.toMatchObject({
-            mode: expect.any(Number),
-        })
+            expect(result.modelVisibleTruncated).toBe(true)
+            expect(result.text).toContain('[Tool output truncated for model context]')
+            expect(result.text.length).toBeLessThan(text.length)
+            expect(result.outputArtifact).toMatchObject({
+                root: 'store',
+                byteLength: Buffer.byteLength(text),
+                modelVisibleByteLength: modelVisibleToolOutputMaxBytes,
+            })
+            expect(result.outputArtifact?.path).toMatch(/^tool-output\//)
+            expect(result.outputArtifact?.path).not.toContain('session-1')
+            expect(result.outputArtifact?.path).not.toContain('run-1')
+            const savedPath = join(config.paths.storeDir, result.outputArtifact!.path)
+            await expect(readFile(savedPath, 'utf8')).resolves.toBe(text)
+            const savedStat = await stat(savedPath)
+            expect(savedStat.mode & 0o777).toBe(0o600)
+        } finally {
+            if (previousUnsandboxedShell === undefined) {
+                delete process.env.AGENT_ROOM_UNSAFE_ALLOW_UNSANDBOXED_SHELL
+            } else {
+                process.env.AGENT_ROOM_UNSAFE_ALLOW_UNSANDBOXED_SHELL = previousUnsandboxedShell
+            }
+        }
     })
 })
