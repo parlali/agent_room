@@ -1,13 +1,13 @@
 ---
 name: pptx
-description: Create, inspect, and edit PowerPoint PPTX files through Agent Room's bundled PPTX script.
+description: Create, inspect, and edit PowerPoint PPTX files through the bundled PPTX script.
 ---
 
 # PPTX
 
-Use this skill for PowerPoint `.pptx` create, inspect, and edit work in Agent Room.
+Use this skill for PowerPoint `.pptx` create, inspect, and edit work.
 
-Run the bundled script through `agent_room_shell`. Resolve `scripts/pptx_deck.ts` relative to this skill directory and pass that absolute path to `bun`.
+Run the bundled script through `shell`. Resolve `scripts/pptx_deck.ts` relative to this skill directory and pass that absolute path to `bun`.
 
 Commands:
 

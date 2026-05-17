@@ -106,12 +106,13 @@ describe('Pi runtime session tools', () => {
         await withToolInput('programmer', (input) => {
             const names = createPiRuntimeCustomTools(input).map((tool) => tool.name)
 
-            expect(names).toContain('agent_room_memory_read')
-            expect(names).toContain('agent_room_memory_patch')
-            expect(names).toContain('agent_room_memory_replace')
-            expect(names).toContain('agent_room_shell')
-            expect(names).toContain('agent_room_subagent')
-            expect(names).toContain('agent_room_deep_work')
+            expect(names).toContain('memory_read')
+            expect(names).toContain('memory_patch')
+            expect(names).toContain('memory_replace')
+            expect(names).toContain('shell')
+            expect(names).toContain('subagent')
+            expect(names).toContain('deep_work')
+            expect(names.some((name) => name.startsWith('agent_room_'))).toBe(false)
         })
     })
 
@@ -121,8 +122,8 @@ describe('Pi runtime session tools', () => {
             (input) => {
                 const names = createPiRuntimeCustomTools(input).map((tool) => tool.name)
 
-                expect(names).not.toContain('agent_room_subagent')
-                expect(names).not.toContain('agent_room_deep_work')
+                expect(names).not.toContain('subagent')
+                expect(names).not.toContain('deep_work')
             },
             'deep_work',
         )
@@ -132,8 +133,8 @@ describe('Pi runtime session tools', () => {
         await withToolInput('programmer', (input) => {
             const names = createPiRuntimeCustomTools(input).map((tool) => tool.name)
 
-            expect(names).not.toContain('agent_room_artifact_import')
-            expect(names).not.toContain('agent_room_artifact_export')
+            expect(names).not.toContain('artifact_import')
+            expect(names).not.toContain('artifact_export')
         })
     })
 })

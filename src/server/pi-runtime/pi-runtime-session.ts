@@ -14,7 +14,7 @@ import type { PiRuntimeThreadCreatePayload } from './protocol'
 import { createPiResourceLoader } from './resource-loader'
 import type { createMcpTools } from './mcp-bridge'
 import { createInternalStateTools } from './internal-state-tools'
-import { createRoomTools } from './room-tools'
+import { createRoomTools, nativeWorkspaceToolNamesForCapabilities } from './room-tools'
 import { createWebTools } from './web-tools'
 import {
     createBrowserAutomationTools,
@@ -182,6 +182,10 @@ export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Prom
         .getBranch()
         .some((entry) => entry.type === 'model_change' || entry.type === 'thinking_level_change')
     const customTools = createPiRuntimeCustomTools(input)
+    const enabledTools = [
+        ...nativeWorkspaceToolNamesForCapabilities(config.capabilities),
+        ...customTools.map((tool) => tool.name),
+    ]
     const { session } = await createAgentSession({
         cwd: config.paths.workspaceDir,
         agentDir: config.paths.stateDir,
@@ -192,7 +196,7 @@ export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Prom
         resourceLoader: createPiResourceLoader(input.systemPrompt),
         sessionManager,
         settingsManager,
-        tools: customTools.map((tool) => tool.name),
+        tools: enabledTools,
         customTools,
     })
     session.agent.onPayload = async (payload, model) => {

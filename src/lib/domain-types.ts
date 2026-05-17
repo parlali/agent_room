@@ -112,6 +112,10 @@ export interface RoomRuntimeMetadataRecord {
     roomId: string
     port: number | null
     pid: number | null
+    sandboxUid: number | null
+    sandboxGid: number | null
+    sandboxUserName: string | null
+    sandboxGroupName: string | null
     configVersion: number
     tokenVersion: number
     healthStatus: HealthStatus
@@ -487,10 +491,27 @@ export interface RuntimeFileMetadata {
     roomId: string
     port: number
     pid: number | null
+    sandbox: RuntimeSandboxIdentity | null
     startedAt: string | null
     configVersion: number
     tokenVersion: number
 }
+
+export type RuntimeSandboxIdentity =
+    | {
+          mode: 'per-room'
+          uid: number
+          gid: number
+          userName: string
+          groupName: string
+      }
+    | {
+          mode: 'test-unsafe'
+          uid: null
+          gid: null
+          userName: null
+          groupName: null
+      }
 
 export interface RuntimeHealthSnapshot {
     roomId: string

@@ -1,13 +1,13 @@
 ---
 name: xlsx
-description: Create, inspect, and edit Excel XLSX files through Agent Room's bundled XLSX script.
+description: Create, inspect, and edit Excel XLSX files through the bundled XLSX script.
 ---
 
 # XLSX
 
-Use this skill for Excel `.xlsx` create, inspect, and edit work in Agent Room.
+Use this skill for Excel `.xlsx` create, inspect, and edit work.
 
-Run the bundled script through `agent_room_shell`. Resolve `scripts/xlsx_workbook.ts` relative to this skill directory and pass that absolute path to `bun`.
+Run the bundled script through `shell`. Resolve `scripts/xlsx_workbook.ts` relative to this skill directory and pass that absolute path to `bun`.
 
 Commands:
 

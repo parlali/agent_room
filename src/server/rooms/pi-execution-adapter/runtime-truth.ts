@@ -12,6 +12,16 @@ const runtimeFileMetadataSchema = z
         roomId: z.string().min(1),
         port: z.number(),
         pid: z.number().nullable().optional(),
+        sandbox: z
+            .object({
+                mode: z.string(),
+                uid: z.number().nullable().optional(),
+                gid: z.number().nullable().optional(),
+                userName: z.string().nullable().optional(),
+                groupName: z.string().nullable().optional(),
+            })
+            .nullable()
+            .optional(),
         startedAt: z.string().nullable().optional(),
         configVersion: z.number().optional(),
         tokenVersion: z.number().optional(),
@@ -160,6 +170,10 @@ export async function getRoomExecutionTruthSnapshot(input: {
             ? {
                   port: toNullableNumber(runtimeMetadataFile.port),
                   pid: toNullableNumber(runtimeMetadataFile.pid),
+                  sandboxUid: toNullableNumber(runtimeMetadataFile.sandbox?.uid),
+                  sandboxGid: toNullableNumber(runtimeMetadataFile.sandbox?.gid),
+                  sandboxUserName: runtimeMetadataFile.sandbox?.userName ?? null,
+                  sandboxGroupName: runtimeMetadataFile.sandbox?.groupName ?? null,
                   startedAt: runtimeMetadataFile.startedAt ?? null,
                   configVersion: toNullableNumber(runtimeMetadataFile.configVersion),
                   tokenVersion: toNullableNumber(runtimeMetadataFile.tokenVersion),

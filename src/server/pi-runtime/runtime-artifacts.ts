@@ -40,10 +40,10 @@ export async function promoteRuntimeArtifact(input: {
     const sourcePath = relative(workspaceRoot, await realpath(input.path))
     const runContext = currentToolRunContext()
 
-    await ensureShellWritableDirectory(dirname(blobPath))
-    await ensureShellWritableDirectory(dirname(manifestPath))
+    await ensureShellWritableDirectory(input.config, dirname(blobPath))
+    await ensureShellWritableDirectory(input.config, dirname(manifestPath))
     await writeFile(blobPath, buffer)
-    await ensureShellWritableFile(blobPath)
+    await ensureShellWritableFile(input.config, blobPath)
     await writeFile(
         manifestPath,
         JSON.stringify(
@@ -63,7 +63,7 @@ export async function promoteRuntimeArtifact(input: {
         ),
         'utf8',
     )
-    await ensureShellWritableFile(manifestPath)
+    await ensureShellWritableFile(input.config, manifestPath)
 
     return {
         artifactId,

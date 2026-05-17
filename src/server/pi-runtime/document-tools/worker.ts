@@ -1,11 +1,7 @@
 import { spawn } from 'node:child_process'
 import type { PiRuntimeConfig } from '../../rooms/pi-runtime-config'
 import { buildBoundedProcessEnv } from '../../security/process-env'
-import {
-    ensureShellWritableFile,
-    resolveShellSandboxIdentity,
-    type ShellSandboxIdentity,
-} from '../shell-sandbox'
+import { ensureShellWritableFile, shellSandboxSpawnCommand } from '../shell-sandbox'
 import type { DocumentToolContext } from './types'
 
 export async function runDocumentWorker(input: {
@@ -20,8 +16,8 @@ export async function runDocumentWorker(input: {
 }): Promise<string> {
     return await new Promise((resolvePromise, reject) => {
         let settled = false
-        const identity = currentWorkerSandboxIdentity()
-        const child = spawn(input.command, input.args, {
+        const sandboxedCommand = shellSandboxSpawnCommand(input.config, input.command, input.args)
+        const child = spawn(sandboxedCommand.command, sandboxedCommand.args, {
             cwd: input.cwd,
             detached: true,
             env: buildBoundedProcessEnv({
@@ -32,8 +28,6 @@ export async function runDocumentWorker(input: {
                 AGENT_ROOM_STORE_DIR: input.config.paths.storeDir,
             }),
             stdio: ['ignore', 'pipe', 'pipe'],
-            ...(identity.uid === undefined ? {} : { uid: identity.uid }),
-            ...(identity.gid === undefined ? {} : { gid: identity.gid }),
         })
         let output = ''
         let timer: ReturnType<typeof setTimeout> | null = null
@@ -98,14 +92,6 @@ export async function runDocumentWorker(input: {
     })
 }
 
-function currentWorkerSandboxIdentity(): ShellSandboxIdentity {
-    return resolveShellSandboxIdentity({
-        nodeEnv: process.env.NODE_ENV,
-        unsafeAllowUnsandboxed: process.env.AGENT_ROOM_UNSAFE_ALLOW_UNSANDBOXED_SHELL,
-        uid: typeof process.getuid === 'function' ? process.getuid() : null,
-    })
-}
-
 export async function renderPdfPreview(
     ctx: DocumentToolContext,
     inputPath: string,
@@ -120,5 +106,5 @@ export async function renderPdfPreview(
         timeoutMs: ctx.config.budgets.documentWorkerMs,
         signal,
     })
-    await ensureShellWritableFile(outputPath)
+    await ensureShellWritableFile(ctx.config, outputPath)
 }

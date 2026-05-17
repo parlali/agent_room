@@ -22,6 +22,7 @@ function buildPiRuntimeProfile(input: RuntimeEngineProfileBuildInput) {
         port: input.port,
         token: input.token,
         paths: input.paths,
+        sandbox: input.sandbox,
         roomConfiguration: input.roomConfiguration,
     })
 

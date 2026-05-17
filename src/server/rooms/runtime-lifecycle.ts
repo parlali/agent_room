@@ -5,7 +5,7 @@ import type { WriteStream } from 'node:fs'
 import { mkdir, readFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { auditRepository, roomRepository } from '../db/repositories'
-import type { RoomRecord, RoomRuntimeMetadataRecord } from '../domain/types'
+import type { RoomRecord, RoomRuntimeMetadataRecord, RuntimeSandboxIdentity } from '../domain/types'
 import { buildBoundedProcessEnv } from '../security/process-env'
 import { loopbackPortAllocator } from './port-allocator'
 import {
@@ -27,6 +27,7 @@ import {
 import { writeRuntimeFileMetadata } from './runtime-materializer'
 import { ensureRoomFilesystemLayout } from './room-paths'
 import { getRuntimeEngineProfile } from './runtime-engine-profile'
+import { runtimeSandboxSpawnCommand } from './runtime-sandbox-identity'
 
 const startupHealthPollIntervalMs = 500
 const startupHealthTimeoutMs = 30_000
@@ -208,6 +209,7 @@ async function writeRoomRuntimeMetadataFile(input: {
     roomId: string
     port: number
     pid: number | null
+    sandbox: RuntimeSandboxIdentity | null
     startedAt: Date | null
     configVersion: number
     tokenVersion: number
@@ -216,6 +218,7 @@ async function writeRoomRuntimeMetadataFile(input: {
         roomId: input.roomId,
         port: input.port,
         pid: input.pid,
+        sandbox: input.sandbox,
         startedAt: input.startedAt?.toISOString() ?? null,
         configVersion: input.configVersion,
         tokenVersion: input.tokenVersion,
@@ -228,6 +231,7 @@ async function persistRoomRuntimeState(input: {
     metadataPath: string
     port: number
     pid: number | null
+    sandbox: RuntimeSandboxIdentity | null
     startedAt: Date | null
     configVersion: number
     tokenVersion: number
@@ -240,6 +244,7 @@ async function persistRoomRuntimeState(input: {
         roomId: input.roomId,
         port: input.port,
         pid: input.pid,
+        sandbox: input.sandbox,
         startedAt: input.startedAt,
         configVersion: input.configVersion,
         tokenVersion: input.tokenVersion,
@@ -248,6 +253,10 @@ async function persistRoomRuntimeState(input: {
         roomId: input.roomId,
         port: input.port,
         pid: input.pid,
+        sandboxUid: input.sandbox?.mode === 'per-room' ? input.sandbox.uid : null,
+        sandboxGid: input.sandbox?.mode === 'per-room' ? input.sandbox.gid : null,
+        sandboxUserName: input.sandbox?.mode === 'per-room' ? input.sandbox.userName : null,
+        sandboxGroupName: input.sandbox?.mode === 'per-room' ? input.sandbox.groupName : null,
         configVersion: input.configVersion,
         tokenVersion: input.tokenVersion,
         healthStatus: input.healthStatus,
@@ -293,7 +302,12 @@ async function startRoomProcessUnlocked(room: RoomRecord): Promise<void> {
         const startedAt = metadataForMaterialization.startedAt ?? new Date()
         const materialized = await materializeRoomRuntime(room, metadataForMaterialization)
 
-        const child = spawn(command.command, command.args, {
+        const sandboxedCommand = runtimeSandboxSpawnCommand(
+            command.command,
+            command.args,
+            materialized.sandbox,
+        )
+        const child = spawn(sandboxedCommand.command, sandboxedCommand.args, {
             cwd: paths.workspaceDir,
             env: buildBoundedProcessEnv(materialized.env),
             stdio: 'pipe',
@@ -312,6 +326,7 @@ async function startRoomProcessUnlocked(room: RoomRecord): Promise<void> {
             metadataPath: paths.runtimeMetadataPath,
             port,
             pid,
+            sandbox: materialized.sandbox,
             startedAt,
             configVersion: materialized.configVersion,
             tokenVersion: materialized.tokenVersion,
@@ -361,6 +376,7 @@ async function startRoomProcessUnlocked(room: RoomRecord): Promise<void> {
             metadataPath: paths.runtimeMetadataPath,
             port,
             pid,
+            sandbox: materialized.sandbox,
             startedAt,
             configVersion: materialized.configVersion,
             tokenVersion: materialized.tokenVersion,
@@ -404,6 +420,7 @@ async function startRoomProcessUnlocked(room: RoomRecord): Promise<void> {
                 roomId: room.id,
                 port,
                 pid: null,
+                sandbox: materialized.sandbox,
                 startedAt: null,
                 configVersion: materialized.configVersion,
                 tokenVersion: materialized.tokenVersion,
@@ -412,6 +429,16 @@ async function startRoomProcessUnlocked(room: RoomRecord): Promise<void> {
                 roomId: room.id,
                 port,
                 pid: null,
+                sandboxUid:
+                    materialized.sandbox.mode === 'per-room' ? materialized.sandbox.uid : null,
+                sandboxGid:
+                    materialized.sandbox.mode === 'per-room' ? materialized.sandbox.gid : null,
+                sandboxUserName:
+                    materialized.sandbox.mode === 'per-room' ? materialized.sandbox.userName : null,
+                sandboxGroupName:
+                    materialized.sandbox.mode === 'per-room'
+                        ? materialized.sandbox.groupName
+                        : null,
                 configVersion: materialized.configVersion,
                 tokenVersion: materialized.tokenVersion,
                 healthStatus: status === 'failed' ? 'unhealthy' : 'unknown',
@@ -456,6 +483,7 @@ async function startRoomProcessUnlocked(room: RoomRecord): Promise<void> {
             roomId: room.id,
             port,
             pid: null,
+            sandbox: null,
             startedAt: null,
             configVersion: currentMetadata.configVersion,
             tokenVersion: currentMetadata.tokenVersion,
@@ -464,6 +492,10 @@ async function startRoomProcessUnlocked(room: RoomRecord): Promise<void> {
             roomId: room.id,
             port,
             pid: null,
+            sandboxUid: currentMetadata.sandboxUid,
+            sandboxGid: currentMetadata.sandboxGid,
+            sandboxUserName: currentMetadata.sandboxUserName,
+            sandboxGroupName: currentMetadata.sandboxGroupName,
             configVersion: currentMetadata.configVersion,
             tokenVersion: currentMetadata.tokenVersion,
             healthStatus: 'unhealthy',
@@ -508,6 +540,19 @@ export async function stopRoomProcess(roomId: string, actorUserId: string | null
                 roomId,
                 port: metadata.port,
                 pid: null,
+                sandbox:
+                    metadata.sandboxUid !== null &&
+                    metadata.sandboxGid !== null &&
+                    metadata.sandboxUserName !== null &&
+                    metadata.sandboxGroupName !== null
+                        ? {
+                              mode: 'per-room',
+                              uid: metadata.sandboxUid,
+                              gid: metadata.sandboxGid,
+                              userName: metadata.sandboxUserName,
+                              groupName: metadata.sandboxGroupName,
+                          }
+                        : null,
                 startedAt: null,
                 configVersion: metadata.configVersion,
                 tokenVersion: metadata.tokenVersion,

@@ -1,64 +1,98 @@
 import { chmod, chown, mkdir } from 'node:fs/promises'
+import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import {
+    runtimeSandboxShellCommand,
+    runtimeSandboxSpawnCommand,
+} from '../rooms/runtime-sandbox-identity'
+import type { RuntimeSandboxIdentity } from '../domain/types'
 
-const sandboxShellUid = 65534
-const sandboxShellGid = 65534
+export type ShellSandboxIdentity = RuntimeSandboxIdentity
 
-export interface ShellSandboxIdentity {
-    uid?: number
-    gid?: number
-    mode: 'dropped' | 'test-unsafe'
-}
-
-export function resolveShellSandboxIdentity(input: {
-    nodeEnv?: string
-    unsafeAllowUnsandboxed?: string
-    uid?: number | null
-}): ShellSandboxIdentity {
-    if (input.uid === 0) {
-        return {
-            uid: sandboxShellUid,
-            gid: sandboxShellGid,
-            mode: 'dropped',
+function assertRuntimeSandboxIdentity(identity: RuntimeSandboxIdentity): void {
+    if (identity.mode === 'test-unsafe') {
+        if (
+            process.env.NODE_ENV === 'test' &&
+            process.env.AGENT_ROOM_UNSAFE_ALLOW_UNSANDBOXED_SHELL === '1'
+        ) {
+            return
         }
+        throw new Error('Unsafe unsandboxed runtime identity is only available in tests')
     }
 
-    if (input.nodeEnv === 'test' && input.unsafeAllowUnsandboxed === '1') {
-        return {
-            mode: 'test-unsafe',
-        }
+    if (
+        Number.isInteger(identity.uid) &&
+        identity.uid > 0 &&
+        Number.isInteger(identity.gid) &&
+        identity.gid > 0
+    ) {
+        return
     }
 
     throw new Error(
-        'Shell tool requires a sandboxed runtime user. Run Agent Room in the Docker image or disable shell tools for this room.',
+        'Runtime requires a per-room sandbox identity. Start failed closed because no room-local UID/GID was materialized.',
     )
 }
 
-export function currentShellSandboxIdentity(): ShellSandboxIdentity {
-    return resolveShellSandboxIdentity({
-        nodeEnv: process.env.NODE_ENV,
-        unsafeAllowUnsandboxed: process.env.AGENT_ROOM_UNSAFE_ALLOW_UNSANDBOXED_SHELL,
-        uid: typeof process.getuid === 'function' ? process.getuid() : null,
-    })
+export function currentShellSandboxIdentity(config: PiRuntimeConfig): ShellSandboxIdentity {
+    assertRuntimeSandboxIdentity(config.sandbox)
+    return config.sandbox
 }
 
-async function applyDroppedShellOwnership(path: string, identity: ShellSandboxIdentity) {
-    if (identity.uid !== undefined && identity.gid !== undefined) {
+export function shellSandboxSpawnCommand(
+    config: PiRuntimeConfig,
+    command: string,
+    args: string[],
+): {
+    command: string
+    args: string[]
+} {
+    const identity = currentShellSandboxIdentity(config)
+    return runtimeSandboxSpawnCommand(command, args, identity)
+}
+
+export function shellSandboxShellCommand(
+    config: PiRuntimeConfig,
+    command: string,
+): {
+    command: string
+    args: string[]
+} {
+    const identity = currentShellSandboxIdentity(config)
+    return runtimeSandboxShellCommand(command, identity)
+}
+
+async function applyShellOwnership(path: string, identity: ShellSandboxIdentity) {
+    if (
+        identity.mode === 'per-room' &&
+        typeof process.getuid === 'function' &&
+        process.getuid() === 0
+    ) {
         await chown(path, identity.uid, identity.gid)
     }
 }
 
-export async function ensureShellWritableDirectory(path: string): Promise<void> {
-    const identity = currentShellSandboxIdentity()
+export async function ensureShellWritableDirectory(
+    config: PiRuntimeConfig,
+    path: string,
+): Promise<void> {
+    const identity = currentShellSandboxIdentity(config)
     await mkdir(path, {
         recursive: true,
         mode: 0o700,
     })
-    await applyDroppedShellOwnership(path, identity)
+    await applyShellOwnership(path, identity)
     await chmod(path, 0o700)
 }
 
-export async function ensureShellWritableFile(path: string): Promise<void> {
-    const identity = currentShellSandboxIdentity()
-    await applyDroppedShellOwnership(path, identity)
+export async function ensureShellWritableFile(
+    config: PiRuntimeConfig,
+    path: string,
+): Promise<void> {
+    const identity = currentShellSandboxIdentity(config)
+    await applyShellOwnership(path, identity)
     await chmod(path, 0o600)
+}
+
+export const __testing = {
+    assertRuntimeSandboxIdentity,
 }

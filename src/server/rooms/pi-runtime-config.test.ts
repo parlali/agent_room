@@ -2,7 +2,11 @@ import { join } from 'node:path'
 import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
-import type { MaterializedRoomConfiguration, RoomPaths } from '../domain/types'
+import type {
+    MaterializedRoomConfiguration,
+    RoomPaths,
+    RuntimeSandboxIdentity,
+} from '../domain/types'
 import {
     testBudgets,
     testCapabilities,
@@ -70,6 +74,16 @@ function roomConfiguration(): MaterializedRoomConfiguration {
     }
 }
 
+function sandbox(): RuntimeSandboxIdentity {
+    return {
+        mode: 'per-room',
+        uid: 12345,
+        gid: 12345,
+        userName: 'ar-test',
+        groupName: 'ar-test',
+    }
+}
+
 describe('Pi runtime config materialization', () => {
     it('keeps paths, auth, temp, and local model config under the room root', () => {
         const root = '/tmp/agent-room-test/room-1'
@@ -79,6 +93,7 @@ describe('Pi runtime config materialization', () => {
             port: 31234,
             token: 'token-token-token-token-token',
             paths: roomPaths(root),
+            sandbox: sandbox(),
             roomConfiguration: roomConfiguration(),
         })
 
@@ -88,6 +103,7 @@ describe('Pi runtime config materialization', () => {
             bindHost: '127.0.0.1',
             port: 31234,
         })
+        expect(config.sandbox).toEqual(sandbox())
         expect(config.paths.stateDir).toBe(join(root, 'pi-state'))
         expect(config.paths.authPath).toBe(join(root, 'pi-state', 'auth.json'))
         expect(config.paths.internalStateDir).toBe(join(root, 'pi-state', 'internal-state'))
@@ -135,6 +151,7 @@ describe('Pi runtime config materialization', () => {
             port: 31234,
             token: 'token-token-token-token-token',
             paths: roomPaths(root),
+            sandbox: sandbox(),
             roomConfiguration: roomConfig,
         })
 
@@ -168,6 +185,7 @@ describe('Pi runtime config materialization', () => {
             port: 31234,
             token: 'token-token-token-token-token',
             paths: roomPaths(root),
+            sandbox: sandbox(),
             roomConfiguration: roomConfig,
         })
 
@@ -191,6 +209,7 @@ describe('Pi runtime config materialization', () => {
                 port: 31234,
                 token: 'token-token-token-token-token',
                 paths,
+                sandbox: sandbox(),
                 roomConfiguration: roomConfiguration(),
             })
 
@@ -239,6 +258,7 @@ describe('Pi runtime config materialization', () => {
                 port: 31234,
                 token: 'token-token-token-token-token',
                 paths: roomPaths(root),
+                sandbox: sandbox(),
                 roomConfiguration: config,
             })
             const runtimeConfig = profile.config as ReturnType<typeof buildPiRuntimeConfig>
@@ -282,6 +302,7 @@ describe('Pi runtime config materialization', () => {
                 port: 31234,
                 token: 'token-token-token-token-token',
                 paths: roomPaths(root),
+                sandbox: sandbox(),
                 roomConfiguration: config,
             })
 
@@ -318,6 +339,7 @@ describe('Pi runtime config materialization', () => {
                     port: 31234,
                     token: 'token-token-token-token-token',
                     paths: roomPaths(root),
+                    sandbox: sandbox(),
                     roomConfiguration: config,
                 }),
             ).toThrow(/reserved keys: HOME/)

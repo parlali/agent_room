@@ -209,6 +209,13 @@ async function runPiProviderProbe(
             port: 0,
             token: 'provider-validation-token-provider-validation',
             paths,
+            sandbox: {
+                mode: 'test-unsafe',
+                uid: null,
+                gid: null,
+                userName: null,
+                groupName: null,
+            },
             roomConfiguration: buildValidationRoomConfiguration(input),
         })
         if (input.apiKey) {

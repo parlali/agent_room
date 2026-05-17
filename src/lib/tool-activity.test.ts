@@ -7,7 +7,7 @@ describe('tool activity model', () => {
         const tasks = toolTasksFromParts([
             emptyRuntimePart({
                 type: 'tool_call',
-                toolName: 'agent_room_read',
+                toolName: 'read',
                 toolCallId: 'call-1',
                 status: 'complete',
                 input: {

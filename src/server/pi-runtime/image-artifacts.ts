@@ -98,7 +98,7 @@ export async function saveImages(
 > {
     const prefix = safePrefix(outputPrefix)
     const outputDir = await resolveGeneratedImageDirectory(config)
-    await ensureShellWritableDirectory(outputDir)
+    await ensureShellWritableDirectory(config, outputDir)
     const saved = []
     for (const image of images) {
         const path = join(
@@ -106,7 +106,7 @@ export async function saveImages(
             `${prefix}-${image.index + 1}${extensionForMediaType(image.mediaType)}`,
         )
         await writeFile(path, image.bytes)
-        await ensureShellWritableFile(path)
+        await ensureShellWritableFile(config, path)
         const artifact = await promoteImageArtifact(config, {
             path,
             mediaType: image.mediaType,

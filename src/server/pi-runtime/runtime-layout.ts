@@ -32,10 +32,10 @@ export async function ensureRuntimeLayout(config: PiRuntimeConfig): Promise<void
     ])
     if (writableToolsEnabled) {
         await Promise.all([
-            ensureShellWritableDirectory(config.paths.workspaceDir),
-            ensureShellWritableDirectory(config.paths.storeDir),
-            ensureShellWritableDirectory(config.paths.homeDir),
-            ensureShellWritableDirectory(config.paths.tmpDir),
+            ensureShellWritableDirectory(config, config.paths.workspaceDir),
+            ensureShellWritableDirectory(config, config.paths.storeDir),
+            ensureShellWritableDirectory(config, config.paths.homeDir),
+            ensureShellWritableDirectory(config, config.paths.tmpDir),
         ])
     }
     if (config.roomMode === 'coworker') {

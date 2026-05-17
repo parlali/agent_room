@@ -136,6 +136,13 @@ export function createTestPiRuntimeConfig(
             ...options.provider,
         },
         roomMode: options.roomMode ?? 'coworker',
+        sandbox: {
+            mode: 'test-unsafe',
+            uid: null,
+            gid: null,
+            userName: null,
+            groupName: null,
+        },
         capabilities: {
             ...testCapabilities,
             ...options.capabilities,

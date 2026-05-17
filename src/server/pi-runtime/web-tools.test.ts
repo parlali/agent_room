@@ -47,7 +47,7 @@ async function executeWebTool(input: object) {
             events.push({ event, payload })
         },
     })
-    const tool = tools.find((entry) => entry.name === 'agent_room_web_search')
+    const tool = tools.find((entry) => entry.name === 'web_search')
     if (!tool) {
         throw new Error('Missing web search tool')
     }
@@ -863,7 +863,7 @@ describe('web tools', () => {
                 events.push({ event, payload })
             },
         })
-        const tool = tools.find((entry) => entry.name === 'agent_room_web_search')
+        const tool = tools.find((entry) => entry.name === 'web_search')
         if (!tool) {
             throw new Error('Missing web search tool')
         }

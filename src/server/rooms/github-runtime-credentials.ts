@@ -31,13 +31,13 @@ export async function writeGitHubRuntimeCredentials(input: {
     const ghConfigDir = dirname(github.ghHostsPath)
     const configDir = dirname(ghConfigDir)
 
-    await ensureShellWritableDirectory(input.config.paths.homeDir)
+    await ensureShellWritableDirectory(input.config, input.config.paths.homeDir)
     await mkdir(ghConfigDir, {
         recursive: true,
         mode: 0o700,
     })
-    await ensureShellWritableDirectory(configDir)
-    await ensureShellWritableDirectory(ghConfigDir)
+    await ensureShellWritableDirectory(input.config, configDir)
+    await ensureShellWritableDirectory(input.config, ghConfigDir)
 
     await writeFile(
         github.ghHostsPath,
@@ -77,8 +77,8 @@ export async function writeGitHubRuntimeCredentials(input: {
     )
 
     await Promise.all([
-        ensureShellWritableFile(github.ghHostsPath),
-        ensureShellWritableFile(github.gitCredentialsPath),
-        ensureShellWritableFile(github.gitConfigPath),
+        ensureShellWritableFile(input.config, github.ghHostsPath),
+        ensureShellWritableFile(input.config, github.gitCredentialsPath),
+        ensureShellWritableFile(input.config, github.gitConfigPath),
     ])
 }

@@ -388,15 +388,15 @@ export function isNonTerminalToolResult(value: string | null): boolean {
 function safeInputDetail(name: string | null, input: unknown): string | null {
     if (!isRecord(input)) return null
 
-    if (name === 'agent_room_web_search') {
+    if (name === 'web_search' || name === 'agent_room_web_search') {
         return safeNamedValue(input, ['query', 'q'], 'Query')
     }
 
-    if (name === 'agent_room_fetch_url') {
+    if (name === 'fetch_url' || name === 'agent_room_fetch_url') {
         return safeUrlValue(input, ['url'], 'Site')
     }
 
-    if (name?.startsWith('agent_room_')) {
+    if (name && (name.startsWith('agent_room_') || categorizeAgentRoomTool(name) !== 'other')) {
         return (
             safePathValue(input, ['path', 'filePath', 'inputPath', 'outputPath'], 'File') ??
             safePathValue(input, ['directory', 'dir'], 'Folder') ??

@@ -168,7 +168,7 @@ describe('Pi runtime usage sync', () => {
                 kind: 'image',
                 provider: 'gemini',
                 model: 'gemini-image',
-                toolName: 'agent_room_image_generate',
+                toolName: 'image_generate',
                 durationMs: 2500,
             }),
         )

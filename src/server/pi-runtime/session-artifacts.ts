@@ -36,13 +36,24 @@ interface ArtifactDraft {
 const internalStoreRoots = new Set(['blobs', 'manifests', 'previews'])
 
 const writeToolNames = new Set([
+    'write',
+    'edit',
+    'artifact_export',
+    'pdf',
     'agent_room_write',
     'agent_room_edit',
     'agent_room_artifact_export',
     'agent_room_pdf',
 ])
 
-const readToolNames = new Set(['agent_room_read', 'agent_room_pdf', 'agent_room_read_pdf'])
+const readToolNames = new Set([
+    'read',
+    'pdf',
+    'read_pdf',
+    'agent_room_read',
+    'agent_room_pdf',
+    'agent_room_read_pdf',
+])
 
 function artifactId(surface: ArtifactSurface, relativePath: string): string {
     return `${surface}:${relativePath}`
@@ -142,11 +153,15 @@ function kindFromFileChange(fileChange: Record<string, unknown>): RoomSessionArt
 }
 
 function kindFromTool(toolName: string | null, operation: string | null): RoomSessionArtifactKind {
-    if (operation === 'edit') return 'edited'
+    if (operation === 'edit' || toolName === 'edit' || toolName === 'agent_room_edit') {
+        return 'edited'
+    }
     if (
         operation === 'create' ||
         operation === 'export_pdf' ||
         operation === 'preview' ||
+        toolName === 'write' ||
+        toolName === 'artifact_export' ||
         toolName === 'agent_room_write' ||
         toolName === 'agent_room_artifact_export'
     ) {
@@ -338,7 +353,7 @@ function collectToolResult(input: {
         )
     }
 
-    if (toolName === 'agent_room_artifact_import') {
+    if (toolName === 'artifact_import' || toolName === 'agent_room_artifact_import') {
         addArtifact(
             input.artifacts,
             artifactFromPath({

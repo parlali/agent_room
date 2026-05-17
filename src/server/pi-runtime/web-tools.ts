@@ -47,11 +47,11 @@ interface WebToolDetails {
 
 function createWebSearchTool(ctx: WebToolContext, router: SearchRouter): ToolDefinition {
     return defineTool({
-        name: 'agent_room_web_search',
+        name: 'web_search',
         label: 'Web Search',
-        description: 'Search the web through the configured room search backend.',
+        description: 'Search the web through the configured search backend.',
         promptSnippet:
-            'agent_room_web_search returns bounded cited web results for current or external facts.',
+            'web_search returns bounded cited web results for current or external facts.',
         parameters: Type.Object({
             query: Type.String(),
             count: Type.Optional(Type.Number()),
@@ -124,11 +124,10 @@ function createWebSearchTool(ctx: WebToolContext, router: SearchRouter): ToolDef
 
 function createFetchUrlTool(ctx: WebToolContext): ToolDefinition {
     return defineTool({
-        name: 'agent_room_fetch_url',
+        name: 'fetch_url',
         label: 'Fetch URL',
         description: 'Fetch and extract bounded text from a public http or https URL.',
-        promptSnippet:
-            'agent_room_fetch_url fetches known public URLs with SSRF protections and text caps.',
+        promptSnippet: 'fetch_url fetches known public URLs with SSRF protections and text caps.',
         parameters: Type.Object({
             url: Type.String(),
             timeoutMs: Type.Optional(Type.Number()),

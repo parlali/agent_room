@@ -7,7 +7,7 @@ import { buildBoundedProcessEnv } from '../security/process-env'
 import {
     currentShellSandboxIdentity,
     ensureShellWritableDirectory,
-    resolveShellSandboxIdentity,
+    shellSandboxShellCommand,
 } from './shell-sandbox'
 import { combineAbortSignals, currentToolRunSignal } from './tool-run-context'
 
@@ -169,8 +169,7 @@ export async function startBackgroundCommand(input: {
         throw new Error('Command cannot be empty')
     }
 
-    await ensureShellWritableDirectory(input.config.paths.workspaceDir)
-    const identity = currentShellSandboxIdentity()
+    await ensureShellWritableDirectory(input.config, input.config.paths.workspaceDir)
     const combined = combineAbortSignals([input.signal, currentToolRunSignal()])
     const record: BackgroundCommandRecord = {
         commandId: randomUUID(),
@@ -191,14 +190,12 @@ export async function startBackgroundCommand(input: {
         timeoutMs: input.timeoutMs,
     }
 
-    const child = spawn(command, {
+    const sandboxedCommand = shellSandboxShellCommand(input.config, command)
+    const child = spawn(sandboxedCommand.command, sandboxedCommand.args, {
         cwd: record.cwd,
-        shell: '/bin/sh',
         env: commandEnv(input.config),
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: true,
-        ...(identity.uid === undefined ? {} : { uid: identity.uid }),
-        ...(identity.gid === undefined ? {} : { gid: identity.gid }),
     })
 
     const append = (chunk: Buffer) => {
@@ -327,5 +324,5 @@ export async function cleanupBackgroundCommands(config: PiRuntimeConfig): Promis
 }
 
 export const __testing = {
-    resolveShellSandboxIdentity,
+    currentShellSandboxIdentity,
 }

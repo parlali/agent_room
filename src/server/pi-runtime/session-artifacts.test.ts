@@ -74,7 +74,7 @@ describe('session artifact extraction', () => {
                     {
                         type: 'toolCall',
                         id: 'call-write',
-                        name: 'agent_room_write',
+                        name: 'write',
                         arguments: {
                             path: 'notes/summary.md',
                         },
@@ -97,7 +97,7 @@ describe('session artifact extraction', () => {
                     {
                         type: 'toolCall',
                         id: 'call-edit',
-                        name: 'agent_room_edit',
+                        name: 'edit',
                         arguments: {
                             path: 'notes/summary.md',
                         },
@@ -125,7 +125,7 @@ describe('session artifact extraction', () => {
             name: 'summary.md',
             relativePath: 'notes/summary.md',
             byteLength: 50,
-            toolName: 'agent_room_edit',
+            toolName: 'edit',
         })
     })
 
@@ -137,7 +137,7 @@ describe('session artifact extraction', () => {
                     {
                         type: 'toolCall',
                         id: 'call-read',
-                        name: 'agent_room_read',
+                        name: 'read',
                         arguments: {
                             root: 'store',
                             path: 'blobs/abc123',
@@ -177,7 +177,7 @@ describe('session artifact extraction', () => {
                     {
                         type: 'toolCall',
                         id: 'call-fetch',
-                        name: 'agent_room_fetch_url',
+                        name: 'fetch_url',
                         arguments: {
                             url: 'https://example.com/data.json',
                         },

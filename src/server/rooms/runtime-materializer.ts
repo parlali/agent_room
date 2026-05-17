@@ -1,12 +1,22 @@
 import { chmod, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
-import type { RoomRecord, RoomRuntimeMetadataRecord, RuntimeFileMetadata } from '../domain/types'
+import type {
+    RoomRecord,
+    RoomRuntimeMetadataRecord,
+    RuntimeFileMetadata,
+    RuntimeSandboxIdentity,
+} from '../domain/types'
 import { materializeRoomConfiguration } from '../configuration/operator-configuration'
 import { ensureRoomFilesystemLayout, writeRuntimeToken } from './room-paths'
 import { writeGitHubRuntimeCredentials } from './github-runtime-credentials'
 import { getRuntimeEngineProfile } from './runtime-engine-profile'
 import type { PiRuntimeConfig } from './pi-runtime-config'
+import {
+    applyRuntimeSandboxFilesystemOwnership,
+    ensureRuntimeSandboxFile,
+    materializeRuntimeSandboxIdentity,
+} from './runtime-sandbox-identity'
 
 function renderEnvFile(input: Record<string, string>): string {
     const lines: string[] = []
@@ -72,6 +82,7 @@ export async function materializeRuntime(input: {
     tokenVersion: number
     runtimeMetadata: RuntimeFileMetadata
     env: Record<string, string>
+    sandbox: RuntimeSandboxIdentity
 }> {
     const runtimeEngineProfile = getRuntimeEngineProfile()
     const paths = await ensureRoomFilesystemLayout(input.room.id)
@@ -86,6 +97,12 @@ export async function materializeRuntime(input: {
     if (port === null) {
         throw new Error(`Room ${input.room.id} has no allocated port`)
     }
+    const sandbox = await materializeRuntimeSandboxIdentity({
+        roomId: input.room.id,
+        current: input.runtimeMetadata,
+        paths,
+    })
+    await applyRuntimeSandboxFilesystemOwnership(paths, sandbox)
 
     const runtimeProfile = runtimeEngineProfile.buildRuntimeProfile({
         roomId: input.room.id,
@@ -93,6 +110,7 @@ export async function materializeRuntime(input: {
         port,
         token,
         paths,
+        sandbox,
         roomConfiguration,
     })
     await writeGitHubRuntimeCredentials({
@@ -104,6 +122,7 @@ export async function materializeRuntime(input: {
         roomId: input.room.id,
         port,
         pid: null,
+        sandbox,
         startedAt: input.runtimeMetadata.startedAt?.toISOString() ?? new Date().toISOString(),
         configVersion: input.runtimeMetadata.configVersion,
         tokenVersion: input.runtimeMetadata.tokenVersion,
@@ -113,12 +132,12 @@ export async function materializeRuntime(input: {
         encoding: 'utf8',
         mode: 0o600,
     })
-    await chmod(paths.runtimeConfigPath, 0o600)
+    await ensureRuntimeSandboxFile(paths.runtimeConfigPath, sandbox)
     await writeFile(paths.runtimeEnvPath, renderEnvFile(runtimeProfile.env), {
         encoding: 'utf8',
         mode: 0o600,
     })
-    await chmod(paths.runtimeEnvPath, 0o600)
+    await ensureRuntimeSandboxFile(paths.runtimeEnvPath, sandbox)
     await writeRuntimeFileMetadata(paths.runtimeMetadataPath, runtimeMetadata)
     return {
         port,
@@ -127,5 +146,6 @@ export async function materializeRuntime(input: {
         tokenVersion: input.runtimeMetadata.tokenVersion,
         runtimeMetadata,
         env: runtimeProfile.env,
+        sandbox,
     }
 }

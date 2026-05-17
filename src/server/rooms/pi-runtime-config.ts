@@ -11,6 +11,7 @@ import type {
     RunBudgetConfig,
     RoomMode,
     RoomPaths,
+    RuntimeSandboxIdentity,
     SearchRuntimeConfig,
 } from '../domain/types'
 import {
@@ -96,6 +97,7 @@ export interface PiRuntimeConfig {
         fallbackModels: string[]
     }
     roomMode: RoomMode
+    sandbox: RuntimeSandboxIdentity
     capabilities: CapabilityConfig
     search: SearchRuntimeConfig
     image: ImageRuntimeConfig
@@ -214,6 +216,7 @@ export function buildPiRuntimeConfig(input: {
     port: number
     token: string
     paths: RoomPaths
+    sandbox: RuntimeSandboxIdentity
     roomConfiguration: MaterializedRoomConfiguration
 }): PiRuntimeConfig {
     const provider = input.roomConfiguration.provider
@@ -282,6 +285,7 @@ export function buildPiRuntimeConfig(input: {
             fallbackModels: provider.fallbackModels,
         },
         roomMode: input.roomConfiguration.roomMode,
+        sandbox: input.sandbox,
         capabilities: input.roomConfiguration.capabilities,
         search: input.roomConfiguration.search,
         image: input.roomConfiguration.image,

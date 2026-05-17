@@ -388,14 +388,14 @@ describe('Browserbase browser automation', () => {
         })
 
         expect(tools.map((tool) => tool.name)).toEqual([
-            'agent_room_browser_open',
-            'agent_room_browser_close',
-            'agent_room_browser_navigate',
-            'agent_room_browser_click',
-            'agent_room_browser_type',
-            'agent_room_browser_scroll',
-            'agent_room_browser_screenshot',
-            'agent_room_browser_read_text',
+            'browser_open',
+            'browser_close',
+            'browser_navigate',
+            'browser_click',
+            'browser_type',
+            'browser_scroll',
+            'browser_screenshot',
+            'browser_read_text',
         ])
     })
 

@@ -1,21 +1,16 @@
-import {
-    copyFile,
-    mkdir,
-    mkdtemp,
-    readFile,
-    realpath,
-    rm,
-    stat,
-    symlink,
-    writeFile,
-} from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { createGrepTool } from '@mariozechner/pi-coding-agent'
 import { describe, expect, it } from 'vitest'
 import { PDFDocument } from 'pdf-lib'
 import type { Api, Model } from '@mariozechner/pi-ai'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
-import { __testing, createRoomTools, roomToolNamesForCapabilities } from './room-tools'
+import {
+    createRoomTools,
+    nativeWorkspaceToolNamesForCapabilities,
+    roomToolNamesForCapabilities,
+} from './room-tools'
 import { createDocumentTools } from './document-tools'
 import {
     createTestPiRuntimeConfig,
@@ -49,7 +44,7 @@ async function withRoom<T>(fn: (config: PiRuntimeConfig) => Promise<T>): Promise
     }
 }
 
-async function executeTool(
+async function executeRoomTool(
     config: PiRuntimeConfig,
     name: string,
     input: object,
@@ -143,213 +138,125 @@ async function writePdfFixture(path: string, pageCount: number): Promise<Buffer>
     return bytes
 }
 
-function resultText(result: Awaited<ReturnType<typeof executeTool>>['result']): string {
+function resultText(result: Awaited<ReturnType<typeof executeRoomTool>>['result']): string {
     const part = result.content[0]
     return part && 'text' in part && typeof part.text === 'string' ? part.text : ''
 }
 
-function resultDetails(result: Awaited<ReturnType<typeof executeTool>>['result']) {
+function resultDetails(result: Awaited<ReturnType<typeof executeRoomTool>>['result']) {
     return typeof result.details === 'object' && result.details !== null
         ? (result.details as Record<string, unknown>)
         : {}
 }
 
 describe('room Pi tools', () => {
-    it('requires an explicit shell sandbox or test-only unsafe override', () => {
-        expect(() =>
-            __testing.resolveShellSandboxIdentity({
-                nodeEnv: 'production',
-                unsafeAllowUnsandboxed: undefined,
-                uid: 501,
-            }),
-        ).toThrow(/requires a sandboxed runtime user/)
+    it('uses Pi-native workspace tool names and keeps custom tools product-neutral', () => {
+        expect(nativeWorkspaceToolNamesForCapabilities(testCapabilities)).toEqual([
+            'read',
+            'grep',
+            'find',
+            'ls',
+            'edit',
+            'write',
+        ])
         expect(
-            __testing.resolveShellSandboxIdentity({
-                nodeEnv: 'production',
-                unsafeAllowUnsandboxed: undefined,
-                uid: 0,
+            nativeWorkspaceToolNamesForCapabilities({
+                ...testCapabilities,
+                shellCoding: false,
             }),
-        ).toEqual({
-            uid: 65534,
-            gid: 65534,
-            mode: 'dropped',
-        })
+        ).toEqual(['read', 'grep', 'find', 'ls'])
+
+        const coworkerNames = roomToolNamesForCapabilities('coworker', testCapabilities)
+        const programmerNames = roomToolNamesForCapabilities('programmer', testCapabilities)
+
+        expect(coworkerNames).toEqual([
+            'shell',
+            'command_start',
+            'command_poll',
+            'command_status',
+            'command_terminate',
+            'artifact_import',
+            'artifact_export',
+        ])
+        expect(programmerNames).not.toContain('artifact_import')
         expect(
-            __testing.resolveShellSandboxIdentity({
-                nodeEnv: 'test',
-                unsafeAllowUnsandboxed: '1',
-                uid: 501,
-            }),
-        ).toEqual({
-            mode: 'test-unsafe',
-        })
+            [...coworkerNames, ...programmerNames].some((name) => name.startsWith('agent_room_')),
+        ).toBe(false)
     })
 
-    it('denies file paths outside the room roots', async () => {
-        await withRoom(async (config) => {
-            await writeFile(join(config.paths.roomRootDir, 'secret.txt'), 'secret', 'utf8')
-            await expect(
-                executeTool(config, 'agent_room_read', {
-                    path: '../secret.txt',
-                }),
-            ).rejects.toThrow(/escapes allowed root/)
-        })
-    })
-
-    it('denies symlink escapes for reads and writes', async () => {
-        await withRoom(async (config) => {
-            const outsideDir = join(config.paths.roomRootDir, 'outside')
-            await mkdir(outsideDir, {
-                recursive: true,
-            })
-            await writeFile(join(outsideDir, 'secret.txt'), 'secret', 'utf8')
-            await symlink(
-                join(outsideDir, 'secret.txt'),
-                join(config.paths.workspaceDir, 'secret-link.txt'),
-            )
-            await symlink(outsideDir, join(config.paths.workspaceDir, 'outside-link'))
-
-            await expect(
-                executeTool(config, 'agent_room_read', {
-                    path: 'secret-link.txt',
-                }),
-            ).rejects.toThrow(/escapes allowed root/)
-            await expect(
-                executeTool(config, 'agent_room_write', {
-                    path: 'outside-link/new.txt',
-                    content: 'escape',
-                }),
-            ).rejects.toThrow(/escapes allowed root/)
-            await expect(
-                executeTool(config, 'agent_room_write', {
-                    path: 'secret-link.txt',
-                    content: 'overwrite escape',
-                    overwrite: true,
-                }),
-            ).rejects.toThrow(/escapes allowed root/)
-            await expect(
-                executeDocumentTool(config, 'agent_room_pdf', {
-                    operation: 'create',
-                    path: 'outside-link/report.pdf',
-                    title: 'Escape',
-                    paragraphs: ['This should not be written outside the workspace.'],
-                }),
-            ).rejects.toThrow(/escapes allowed root/)
-
-            const list = await executeTool(config, 'agent_room_list', {
-                path: '.',
-            })
-            expect(resultText(list.result)).toContain('link')
-            expect(resultText(list.result)).toContain('outside-link')
-        })
-    })
-
-    it('removes shell and mutation tool names when shell and coding capability is disabled', () => {
+    it('removes shell and artifact tool names when shell coding is disabled', () => {
         const names = roomToolNamesForCapabilities('coworker', {
             ...testCapabilities,
             shellCoding: false,
         })
 
-        expect(names).toContain('agent_room_read')
-        expect(names).not.toContain('agent_room_shell')
-        expect(names).not.toContain('agent_room_write')
-        expect(names).not.toContain('agent_room_artifact_import')
+        expect(names).toEqual([])
     })
 
-    it('keeps programmer mode focused on code tools without coworker artifacts', () => {
-        const names = roomToolNamesForCapabilities('programmer', testCapabilities)
-
-        expect(names).toContain('agent_room_read')
-        expect(names).toContain('agent_room_write')
-        expect(names).toContain('agent_room_shell')
-        expect(names).not.toContain('agent_room_artifact_import')
-        expect(names).not.toContain('agent_room_artifact_export')
-    })
-
-    it('keeps shell-writable tool files owner-only', async () => {
+    it('does not register duplicate Agent Room workspace tools', async () => {
         await withRoom(async (config) => {
-            await executeTool(config, 'agent_room_write', {
-                path: 'notes.txt',
-                content: 'secret',
-            })
-
-            expect((await stat(config.paths.workspaceDir)).mode & 0o777).toBe(0o700)
-            expect((await stat(join(config.paths.workspaceDir, 'notes.txt'))).mode & 0o777).toBe(
-                0o600,
-            )
-        })
-    })
-
-    it('reads, lists, searches, writes, and edits workspace files through room-owned tools', async () => {
-        await withRoom(async (config) => {
-            await executeTool(config, 'agent_room_write', {
-                path: 'notes/example.txt',
-                content: 'alpha\nbeta\n',
-            })
-            await executeTool(config, 'agent_room_edit', {
-                path: 'notes/example.txt',
-                oldText: 'beta',
-                newText: 'gamma',
-            })
-
-            const read = await executeTool(config, 'agent_room_read', {
-                path: 'notes/example.txt',
-            })
-            const list = await executeTool(config, 'agent_room_list', {
-                path: 'notes',
-            })
-            const search = await executeTool(config, 'agent_room_search', {
-                pattern: 'gamma',
-                literal: true,
-            })
-            const editDetails = resultDetails(
-                await executeTool(config, 'agent_room_edit', {
-                    path: 'notes/example.txt',
-                    oldText: 'gamma',
-                    newText: 'delta',
-                }).then((value) => value.result),
+            const names = createRoomTools({ config, audit: async () => {} }).map(
+                (tool) => tool.name,
             )
 
-            expect(read.result.content[0]?.type).toBe('text')
-            expect(resultText(read.result)).toContain('gamma')
-            expect(resultText(list.result)).toContain('example.txt')
-            expect(resultText(search.result)).toContain('notes/example.txt:2:gamma')
-            expect(editDetails.fileChange).toMatchObject({
-                kind: 'edit',
-                root: 'workspace',
-            })
-            expect(read.events.some((event) => event.event === 'tool.read')).toBe(true)
+            expect(names).not.toContain('agent_room_read')
+            expect(names).not.toContain('agent_room_list')
+            expect(names).not.toContain('agent_room_search')
+            expect(names).not.toContain('agent_room_workspace_tree')
+            expect(names).not.toContain('agent_room_write')
+            expect(names).not.toContain('agent_room_edit')
+            expect(names).toContain('shell')
+            expect(names).toContain('artifact_import')
         })
     })
 
-    it('fails closed for empty, oversized, and invalid search patterns', async () => {
+    it('uses Pi grep behavior for ignore-aware bounded workspace search', async () => {
         await withRoom(async (config) => {
-            await writeFile(join(config.paths.workspaceDir, 'notes.txt'), 'alpha', 'utf8')
+            await writeFile(join(config.paths.workspaceDir, '.gitignore'), 'vendor/\n', 'utf8')
+            await mkdir(join(config.paths.workspaceDir, 'src'), {
+                recursive: true,
+            })
+            await mkdir(join(config.paths.workspaceDir, 'vendor'), {
+                recursive: true,
+            })
+            await writeFile(
+                join(config.paths.workspaceDir, 'src', 'match.txt'),
+                `MATCH ${'x'.repeat(12000)}\nMATCH second\n`,
+                'utf8',
+            )
+            await writeFile(
+                join(config.paths.workspaceDir, 'vendor', 'ignored.txt'),
+                'MATCH ignored\n',
+                'utf8',
+            )
 
-            await expect(
-                executeTool(config, 'agent_room_search', {
-                    pattern: '',
-                }),
-            ).rejects.toThrow('Search pattern cannot be empty')
-            await expect(
-                executeTool(config, 'agent_room_search', {
-                    pattern: '[',
-                }),
-            ).rejects.toThrow('not a valid regular expression')
-            await expect(
-                executeTool(config, 'agent_room_search', {
-                    pattern: 'a'.repeat(1001),
-                }),
-            ).rejects.toThrow('cannot exceed')
+            const grep = createGrepTool(config.paths.workspaceDir)
+            const result = await grep.execute(
+                'call-1',
+                {
+                    pattern: 'MATCH',
+                    literal: true,
+                    limit: 1,
+                },
+                undefined,
+                undefined,
+            )
+            const text = resultText(result)
+
+            expect(text).toContain('src/match.txt:1:')
+            expect(text).not.toContain('ignored.txt')
+            expect(text).toContain('1 matches limit reached')
+            expect(text).toContain('Some lines truncated')
+            expect(Buffer.byteLength(text)).toBeLessThan(60_000)
         })
     })
 
-    it('runs shell commands with room cwd, bounded environment, and audit details', async () => {
+    it('runs shell commands with workspace cwd, bounded environment, and audit details', async () => {
         await withRoom(async (config) => {
             const previousSecret = process.env.OPENAI_API_KEY
             process.env.OPENAI_API_KEY = 'agent-room-secret'
             try {
-                const shell = await executeTool(config, 'agent_room_shell', {
+                const shell = await executeRoomTool(config, 'shell', {
                     command: 'printf "%s|%s|%s" "$PWD" "$HOME" "$OPENAI_API_KEY"',
                     timeoutMs: 1000,
                 })
@@ -358,6 +265,7 @@ describe('room Pi tools', () => {
                 expect(resultText(shell.result)).toContain(config.paths.homeDir)
                 expect(resultText(shell.result)).not.toContain('agent-room-secret')
                 expect(resultDetails(shell.result).exitCode).toBe(0)
+                expect(resultDetails(shell.result).sandboxMode).toBe('test-unsafe')
                 expect(shell.events.some((event) => event.event === 'tool.shell')).toBe(true)
             } finally {
                 if (previousSecret === undefined) {
@@ -369,9 +277,9 @@ describe('room Pi tools', () => {
         })
     })
 
-    it('keeps shell temp files under the room Pi state directory', async () => {
+    it('keeps shell temp files under the Pi state directory', async () => {
         await withRoom(async (config) => {
-            const shell = await executeTool(config, 'agent_room_shell', {
+            const shell = await executeRoomTool(config, 'shell', {
                 command:
                     'tmpfile="$TMPDIR/tool-temp.txt"; printf temp > "$tmpfile"; printf "%s" "$tmpfile"',
                 timeoutMs: 1000,
@@ -386,19 +294,19 @@ describe('room Pi tools', () => {
 
     it('bounds shell output and supports timeout and cancellation', async () => {
         await withRoom(async (config) => {
-            const bounded = await executeTool(config, 'agent_room_shell', {
+            const bounded = await executeRoomTool(config, 'shell', {
                 command: 'yes x | head -c 140000',
                 timeoutMs: 2000,
             })
-            const timedOut = await executeTool(config, 'agent_room_shell', {
+            const timedOut = await executeRoomTool(config, 'shell', {
                 command: 'sleep 1',
                 timeoutMs: 20,
             })
             const controller = new AbortController()
             setTimeout(() => controller.abort(), 20).unref()
-            const cancelled = await executeTool(
+            const cancelled = await executeRoomTool(
                 config,
-                'agent_room_shell',
+                'shell',
                 {
                     command: 'sleep 1',
                     timeoutMs: 1000,
@@ -425,7 +333,7 @@ describe('room Pi tools', () => {
                     signal: controller.signal,
                 },
                 () =>
-                    executeTool(config, 'agent_room_shell', {
+                    executeRoomTool(config, 'shell', {
                         command: 'sleep 1',
                         timeoutMs: 1000,
                     }),
@@ -452,17 +360,32 @@ describe('room Pi tools', () => {
         })
     })
 
+    it('keeps writable helper outputs owner-only in test-unsafe mode', async () => {
+        await withRoom(async (config) => {
+            await executeDocumentTool(config, 'pdf', {
+                operation: 'create',
+                path: 'notes.pdf',
+                paragraphs: ['secret'],
+            })
+
+            expect((await stat(config.paths.workspaceDir)).mode & 0o777).toBe(0o700)
+            expect((await stat(join(config.paths.workspaceDir, 'notes.pdf'))).mode & 0o777).toBe(
+                0o600,
+            )
+        })
+    })
+
     it('lets PDF tools inspect store-backed uploaded files without mutating them', async () => {
         await withRoom(async (config) => {
             await mkdir(join(config.paths.storeDir, 'attachments/session'), {
                 recursive: true,
             })
-            await executeDocumentTool(config, 'agent_room_pdf', {
+            await executeDocumentTool(config, 'pdf', {
                 operation: 'create',
                 path: 'source.pdf',
                 paragraphs: ['Uploaded PDF text'],
             })
-            await executeDocumentTool(config, 'agent_room_pdf', {
+            await executeDocumentTool(config, 'pdf', {
                 operation: 'edit',
                 path: 'source.pdf',
                 editsJson: JSON.stringify([
@@ -480,7 +403,7 @@ describe('room Pi tools', () => {
                 join(config.paths.workspaceDir, 'source.pdf'),
                 join(config.paths.storeDir, 'attachments/session/source.pdf'),
             )
-            const inspectedPdf = await executeDocumentTool(config, 'agent_room_pdf', {
+            const inspectedPdf = await executeDocumentTool(config, 'pdf', {
                 operation: 'inspect',
                 root: 'store',
                 path: 'attachments/session/source.pdf',
@@ -495,87 +418,25 @@ describe('room Pi tools', () => {
         })
     })
 
-    it('rejects empty PDF edit payloads', async () => {
-        await withRoom(async (config) => {
-            await executeDocumentTool(config, 'agent_room_pdf', {
-                operation: 'create',
-                path: 'source.pdf',
-                paragraphs: ['Original PDF text'],
-            })
-
-            await expect(
-                executeDocumentTool(config, 'agent_room_pdf', {
-                    operation: 'edit',
-                    path: 'source.pdf',
-                }),
-            ).rejects.toThrow('Missing or empty PDF edits JSON')
-            await expect(
-                executeDocumentTool(config, 'agent_room_pdf', {
-                    operation: 'edit',
-                    path: 'source.pdf',
-                    editsJson: '[]',
-                }),
-            ).rejects.toThrow('PDF edits must contain at least one edit')
-        })
-    })
-
-    it('rejects invalid PDF delete page values instead of coercing them', async () => {
-        await withRoom(async (config) => {
-            await executeDocumentTool(config, 'agent_room_pdf', {
-                operation: 'create',
-                path: 'source.pdf',
-                paragraphs: ['Original PDF text'],
-            })
-
-            await expect(
-                executeDocumentTool(config, 'agent_room_pdf', {
-                    operation: 'edit',
-                    path: 'source.pdf',
-                    editsJson: JSON.stringify([
-                        {
-                            type: 'delete_pages',
-                            pages: ['x'],
-                        },
-                    ]),
-                }),
-            ).rejects.toThrow('PDF edit 1 delete_pages page 1 must be an integer from 1 to 10000')
-            await expect(
-                executeDocumentTool(config, 'agent_room_pdf', {
-                    operation: 'edit',
-                    path: 'source.pdf',
-                    editsJson: JSON.stringify([
-                        {
-                            type: 'delete_pages',
-                            pages: [2],
-                        },
-                    ]),
-                }),
-            ).rejects.toThrow('PDF edit delete_pages page 2 exceeds page count')
-            const pdf = await PDFDocument.load(
-                await readFile(join(config.paths.workspaceDir, 'source.pdf')),
-            )
-            expect(pdf.getPageCount()).toBe(1)
-        })
-    })
-
-    it('does not expose office or text-extraction document compatibility tools', async () => {
+    it('exposes simplified PDF tools without office compatibility tools', async () => {
         await withRoom(async (config) => {
             const names = createDocumentTools({ config, audit: async () => {} }).map(
                 (tool) => tool.name,
             )
 
-            expect(names).toContain('agent_room_read_pdf')
-            expect(names).toContain('agent_room_pdf')
-            expect(names).not.toContain('agent_room_docx')
-            expect(names).not.toContain('agent_room_xlsx')
-            expect(names).not.toContain('agent_room_pptx')
-            expect(names).not.toContain('agent_room_pdf_extract_text')
+            expect(names).toContain('read_pdf')
+            expect(names).toContain('pdf')
+            expect(names.some((name) => name.startsWith('agent_room_'))).toBe(false)
+            expect(names).not.toContain('docx')
+            expect(names).not.toContain('xlsx')
+            expect(names).not.toContain('pptx')
+            expect(names).not.toContain('pdf_extract_text')
         })
     })
 
     it('reads PDFs through native document mode and keeps text extraction explicit', async () => {
         await withRoom(async (config) => {
-            await executeDocumentTool(config, 'agent_room_pdf', {
+            await executeDocumentTool(config, 'pdf', {
                 operation: 'create',
                 path: 'source.pdf',
                 paragraphs: ['Native PDF path text'],
@@ -583,7 +444,7 @@ describe('room Pi tools', () => {
 
             const readPdf = await executeDocumentTool(
                 config,
-                'agent_room_read_pdf',
+                'read_pdf',
                 {
                     path: 'source.pdf',
                 },
@@ -610,7 +471,7 @@ describe('room Pi tools', () => {
             config.provider.sourceProvider = 'anthropic'
             config.provider.api = 'anthropic-messages'
             config.provider.piProvider = 'anthropic'
-            await executeDocumentTool(config, 'agent_room_pdf', {
+            await executeDocumentTool(config, 'pdf', {
                 operation: 'create',
                 path: 'source.pdf',
                 paragraphs: ['Stale provider text'],
@@ -618,7 +479,7 @@ describe('room Pi tools', () => {
 
             const readPdf = await executeDocumentTool(
                 config,
-                'agent_room_read_pdf',
+                'read_pdf',
                 {
                     path: 'source.pdf',
                 },
@@ -649,7 +510,7 @@ describe('room Pi tools', () => {
 
             const readPdf = await executeDocumentTool(
                 config,
-                'agent_room_read_pdf',
+                'read_pdf',
                 {
                     path: 'multi.pdf',
                     pages: '1',
@@ -678,13 +539,13 @@ describe('room Pi tools', () => {
 
     it('reports unsupported PDF reads without falling back to text extraction silently', async () => {
         await withRoom(async (config) => {
-            await executeDocumentTool(config, 'agent_room_pdf', {
+            await executeDocumentTool(config, 'pdf', {
                 operation: 'create',
                 path: 'source.pdf',
                 paragraphs: ['Unsupported PDF path text'],
             })
 
-            const readPdf = await executeDocumentTool(config, 'agent_room_read_pdf', {
+            const readPdf = await executeDocumentTool(config, 'read_pdf', {
                 path: 'source.pdf',
             })
 
@@ -699,7 +560,7 @@ describe('room Pi tools', () => {
         })
     })
 
-    it('imports and exports artifacts through the room store', async () => {
+    it('imports and exports artifacts through the store', async () => {
         await withRoom(async (config) => {
             await writeFile(join(config.paths.workspaceDir, 'report.txt'), 'artifact body', 'utf8')
             const imported = await withToolRunContext(
@@ -709,7 +570,7 @@ describe('room Pi tools', () => {
                     signal: new AbortController().signal,
                 },
                 () =>
-                    executeTool(config, 'agent_room_artifact_import', {
+                    executeRoomTool(config, 'artifact_import', {
                         path: 'report.txt',
                         mediaType: 'text/plain',
                     }),
@@ -724,7 +585,7 @@ describe('room Pi tools', () => {
                 ),
             ) as Record<string, unknown>
 
-            await executeTool(config, 'agent_room_artifact_export', {
+            await executeRoomTool(config, 'artifact_export', {
                 artifactId: artifact.artifactId,
                 path: 'exports/report-copy.txt',
             })

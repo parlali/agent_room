@@ -49,12 +49,11 @@ export function createBrowserAutomationTools(input: {
 
     return [
         defineTool({
-            name: 'agent_room_browser_open',
+            name: 'browser_open',
             label: 'Open Browser',
-            description:
-                'Open one Browserbase browser session for this room and navigate to a URL.',
+            description: 'Open one Browserbase browser session and navigate to a URL.',
             promptSnippet:
-                'agent_room_browser_open opens the room browser through Browserbase and navigates to a safe public URL.',
+                'browser_open opens the browser through Browserbase and navigates to a safe public URL.',
             parameters: Type.Object({
                 url: Type.String(),
             }),
@@ -65,11 +64,10 @@ export function createBrowserAutomationTools(input: {
                 ),
         }),
         defineTool({
-            name: 'agent_room_browser_close',
+            name: 'browser_close',
             label: 'Close Browser',
-            description: 'Close the active Browserbase browser session for this room.',
-            promptSnippet:
-                'agent_room_browser_close releases the active Browserbase browser session.',
+            description: 'Close the active Browserbase browser session.',
+            promptSnippet: 'browser_close releases the active Browserbase browser session.',
             parameters: Type.Object({}),
             executionMode: 'sequential',
             execute: (toolCallId, _params, signal) =>
@@ -78,11 +76,10 @@ export function createBrowserAutomationTools(input: {
                 ),
         }),
         defineTool({
-            name: 'agent_room_browser_navigate',
+            name: 'browser_navigate',
             label: 'Browser Navigate',
             description: 'Navigate the active Browserbase browser session to a safe public URL.',
-            promptSnippet:
-                'agent_room_browser_navigate changes the current page in the active room browser.',
+            promptSnippet: 'browser_navigate changes the current page in the active browser.',
             parameters: Type.Object({
                 url: Type.String(),
             }),
@@ -93,12 +90,11 @@ export function createBrowserAutomationTools(input: {
                 ),
         }),
         defineTool({
-            name: 'agent_room_browser_click',
+            name: 'browser_click',
             label: 'Browser Click',
             description:
                 'Click an element in the active Browserbase browser session by CSS selector.',
-            promptSnippet:
-                'agent_room_browser_click clicks a CSS selector in the active room browser.',
+            promptSnippet: 'browser_click clicks a CSS selector in the active browser.',
             parameters: Type.Object({
                 selector: Type.String(),
             }),
@@ -109,11 +105,11 @@ export function createBrowserAutomationTools(input: {
                 ),
         }),
         defineTool({
-            name: 'agent_room_browser_type',
+            name: 'browser_type',
             label: 'Browser Type',
             description: 'Type text into an element in the active Browserbase browser session.',
             promptSnippet:
-                'agent_room_browser_type focuses a CSS selector and types text in the active room browser.',
+                'browser_type focuses a CSS selector and types text in the active browser.',
             parameters: Type.Object({
                 selector: Type.String(),
                 text: Type.String(),
@@ -126,11 +122,10 @@ export function createBrowserAutomationTools(input: {
                 ),
         }),
         defineTool({
-            name: 'agent_room_browser_scroll',
+            name: 'browser_scroll',
             label: 'Browser Scroll',
             description: 'Scroll the active Browserbase browser session.',
-            promptSnippet:
-                'agent_room_browser_scroll scrolls the active room browser up, down, left, or right.',
+            promptSnippet: 'browser_scroll scrolls the active browser up, down, left, or right.',
             parameters: Type.Object({
                 direction: Type.String(),
                 amount: Type.Optional(Type.Number()),
@@ -142,11 +137,10 @@ export function createBrowserAutomationTools(input: {
                 ),
         }),
         defineTool({
-            name: 'agent_room_browser_screenshot',
+            name: 'browser_screenshot',
             label: 'Browser Screenshot',
             description: 'Capture a screenshot from the active Browserbase browser session.',
-            promptSnippet:
-                'agent_room_browser_screenshot returns a screenshot from the active room browser.',
+            promptSnippet: 'browser_screenshot returns a screenshot from the active browser.',
             parameters: Type.Object({}),
             executionMode: 'sequential',
             execute: (toolCallId, _params, signal) =>
@@ -155,11 +149,11 @@ export function createBrowserAutomationTools(input: {
                 ),
         }),
         defineTool({
-            name: 'agent_room_browser_read_text',
+            name: 'browser_read_text',
             label: 'Browser Read Text',
             description: 'Read bounded visible text from the active Browserbase browser session.',
             promptSnippet:
-                'agent_room_browser_read_text reads bounded visible text from the active room browser page or selector.',
+                'browser_read_text reads bounded visible text from the active browser page or selector.',
             parameters: Type.Object({
                 selector: Type.Optional(Type.String()),
             }),

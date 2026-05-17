@@ -59,17 +59,17 @@ describe('Agent Room Pi system prompt', () => {
 
             const prompt = await buildAgentRoomSystemPrompt(config)
 
-            expect(prompt).toContain('persistent room-local coworker')
-            expect(prompt).toContain('reads the request, investigates what matters')
-            expect(prompt).toContain('comes back with useful work done')
+            expect(prompt).toContain('standalone agent working in one workspace')
+            expect(prompt).toContain('Read the request, investigate what matters')
+            expect(prompt).toContain('come back with useful work done')
             expect(prompt).toContain('Mode: coworker')
             expect(prompt).toContain('Provider: ollama')
             expect(prompt).toContain('Model: ollama/llama3.2')
-            expect(prompt).toContain('Enabled built-in tools: agent_room_memory_read')
-            expect(prompt).toContain('agent_room_memory_read')
-            expect(prompt).toContain(
-                'Main-thread orchestration tools: agent_room_subagent, agent_room_deep_work',
-            )
+            expect(prompt).toContain('Enabled tools: read, grep, find, ls')
+            expect(prompt).toContain('memory_read')
+            expect(prompt).toContain('web_search')
+            expect(prompt).toContain('read_pdf')
+            expect(prompt).toContain('Main-thread orchestration tools: subagent, deep_work')
             expect(prompt).toContain('Enabled MCP servers: docs: search')
             expect(prompt).toContain('Lead final responses with the conclusion')
             expect(prompt).toContain('Final chat answers are usually 300-500 words')
@@ -78,23 +78,21 @@ describe('Agent Room Pi system prompt', () => {
             expect(prompt).toContain('avoid headings, taxonomies, primers, inventories, and menus')
             expect(prompt).toContain('Execution protocol')
             expect(prompt).toContain('Current-world, source-dependent, provider, runtime')
-            expect(prompt).toContain('agent_room_deep_work from main threads')
+            expect(prompt).toContain('deep_work from main threads')
             expect(prompt).toContain('If a required tool or source fails')
             expect(prompt).not.toContain('Execution bias')
             expect(prompt).not.toContain('Work contract')
             expect(prompt).not.toContain('Work-shaped requests are tasks, not prompts')
-            expect(prompt).toContain(
-                'Room instructions and canonical room memory are standing context',
-            )
+            expect(prompt).toContain('Standing instructions and canonical memory')
             expect(prompt).toContain('Scheduled work is autonomous')
             expect(prompt).toContain('Keep the workspace reviewable for non-developers')
             expect(prompt).toContain('omitted previews are temporary internal verification only')
             expect(prompt).toContain('Attached images are provided as direct visual input')
             expect(prompt).toContain(
-                'Attached non-image, non-PDF files are room-local file references',
+                'Attached non-image, non-PDF files are workspace file references',
             )
             expect(prompt).not.toContain('Do not use shell commands, document tools')
-            expect(prompt).toContain('Room memory harness')
+            expect(prompt).toContain('Memory harness')
             expect(prompt).not.toContain('memory.md')
             expect(prompt).not.toContain('Room id')
             expect(prompt).toContain('Operator-owned instruction')
@@ -118,17 +116,15 @@ describe('Agent Room Pi system prompt', () => {
 
             const prompt = await buildAgentRoomSystemPrompt(config)
 
-            expect(prompt).toContain('programmer coworker in a room-local workspace')
+            expect(prompt).toContain('standalone agent working in one workspace')
             expect(prompt).toContain('Mode: programmer')
             expect(prompt).toContain('Use shell, git, package managers, test runners')
             expect(prompt).toContain('Lead final responses with the conclusion')
-            expect(prompt).toContain(
-                'Room instructions and canonical room memory are standing context',
-            )
-            expect(prompt).toContain('Room memory harness')
-            expect(prompt).toContain('agent_room_memory_read')
-            expect(prompt).toContain('agent_room_memory_patch')
-            expect(prompt).toContain('agent_room_deep_work')
+            expect(prompt).toContain('Standing instructions and canonical memory')
+            expect(prompt).toContain('Memory harness')
+            expect(prompt).toContain('memory_read')
+            expect(prompt).toContain('memory_patch')
+            expect(prompt).toContain('deep_work')
             expect(prompt).not.toContain('explicitly asks you to remember')
             expect(prompt).toContain('Use memory as an internal habit after substantive work')
             expect(prompt).toContain('used multiple web search or URL fetch calls')
@@ -172,7 +168,7 @@ describe('Agent Room Pi system prompt', () => {
             )
             expect(prompt).toContain('To verify access, run git ls-remote')
             expect(prompt).toContain(
-                'Use git with the room HOME credentials; use gh only if it is installed',
+                'Use git with the configured HOME credentials; use gh only if it is installed',
             )
         })
     })

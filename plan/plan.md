@@ -9,6 +9,7 @@ The brainstorm has been split into three public OSS work-stream issues. Implemen
 - [x] Issue 1: [Docs reliability — native PDF input and office doc hardening](https://github.com/parlali/agent_room/issues/1)
 - [x] Issue 2: [Search reliability — SearXNG hardening, Brave, and Browserbase search](https://github.com/parlali/agent_room/issues/2)
 - [x] Issue 3: [Browser automation — interaction tools and live session UI](https://github.com/parlali/agent_room/issues/3)
+- [x] Issue 8: [Runtime tools and per-room sandbox isolation](https://github.com/parlali/agent_room/issues/8)
 
 ## Filing tasks
 
@@ -56,3 +57,14 @@ The brainstorm has been split into three public OSS work-stream issues. Implemen
 - [x] Follow-up session-boundary hardening stores active Browserbase sessions, snapshots, idle timers, heartbeat timers, and retry timers by chat session key so separate same-room sessions can open, use, and clean up browsers independently.
 - [x] Follow-up shutdown hardening uses a shorter runtime-shutdown Browserbase release timeout, releases active chat sessions in parallel, and aligns SIGTERM forced-exit grace with the bounded release retry window.
 - [x] Verify direct behavior and downstream effects with focused Browserbase automation tests and `bun run check`.
+
+## Issue 8 implementation notes
+
+- [x] Remove duplicate model-facing workspace tools and register Pi-native `read`, `grep`, `find`, `ls`, `edit`, and `write` directly as the canonical workspace surface.
+- [x] Rename remaining custom runtime tools to product-neutral names while preserving historical `agent_room_*` categorization and artifact tracking for old sessions.
+- [x] Simplify the model-facing prompt and bundled office skill text so it describes workspace capabilities instead of Agent Room wrapper semantics.
+- [x] Persist per-room sandbox UID/GID/user/group metadata and expose it through runtime truth snapshots for auditability.
+- [x] Materialize deterministic per-room Linux users and groups, fail closed when sandbox identity cannot be created or validated, and chown runtime, secret, state, workspace, and store paths to that identity.
+- [x] Run runtime and shell/document worker processes through an explicit `setpriv` privilege-drop wrapper. (Adjusted from plain spawn `uid`/`gid` after root-container verification showed Bun does not enforce those options.)
+- [x] Keep provider credential files and runtime config/env files owned by the per-room sandbox user with restrictive modes.
+- [x] Verify direct behavior and downstream effects with typecheck, the full local test suite, focused runtime/tool tests, and a root Linux container sandbox test that proves cross-room workspace reads are denied.

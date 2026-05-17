@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import type { PDFFont } from 'pdf-lib'
+import type { PiRuntimeConfig } from '../../rooms/pi-runtime-config'
 import { sha256Buffer } from './artifacts'
 import { writeWorkspaceFile } from './paths'
 
@@ -24,6 +25,7 @@ type PdfEdit =
       }
 
 export async function createPdf(
+    config: PiRuntimeConfig,
     path: string,
     title: string | undefined,
     paragraphs: string[],
@@ -32,10 +34,14 @@ export async function createPdf(
     const regularFont = await pdf.embedFont(StandardFonts.Helvetica)
     const boldFont = await pdf.embedFont(StandardFonts.HelveticaBold)
     drawTextPage(pdf, regularFont, boldFont, title, paragraphs)
-    await writeWorkspaceFile(path, Buffer.from(await pdf.save()))
+    await writeWorkspaceFile(config, path, Buffer.from(await pdf.save()))
 }
 
-export async function editPdf(path: string, edits: PdfEdit[]): Promise<number> {
+export async function editPdf(
+    config: PiRuntimeConfig,
+    path: string,
+    edits: PdfEdit[],
+): Promise<number> {
     const buffer = await readFile(path)
     const pdf = await PDFDocument.load(buffer)
     const regularFont = await pdf.embedFont(StandardFonts.Helvetica)
@@ -69,7 +75,7 @@ export async function editPdf(path: string, edits: PdfEdit[]): Promise<number> {
             }
         }
     }
-    await writeWorkspaceFile(path, Buffer.from(await pdf.save()))
+    await writeWorkspaceFile(config, path, Buffer.from(await pdf.save()))
     return count
 }
 
