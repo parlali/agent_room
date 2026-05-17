@@ -13,6 +13,7 @@ import {
     materializeRuntimeSandboxIdentity,
     runtimeSandboxShellCommand,
 } from './runtime-sandbox-identity'
+import { roomFilesystemId } from './room-filesystem-id'
 
 function metadata(roomId: string): RoomRuntimeMetadataRecord {
     return {
@@ -38,7 +39,7 @@ function isRoot(): boolean {
 }
 
 function roomPaths(root: string, roomId: string): RoomPaths {
-    const roomRootDir = join(root, roomId)
+    const roomRootDir = join(root, 'rooms', roomFilesystemId(roomId))
     const runtimeDir = join(roomRootDir, 'runtime')
     const engineStateDir = join(roomRootDir, 'pi-state')
     const storeDir = join(roomRootDir, 'store')
@@ -204,6 +205,8 @@ describe('runtime sandbox identity', () => {
                 if (identityA.mode !== 'per-room' || identityB.mode !== 'per-room') return
                 expect(identityA.uid).toBe(__testing.deterministicRoomSandboxNumericId(roomA))
                 expect(identityA.gid).toBe(identityA.uid)
+                expect(pathsA.workspaceDir).not.toContain(roomA)
+                expect(pathsB.workspaceDir).not.toContain(roomB)
 
                 const sameRoomRuntimeFiles = [
                     pathsA.runtimeConfigPath,

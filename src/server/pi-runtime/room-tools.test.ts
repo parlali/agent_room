@@ -259,14 +259,21 @@ describe('room Pi tools', () => {
             try {
                 const shell = await executeRoomTool(config, 'shell', {
                     command:
-                        'printf "%s|%s|%s|%s" "$PWD" "$HOME" "$OPENAI_API_KEY" "$AGENT_ROOM_ROOM_ID"',
+                        'printf "pwd=%s\\nhome=%s\\nworkspace=%s\\nstore=%s\\nold_workspace=%s\\nold_store=%s\\nsecret=%s\\n" "$PWD" "$HOME" "$WORKSPACE_DIR" "$STORE_DIR" "$AGENT_ROOM_WORKSPACE_DIR" "$AGENT_ROOM_STORE_DIR" "$OPENAI_API_KEY"',
                     timeoutMs: 1000,
                 })
 
-                expect(resultText(shell.result)).toContain(config.paths.workspaceDir)
-                expect(resultText(shell.result)).toContain(config.paths.homeDir)
-                expect(resultText(shell.result)).not.toContain('agent-room-secret')
-                expect(resultText(shell.result)).not.toContain(config.runtime.roomId)
+                const text = resultText(shell.result)
+                const realWorkspaceDir = await realpath(config.paths.workspaceDir)
+
+                expect(text).toContain(`pwd=${realWorkspaceDir}`)
+                expect(text).toContain(`home=${config.paths.homeDir}`)
+                expect(text).toContain(`workspace=${config.paths.workspaceDir}`)
+                expect(text).toContain(`store=${config.paths.storeDir}`)
+                expect(text).toContain('old_workspace=\n')
+                expect(text).toContain('old_store=\n')
+                expect(text).not.toContain('agent-room-secret')
+                expect(text).not.toContain(config.runtime.roomId)
                 expect(resultDetails(shell.result).exitCode).toBe(0)
                 expect(resultDetails(shell.result).sandboxMode).toBe('test-unsafe')
                 expect(shell.events.some((event) => event.event === 'tool.shell')).toBe(true)

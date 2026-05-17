@@ -8,6 +8,7 @@ import type {
     SearchRuntimeConfig,
 } from '../domain/types'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { roomFilesystemId } from '../rooms/room-filesystem-id'
 
 export const testCapabilities: CapabilityConfig = {
     webSearch: true,
@@ -89,9 +90,11 @@ export function createTestPiRuntimeConfig(
     options: TestPiRuntimeConfigOptions = {},
 ): PiRuntimeConfig {
     const root = options.root ?? '/tmp/agent-room-test'
-    const stateDir = options.paths?.stateDir ?? join(root, 'pi-state')
-    const workspaceDir = options.paths?.workspaceDir ?? join(root, 'workspace')
-    const storeDir = options.paths?.storeDir ?? join(root, 'store')
+    const roomId = options.runtime?.roomId ?? 'room-1'
+    const roomRootDir = options.paths?.roomRootDir ?? join(root, 'rooms', roomFilesystemId(roomId))
+    const stateDir = options.paths?.stateDir ?? join(roomRootDir, 'pi-state')
+    const workspaceDir = options.paths?.workspaceDir ?? join(roomRootDir, 'workspace')
+    const storeDir = options.paths?.storeDir ?? join(roomRootDir, 'store')
     const sessionsDir = options.paths?.sessionsDir ?? join(stateDir, 'sessions')
     const internalStateDir = options.paths?.internalStateDir ?? join(stateDir, 'internal-state')
     const homeDir = options.paths?.homeDir ?? join(stateDir, 'home')
@@ -100,7 +103,7 @@ export function createTestPiRuntimeConfig(
     return {
         runtime: {
             kind: 'pi',
-            roomId: 'room-1',
+            roomId,
             displayName: 'Room One',
             bindHost: '127.0.0.1',
             port: 32123,
@@ -108,7 +111,7 @@ export function createTestPiRuntimeConfig(
             ...options.runtime,
         },
         paths: {
-            roomRootDir: root,
+            roomRootDir,
             stateDir,
             workspaceDir,
             storeDir,

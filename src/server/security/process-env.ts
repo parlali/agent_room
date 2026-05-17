@@ -2,6 +2,9 @@ import { basename } from 'node:path'
 
 const forwardedProcessEnvKeys = ['PATH', 'LANG', 'LC_ALL', 'TZ', 'BUN_INSTALL'] as const
 
+export const shellVisibleWorkspaceDirEnvKey = 'WORKSPACE_DIR'
+export const shellVisibleStoreDirEnvKey = 'STORE_DIR'
+
 export const reservedRoomRuntimeEnvKeys = new Set([
     'AGENT_ROOM_DATA_DIR',
     'AGENT_ROOM_ENCRYPTION_KEY_B64',
@@ -27,6 +30,8 @@ export const reservedRoomRuntimeEnvKeys = new Set([
     'PATH',
     'PI_CODING_AGENT_DIR',
     'PORT',
+    shellVisibleStoreDirEnvKey,
+    shellVisibleWorkspaceDirEnvKey,
     'TMPDIR',
     'TZ',
 ])

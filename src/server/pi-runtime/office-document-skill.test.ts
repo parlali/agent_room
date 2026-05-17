@@ -67,8 +67,8 @@ function runSkillScriptRaw(input: {
         encoding: 'utf8',
         env: {
             ...process.env,
-            AGENT_ROOM_WORKSPACE_DIR: input.workspace,
-            AGENT_ROOM_STORE_DIR: input.store,
+            WORKSPACE_DIR: input.workspace,
+            STORE_DIR: input.store,
         },
     }) as ScriptRun
 }

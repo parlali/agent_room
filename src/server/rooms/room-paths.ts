@@ -1,20 +1,24 @@
+import { lstatSync, mkdirSync, renameSync } from 'node:fs'
 import { chmod, mkdir, rename, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { getAppEnv } from '../config/env'
 import type { RoomPaths } from '../domain/types'
+import { assertSafeRoomPathId, roomFilesystemId } from './room-filesystem-id'
 import { getRuntimeEngineProfile } from './runtime-engine-profile'
 
-export function assertSafeRoomPathId(roomId: string): void {
-    if (!/^[a-zA-Z0-9_-]+$/.test(roomId)) {
-        throw new Error('Room id is not a safe path segment')
-    }
+export { assertSafeRoomPathId, roomFilesystemId } from './room-filesystem-id'
+
+function legacyRoomRootDir(roomId: string): string {
+    const env = getAppEnv()
+    assertSafeRoomPathId(roomId)
+    return join(env.dataDir, 'rooms', roomId)
 }
 
 export function getRoomPaths(roomId: string): RoomPaths {
     assertSafeRoomPathId(roomId)
     const env = getAppEnv()
     const runtimeEngineProfile = getRuntimeEngineProfile()
-    const roomRootDir = join(env.dataDir, 'rooms', roomId)
+    const roomRootDir = join(env.dataDir, 'rooms', roomFilesystemId(roomId))
     const runtimeDir = join(roomRootDir, 'runtime')
     const runtimeLogsDir = join(runtimeDir, 'logs')
     const runtimeSecretsDir = join(runtimeDir, 'secrets')
@@ -25,7 +29,7 @@ export function getRoomPaths(roomId: string): RoomPaths {
     const storeManifestsDir = join(storeDir, 'manifests')
     const storeExportsDir = join(storeDir, 'exports')
 
-    return {
+    const paths = {
         roomRootDir,
         runtimeDir,
         runtimeLogsDir,
@@ -43,6 +47,35 @@ export function getRoomPaths(roomId: string): RoomPaths {
         runtimeHealthPath: join(runtimeDir, 'health.json'),
         runtimeTokenPath: join(runtimeDir, 'token'),
     }
+    migrateLegacyRoomFilesystemLayout(roomId, paths)
+    return paths
+}
+
+function pathExists(path: string): boolean {
+    try {
+        lstatSync(path)
+        return true
+    } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+            return false
+        }
+        throw error
+    }
+}
+
+function migrateLegacyRoomFilesystemLayout(roomId: string, paths: RoomPaths): void {
+    const legacyRoot = legacyRoomRootDir(roomId)
+    if (legacyRoot === paths.roomRootDir || !pathExists(legacyRoot)) {
+        return
+    }
+    if (pathExists(paths.roomRootDir)) {
+        console.warn(
+            'Legacy room filesystem layout exists beside opaque layout; using opaque layout',
+        )
+        return
+    }
+    mkdirSync(dirname(paths.roomRootDir), { recursive: true })
+    renameSync(legacyRoot, paths.roomRootDir)
 }
 
 export async function ensureRoomFilesystemLayout(roomId: string): Promise<RoomPaths> {

@@ -3,7 +3,11 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
-import { buildBoundedProcessEnv } from '../security/process-env'
+import {
+    buildBoundedProcessEnv,
+    shellVisibleStoreDirEnvKey,
+    shellVisibleWorkspaceDirEnvKey,
+} from '../security/process-env'
 import {
     currentShellSandboxIdentity,
     ensureShellWritableDirectory,
@@ -55,8 +59,8 @@ function commandEnv(config: PiRuntimeConfig): NodeJS.ProcessEnv {
     return buildBoundedProcessEnv({
         HOME: config.paths.homeDir,
         TMPDIR: config.paths.tmpDir,
-        AGENT_ROOM_WORKSPACE_DIR: config.paths.workspaceDir,
-        AGENT_ROOM_STORE_DIR: config.paths.storeDir,
+        [shellVisibleWorkspaceDirEnvKey]: config.paths.workspaceDir,
+        [shellVisibleStoreDirEnvKey]: config.paths.storeDir,
     })
 }
 

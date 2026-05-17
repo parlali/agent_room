@@ -130,8 +130,12 @@ async function resolveWritableDirectory(input: {
     root: string
     path: string
     relativePath: string
+    paths: ReturnType<typeof getRoomPaths>
 }> {
-    const root = await resolveRoot(input.roomId, input.surface)
+    const paths = getRoomPaths(input.roomId)
+    const surfaceRootPath = input.surface === 'workspace' ? paths.workspaceDir : paths.storeDir
+    await ensureMaterializedRuntimeSandboxDirectory(paths, surfaceRootPath)
+    const root = await realpath(surfaceRootPath)
     const requested = assertInside(join(root, normalizeInputPath(input.relativePath)), root)
     const relativePath = toDisplayPath(relative(root, requested))
     if (relativePath && input.surface === 'store') {
@@ -140,28 +144,23 @@ async function resolveWritableDirectory(input: {
         }
     }
 
-    let currentPath = root
-    for (const part of pathParts(relativePath)) {
-        currentPath = assertInside(join(currentPath, part), root)
-        const directoryStat = await lstat(currentPath).catch((error: unknown) => {
-            if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-                return null
-            }
-            throw error
-        })
-        if (!directoryStat) {
-            await mkdir(currentPath, { mode: 0o700 })
-            continue
-        }
-        if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) {
+    try {
+        await ensureMaterializedRuntimeSandboxDirectory(paths, requested)
+    } catch (error) {
+        if (
+            error instanceof Error &&
+            /Shell-writable path is not a directory/.test(error.message)
+        ) {
             throw new Error('Upload target is not a directory')
         }
+        throw error
     }
 
     return {
         root,
-        path: currentPath,
+        path: requested,
         relativePath,
+        paths,
     }
 }
 
@@ -416,8 +415,6 @@ export async function writeRoomUploadedFile(input: {
     })
     const name = sanitizeUploadName(input.fileName)
     const path = assertInside(join(directory.path, name), directory.root)
-    const paths = getRoomPaths(input.roomId)
-    await ensureMaterializedRuntimeSandboxDirectory(paths, directory.path)
     try {
         await lstat(path)
         throw new Error(`File already exists: ${toDisplayPath(relative(directory.root, path))}`)
@@ -427,7 +424,7 @@ export async function writeRoomUploadedFile(input: {
                 flag: 'wx',
                 mode: 0o600,
             })
-            await ensureMaterializedRuntimeSandboxFile(paths, path)
+            await ensureMaterializedRuntimeSandboxFile(directory.paths, path)
         } else {
             throw error
         }

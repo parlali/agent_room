@@ -420,6 +420,29 @@ function runtimeShellWritableRoots(paths: RoomPaths): string[] {
     ]
 }
 
+function materializedOrDisabledIdentity(
+    identity: RuntimeSandboxIdentity | null,
+): RuntimeSandboxIdentity {
+    return (
+        identity ?? {
+            mode: 'disabled',
+            uid: null,
+            gid: null,
+            userName: null,
+            groupName: null,
+        }
+    )
+}
+
+async function ensureRoomRootForMaterializedPath(
+    paths: RoomPaths,
+    identity: RuntimeSandboxIdentity,
+): Promise<void> {
+    const mode = identity.mode === 'per-room' ? 0o711 : 0o700
+    await mkdir(paths.roomRootDir, { recursive: true, mode })
+    await chmod(paths.roomRootDir, mode)
+}
+
 export async function applyRuntimeSandboxFilesystemOwnership(
     paths: RoomPaths,
     identity: RuntimeSandboxIdentity,
@@ -454,17 +477,14 @@ export async function ensureMaterializedRuntimeSandboxFile(
     paths: RoomPaths,
     path: string,
 ): Promise<void> {
-    const identity = await readMaterializedRuntimeSandboxIdentity(paths)
+    const identity = materializedOrDisabledIdentity(
+        await readMaterializedRuntimeSandboxIdentity(paths),
+    )
+    await ensureRoomRootForMaterializedPath(paths, identity)
     await ensureSandboxOwnedFile({
         path,
         roots: runtimeShellWritableRoots(paths),
-        identity: identity ?? {
-            mode: 'disabled',
-            uid: null,
-            gid: null,
-            userName: null,
-            groupName: null,
-        },
+        identity,
     })
 }
 
@@ -472,17 +492,14 @@ export async function ensureMaterializedRuntimeSandboxDirectory(
     paths: RoomPaths,
     path: string,
 ): Promise<void> {
-    const identity = await readMaterializedRuntimeSandboxIdentity(paths)
+    const identity = materializedOrDisabledIdentity(
+        await readMaterializedRuntimeSandboxIdentity(paths),
+    )
+    await ensureRoomRootForMaterializedPath(paths, identity)
     await ensureSandboxOwnedDirectory({
         path,
         roots: runtimeShellWritableRoots(paths),
-        identity: identity ?? {
-            mode: 'disabled',
-            uid: null,
-            gid: null,
-            userName: null,
-            groupName: null,
-        },
+        identity,
     })
 }
 

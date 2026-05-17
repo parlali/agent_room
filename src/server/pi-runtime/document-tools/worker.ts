@@ -1,6 +1,10 @@
 import { spawn } from 'node:child_process'
 import type { PiRuntimeConfig } from '../../rooms/pi-runtime-config'
-import { buildBoundedProcessEnv } from '../../security/process-env'
+import {
+    buildBoundedProcessEnv,
+    shellVisibleStoreDirEnvKey,
+    shellVisibleWorkspaceDirEnvKey,
+} from '../../security/process-env'
 import { ensureShellWritableFile, shellSandboxSpawnCommand } from '../shell-sandbox'
 import type { DocumentToolContext } from './types'
 
@@ -23,8 +27,8 @@ export async function runDocumentWorker(input: {
             env: buildBoundedProcessEnv({
                 HOME: input.config.paths.homeDir,
                 TMPDIR: input.config.paths.tmpDir,
-                AGENT_ROOM_WORKSPACE_DIR: input.config.paths.workspaceDir,
-                AGENT_ROOM_STORE_DIR: input.config.paths.storeDir,
+                [shellVisibleWorkspaceDirEnvKey]: input.config.paths.workspaceDir,
+                [shellVisibleStoreDirEnvKey]: input.config.paths.storeDir,
             }),
             stdio: ['ignore', 'pipe', 'pipe'],
         })

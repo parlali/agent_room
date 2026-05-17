@@ -12,6 +12,7 @@ import type { RoomFileSurface } from '#/lib/room-file-types'
 import { formatBytes } from '#/lib/format'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { assertPathInsideRoot } from '../security/path-boundary'
+import { shellVisibleStoreDirEnvKey, shellVisibleWorkspaceDirEnvKey } from '../security/process-env'
 import {
     isPdfMediaType,
     materializePdfRead,
@@ -229,8 +230,8 @@ function assertModelAcceptsImages(model: Model<Api> | undefined, images: ImageCo
 function diskReference(attachment: MaterializedAttachment): string {
     const rootVariable =
         attachment.attachment.surface === 'store'
-            ? '$AGENT_ROOM_STORE_DIR'
-            : '$AGENT_ROOM_WORKSPACE_DIR'
+            ? `$${shellVisibleStoreDirEnvKey}`
+            : `$${shellVisibleWorkspaceDirEnvKey}`
     return [
         `root=${attachment.attachment.surface}`,
         `path="${attachment.attachment.relativePath}"`,

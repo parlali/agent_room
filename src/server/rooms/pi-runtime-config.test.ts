@@ -217,9 +217,9 @@ describe('Pi runtime config materialization', () => {
                 AGENT_ROOM_PI_RUNTIME_CONFIG_PATH: paths.runtimeConfigPath,
                 AGENT_ROOM_PI_RUNTIME_TOKEN: 'token-token-token-token-token',
                 AGENT_ROOM_PI_STATE_DIR: paths.engineStateDir,
-                AGENT_ROOM_WORKSPACE_DIR: paths.workspaceDir,
-                AGENT_ROOM_STORE_DIR: paths.storeDir,
                 PI_CODING_AGENT_DIR: paths.engineStateDir,
+                WORKSPACE_DIR: paths.workspaceDir,
+                STORE_DIR: paths.storeDir,
                 HOME: join(root, 'pi-state', 'home'),
                 TMPDIR: join(root, 'pi-state', 'tmp'),
             })
