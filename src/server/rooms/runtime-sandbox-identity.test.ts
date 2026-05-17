@@ -220,7 +220,7 @@ describe('runtime sandbox identity', () => {
                         sandbox: identityA,
                     })}\n`,
                 )
-                const sameRoomUploadPath = join(pathsA.storeDir, 'uploads', 'upload.txt')
+                const sameRoomUploadPath = join(pathsA.storeDir, 'uploads', 'nested', 'upload.txt')
                 await writeOwnerOnlyFile(sameRoomUploadPath, 'upload\n')
                 await ensureMaterializedRuntimeSandboxDirectory(pathsA, dirname(sameRoomUploadPath))
                 await ensureMaterializedRuntimeSandboxFile(pathsA, sameRoomUploadPath)

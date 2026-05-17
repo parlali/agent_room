@@ -124,29 +124,31 @@ describe('room file store', () => {
         const uploaded = await writeRoomUploadedFile({
             roomId: 'room-files',
             surface: 'store',
-            relativeDirectory: 'incoming',
+            relativeDirectory: 'incoming/nested',
             fileName: 'notes.txt',
             content: Buffer.from('hello upload'),
         })
 
         expect(uploaded.surface).toBe('store')
-        expect(uploaded.relativePath).toBe('incoming/notes.txt')
-        expect(await readFile(join(paths.storeDir, 'incoming', 'notes.txt'), 'utf8')).toBe(
-            'hello upload',
-        )
+        expect(uploaded.relativePath).toBe('incoming/nested/notes.txt')
+        expect(
+            await readFile(join(paths.storeDir, 'incoming', 'nested', 'notes.txt'), 'utf8'),
+        ).toBe('hello upload')
 
         const directory = await listRoomDirectory({
             roomId: 'room-files',
             surface: 'store',
-            relativePath: 'incoming',
+            relativePath: 'incoming/nested',
         })
-        expect(directory.entries.map((entry) => entry.relativePath)).toEqual(['incoming/notes.txt'])
+        expect(directory.entries.map((entry) => entry.relativePath)).toEqual([
+            'incoming/nested/notes.txt',
+        ])
 
         await expect(
             writeRoomUploadedFile({
                 roomId: 'room-files',
                 surface: 'store',
-                relativeDirectory: 'incoming',
+                relativeDirectory: 'incoming/nested',
                 fileName: 'notes.txt',
                 content: Buffer.from('overwrite'),
             }),

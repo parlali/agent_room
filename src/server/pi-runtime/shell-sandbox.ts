@@ -1,5 +1,5 @@
-import { chmod, chown, mkdir } from 'node:fs/promises'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { ensureSandboxOwnedDirectory, ensureSandboxOwnedFile } from '../rooms/sandbox-owned-paths'
 import {
     runtimeSandboxShellCommand,
     runtimeSandboxSpawnCommand,
@@ -61,14 +61,13 @@ export function shellSandboxShellCommand(
     return runtimeSandboxShellCommand(command, identity)
 }
 
-async function applyShellOwnership(path: string, identity: ShellSandboxIdentity) {
-    if (
-        identity.mode === 'per-room' &&
-        typeof process.getuid === 'function' &&
-        process.getuid() === 0
-    ) {
-        await chown(path, identity.uid, identity.gid)
-    }
+function shellWritableRoots(config: PiRuntimeConfig): string[] {
+    return [
+        config.paths.workspaceDir,
+        config.paths.storeDir,
+        config.paths.homeDir,
+        config.paths.tmpDir,
+    ]
 }
 
 export async function ensureShellWritableDirectory(
@@ -76,12 +75,11 @@ export async function ensureShellWritableDirectory(
     path: string,
 ): Promise<void> {
     const identity = currentShellSandboxIdentity(config)
-    await mkdir(path, {
-        recursive: true,
-        mode: 0o700,
+    await ensureSandboxOwnedDirectory({
+        path,
+        roots: shellWritableRoots(config),
+        identity,
     })
-    await applyShellOwnership(path, identity)
-    await chmod(path, 0o700)
 }
 
 export async function ensureShellWritableFile(
@@ -89,8 +87,11 @@ export async function ensureShellWritableFile(
     path: string,
 ): Promise<void> {
     const identity = currentShellSandboxIdentity(config)
-    await applyShellOwnership(path, identity)
-    await chmod(path, 0o600)
+    await ensureSandboxOwnedFile({
+        path,
+        roots: shellWritableRoots(config),
+        identity,
+    })
 }
 
 export const __testing = {

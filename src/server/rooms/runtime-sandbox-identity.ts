@@ -4,6 +4,7 @@ import { chmod, chown, lchown, lstat, mkdir, readFile, readdir } from 'node:fs/p
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { RoomPaths, RoomRuntimeMetadataRecord, RuntimeSandboxIdentity } from '../domain/types'
+import { ensureSandboxOwnedDirectory, ensureSandboxOwnedFile } from './sandbox-owned-paths'
 
 const execFileAsync = promisify(execFile)
 const nologinShell = '/usr/sbin/nologin'
@@ -410,6 +411,15 @@ async function chownTree(path: string, uid: number, gid: number): Promise<void> 
     await chownPath(path, uid, gid)
 }
 
+function runtimeShellWritableRoots(paths: RoomPaths): string[] {
+    return [
+        paths.workspaceDir,
+        paths.storeDir,
+        join(paths.engineStateDir, 'home'),
+        join(paths.engineStateDir, 'tmp'),
+    ]
+}
+
 export async function applyRuntimeSandboxFilesystemOwnership(
     paths: RoomPaths,
     identity: RuntimeSandboxIdentity,
@@ -444,30 +454,36 @@ export async function ensureMaterializedRuntimeSandboxFile(
     paths: RoomPaths,
     path: string,
 ): Promise<void> {
-    await chmod(path, 0o600)
     const identity = await readMaterializedRuntimeSandboxIdentity(paths)
-    if (
-        identity?.mode === 'per-room' &&
-        typeof process.getuid === 'function' &&
-        process.getuid() === 0
-    ) {
-        await chownPath(path, identity.uid, identity.gid)
-    }
+    await ensureSandboxOwnedFile({
+        path,
+        roots: runtimeShellWritableRoots(paths),
+        identity: identity ?? {
+            mode: 'disabled',
+            uid: null,
+            gid: null,
+            userName: null,
+            groupName: null,
+        },
+    })
 }
 
 export async function ensureMaterializedRuntimeSandboxDirectory(
     paths: RoomPaths,
     path: string,
 ): Promise<void> {
-    await chmod(path, 0o700)
     const identity = await readMaterializedRuntimeSandboxIdentity(paths)
-    if (
-        identity?.mode === 'per-room' &&
-        typeof process.getuid === 'function' &&
-        process.getuid() === 0
-    ) {
-        await chownPath(path, identity.uid, identity.gid)
-    }
+    await ensureSandboxOwnedDirectory({
+        path,
+        roots: runtimeShellWritableRoots(paths),
+        identity: identity ?? {
+            mode: 'disabled',
+            uid: null,
+            gid: null,
+            userName: null,
+            groupName: null,
+        },
+    })
 }
 
 function shouldWrapSandboxCommand(identity: RuntimeSandboxIdentity): boolean {

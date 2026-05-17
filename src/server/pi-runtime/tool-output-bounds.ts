@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
-import { ensureShellWritableFile } from './shell-sandbox'
+import { ensureShellWritableDirectory, ensureShellWritableFile } from './shell-sandbox'
 
 export const modelVisibleToolOutputMaxBytes = 32000
 
@@ -104,10 +104,14 @@ export async function boundToolOutput(input: {
         modelVisibleByteLength: maxVisibleBytes,
     }
     try {
-        await mkdir(dirname(fullPath), {
-            recursive: true,
-            mode: 0o700,
-        })
+        if (input.config.sandbox.mode !== 'disabled') {
+            await ensureShellWritableDirectory(input.config, dirname(fullPath))
+        } else {
+            await mkdir(dirname(fullPath), {
+                recursive: true,
+                mode: 0o700,
+            })
+        }
         await writeFile(fullPath, input.text, {
             encoding: 'utf8',
             mode: 0o600,
