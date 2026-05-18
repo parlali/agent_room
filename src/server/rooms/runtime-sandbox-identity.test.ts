@@ -207,6 +207,7 @@ describe('runtime sandbox identity', () => {
                 expect(identityA.gid).toBe(identityA.uid)
                 expect(pathsA.workspaceDir).not.toContain(roomA)
                 expect(pathsB.workspaceDir).not.toContain(roomB)
+                expect((await stat(dirname(pathsA.roomRootDir))).mode & 0o777).toBe(0o711)
 
                 const sameRoomRuntimeFiles = [
                     pathsA.runtimeConfigPath,

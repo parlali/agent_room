@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmod, chown, lchown, lstat, mkdir, readFile, readdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import type { RoomPaths, RoomRuntimeMetadataRecord, RuntimeSandboxIdentity } from '../domain/types'
 import { ensureSandboxOwnedDirectory, ensureSandboxOwnedFile } from './sandbox-owned-paths'
@@ -420,6 +420,10 @@ function runtimeShellWritableRoots(paths: RoomPaths): string[] {
     ]
 }
 
+function roomContainerDir(paths: RoomPaths): string {
+    return dirname(paths.roomRootDir)
+}
+
 function materializedOrDisabledIdentity(
     identity: RuntimeSandboxIdentity | null,
 ): RuntimeSandboxIdentity {
@@ -439,6 +443,8 @@ async function ensureRoomRootForMaterializedPath(
     identity: RuntimeSandboxIdentity,
 ): Promise<void> {
     const mode = identity.mode === 'per-room' ? 0o711 : 0o700
+    await mkdir(roomContainerDir(paths), { recursive: true, mode })
+    await chmod(roomContainerDir(paths), mode)
     await mkdir(paths.roomRootDir, { recursive: true, mode })
     await chmod(paths.roomRootDir, mode)
 }
@@ -451,6 +457,7 @@ export async function applyRuntimeSandboxFilesystemOwnership(
     const homeDir = join(paths.engineStateDir, 'home')
     const tmpDir = join(paths.engineStateDir, 'tmp')
     await Promise.all([
+        mkdir(roomContainerDir(paths), { recursive: true, mode: 0o711 }),
         mkdir(paths.roomRootDir, { recursive: true, mode: 0o711 }),
         mkdir(paths.runtimeDir, { recursive: true, mode: 0o700 }),
         mkdir(paths.runtimeSecretsDir, { recursive: true, mode: 0o700 }),
@@ -461,6 +468,7 @@ export async function applyRuntimeSandboxFilesystemOwnership(
         mkdir(tmpDir, { recursive: true, mode: 0o700 }),
     ])
     await Promise.all([
+        chmod(roomContainerDir(paths), 0o711),
         chmod(paths.roomRootDir, 0o711),
         chmod(paths.runtimeDir, 0o700),
         chmod(paths.runtimeSecretsDir, 0o700),
