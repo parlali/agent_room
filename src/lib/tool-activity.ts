@@ -90,6 +90,11 @@ const TOOL_COPY: Record<Exclude<AgentRoomToolCategory, 'other'>, ToolCopy> = {
         action: 'created',
         completeResult: 'Image generation completed',
     },
+    browser: {
+        title: 'Used browser',
+        action: 'browsed',
+        completeResult: 'Browser automation completed',
+    },
     subagent: {
         title: 'Asked another agent',
         action: 'delegated',

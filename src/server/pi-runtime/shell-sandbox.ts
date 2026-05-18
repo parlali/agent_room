@@ -6,10 +6,9 @@ import {
 } from '../rooms/runtime-sandbox-command'
 import type { RuntimeSandboxIdentity } from '../domain/types'
 
-export type ShellSandboxIdentity = Extract<
-    RuntimeSandboxIdentity,
-    { mode: 'per-room' } | { mode: 'test-unsafe' }
->
+export type ShellSandboxIdentity =
+    | Extract<RuntimeSandboxIdentity, { mode: 'per-room' }>
+    | (RuntimeSandboxIdentity & { mode: 'test-unsafe' })
 
 function assertRuntimeSandboxIdentity(
     identity: RuntimeSandboxIdentity,

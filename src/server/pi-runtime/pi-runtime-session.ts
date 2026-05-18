@@ -144,6 +144,18 @@ export function createPiRuntimeCustomTools(input: PiRuntimeSessionInput): ToolDe
     ]
 }
 
+export function enabledToolNamesForSession(
+    config: PiRuntimeConfig,
+    customTools: readonly ToolDefinition[],
+): string[] {
+    return Array.from(
+        new Set([
+            ...nativeWorkspaceToolNamesForCapabilities(config.capabilities),
+            ...customTools.map((tool) => tool.name),
+        ]),
+    )
+}
+
 export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Promise<AgentSession> {
     const { config, record } = input
     const authStorage = AuthStorage.create(config.paths.authPath)
@@ -187,10 +199,7 @@ export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Prom
         .getBranch()
         .some((entry) => entry.type === 'model_change' || entry.type === 'thinking_level_change')
     const customTools = createPiRuntimeCustomTools(input)
-    const enabledTools = [
-        ...nativeWorkspaceToolNamesForCapabilities(config.capabilities),
-        ...customTools.map((tool) => tool.name),
-    ]
+    const enabledTools = enabledToolNamesForSession(config, customTools)
     const { session } = await createAgentSession({
         cwd: config.paths.workspaceDir,
         agentDir: config.paths.stateDir,

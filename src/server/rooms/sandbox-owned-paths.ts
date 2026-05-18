@@ -1,4 +1,4 @@
-import { chmod, chown, lstat, mkdir, realpath } from 'node:fs/promises'
+import { chmod, chown, lstat, mkdir, realpath, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
 import type { RuntimeSandboxIdentity } from '../domain/types'
 import { assertPathInsideRoot } from '../security/path-boundary'
@@ -16,6 +16,21 @@ function sandboxOwnershipEnabled(
 async function applyOwnership(path: string, identity: RuntimeSandboxIdentity): Promise<void> {
     if (sandboxOwnershipEnabled(identity)) {
         await chown(path, identity.uid, identity.gid)
+    }
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+    return error instanceof Error && 'code' in error && error.code === code
+}
+
+async function lstatIfExists(path: string) {
+    try {
+        return await lstat(path)
+    } catch (error) {
+        if (hasErrorCode(error, 'ENOENT')) {
+            return null
+        }
+        throw error
     }
 }
 
@@ -49,17 +64,20 @@ async function writableRootFor(path: string, roots: string[]): Promise<string> {
 }
 
 async function ensureDirectoryNode(path: string, identity: RuntimeSandboxIdentity): Promise<void> {
-    const stat = await lstat(path).catch((error: unknown) => {
-        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-            return null
-        }
-        throw error
-    })
+    let stat = await lstatIfExists(path)
     if (!stat) {
-        await mkdir(path, {
-            mode: 0o700,
-        })
-    } else if (stat.isSymbolicLink() || !stat.isDirectory()) {
+        try {
+            await mkdir(path, {
+                mode: 0o700,
+            })
+        } catch (error) {
+            if (!hasErrorCode(error, 'EEXIST')) {
+                throw error
+            }
+        }
+        stat = await lstat(path)
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
         throw new Error(`Shell-writable path is not a directory: ${path}`)
     }
     await applyOwnership(path, identity)
@@ -93,7 +111,20 @@ export async function ensureSandboxOwnedFile(input: {
         roots: input.roots,
         identity: input.identity,
     })
-    const stat = await lstat(input.path)
+    let stat = await lstatIfExists(input.path)
+    if (!stat) {
+        try {
+            await writeFile(input.path, '', {
+                flag: 'wx',
+                mode: 0o600,
+            })
+        } catch (error) {
+            if (!hasErrorCode(error, 'EEXIST')) {
+                throw error
+            }
+        }
+        stat = await lstat(input.path)
+    }
     if (stat.isSymbolicLink() || !stat.isFile()) {
         throw new Error(`Shell-writable path is not a file: ${input.path}`)
     }

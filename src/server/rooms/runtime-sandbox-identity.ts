@@ -105,6 +105,34 @@ async function lookupGroupByGid(gid: number): Promise<GroupEntry | null> {
     return parseGroupEntry(output)
 }
 
+async function lookupExpectedGroup(groupName: string, gid: number): Promise<GroupEntry | null> {
+    const byName = await lookupGroup(groupName)
+    if (byName && byName.gid === gid) {
+        return byName
+    }
+    const byGid = await lookupGroupByGid(gid)
+    if (byGid && byGid.name === groupName) {
+        return byGid
+    }
+    return null
+}
+
+async function lookupExpectedUser(input: {
+    userName: string
+    uid: number
+    gid: number
+}): Promise<PasswdEntry | null> {
+    const byName = await lookupUser(input.userName)
+    if (byName && byName.uid === input.uid && byName.gid === input.gid) {
+        return byName
+    }
+    const byUid = await lookupUserByUid(input.uid)
+    if (byUid && byUid.name === input.userName && byUid.gid === input.gid) {
+        return byUid
+    }
+    return null
+}
+
 async function ensureGroup(groupName: string, gid: number): Promise<GroupEntry> {
     const existing = await lookupGroup(groupName)
     if (existing) {
@@ -121,7 +149,17 @@ async function ensureGroup(groupName: string, gid: number): Promise<GroupEntry> 
         )
     }
 
-    await execFileAsync('groupadd', ['--system', '--gid', String(gid), groupName])
+    try {
+        await execFileAsync('groupadd', ['--system', '--gid', String(gid), groupName])
+    } catch (error) {
+        const raced = await lookupExpectedGroup(groupName, gid)
+        if (raced) {
+            return raced
+        }
+        throw new Error(
+            `Sandbox group ${groupName} could not be materialized with gid ${gid}: ${error instanceof Error ? error.message : 'unknown error'}`,
+        )
+    }
     const created = await lookupGroup(groupName)
     if (!created) {
         throw new Error(`Failed to create sandbox group ${groupName}`)
@@ -153,19 +191,29 @@ async function ensureUser(input: {
         )
     }
 
-    await execFileAsync('useradd', [
-        '--system',
-        '--uid',
-        String(input.uid),
-        '--gid',
-        input.groupName,
-        '--home-dir',
-        input.homeDir,
-        '--no-create-home',
-        '--shell',
-        nologinShell,
-        input.userName,
-    ])
+    try {
+        await execFileAsync('useradd', [
+            '--system',
+            '--uid',
+            String(input.uid),
+            '--gid',
+            input.groupName,
+            '--home-dir',
+            input.homeDir,
+            '--no-create-home',
+            '--shell',
+            nologinShell,
+            input.userName,
+        ])
+    } catch (error) {
+        const raced = await lookupExpectedUser(input)
+        if (raced) {
+            return raced
+        }
+        throw new Error(
+            `Sandbox user ${input.userName} could not be materialized with uid/gid ${input.uid}/${input.gid}: ${error instanceof Error ? error.message : 'unknown error'}`,
+        )
+    }
     const created = await lookupUser(input.userName)
     if (!created) {
         throw new Error(`Failed to create sandbox user ${input.userName}`)

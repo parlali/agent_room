@@ -506,14 +506,7 @@ export type RuntimeSandboxIdentity =
           groupName: string
       }
     | {
-          mode: 'test-unsafe'
-          uid: null
-          gid: null
-          userName: null
-          groupName: null
-      }
-    | {
-          mode: 'disabled'
+          mode: 'test-unsafe' | 'disabled'
           uid: null
           gid: null
           userName: null

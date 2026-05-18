@@ -224,6 +224,26 @@ async function writeRoomRuntimeMetadataFile(input: {
     })
 }
 
+function sandboxFromMetadata(
+    metadata: RoomRuntimeMetadataRecord,
+): Extract<RuntimeSandboxIdentity, { mode: 'per-room' }> | null {
+    if (
+        metadata.sandboxUid === null ||
+        metadata.sandboxGid === null ||
+        metadata.sandboxUserName === null ||
+        metadata.sandboxGroupName === null
+    ) {
+        return null
+    }
+    return {
+        mode: 'per-room',
+        uid: metadata.sandboxUid,
+        gid: metadata.sandboxGid,
+        userName: metadata.sandboxUserName,
+        groupName: metadata.sandboxGroupName,
+    }
+}
+
 async function persistRoomRuntimeState(input: {
     roomId: string
     status: RoomRecord['status']
@@ -523,6 +543,7 @@ export async function stopRoomProcess(roomId: string, actorUserId: string | null
     if (!running) {
         const metadata = await getRuntimeMetadataOrCreate(roomId)
         const paths = await ensureRoomFilesystemLayout(roomId)
+        const sandbox = sandboxFromMetadata(metadata)
         const killed = await killMaterializedRuntimeProcess({
             pid: metadata.pid,
             runtimeConfigPath: paths.runtimeConfigPath,
@@ -534,19 +555,7 @@ export async function stopRoomProcess(roomId: string, actorUserId: string | null
                 roomId,
                 port: metadata.port,
                 pid: null,
-                sandbox:
-                    metadata.sandboxUid !== null &&
-                    metadata.sandboxGid !== null &&
-                    metadata.sandboxUserName !== null &&
-                    metadata.sandboxGroupName !== null
-                        ? {
-                              mode: 'per-room',
-                              uid: metadata.sandboxUid,
-                              gid: metadata.sandboxGid,
-                              userName: metadata.sandboxUserName,
-                              groupName: metadata.sandboxGroupName,
-                          }
-                        : null,
+                sandbox,
                 startedAt: null,
                 configVersion: metadata.configVersion,
                 tokenVersion: metadata.tokenVersion,
@@ -556,6 +565,10 @@ export async function stopRoomProcess(roomId: string, actorUserId: string | null
             roomId,
             port: metadata.port,
             pid: null,
+            sandboxUid: sandbox?.uid ?? null,
+            sandboxGid: sandbox?.gid ?? null,
+            sandboxUserName: sandbox?.userName ?? null,
+            sandboxGroupName: sandbox?.groupName ?? null,
             configVersion: metadata.configVersion,
             tokenVersion: metadata.tokenVersion,
             healthStatus: 'unknown',

@@ -3,7 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createTestPiRuntimeConfig, ensureTestPiRuntimeDirectories } from './test-runtime-defaults'
-import { createPiRuntimeCustomTools, type PiRuntimeSessionInput } from './pi-runtime-session'
+import {
+    createPiRuntimeCustomTools,
+    enabledToolNamesForSession,
+    type PiRuntimeSessionInput,
+} from './pi-runtime-session'
 import { BrowserbaseBrowserAutomationManager } from './browserbase-browser'
 import type { ThreadRecord } from './thread-records'
 
@@ -144,6 +148,17 @@ describe('Pi runtime session tools', () => {
             },
             'deep_work',
         )
+    })
+
+    it('deduplicates native workspace tools before session registration', async () => {
+        await withToolInput('programmer', (input) => {
+            const tools = createPiRuntimeCustomTools(input)
+            const enabledTools = enabledToolNamesForSession(input.config, tools)
+
+            expect(enabledTools.filter((name) => name === 'read')).toHaveLength(1)
+            expect(enabledTools.filter((name) => name === 'write')).toHaveLength(1)
+            expect(enabledTools).toHaveLength(new Set(enabledTools).size)
+        })
     })
 
     it('keeps artifact import and export out of programmer mode', async () => {

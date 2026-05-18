@@ -65,9 +65,6 @@ function runtimeEventToolName(event: string): string | null {
     if (!event.startsWith('tool.')) {
         return null
     }
-    if (event === 'tool.image_generate') {
-        return 'image_generate'
-    }
     return event.slice('tool.'.length).replaceAll('.', '_')
 }
 

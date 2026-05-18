@@ -1,4 +1,4 @@
-import { lstat, mkdir, readdir, realpath, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { basename, join, relative, sep } from 'node:path'
 import type {
     RoomDirectoryListing,
@@ -423,7 +423,12 @@ export async function writeRoomUploadedFile(input: {
                 flag: 'wx',
                 mode: 0o600,
             })
-            await ensureMaterializedRuntimeSandboxFile(directory.paths, path)
+            try {
+                await ensureMaterializedRuntimeSandboxFile(directory.paths, path)
+            } catch (materializeError) {
+                await rm(path, { force: true }).catch(() => {})
+                throw materializeError
+            }
         } else {
             throw error
         }

@@ -12,6 +12,7 @@ export interface RunToolActivityCounts {
     artifactCalls: number
     documentCalls: number
     imageCalls: number
+    browserCalls: number
     orchestrationCalls: number
     mcpCalls: number
     memoryReadCalls: number
@@ -30,6 +31,7 @@ function emptyToolActivityCounts(): RunToolActivityCounts {
         artifactCalls: 0,
         documentCalls: 0,
         imageCalls: 0,
+        browserCalls: 0,
         orchestrationCalls: 0,
         mcpCalls: 0,
         memoryReadCalls: 0,
@@ -83,6 +85,8 @@ export function summarizeRunToolActivity(entries: readonly SessionEntry[]): RunT
                 counts.documentCalls += 1
             } else if (category === 'image') {
                 counts.imageCalls += 1
+            } else if (category === 'browser') {
+                counts.browserCalls += 1
             } else if (category === 'subagent' || category === 'deep_work') {
                 counts.orchestrationCalls += 1
             } else if (category === 'mcp') {
@@ -117,6 +121,9 @@ export function memoryCaptureExpectationReasons(counts: RunToolActivityCounts): 
     }
     if (counts.imageCalls > 0) {
         reasons.add('image_work')
+    }
+    if (counts.browserCalls > 0) {
+        reasons.add('browser_work')
     }
     if (counts.orchestrationCalls > 0) {
         reasons.add('delegated_work')

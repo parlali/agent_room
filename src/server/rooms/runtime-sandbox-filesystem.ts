@@ -19,7 +19,9 @@ async function chownTree(path: string, uid: number, gid: number): Promise<void> 
         const entries = await readdir(path, {
             withFileTypes: true,
         })
-        await Promise.all(entries.map((entry) => chownTree(join(path, entry.name), uid, gid)))
+        for (const entry of entries) {
+            await chownTree(join(path, entry.name), uid, gid)
+        }
         await chmod(path, 0o700)
     }
     await chownPath(path, uid, gid)

@@ -1,6 +1,9 @@
 import { EventEmitter } from 'node:events'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import type { WriteStream } from 'node:fs'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RoomRecord } from '../domain/types'
 import { __testing, stopRoomProcess } from './runtime-lifecycle'
@@ -42,6 +45,9 @@ function fakeChild() {
 }
 
 describe('runtime lifecycle', () => {
+    let root: string
+    let previousDataDir: string | undefined
+
     beforeEach(() => {
         mocks.appendEvent.mockReset()
         mocks.appendEvent.mockResolvedValue(undefined)
@@ -58,8 +64,23 @@ describe('runtime lifecycle', () => {
         )
     })
 
-    afterEach(() => {
+    beforeEach(async () => {
+        root = await mkdtemp(join(tmpdir(), 'agent-room-runtime-lifecycle-'))
+        previousDataDir = process.env.AGENT_ROOM_DATA_DIR
+        process.env.AGENT_ROOM_DATA_DIR = root
+    })
+
+    afterEach(async () => {
+        if (previousDataDir === undefined) {
+            delete process.env.AGENT_ROOM_DATA_DIR
+        } else {
+            process.env.AGENT_ROOM_DATA_DIR = previousDataDir
+        }
         deleteRuntimeProcess('room-stop-race')
+        await rm(root, {
+            recursive: true,
+            force: true,
+        })
     })
 
     it('waits for a registered runtime process to exit before stop resolves', async () => {
@@ -145,5 +166,40 @@ describe('runtime lifecycle', () => {
         ).resolves.toBe(false)
 
         expect(restart).not.toHaveBeenCalled()
+    })
+
+    it('persists recovered sandbox identity when stopping a materialized runtime', async () => {
+        mocks.findRuntimeMetadataByRoomId.mockResolvedValue({
+            roomId: 'room-stop-race',
+            port: 31234,
+            pid: null,
+            sandboxUid: 200001,
+            sandboxGid: 200001,
+            sandboxUserName: 'ar-room',
+            sandboxGroupName: 'ar-room',
+            configVersion: 3,
+            tokenVersion: 4,
+            healthStatus: 'healthy',
+            startedAt: new Date(),
+            lastHealthAt: new Date(),
+            lastError: null,
+            updatedAt: new Date(),
+        })
+
+        await stopRoomProcess('room-stop-race', 'user-1')
+
+        expect(mocks.upsertRuntimeMetadata).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                roomId: 'room-stop-race',
+                pid: null,
+                sandboxUid: 200001,
+                sandboxGid: 200001,
+                sandboxUserName: 'ar-room',
+                sandboxGroupName: 'ar-room',
+                configVersion: 3,
+                tokenVersion: 4,
+                healthStatus: 'unknown',
+            }),
+        )
     })
 })

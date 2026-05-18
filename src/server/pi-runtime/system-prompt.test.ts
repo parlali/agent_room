@@ -125,6 +125,7 @@ describe('Agent Room Pi system prompt', () => {
             expect(prompt).toContain('memory_read')
             expect(prompt).toContain('memory_patch')
             expect(prompt).toContain('deep_work')
+            expect(prompt).not.toContain('read_pdf')
             expect(prompt).not.toContain('explicitly asks you to remember')
             expect(prompt).toContain('Use memory as an internal habit after substantive work')
             expect(prompt).toContain('used multiple web search or URL fetch calls')

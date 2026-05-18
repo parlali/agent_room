@@ -10,6 +10,7 @@ export type AgentRoomToolCategory =
     | 'research_fetch'
     | 'document_pdf'
     | 'image'
+    | 'browser'
     | 'subagent'
     | 'deep_work'
     | 'mcp'
@@ -78,9 +79,9 @@ export function categorizeAgentRoomTool(name: string | null): AgentRoomToolCateg
         return 'document_pdf'
     }
     if (name === 'image_generate' || name === 'agent_room_image_generate') return 'image'
+    if (name.startsWith('browser_') || name.startsWith('agent_room_browser_')) return 'browser'
     if (name === 'subagent' || name === 'agent_room_subagent') return 'subagent'
     if (name === 'deep_work' || name === 'agent_room_deep_work') return 'deep_work'
-    if (name.startsWith('browser_') || name.startsWith('agent_room_browser_')) return 'mcp'
     if (name.startsWith('mcp_')) return 'mcp'
     return 'other'
 }

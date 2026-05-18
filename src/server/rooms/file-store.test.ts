@@ -168,6 +168,16 @@ describe('room file store', () => {
             writeRoomUploadedFile({
                 roomId: 'room-files',
                 surface: 'store',
+                relativeDirectory: 'blobs\\nested',
+                fileName: 'hidden.txt',
+                content: Buffer.from('hidden'),
+            }),
+        ).rejects.toThrow(/internal store paths/)
+
+        await expect(
+            writeRoomUploadedFile({
+                roomId: 'room-files',
+                surface: 'store',
                 relativeDirectory: 'incoming/../blobs',
                 fileName: 'hidden.txt',
                 content: Buffer.from('hidden'),
@@ -196,5 +206,36 @@ describe('room file store', () => {
             }),
         ).rejects.toThrow(/Upload target is not a directory/)
         await expect(access(join(outside, 'nested'))).rejects.toThrow()
+    })
+
+    it('removes a newly uploaded file when sandbox materialization fails', async () => {
+        vi.doMock('./runtime-sandbox-identity', () => ({
+            ensureMaterializedRuntimeSandboxDirectory: vi.fn(
+                async (_paths: unknown, path: string) => {
+                    await mkdir(path, {
+                        recursive: true,
+                    })
+                },
+            ),
+            ensureMaterializedRuntimeSandboxFile: vi.fn(async () => {
+                throw new Error('sandbox materialization failed')
+            }),
+        }))
+        const { getRoomPaths } = await import('./room-paths')
+        const { writeRoomUploadedFile } = await import('./file-store')
+        const paths = getRoomPaths('room-files')
+
+        await expect(
+            writeRoomUploadedFile({
+                roomId: 'room-files',
+                surface: 'store',
+                relativeDirectory: 'incoming',
+                fileName: 'notes.txt',
+                content: Buffer.from('hello upload'),
+            }),
+        ).rejects.toThrow(/sandbox materialization failed/)
+
+        await expect(access(join(paths.storeDir, 'incoming', 'notes.txt'))).rejects.toThrow()
+        vi.doUnmock('./runtime-sandbox-identity')
     })
 })
