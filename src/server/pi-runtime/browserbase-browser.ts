@@ -12,6 +12,7 @@ import type {
     BrowserToolDetails,
     BrowserToolResult,
     PageMetadata,
+    BrowserAutomationController,
 } from './browserbase-browser-types'
 import {
     cdpCommandTimeoutMs,
@@ -47,8 +48,6 @@ import {
 import { browserErrorMessage } from './browserbase-utils'
 import { sanitizeUrlForAudit } from './web-url-safety'
 
-export { createBrowserAutomationTools } from './browserbase-tools'
-
 const automaticReleaseRetryDelayMs = 30000
 const maxAutomaticReleaseAttempts = 3
 export const browserbaseRuntimeShutdownReleaseRequestTimeoutMs = 3000
@@ -57,7 +56,7 @@ export const browserbaseRuntimeShutdownGraceMs =
 
 type AutomaticReleaseRetryMode = 'scheduled' | 'immediate'
 
-export class BrowserbaseBrowserAutomationManager {
+export class BrowserbaseBrowserAutomationManager implements BrowserAutomationController {
     private config: BrowserAutomationManagerInput['config']
     private audit: BrowserAutomationManagerInput['audit']
     private broadcast: BrowserAutomationManagerInput['broadcast']

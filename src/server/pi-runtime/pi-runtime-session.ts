@@ -17,10 +17,8 @@ import { createInternalStateTools } from './internal-state-tools'
 import { createNativeWorkspaceTools } from './native-workspace-tools'
 import { createRoomTools, nativeWorkspaceToolNamesForCapabilities } from './room-tools'
 import { createWebTools } from './web-tools'
-import {
-    createBrowserAutomationTools,
-    type BrowserbaseBrowserAutomationManager,
-} from './browserbase-browser'
+import { createBrowserAutomationTools } from './browserbase-tools'
+import type { BrowserAutomationController } from './browserbase-browser-types'
 import { createDocumentTools } from './document-tools'
 import { createImageTools } from './image-tools'
 import { createSubagentTool } from './subagent-tool'
@@ -34,7 +32,7 @@ export interface PiRuntimeSessionInput {
     record: ThreadRecord
     systemPrompt: () => string
     mcpTools: Awaited<ReturnType<typeof createMcpTools>>
-    browserAutomation: BrowserbaseBrowserAutomationManager
+    browserAutomation: BrowserAutomationController
     audit: (event: string, payload: unknown) => Promise<void>
     shortText: (value: string, length?: number) => string
     redactString: (value: string) => string

@@ -3,8 +3,8 @@ import {
     BrowserbaseBrowserAutomationManager,
     browserbaseRuntimeShutdownGraceMs,
     browserbaseRuntimeShutdownReleaseRequestTimeoutMs,
-    createBrowserAutomationTools,
 } from './browserbase-browser'
+import { createBrowserAutomationTools } from './browserbase-tools'
 import { createTestPiRuntimeConfig } from './test-runtime-defaults'
 import { withToolRunContext } from './tool-run-context'
 

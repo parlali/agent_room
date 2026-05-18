@@ -1,14 +1,7 @@
 let preloadPromise: Promise<unknown> | null = null
 
 export function preloadRoomDashboardRoutes(): Promise<unknown> {
-    preloadPromise ??= Promise.allSettled([
-        import('#/routes/rooms.$roomId.files'),
-        import('#/routes/rooms.$roomId.jobs'),
-        import('#/routes/rooms.$roomId.memory'),
-        import('#/routes/rooms.$roomId.usage'),
-        import('#/routes/rooms.$roomId.status'),
-        import('#/routes/rooms.$roomId.settings'),
-    ])
+    preloadPromise ??= import('#/routeTree.gen')
     return preloadPromise
 }
 

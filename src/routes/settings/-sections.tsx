@@ -728,19 +728,10 @@ export function CapabilitiesSection({
                             <Switch
                                 checked={appSearch.enabled}
                                 onCheckedChange={(enabled) => updateSearch({ enabled })}
-                                aria-label="Toggle web search backend"
+                                aria-label="Toggle web search"
                             />
                         </div>
-                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                            <FieldGroup label="SearXNG backend URL" htmlFor="search-backend-url">
-                                <Input
-                                    id="search-backend-url"
-                                    value={appSearch.backendUrl}
-                                    onChange={(event) =>
-                                        updateSearch({ backendUrl: event.target.value })
-                                    }
-                                />
-                            </FieldGroup>
+                        <div className="mt-3 max-w-sm">
                             <FieldGroup label="Searches per run" htmlFor="search-max-per-run">
                                 <Input
                                     id="search-max-per-run"
@@ -755,34 +746,8 @@ export function CapabilitiesSection({
                                     }
                                 />
                             </FieldGroup>
-                            <FieldGroup label="Default result count" htmlFor="search-result-count">
-                                <Input
-                                    id="search-result-count"
-                                    type="number"
-                                    min={1}
-                                    max={20}
-                                    value={appSearch.defaultResultCount}
-                                    onChange={(event) =>
-                                        updateSearch({
-                                            defaultResultCount: Number(event.target.value),
-                                        })
-                                    }
-                                />
-                            </FieldGroup>
-                            <FieldGroup label="SearXNG timeout" htmlFor="search-timeout-ms">
-                                <Input
-                                    id="search-timeout-ms"
-                                    type="number"
-                                    min={1000}
-                                    max={30000}
-                                    value={appSearch.timeoutMs}
-                                    onChange={(event) =>
-                                        updateSearch({ timeoutMs: Number(event.target.value) })
-                                    }
-                                />
-                            </FieldGroup>
                         </div>
-                        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                        <div className="mt-4 grid gap-3">
                             <div className="rounded-md border border-border/60 p-3">
                                 <div className="flex items-center justify-between gap-3">
                                     <div className="text-sm font-medium text-foreground">

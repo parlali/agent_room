@@ -1,14 +1,17 @@
 import { Type } from '@mariozechner/pi-ai'
 import { defineTool, type ToolDefinition } from '@mariozechner/pi-coding-agent'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
-import type { BrowserbaseBrowserAutomationManager } from './browserbase-browser'
-import type { BrowserAutomationToolContext, BrowserToolAction } from './browserbase-browser-types'
+import type {
+    BrowserAutomationController,
+    BrowserAutomationToolContext,
+    BrowserToolAction,
+} from './browserbase-browser-types'
 import { combineAbortSignals, currentToolRunContext } from './tool-run-context'
 
 export function createBrowserAutomationTools(input: {
     config: PiRuntimeConfig
     record: { key: string }
-    browserAutomation: BrowserbaseBrowserAutomationManager
+    browserAutomation: BrowserAutomationController
 }): ToolDefinition[] {
     if (!input.browserAutomation.isConfigured()) {
         return []

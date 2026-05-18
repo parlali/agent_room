@@ -38,6 +38,36 @@ export interface BrowserAutomationToolContext {
     signal?: AbortSignal
 }
 
+export interface BrowserAutomationController {
+    isConfigured: () => boolean
+    open: (
+        context: BrowserAutomationToolContext,
+        input: { url: string },
+    ) => Promise<BrowserToolResult>
+    close: (context: BrowserAutomationToolContext) => Promise<BrowserToolResult>
+    navigate: (
+        context: BrowserAutomationToolContext,
+        input: { url: string },
+    ) => Promise<BrowserToolResult>
+    click: (
+        context: BrowserAutomationToolContext,
+        input: { selector: string },
+    ) => Promise<BrowserToolResult>
+    type: (
+        context: BrowserAutomationToolContext,
+        input: { selector: string; text: string; clear?: boolean },
+    ) => Promise<BrowserToolResult>
+    scroll: (
+        context: BrowserAutomationToolContext,
+        input: { direction: string; amount?: number },
+    ) => Promise<BrowserToolResult>
+    screenshot: (context: BrowserAutomationToolContext) => Promise<BrowserToolResult>
+    readText: (
+        context: BrowserAutomationToolContext,
+        input: { selector?: string },
+    ) => Promise<BrowserToolResult>
+}
+
 export interface BrowserActionBudgetState {
     used: number
     max: number

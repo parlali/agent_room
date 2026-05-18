@@ -25,6 +25,16 @@ type DuplicateResult = {
 
 type Graph = Map<string, Set<string>>
 
+type ModuleOwnershipHotspot = {
+    path: string
+    lines: number
+    branchCount: number
+    branchDensity: number
+    fanOut: number
+    fanIn: number
+    reasons: string[]
+}
+
 const root = process.cwd()
 const sourceRoots = ['src', 'scripts']
 const sourceExtensions = ['.ts', '.tsx']
@@ -370,13 +380,66 @@ function branchCount(file: SourceFile): number {
     return Array.from(text.matchAll(/\b(if|for|while|switch|catch|case)\b|&&|\|\|/g)).length
 }
 
+function fanInCounts(graph: Graph): Map<string, number> {
+    const fanIn = new Map<string, number>()
+    for (const [file, targets] of graph.entries()) {
+        if (!fanIn.has(file)) {
+            fanIn.set(file, fanIn.get(file) ?? 0)
+        }
+        for (const target of targets) {
+            fanIn.set(target, (fanIn.get(target) ?? 0) + 1)
+        }
+    }
+    return fanIn
+}
+
+function moduleOwnershipHotspots(files: SourceFile[], graph: Graph): ModuleOwnershipHotspot[] {
+    const fanIn = fanInCounts(graph)
+
+    return files.flatMap((file) => {
+        const branches = branchCount(file)
+        const fanOut = graph.get(file.path)?.size ?? 0
+        const branchDensity = branches / Math.max(file.lineCount, 1)
+        const reasons: string[] = []
+        if (file.lineCount > 700 && branches > 45) {
+            reasons.push('large_branching_module')
+        }
+        if (file.lineCount > 500 && fanOut > 18) {
+            reasons.push('large_broad_module')
+        }
+        if (branches > 80) {
+            reasons.push('very_branch_heavy')
+        }
+        if (fanOut > 24) {
+            reasons.push('very_high_fan_out')
+        }
+        if (branches > 55 && fanOut > 15) {
+            reasons.push('branching_broad_module')
+        }
+        if (reasons.length === 0) {
+            return []
+        }
+        return [
+            {
+                path: file.path,
+                lines: file.lineCount,
+                branchCount: branches,
+                branchDensity,
+                fanOut,
+                fanIn: fanIn.get(file.path) ?? 0,
+                reasons,
+            },
+        ]
+    })
+}
+
 function fanMetrics(graph: Graph): {
     highFanOut: number
     highFanIn: number
     maxFanOut: number
     maxFanIn: number
 } {
-    const fanIn = new Map<string, number>()
+    const fanIn = fanInCounts(graph)
     let highFanOut = 0
     let maxFanOut = 0
 
@@ -387,13 +450,7 @@ function fanMetrics(graph: Graph): {
             highFanOut += 1
         }
 
-        if (!fanIn.has(file)) {
-            fanIn.set(file, fanIn.get(file) ?? 0)
-        }
-
-        for (const target of targets) {
-            fanIn.set(target, (fanIn.get(target) ?? 0) + 1)
-        }
+        fanIn.set(file, fanIn.get(file) ?? 0)
     }
 
     let highFanIn = 0
@@ -449,8 +506,13 @@ function main(): void {
     const over500 = nonGeneratedFiles.filter((file) => file.lineCount > 500)
     const branchDenseFiles = sourceFiles.filter((file) => {
         const branches = branchCount(file)
-        return branches > 35 || branches / Math.max(file.lineCount, 1) > 0.12
+        const density = branches / Math.max(file.lineCount, 1)
+        return branches > 60 || (branches > 35 && density > 0.08)
     })
+    const ownershipHotspots = moduleOwnershipHotspots(sourceFiles, graph)
+    const largeOwnershipHotspots = ownershipHotspots.filter((file) =>
+        file.reasons.some((reason) => reason.startsWith('large_')),
+    )
     const safetyHits = {
         fallback: countPattern(sourceFiles, /\bfallback\b/gi),
         processEnv: countPattern(sourceFiles, /process\.env/g),
@@ -460,10 +522,7 @@ function main(): void {
     const sourceCountByArea = countByArea(sourceFiles)
     const testCountByArea = countByArea(testFiles)
 
-    const qualitySizePenalty = Math.min(
-        15,
-        over700.length * 1.5 + Math.max(0, over500.length - over700.length) * 0.15,
-    )
+    const qualitySizePenalty = Math.min(8, largeOwnershipHotspots.length * 0.35)
     const qualityDuplicatePenalty = Math.min(
         8,
         productionDuplication.duplicatedLinePercent * 6 +
@@ -472,14 +531,17 @@ function main(): void {
     const qualityCyclePenalty = Math.min(8, cycles.length * 4)
     const qualityCouplingPenalty = Math.min(
         7,
-        layerViolations * 0.16 + fan.highFanOut * 0.45 + fan.highFanIn * 0.2,
+        layerViolations * 0.24 + fan.highFanOut * 0.45 + fan.highFanIn * 0.08,
     )
-    const qualityComplexityPenalty = Math.min(5, branchDenseFiles.length * 0.14)
+    const qualityComplexityPenalty = Math.min(
+        5,
+        branchDenseFiles.length * 0.05 + ownershipHotspots.length * 0.05,
+    )
     const qualitySafetyPenalty = Math.min(
         5,
-        safetyHits.fallback * 0.05 +
-            safetyHits.processEnv * 0.08 +
-            safetyHits.unknownAs * 0.2 +
+        safetyHits.fallback * 0.01 +
+            safetyHits.processEnv * 0.02 +
+            safetyHits.unknownAs * 0.1 +
             safetyHits.anyCast * 0.75,
     )
     const qualityTestPenalty = Math.min(
@@ -487,8 +549,8 @@ function main(): void {
         sourceFiles.length / Math.max(testFiles.length, 1) > 7 ? 2 : 0,
     )
     const sizePenalty = Math.min(
-        35,
-        over700.length * 4 + Math.max(0, over500.length - over700.length) * 0.75,
+        25,
+        largeOwnershipHotspots.length * 1.25 + ownershipHotspots.length * 0.25,
     )
     const duplicatePenalty = Math.min(
         18,
@@ -498,14 +560,17 @@ function main(): void {
     const cyclePenalty = Math.min(10, cycles.length * 5)
     const couplingPenalty = Math.min(
         12,
-        layerViolations * 3 + fan.highFanOut * 1.5 + fan.highFanIn * 0.75,
+        layerViolations * 2 + fan.highFanOut * 1.5 + fan.highFanIn * 0.3,
     )
-    const complexityPenalty = Math.min(10, branchDenseFiles.length * 1.5)
+    const complexityPenalty = Math.min(
+        12,
+        branchDenseFiles.length * 0.3 + ownershipHotspots.length * 0.35,
+    )
     const safetyPenalty = Math.min(
         10,
-        safetyHits.fallback * 0.12 +
-            safetyHits.processEnv * 0.2 +
-            safetyHits.unknownAs * 0.4 +
+        safetyHits.fallback * 0.04 +
+            safetyHits.processEnv * 0.08 +
+            safetyHits.unknownAs * 0.2 +
             safetyHits.anyCast * 1,
     )
     const testPenalty = Math.min(6, sourceFiles.length / Math.max(testFiles.length, 1) > 6 ? 3 : 0)
@@ -549,6 +614,10 @@ function main(): void {
             size: {
                 over700: over700.map((file) => ({ path: file.path, lines: file.lineCount })),
                 over500Count: over500.length,
+                ownershipHotspots: ownershipHotspots.map((file) => ({
+                    ...file,
+                    branchDensity: round(file.branchDensity),
+                })),
             },
             duplication: {
                 production: {

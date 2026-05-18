@@ -547,7 +547,7 @@ function SettingsPage() {
             return
         }
         if (appSearch.enabled && !appSearch.backendUrl.trim()) {
-            toast.error('SearXNG backend URL is required')
+            toast.error('Web search backend is not configured')
             return
         }
         if (appSearch.brave.enabled) {
