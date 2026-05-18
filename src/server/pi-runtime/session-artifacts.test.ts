@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { SessionEntry } from '@mariozechner/pi-coding-agent'
 import { describe, expect, it } from 'vitest'
 import { createTestPiRuntimeConfig } from './test-runtime-defaults'
@@ -127,6 +127,49 @@ describe('session artifact extraction', () => {
             byteLength: 50,
             toolName: 'edit',
         })
+    })
+
+    it('extracts legacy absolute room-id paths after opaque path migration', () => {
+        const legacyWorkspacePath = join(
+            dirname(config.paths.roomRootDir),
+            config.runtime.roomId,
+            'workspace',
+            'notes',
+            'legacy.md',
+        )
+        const artifacts = extractSessionArtifacts(config, [
+            messageEntry('assistant-1', '2026-05-11T09:00:01.000Z', {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'toolCall',
+                        id: 'call-read',
+                        name: 'read',
+                        arguments: {
+                            path: legacyWorkspacePath,
+                        },
+                    },
+                ],
+            }),
+            messageEntry('tool-1', '2026-05-11T09:00:02.000Z', {
+                role: 'toolResult',
+                toolCallId: 'call-read',
+                content: [{ type: 'text', text: 'legacy' }],
+                details: {
+                    path: legacyWorkspacePath,
+                    byteLength: 11,
+                },
+            }),
+        ])
+
+        expect(artifacts).toEqual([
+            expect.objectContaining({
+                id: 'workspace:notes/legacy.md',
+                kind: 'referenced',
+                relativePath: 'notes/legacy.md',
+                byteLength: 11,
+            }),
+        ])
     })
 
     it('hides internal store blobs while keeping session uploads', () => {

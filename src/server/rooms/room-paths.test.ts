@@ -49,7 +49,38 @@ describe('room paths', () => {
         }
     })
 
-    it('migrates legacy room-id filesystem roots to the opaque path', async () => {
+    it('leaves legacy filesystem roots untouched when only resolving paths', async () => {
+        const previousDataDir = process.env.AGENT_ROOM_DATA_DIR
+        const root = await mkdtemp(join(tmpdir(), 'agent-room-paths-'))
+        try {
+            process.env.AGENT_ROOM_DATA_DIR = root
+            const roomId = 'legacy-room'
+            const legacyRoot = join(root, 'rooms', roomId)
+            await mkdir(join(legacyRoot, 'workspace'), {
+                recursive: true,
+            })
+
+            vi.resetModules()
+            const { getRoomPaths } = await import('./room-paths')
+            const paths = getRoomPaths(roomId)
+
+            await expect(access(legacyRoot)).resolves.toBeUndefined()
+            await expect(access(paths.roomRootDir)).rejects.toThrow()
+        } finally {
+            if (previousDataDir === undefined) {
+                delete process.env.AGENT_ROOM_DATA_DIR
+            } else {
+                process.env.AGENT_ROOM_DATA_DIR = previousDataDir
+            }
+            vi.resetModules()
+            await rm(root, {
+                recursive: true,
+                force: true,
+            })
+        }
+    })
+
+    it('migrates legacy room-id filesystem roots during layout materialization', async () => {
         const previousDataDir = process.env.AGENT_ROOM_DATA_DIR
         const root = await mkdtemp(join(tmpdir(), 'agent-room-paths-'))
         try {
@@ -62,8 +93,8 @@ describe('room paths', () => {
             await writeFile(join(legacyRoot, 'workspace', 'notes.txt'), 'legacy', 'utf8')
 
             vi.resetModules()
-            const { getRoomPaths } = await import('./room-paths')
-            const paths = getRoomPaths(roomId)
+            const { ensureRoomFilesystemLayout } = await import('./room-paths')
+            const paths = await ensureRoomFilesystemLayout(roomId)
 
             await expect(readFile(join(paths.workspaceDir, 'notes.txt'), 'utf8')).resolves.toBe(
                 'legacy',

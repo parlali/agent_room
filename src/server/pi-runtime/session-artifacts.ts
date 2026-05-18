@@ -1,4 +1,4 @@
-import { basename, isAbsolute, relative, sep } from 'node:path'
+import { basename } from 'node:path'
 import type { SessionEntry } from '@mariozechner/pi-coding-agent'
 import { extractTextFromRuntimeContent } from '#/lib/runtime-message'
 import { parseRoomMessageAttachments } from '#/lib/room-attachments'
@@ -10,6 +10,7 @@ import {
     promptAttachmentMetadataByEntryId,
     type PromptAttachmentMetadata,
 } from './prompt-attachments'
+import { hiddenStoreRoots, visibleRoomRelativePath } from './room-visible-paths'
 
 type ArtifactSurface = RoomSessionArtifact['surface']
 
@@ -32,8 +33,6 @@ interface ArtifactDraft {
     timestamp: number | null
     messageId: string | null
 }
-
-const internalStoreRoots = new Set(['blobs', 'manifests', 'previews'])
 
 const writeToolNames = new Set([
     'write',
@@ -66,37 +65,17 @@ function artifactPriority(kind: RoomSessionArtifactKind): number {
     return 1
 }
 
-function rootPath(config: PiRuntimeConfig, surface: ArtifactSurface): string {
-    return surface === 'store' ? config.paths.storeDir : config.paths.workspaceDir
-}
-
-function normalizePath(path: string): string {
-    return path
-        .split(sep)
-        .join('/')
-        .replace(/^\.\/+/, '')
-}
-
 function visibleRelativePath(
     config: PiRuntimeConfig,
     surface: ArtifactSurface,
     path: string,
 ): string | null {
-    const trimmed = path.trim()
-    if (!trimmed) return null
-    let relativePath = trimmed
-    if (isAbsolute(trimmed)) {
-        const display = relative(rootPath(config, surface), trimmed)
-        if (display.startsWith('..') || isAbsolute(display)) return null
-        relativePath = display
-    }
-    relativePath = normalizePath(relativePath)
-    if (!relativePath || relativePath === '.') return null
-    if (surface === 'store') {
-        const root = relativePath.split('/')[0] ?? relativePath
-        if (internalStoreRoots.has(root)) return null
-    }
-    return relativePath
+    return visibleRoomRelativePath({
+        config,
+        surface,
+        path,
+        hiddenStoreRootNames: hiddenStoreRoots,
+    })
 }
 
 function normalizeSurface(value: unknown): ArtifactSurface {

@@ -1,11 +1,11 @@
 import { rename, rm, stat, writeFile } from 'node:fs/promises'
-import { isAbsolute, relative, sep } from 'node:path'
 import type { RoomFileChangedPayload, RoomFileChangeOperation } from '../rooms/execution-types'
 import type { RoomFileSurface } from '../rooms/file-store'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { currentToolRunContext } from './tool-run-context'
 import { isRecord } from './runtime-redaction'
 import { runtimeEventLogPayload } from './runtime-event-payload'
+import { hiddenStoreRoots, visibleRoomRelativePath } from './room-visible-paths'
 
 type RuntimeEventAppenderInput = {
     config: PiRuntimeConfig
@@ -13,7 +13,6 @@ type RuntimeEventAppenderInput = {
     broadcast: (sessionKey: string, event: string, payload: unknown) => void
 }
 
-const internalStoreRoots = new Set(['blobs', 'manifests', 'previews'])
 const maxRuntimeEventLogBytes = 5 * 1024 * 1024
 const runtimeEventLogRotations = 3
 
@@ -112,41 +111,17 @@ function normalizeFileSurface(value: unknown): RoomFileSurface {
     return value === 'store' ? 'store' : 'workspace'
 }
 
-function rootPathForSurface(config: PiRuntimeConfig, surface: RoomFileSurface): string {
-    return surface === 'store' ? config.paths.storeDir : config.paths.workspaceDir
-}
-
 function normalizeVisibleRelativePath(input: {
     config: PiRuntimeConfig
     surface: RoomFileSurface
     path: unknown
 }): string | null {
-    if (typeof input.path !== 'string' || !input.path.trim()) {
-        return null
-    }
-    const trimmed = input.path.trim()
-    let relativePath = trimmed
-    if (isAbsolute(trimmed)) {
-        const display = relative(rootPathForSurface(input.config, input.surface), trimmed)
-        if (display.startsWith('..') || isAbsolute(display)) {
-            return null
-        }
-        relativePath = display
-    }
-    relativePath = relativePath
-        .split(sep)
-        .join('/')
-        .replace(/^\.\/+/, '')
-    if (!relativePath || relativePath === '.') {
-        return null
-    }
-    if (input.surface === 'store') {
-        const root = relativePath.split('/')[0] ?? relativePath
-        if (internalStoreRoots.has(root)) {
-            return null
-        }
-    }
-    return relativePath
+    return visibleRoomRelativePath({
+        config: input.config,
+        surface: input.surface,
+        path: input.path,
+        hiddenStoreRootNames: hiddenStoreRoots,
+    })
 }
 
 function roomFileChangedPayload(input: {
