@@ -1,10 +1,7 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmod, chown, lchown, lstat, mkdir, readFile, readdir } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import type { RoomPaths, RoomRuntimeMetadataRecord, RuntimeSandboxIdentity } from '../domain/types'
-import { ensureSandboxOwnedDirectory, ensureSandboxOwnedFile } from './sandbox-owned-paths'
 
 const execFileAsync = promisify(execFile)
 const nologinShell = '/usr/sbin/nologin'
@@ -255,58 +252,6 @@ function assertPersistedIdentityMatches(
     }
 }
 
-function materializedSandboxIdentity(value: unknown): RuntimeSandboxIdentity | null {
-    if (!value || typeof value !== 'object') return null
-    const record = value as Record<string, unknown>
-    if (
-        record.mode === 'per-room' &&
-        typeof record.uid === 'number' &&
-        typeof record.gid === 'number' &&
-        typeof record.userName === 'string' &&
-        typeof record.groupName === 'string'
-    ) {
-        return {
-            mode: 'per-room',
-            uid: record.uid,
-            gid: record.gid,
-            userName: record.userName,
-            groupName: record.groupName,
-        }
-    }
-    if (record.mode === 'test-unsafe') {
-        return {
-            mode: 'test-unsafe',
-            uid: null,
-            gid: null,
-            userName: null,
-            groupName: null,
-        }
-    }
-    if (record.mode === 'disabled') {
-        return {
-            mode: 'disabled',
-            uid: null,
-            gid: null,
-            userName: null,
-            groupName: null,
-        }
-    }
-    return null
-}
-
-export async function readMaterializedRuntimeSandboxIdentity(
-    paths: RoomPaths,
-): Promise<RuntimeSandboxIdentity | null> {
-    try {
-        const raw = JSON.parse(await readFile(paths.runtimeMetadataPath, 'utf8')) as {
-            sandbox?: unknown
-        }
-        return materializedSandboxIdentity(raw.sandbox)
-    } catch {
-        return null
-    }
-}
-
 export async function materializeRuntimeSandboxIdentity(input: {
     roomId: string
     current: RoomRuntimeMetadataRecord
@@ -390,128 +335,13 @@ export async function materializeRuntimeSandboxIdentity(input: {
     throw new Error(`No available sandbox UID/GID candidate for room ${input.roomId}`)
 }
 
-async function chownPath(path: string, uid: number, gid: number): Promise<void> {
-    const stat = await lstat(path)
-    if (stat.isSymbolicLink()) {
-        await lchown(path, uid, gid)
-        return
-    }
-    await chown(path, uid, gid)
-}
-
-async function chownTree(path: string, uid: number, gid: number): Promise<void> {
-    const stat = await lstat(path)
-    if (stat.isDirectory() && !stat.isSymbolicLink()) {
-        const entries = await readdir(path, {
-            withFileTypes: true,
-        })
-        await Promise.all(entries.map((entry) => chownTree(join(path, entry.name), uid, gid)))
-        await chmod(path, 0o700)
-    }
-    await chownPath(path, uid, gid)
-}
-
-function runtimeShellWritableRoots(paths: RoomPaths): string[] {
-    return [
-        paths.workspaceDir,
-        paths.storeDir,
-        join(paths.engineStateDir, 'home'),
-        join(paths.engineStateDir, 'tmp'),
-    ]
-}
-
-function roomContainerDir(paths: RoomPaths): string {
-    return dirname(paths.roomRootDir)
-}
-
-function materializedOrDisabledIdentity(
-    identity: RuntimeSandboxIdentity | null,
-): RuntimeSandboxIdentity {
-    return (
-        identity ?? {
-            mode: 'disabled',
-            uid: null,
-            gid: null,
-            userName: null,
-            groupName: null,
-        }
-    )
-}
-
-async function ensureRoomRootForMaterializedPath(
-    paths: RoomPaths,
-    identity: RuntimeSandboxIdentity,
-): Promise<void> {
-    const mode = identity.mode === 'per-room' ? 0o711 : 0o700
-    await mkdir(roomContainerDir(paths), { recursive: true, mode })
-    await chmod(roomContainerDir(paths), mode)
-    await mkdir(paths.roomRootDir, { recursive: true, mode })
-    await chmod(paths.roomRootDir, mode)
-}
-
-export async function applyRuntimeSandboxFilesystemOwnership(
-    paths: RoomPaths,
-    identity: RuntimeSandboxIdentity,
-): Promise<void> {
-    if (identity.mode !== 'per-room') return
-    const homeDir = join(paths.engineStateDir, 'home')
-    const tmpDir = join(paths.engineStateDir, 'tmp')
-    await Promise.all([
-        mkdir(roomContainerDir(paths), { recursive: true, mode: 0o711 }),
-        mkdir(paths.roomRootDir, { recursive: true, mode: 0o711 }),
-        mkdir(paths.runtimeDir, { recursive: true, mode: 0o700 }),
-        mkdir(paths.runtimeSecretsDir, { recursive: true, mode: 0o700 }),
-        mkdir(paths.engineStateDir, { recursive: true, mode: 0o711 }),
-        mkdir(paths.workspaceDir, { recursive: true, mode: 0o700 }),
-        mkdir(paths.storeDir, { recursive: true, mode: 0o700 }),
-        mkdir(homeDir, { recursive: true, mode: 0o700 }),
-        mkdir(tmpDir, { recursive: true, mode: 0o700 }),
-    ])
-    await Promise.all([
-        chmod(roomContainerDir(paths), 0o711),
-        chmod(paths.roomRootDir, 0o711),
-        chmod(paths.runtimeDir, 0o700),
-        chmod(paths.runtimeSecretsDir, 0o700),
-        chmod(paths.engineStateDir, 0o711),
-    ])
-    await Promise.all(
-        [paths.workspaceDir, paths.storeDir, homeDir, tmpDir].map((path) =>
-            chownTree(path, identity.uid, identity.gid),
-        ),
-    )
-}
-
-export async function ensureMaterializedRuntimeSandboxFile(
-    paths: RoomPaths,
-    path: string,
-): Promise<void> {
-    const identity = materializedOrDisabledIdentity(
-        await readMaterializedRuntimeSandboxIdentity(paths),
-    )
-    await ensureRoomRootForMaterializedPath(paths, identity)
-    await ensureSandboxOwnedFile({
-        path,
-        roots: runtimeShellWritableRoots(paths),
-        identity,
-    })
-}
-
-export async function ensureMaterializedRuntimeSandboxDirectory(
-    paths: RoomPaths,
-    path: string,
-): Promise<void> {
-    const identity = materializedOrDisabledIdentity(
-        await readMaterializedRuntimeSandboxIdentity(paths),
-    )
-    await ensureRoomRootForMaterializedPath(paths, identity)
-    await ensureSandboxOwnedDirectory({
-        path,
-        roots: runtimeShellWritableRoots(paths),
-        identity,
-    })
-}
-
+export {
+    applyRuntimeSandboxFilesystemOwnership,
+    ensureMaterializedRuntimeSandboxDirectory,
+    ensureMaterializedRuntimeSandboxFile,
+} from './runtime-sandbox-filesystem'
 export { runtimeSandboxShellCommand, runtimeSandboxSpawnCommand } from './runtime-sandbox-command'
+export { readMaterializedRuntimeSandboxIdentity } from './runtime-sandbox-materialized'
 
 export const __testing = {
     deterministicRoomSandboxName,

@@ -1,4 +1,4 @@
-export const internalStoreRootNames = new Set(['blobs', 'manifests', 'previews'])
+const internalStoreRootNames: ReadonlySet<string> = new Set(['blobs', 'manifests', 'previews'])
 
 export function isInternalStoreRelativePath(relativePath: string): boolean {
     const root = relativePath.split('/')[0] ?? relativePath
