@@ -24,11 +24,11 @@ interface ImageToolDetails {
 
 function createImageGenerateTool(ctx: ImageToolContext): ToolDefinition {
     return defineTool({
-        name: 'agent_room_image_generate',
+        name: 'image_generate',
         label: 'Generate Image',
-        description: 'Generate images through the configured room image provider.',
+        description: 'Generate images through the configured image provider.',
         promptSnippet:
-            'agent_room_image_generate creates provider-backed images and stores them as durable artifacts.',
+            'image_generate creates provider-backed images and stores them as durable artifacts.',
         parameters: Type.Object({
             prompt: Type.String(),
             model: Type.Optional(Type.String()),

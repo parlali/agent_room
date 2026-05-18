@@ -1,4 +1,4 @@
-import { basename, isAbsolute, relative, sep } from 'node:path'
+import { basename } from 'node:path'
 import type { SessionEntry } from '@mariozechner/pi-coding-agent'
 import { extractTextFromRuntimeContent } from '#/lib/runtime-message'
 import { parseRoomMessageAttachments } from '#/lib/room-attachments'
@@ -10,6 +10,7 @@ import {
     promptAttachmentMetadataByEntryId,
     type PromptAttachmentMetadata,
 } from './prompt-attachments'
+import { visibleRoomRelativePath } from './room-visible-paths'
 
 type ArtifactSurface = RoomSessionArtifact['surface']
 
@@ -33,16 +34,25 @@ interface ArtifactDraft {
     messageId: string | null
 }
 
-const internalStoreRoots = new Set(['blobs', 'manifests', 'previews'])
-
 const writeToolNames = new Set([
+    'write',
+    'edit',
+    'artifact_export',
+    'pdf',
     'agent_room_write',
     'agent_room_edit',
     'agent_room_artifact_export',
     'agent_room_pdf',
 ])
 
-const readToolNames = new Set(['agent_room_read', 'agent_room_pdf', 'agent_room_read_pdf'])
+const readToolNames = new Set([
+    'read',
+    'pdf',
+    'read_pdf',
+    'agent_room_read',
+    'agent_room_pdf',
+    'agent_room_read_pdf',
+])
 
 function artifactId(surface: ArtifactSurface, relativePath: string): string {
     return `${surface}:${relativePath}`
@@ -55,37 +65,16 @@ function artifactPriority(kind: RoomSessionArtifactKind): number {
     return 1
 }
 
-function rootPath(config: PiRuntimeConfig, surface: ArtifactSurface): string {
-    return surface === 'store' ? config.paths.storeDir : config.paths.workspaceDir
-}
-
-function normalizePath(path: string): string {
-    return path
-        .split(sep)
-        .join('/')
-        .replace(/^\.\/+/, '')
-}
-
 function visibleRelativePath(
     config: PiRuntimeConfig,
     surface: ArtifactSurface,
     path: string,
 ): string | null {
-    const trimmed = path.trim()
-    if (!trimmed) return null
-    let relativePath = trimmed
-    if (isAbsolute(trimmed)) {
-        const display = relative(rootPath(config, surface), trimmed)
-        if (display.startsWith('..') || isAbsolute(display)) return null
-        relativePath = display
-    }
-    relativePath = normalizePath(relativePath)
-    if (!relativePath || relativePath === '.') return null
-    if (surface === 'store') {
-        const root = relativePath.split('/')[0] ?? relativePath
-        if (internalStoreRoots.has(root)) return null
-    }
-    return relativePath
+    return visibleRoomRelativePath({
+        config,
+        surface,
+        path,
+    })
 }
 
 function normalizeSurface(value: unknown): ArtifactSurface {
@@ -142,11 +131,15 @@ function kindFromFileChange(fileChange: Record<string, unknown>): RoomSessionArt
 }
 
 function kindFromTool(toolName: string | null, operation: string | null): RoomSessionArtifactKind {
-    if (operation === 'edit') return 'edited'
+    if (operation === 'edit' || toolName === 'edit' || toolName === 'agent_room_edit') {
+        return 'edited'
+    }
     if (
         operation === 'create' ||
         operation === 'export_pdf' ||
         operation === 'preview' ||
+        toolName === 'write' ||
+        toolName === 'artifact_export' ||
         toolName === 'agent_room_write' ||
         toolName === 'agent_room_artifact_export'
     ) {
@@ -338,7 +331,7 @@ function collectToolResult(input: {
         )
     }
 
-    if (toolName === 'agent_room_artifact_import') {
+    if (toolName === 'artifact_import' || toolName === 'agent_room_artifact_import') {
         addArtifact(
             input.artifacts,
             artifactFromPath({

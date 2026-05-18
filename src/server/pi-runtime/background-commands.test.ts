@@ -87,6 +87,24 @@ describe('background commands', () => {
         expect(finished.roomId).toBe('room-test')
     })
 
+    it('passes neutral path env names to the shell process', async () => {
+        const config = await testConfig()
+        const started = await startBackgroundCommand({
+            config,
+            command:
+                'printf "workspace=%s\\nstore=%s\\nold_workspace=%s\\nold_store=%s\\n" "$WORKSPACE_DIR" "$STORE_DIR" "$AGENT_ROOM_WORKSPACE_DIR" "$AGENT_ROOM_STORE_DIR"',
+            timeoutMs: 5000,
+        })
+        const finished = await waitForCommand(config, started.commandId)
+
+        expect(finished.status).toBe('exited')
+        expect(finished.output).toContain(`workspace=${config.paths.workspaceDir}`)
+        expect(finished.output).toContain(`store=${config.paths.storeDir}`)
+        expect(finished.output).toContain('old_workspace=\n')
+        expect(finished.output).toContain('old_store=\n')
+        expect(finished.output).not.toContain(config.runtime.roomId)
+    })
+
     it('redacts command output before persistence', async () => {
         const config = await testConfig()
         const started = await startBackgroundCommand({

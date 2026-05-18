@@ -404,6 +404,10 @@ export interface RoomExecutionTruthSnapshot {
     runtimeMetadataFile: {
         port: number | null
         pid: number | null
+        sandboxUid: number | null
+        sandboxGid: number | null
+        sandboxUserName: string | null
+        sandboxGroupName: string | null
         startedAt: string | null
         configVersion: number | null
         tokenVersion: number | null

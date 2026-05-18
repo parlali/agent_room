@@ -65,10 +65,7 @@ function runtimeEventToolName(event: string): string | null {
     if (!event.startsWith('tool.')) {
         return null
     }
-    if (event === 'tool.image_generate') {
-        return 'agent_room_image_generate'
-    }
-    return `agent_room_${event.slice('tool.'.length).replaceAll('.', '_')}`
+    return event.slice('tool.'.length).replaceAll('.', '_')
 }
 
 function toJsonValue(value: unknown): JsonValue {

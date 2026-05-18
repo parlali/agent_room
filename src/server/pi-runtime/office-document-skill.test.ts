@@ -67,8 +67,8 @@ function runSkillScriptRaw(input: {
         encoding: 'utf8',
         env: {
             ...process.env,
-            AGENT_ROOM_WORKSPACE_DIR: input.workspace,
-            AGENT_ROOM_STORE_DIR: input.store,
+            WORKSPACE_DIR: input.workspace,
+            STORE_DIR: input.store,
         },
     }) as ScriptRun
 }
@@ -345,7 +345,8 @@ describe('office document skills', () => {
         expect(appendPrompt).toContain('docx_document.ts')
         expect(appendPrompt).toContain('xlsx_workbook.ts')
         expect(appendPrompt).toContain('pptx_deck.ts')
-        expect(appendPrompt).toContain('agent_room_shell')
+        expect(appendPrompt).toContain('shell')
+        expect(appendPrompt).not.toContain('agent_room_shell')
         expect(bundledSkillScriptPath('docx', 'scripts/docx_document.ts')).toBe(docxScriptPath)
         expect(bundledSkillScriptPath('xlsx', 'scripts/xlsx_workbook.ts')).toBe(xlsxScriptPath)
         expect(bundledSkillScriptPath('pptx', 'scripts/pptx_deck.ts')).toBe(pptxScriptPath)

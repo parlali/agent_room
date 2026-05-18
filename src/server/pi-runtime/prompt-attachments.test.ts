@@ -224,6 +224,8 @@ describe('prompt attachments', () => {
             expect(prepared.images).toHaveLength(0)
             expect(prepared.text).toContain('PDF content was not provided to the model')
             expect(prepared.text).toContain('unsupported')
+            expect(prepared.text).toContain('shellPath="$STORE_DIR/attachments/session/spec.pdf"')
+            expect(prepared.text).not.toContain('AGENT_ROOM_STORE_DIR')
             expect(prepared.metadata?.ingestions[0]).toMatchObject({
                 ingestionMode: 'unsupported',
                 pages: 'all pages',
@@ -272,8 +274,9 @@ describe('prompt attachments', () => {
             },
         ])
 
-        expect(
-            displayTextWithPromptAttachments('Look at this', map.get('metadata-1') ?? null),
-        ).toContain('root=store path="attachments/session/image.png"')
+        const text = displayTextWithPromptAttachments('Look at this', map.get('metadata-1') ?? null)
+
+        expect(text).toContain('root=store path="attachments/session/image.png"')
+        expect(text).not.toContain('AGENT_ROOM_STORE_DIR')
     })
 })

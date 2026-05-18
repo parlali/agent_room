@@ -48,7 +48,7 @@ function deepWorkMessage(input: {
 }): string {
     const scope = input.scope ? `\n\nScope or constraints from parent:\n${input.scope}` : ''
     return [
-        'You are running dedicated deep work for this Agent Room.',
+        'You are running dedicated deep work for this workspace.',
         `Parent thread: ${input.parentThreadKey}`,
         `Objective:\n${input.objective}${scope}`,
         ['Room memory brief at dispatch:', input.memoryBrief || '[empty]'].join('\n'),
@@ -60,7 +60,7 @@ function deepWorkMessage(input: {
             '4. Verify direct behavior or clearly name unrun checks and blockers.',
             '5. Return a concise final report for the parent with conclusion, evidence, changed files or artifacts, verification, and blockers.',
         ].join('\n'),
-        'Do not call agent_room_deep_work. Keep source names, paths, command names, artifacts, or important URLs visible so the parent can cite them.',
+        'Do not call deep_work. Keep source names, paths, command names, artifacts, or important URLs visible so the parent can cite them.',
     ].join('\n\n')
 }
 
@@ -82,12 +82,12 @@ function errorText(error: unknown): string {
 
 export function createDeepWorkTool(input: CreateDeepWorkToolInput): ToolDefinition {
     return defineTool({
-        name: 'agent_room_deep_work',
+        name: 'deep_work',
         label: 'Deep Work',
         description:
-            'Dispatch a complex task to a dedicated Agent Room work thread for structured investigation with planning, tool use, verification, and synthesis. Use when a task needs multi-step research, sustained analysis, coding work, artifact work, or auditably focused execution.',
+            'Dispatch a complex task to a dedicated work thread for structured investigation with planning, tool use, verification, and synthesis. Use when a task needs multi-step research, sustained analysis, coding work, artifact work, or focused execution.',
         promptSnippet:
-            'agent_room_deep_work is available from main threads for complex tasks that need a dedicated work thread. It is bounded, audited, and returns the child thread result.',
+            'deep_work is available from main threads for complex tasks that need a dedicated work thread. It is bounded, audited, and returns the child thread result.',
         parameters: Type.Object({
             objective: Type.String(),
             scope: Type.Optional(Type.String()),

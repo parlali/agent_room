@@ -63,18 +63,27 @@ describe('GitHub runtime credential materialization', () => {
             },
         })
 
-        expect(mocks.ensureShellWritableDirectory).toHaveBeenCalledWith(homeDir)
-        expect(mocks.ensureShellWritableDirectory).toHaveBeenCalledWith(join(homeDir, '.config'))
+        expect(mocks.ensureShellWritableDirectory).toHaveBeenCalledWith(config, homeDir)
         expect(mocks.ensureShellWritableDirectory).toHaveBeenCalledWith(
+            config,
+            join(homeDir, '.config'),
+        )
+        expect(mocks.ensureShellWritableDirectory).toHaveBeenCalledWith(
+            config,
             join(homeDir, '.config', 'gh'),
         )
         expect(mocks.ensureShellWritableFile).toHaveBeenCalledWith(
+            config,
             join(homeDir, '.config', 'gh', 'hosts.yml'),
         )
         expect(mocks.ensureShellWritableFile).toHaveBeenCalledWith(
+            config,
             join(homeDir, '.git-credentials'),
         )
-        expect(mocks.ensureShellWritableFile).toHaveBeenCalledWith(join(homeDir, '.gitconfig'))
+        expect(mocks.ensureShellWritableFile).toHaveBeenCalledWith(
+            config,
+            join(homeDir, '.gitconfig'),
+        )
 
         await expect(
             readFile(join(homeDir, '.config', 'gh', 'hosts.yml'), 'utf8'),

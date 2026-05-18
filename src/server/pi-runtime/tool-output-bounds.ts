@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
-import { currentToolRunContext } from './tool-run-context'
+import { ensureShellWritableDirectory, ensureShellWritableFile } from './shell-sandbox'
 
 export const modelVisibleToolOutputMaxBytes = 32000
 
@@ -34,18 +34,11 @@ function slug(value: string): string {
     return cleaned || 'tool-output'
 }
 
-function artifactPath(input: {
-    label: string
-    extension: string
-    sessionKey: string | null
-    runId: string | null
-}): string {
+function artifactPath(input: { label: string; extension: string }): string {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
     const extension = input.extension.replace(/[^a-z0-9]+/gi, '').toLowerCase() || 'txt'
     return [
         'tool-output',
-        slug(input.sessionKey ?? 'detached-session'),
-        slug(input.runId ?? 'detached-run'),
         `${timestamp}-${slug(input.label)}-${randomUUID().slice(0, 8)}.${extension}`,
     ].join('/')
 }
@@ -99,12 +92,9 @@ export async function boundToolOutput(input: {
         }
     }
 
-    const context = currentToolRunContext()
     const relativePath = artifactPath({
         label: input.label,
         extension: input.extension ?? 'txt',
-        sessionKey: context?.sessionKey ?? null,
-        runId: context?.runId ?? null,
     })
     const fullPath = join(input.config.paths.storeDir, relativePath)
     let outputArtifact: ToolOutputArtifact = {
@@ -114,14 +104,21 @@ export async function boundToolOutput(input: {
         modelVisibleByteLength: maxVisibleBytes,
     }
     try {
-        await mkdir(dirname(fullPath), {
-            recursive: true,
-            mode: 0o700,
-        })
+        if (input.config.sandbox.mode !== 'disabled') {
+            await ensureShellWritableDirectory(input.config, dirname(fullPath))
+        } else {
+            await mkdir(dirname(fullPath), {
+                recursive: true,
+                mode: 0o700,
+            })
+        }
         await writeFile(fullPath, input.text, {
             encoding: 'utf8',
             mode: 0o600,
         })
+        if (input.config.sandbox.mode !== 'disabled') {
+            await ensureShellWritableFile(input.config, fullPath)
+        }
     } catch (error) {
         outputArtifact = {
             ...outputArtifact,

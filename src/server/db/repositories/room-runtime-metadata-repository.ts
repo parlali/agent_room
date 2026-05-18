@@ -16,6 +16,10 @@ export const roomRuntimeMetadataRepository = {
         roomId: string
         port: number | null
         pid: number | null
+        sandboxUid?: number | null
+        sandboxGid?: number | null
+        sandboxUserName?: string | null
+        sandboxGroupName?: string | null
         configVersion: number
         tokenVersion: number
         healthStatus: HealthStatus
@@ -28,6 +32,10 @@ export const roomRuntimeMetadataRepository = {
                 room_id,
                 port,
                 pid,
+                sandbox_uid,
+                sandbox_gid,
+                sandbox_user_name,
+                sandbox_group_name,
                 config_version,
                 token_version,
                 health_status,
@@ -40,6 +48,10 @@ export const roomRuntimeMetadataRepository = {
                 ${input.roomId},
                 ${input.port},
                 ${input.pid},
+                ${input.sandboxUid ?? null},
+                ${input.sandboxGid ?? null},
+                ${input.sandboxUserName ?? null},
+                ${input.sandboxGroupName ?? null},
                 ${input.configVersion},
                 ${input.tokenVersion},
                 ${input.healthStatus},
@@ -52,6 +64,10 @@ export const roomRuntimeMetadataRepository = {
             DO UPDATE SET
                 port = excluded.port,
                 pid = excluded.pid,
+                sandbox_uid = COALESCE(excluded.sandbox_uid, room_runtime_metadata.sandbox_uid),
+                sandbox_gid = COALESCE(excluded.sandbox_gid, room_runtime_metadata.sandbox_gid),
+                sandbox_user_name = COALESCE(excluded.sandbox_user_name, room_runtime_metadata.sandbox_user_name),
+                sandbox_group_name = COALESCE(excluded.sandbox_group_name, room_runtime_metadata.sandbox_group_name),
                 config_version = excluded.config_version,
                 token_version = excluded.token_version,
                 health_status = excluded.health_status,

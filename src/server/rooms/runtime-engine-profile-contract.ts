@@ -1,4 +1,8 @@
-import type { MaterializedRoomConfiguration, RoomPaths } from '../domain/types'
+import type {
+    MaterializedRoomConfiguration,
+    RoomPaths,
+    RuntimeSandboxIdentity,
+} from '../domain/types'
 
 export interface RuntimeEngineCommand {
     command: string
@@ -11,6 +15,7 @@ export interface RuntimeEngineProfileBuildInput {
     port: number
     token: string
     paths: RoomPaths
+    sandbox: RuntimeSandboxIdentity
     roomConfiguration: MaterializedRoomConfiguration
 }
 

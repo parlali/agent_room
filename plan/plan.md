@@ -9,6 +9,7 @@ The brainstorm has been split into three public OSS work-stream issues. Implemen
 - [x] Issue 1: [Docs reliability — native PDF input and office doc hardening](https://github.com/parlali/agent_room/issues/1)
 - [x] Issue 2: [Search reliability — SearXNG hardening, Brave, and Browserbase search](https://github.com/parlali/agent_room/issues/2)
 - [x] Issue 3: [Browser automation — interaction tools and live session UI](https://github.com/parlali/agent_room/issues/3)
+- [x] Issue 8: [Runtime tools and per-room sandbox isolation](https://github.com/parlali/agent_room/issues/8)
 
 ## Filing tasks
 
@@ -21,8 +22,8 @@ The brainstorm has been split into three public OSS work-stream issues. Implemen
 ## Issue 1 implementation notes
 
 - [x] Preserve uploaded PDFs as canonical room-local artifacts and materialize reads from that original file.
-- [x] Add `agent_room_read_pdf` with native Anthropic document routing and rendered page-image routing for other vision-capable models.
-- [x] Remove PDF text extraction from the model-facing tool surface so `agent_room_read_pdf` is the canonical PDF read path.
+- [x] Add `read_pdf` with native Anthropic document routing and rendered page-image routing for other vision-capable models. (Originally shipped as `agent_room_read_pdf`; Issue 8 renamed model-facing runtime tools to product-neutral names.)
+- [x] Remove PDF text extraction from the model-facing tool surface so `read_pdf` is the canonical PDF read path.
 - [x] Persist and audit PDF ingestion mode as `native_document`, `image_render`, or `unsupported`.
 - [x] Surface PDF ingestion mode in prompt attachment metadata, audit events, tool details, and model-visible attachment summaries.
 - [x] Map Anthropic PDF payloads through Pi provider routing without claiming image-rendered or text-extracted content is native.
@@ -34,7 +35,7 @@ The brainstorm has been split into three public OSS work-stream issues. Implemen
 
 ## Issue 2 implementation notes
 
-- [x] Issue 2 search implementation keeps one model-facing `agent_room_web_search` tool and routes Brave, Browserbase Search API, then SearXNG behind typed provider contracts.
+- [x] Issue 2 search implementation keeps one model-facing `web_search` tool and routes Brave, Browserbase Search API, then SearXNG behind typed provider contracts. (Originally shipped as `agent_room_web_search`; Issue 8 renamed model-facing runtime tools to product-neutral names.)
 - [x] Browserbase search uses the documented `POST /v1/search` API with `x-bb-api-key`, not Browserbase browser sessions, CDP, or rendered Brave Search scraping.
 - [x] SearXNG engine health records rate-limited and CAPTCHA-blocked engines with short TTL and sends those engines as disabled on later SearXNG requests where supported.
 - [x] PR review hardening removes provider response bodies from model-visible search failure metadata and rolls back search credential writes on rejected settings saves.
@@ -56,3 +57,17 @@ The brainstorm has been split into three public OSS work-stream issues. Implemen
 - [x] Follow-up session-boundary hardening stores active Browserbase sessions, snapshots, idle timers, heartbeat timers, and retry timers by chat session key so separate same-room sessions can open, use, and clean up browsers independently.
 - [x] Follow-up shutdown hardening uses a shorter runtime-shutdown Browserbase release timeout, releases active chat sessions in parallel, and aligns SIGTERM forced-exit grace with the bounded release retry window.
 - [x] Verify direct behavior and downstream effects with focused Browserbase automation tests and `bun run check`.
+
+## Issue 8 implementation notes
+
+- [x] Remove duplicate model-facing workspace tools and register Pi-native `read`, `grep`, `find`, `ls`, `edit`, and `write` directly as the canonical workspace surface.
+- [x] Rename remaining custom runtime tools to product-neutral names while preserving historical `agent_room_*` categorization and artifact tracking for old sessions.
+- [x] Simplify the model-facing prompt and bundled office skill text so it describes workspace capabilities instead of Agent Room wrapper semantics.
+- [x] Keep internal store path visibility policy canonical across file APIs, artifact extraction, and runtime event read models.
+- [x] Persist per-room sandbox UID/GID/user/group metadata and expose it through runtime truth snapshots for auditability.
+- [x] Materialize deterministic per-room Linux users and groups for shell-capable rooms, fail closed when sandbox identity cannot be created or validated, and chown only shell-writable workspace, store, home, and tmp paths to that identity. (Adjusted after review to keep backend-only runtime secrets out of same-room shell reach.)
+- [x] Run shell/document worker processes through an explicit `setpriv` privilege-drop wrapper while the backend-owned runtime process keeps access to backend-only runtime config and secret materialization. (Adjusted from wrapping the whole runtime process after review showed same-room shell could otherwise read runtime secrets.)
+- [x] Keep provider credential files and runtime config/env files backend-owned with restrictive modes so workspace shell tools cannot read tokens or provider metadata.
+- [x] Keep runtime state, sessions, auth, model registry, thread index, and audit cursor files backend-owned while exposing only `home` and `tmp` as sandbox-owned subdirectories under state. (Explicit deviation from the original broad "state" ownership wording to avoid leaking backend-only session and audit metadata to same-room shell tools.)
+- [x] Keep absolute workspace/store/home/tmp paths visible to sandboxed processes for POSIX cwd and tool compatibility, but derive production room filesystem roots from opaque deterministic ids so room ids, authentication, session ownership, runtime tokens, and audit ids remain backend-only. (Legacy room-id filesystem roots migrate during explicit layout materialization, while artifact/event path readers accept historical absolute paths under either root.)
+- [x] Verify direct behavior and downstream effects with typecheck, the full local test suite, focused runtime/tool tests, and a root Linux container sandbox test that proves same-room runtime secrets and cross-room workspace, state, store, home, tmp, and runtime paths deny read/list/write access.

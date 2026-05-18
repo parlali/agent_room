@@ -6,7 +6,11 @@ import type {
     RuntimeEngineProfile,
     RuntimeEngineProfileBuildInput,
 } from './runtime-engine-profile-contract'
-import { assertNoReservedRoomRuntimeEnvKeys } from '../security/process-env'
+import {
+    assertNoReservedRoomRuntimeEnvKeys,
+    shellVisibleStoreDirEnvKey,
+    shellVisibleWorkspaceDirEnvKey,
+} from '../security/process-env'
 
 function resolvePiRuntimeCommand(): RuntimeEngineCommand {
     return {
@@ -22,6 +26,7 @@ function buildPiRuntimeProfile(input: RuntimeEngineProfileBuildInput) {
         port: input.port,
         token: input.token,
         paths: input.paths,
+        sandbox: input.sandbox,
         roomConfiguration: input.roomConfiguration,
     })
 
@@ -45,8 +50,8 @@ function buildPiRuntimeProfile(input: RuntimeEngineProfileBuildInput) {
         AGENT_ROOM_PI_RUNTIME_CONFIG_PATH: input.paths.runtimeConfigPath,
         AGENT_ROOM_PI_RUNTIME_TOKEN: input.token,
         AGENT_ROOM_PI_STATE_DIR: input.paths.engineStateDir,
-        AGENT_ROOM_WORKSPACE_DIR: input.paths.workspaceDir,
-        AGENT_ROOM_STORE_DIR: input.paths.storeDir,
+        [shellVisibleWorkspaceDirEnvKey]: input.paths.workspaceDir,
+        [shellVisibleStoreDirEnvKey]: input.paths.storeDir,
         PI_CODING_AGENT_DIR: input.paths.engineStateDir,
         HOME: config.paths.homeDir,
         TMPDIR: config.paths.tmpDir,

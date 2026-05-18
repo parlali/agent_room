@@ -1,13 +1,13 @@
 ---
 name: docx
-description: Create, inspect, and edit Word DOCX files through Agent Room's bundled DOCX script.
+description: Create, inspect, and edit Word DOCX files through the bundled DOCX script.
 ---
 
 # DOCX
 
-Use this skill for Word `.docx` create, inspect, and edit work in Agent Room.
+Use this skill for Word `.docx` create, inspect, and edit work.
 
-Run the bundled script through `agent_room_shell`. Resolve `scripts/docx_document.ts` relative to this skill directory and pass that absolute path to `bun`.
+Run the bundled script through `shell`. Resolve `scripts/docx_document.ts` relative to this skill directory and pass that absolute path to `bun`.
 
 Commands:
 

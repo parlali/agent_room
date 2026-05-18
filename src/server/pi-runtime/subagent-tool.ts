@@ -38,10 +38,9 @@ export interface CreateSubagentToolInput {
 
 export function createSubagentTool(input: CreateSubagentToolInput): ToolDefinition {
     return defineTool({
-        name: 'agent_room_subagent',
+        name: 'subagent',
         label: 'Subagent',
-        description:
-            'Run a bounded child Pi session inside this Agent Room and return its final text.',
+        description: 'Run a bounded child agent session and return its final text.',
         parameters: Type.Object({
             task: Type.String(),
             name: Type.Optional(Type.String()),
@@ -92,7 +91,7 @@ export function createSubagentTool(input: CreateSubagentToolInput): ToolDefiniti
             await input.runPrompt({
                 record,
                 message: [
-                    'You are a bounded subagent for this room.',
+                    'You are a bounded subagent for this workspace.',
                     'Do the assigned task only, do not spawn child agents, and return a concise final result with changed files or findings.',
                     `Task: ${task}${writeScope}`,
                 ].join('\n\n'),

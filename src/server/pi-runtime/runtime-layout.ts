@@ -1,16 +1,11 @@
 import { chmod, mkdir } from 'node:fs/promises'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { runtimeWritableToolsEnabled } from '../rooms/runtime-sandbox-policy'
 import { ensureInternalState } from './internal-state'
 import { ensureShellWritableDirectory } from './shell-sandbox'
 
 export async function ensureRuntimeLayout(config: PiRuntimeConfig): Promise<void> {
-    const writableToolsEnabled =
-        config.capabilities.shellCoding ||
-        config.capabilities.documents ||
-        config.capabilities.spreadsheets ||
-        config.capabilities.presentations ||
-        config.capabilities.pdf ||
-        config.capabilities.images
+    const writableToolsEnabled = runtimeWritableToolsEnabled(config.capabilities)
     await Promise.all([
         mkdir(config.paths.stateDir, { recursive: true, mode: 0o700 }),
         mkdir(config.paths.sessionsDir, { recursive: true, mode: 0o700 }),
@@ -32,10 +27,10 @@ export async function ensureRuntimeLayout(config: PiRuntimeConfig): Promise<void
     ])
     if (writableToolsEnabled) {
         await Promise.all([
-            ensureShellWritableDirectory(config.paths.workspaceDir),
-            ensureShellWritableDirectory(config.paths.storeDir),
-            ensureShellWritableDirectory(config.paths.homeDir),
-            ensureShellWritableDirectory(config.paths.tmpDir),
+            ensureShellWritableDirectory(config, config.paths.workspaceDir),
+            ensureShellWritableDirectory(config, config.paths.storeDir),
+            ensureShellWritableDirectory(config, config.paths.homeDir),
+            ensureShellWritableDirectory(config, config.paths.tmpDir),
         ])
     }
     if (config.roomMode === 'coworker') {

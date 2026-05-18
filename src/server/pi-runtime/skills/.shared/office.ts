@@ -108,12 +108,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function roomRoot(root: string): string {
-    const key =
-        root === 'workspace'
-            ? 'AGENT_ROOM_WORKSPACE_DIR'
-            : root === 'store'
-              ? 'AGENT_ROOM_STORE_DIR'
-              : ''
+    const key = root === 'workspace' ? 'WORKSPACE_DIR' : root === 'store' ? 'STORE_DIR' : ''
     if (!key) {
         fail('Root must be workspace or store')
     }

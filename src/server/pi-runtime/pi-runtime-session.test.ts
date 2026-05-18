@@ -1,9 +1,13 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { createTestPiRuntimeConfig } from './test-runtime-defaults'
-import { createPiRuntimeCustomTools, type PiRuntimeSessionInput } from './pi-runtime-session'
+import { createTestPiRuntimeConfig, ensureTestPiRuntimeDirectories } from './test-runtime-defaults'
+import {
+    createPiRuntimeCustomTools,
+    enabledToolNamesForSession,
+    type PiRuntimeSessionInput,
+} from './pi-runtime-session'
 import { BrowserbaseBrowserAutomationManager } from './browserbase-browser'
 import type { ThreadRecord } from './thread-records'
 
@@ -47,6 +51,9 @@ async function withToolInput<T>(
     roomMode: PiRuntimeSessionInput['config']['roomMode'],
     fn: (input: PiRuntimeSessionInput) => T | Promise<T>,
     kind: ThreadRecord['kind'] = 'main',
+    options: {
+        audit?: PiRuntimeSessionInput['audit']
+    } = {},
 ): Promise<T> {
     const root = await mkdtemp(join(tmpdir(), 'agent-room-runtime-tools-'))
     const config = createTestPiRuntimeConfig({
@@ -61,6 +68,9 @@ async function withToolInput<T>(
             mcp: false,
         },
     })
+    const previousUnsandboxedShell = process.env.AGENT_ROOM_UNSAFE_ALLOW_UNSANDBOXED_SHELL
+    process.env.AGENT_ROOM_UNSAFE_ALLOW_UNSANDBOXED_SHELL = '1'
+    await ensureTestPiRuntimeDirectories(config)
     const browserAutomation = new BrowserbaseBrowserAutomationManager({
         config,
         audit: async () => {},
@@ -74,7 +84,7 @@ async function withToolInput<T>(
             systemPrompt: () => '',
             mcpTools: [],
             browserAutomation,
-            audit: async () => {},
+            audit: options.audit ?? (async () => {}),
             shortText: (value) => value,
             redactString: (value) => value,
             redactCommandOutput: (value) => value,
@@ -94,6 +104,11 @@ async function withToolInput<T>(
             persistThreadIndex: async () => {},
         })
     } finally {
+        if (previousUnsandboxedShell === undefined) {
+            delete process.env.AGENT_ROOM_UNSAFE_ALLOW_UNSANDBOXED_SHELL
+        } else {
+            process.env.AGENT_ROOM_UNSAFE_ALLOW_UNSANDBOXED_SHELL = previousUnsandboxedShell
+        }
         await rm(root, {
             recursive: true,
             force: true,
@@ -106,12 +121,19 @@ describe('Pi runtime session tools', () => {
         await withToolInput('programmer', (input) => {
             const names = createPiRuntimeCustomTools(input).map((tool) => tool.name)
 
-            expect(names).toContain('agent_room_memory_read')
-            expect(names).toContain('agent_room_memory_patch')
-            expect(names).toContain('agent_room_memory_replace')
-            expect(names).toContain('agent_room_shell')
-            expect(names).toContain('agent_room_subagent')
-            expect(names).toContain('agent_room_deep_work')
+            expect(names).toContain('memory_read')
+            expect(names).toContain('memory_patch')
+            expect(names).toContain('memory_replace')
+            expect(names).toContain('read')
+            expect(names).toContain('grep')
+            expect(names).toContain('find')
+            expect(names).toContain('ls')
+            expect(names).toContain('edit')
+            expect(names).toContain('write')
+            expect(names).toContain('shell')
+            expect(names).toContain('subagent')
+            expect(names).toContain('deep_work')
+            expect(names.some((name) => name.startsWith('agent_room_'))).toBe(false)
         })
     })
 
@@ -121,19 +143,119 @@ describe('Pi runtime session tools', () => {
             (input) => {
                 const names = createPiRuntimeCustomTools(input).map((tool) => tool.name)
 
-                expect(names).not.toContain('agent_room_subagent')
-                expect(names).not.toContain('agent_room_deep_work')
+                expect(names).not.toContain('subagent')
+                expect(names).not.toContain('deep_work')
             },
             'deep_work',
         )
+    })
+
+    it('deduplicates native workspace tools before session registration', async () => {
+        await withToolInput('programmer', (input) => {
+            const tools = createPiRuntimeCustomTools(input)
+            const enabledTools = enabledToolNamesForSession(input.config, tools)
+
+            expect(enabledTools.filter((name) => name === 'read')).toHaveLength(1)
+            expect(enabledTools.filter((name) => name === 'write')).toHaveLength(1)
+            expect(enabledTools).toHaveLength(new Set(enabledTools).size)
+        })
     })
 
     it('keeps artifact import and export out of programmer mode', async () => {
         await withToolInput('programmer', (input) => {
             const names = createPiRuntimeCustomTools(input).map((tool) => tool.name)
 
-            expect(names).not.toContain('agent_room_artifact_import')
-            expect(names).not.toContain('agent_room_artifact_export')
+            expect(names).not.toContain('artifact_import')
+            expect(names).not.toContain('artifact_export')
+        })
+    })
+
+    it('audits native workspace write tool execution', async () => {
+        const events: Array<{ event: string; payload: unknown }> = []
+        let expectedPath = ''
+        await withToolInput(
+            'programmer',
+            async (input) => {
+                expectedPath = join(await realpath(input.config.paths.workspaceDir), 'audit.txt')
+                const write = createPiRuntimeCustomTools(input).find(
+                    (tool) => tool.name === 'write',
+                )
+                if (!write) {
+                    throw new Error('Missing write tool')
+                }
+
+                await write.execute(
+                    'call-1',
+                    {
+                        path: 'audit.txt',
+                        content: 'hello',
+                    },
+                    undefined,
+                    undefined,
+                    {} as never,
+                )
+
+                await expect(readFile(expectedPath, 'utf8')).resolves.toBe('hello')
+            },
+            'main',
+            {
+                audit: async (event, payload) => {
+                    events.push({ event, payload })
+                },
+            },
+        )
+
+        expect(events).toHaveLength(1)
+        expect(events[0]).toEqual(
+            expect.objectContaining({
+                event: 'tool.write',
+                payload: expect.objectContaining({
+                    path: expectedPath,
+                    fileChange: expect.objectContaining({
+                        kind: 'write',
+                        root: 'workspace',
+                        path: expectedPath,
+                    }),
+                }),
+            }),
+        )
+    })
+
+    it('denies native workspace tool paths outside the workspace before execution', async () => {
+        await withToolInput('programmer', async (input) => {
+            const outsidePath = join(input.config.paths.roomRootDir, 'outside.txt')
+            await writeFile(outsidePath, 'outside', 'utf8')
+            const tools = createPiRuntimeCustomTools(input)
+            const read = tools.find((tool) => tool.name === 'read')
+            const write = tools.find((tool) => tool.name === 'write')
+            if (!read || !write) {
+                throw new Error('Missing native workspace tools')
+            }
+
+            await expect(
+                read.execute(
+                    'call-read',
+                    {
+                        path: outsidePath,
+                    },
+                    undefined,
+                    undefined,
+                    {} as never,
+                ),
+            ).rejects.toThrow(/escapes workspace/)
+            await expect(
+                write.execute(
+                    'call-write',
+                    {
+                        path: outsidePath,
+                        content: 'overwritten',
+                    },
+                    undefined,
+                    undefined,
+                    {} as never,
+                ),
+            ).rejects.toThrow(/escapes workspace/)
+            await expect(readFile(outsidePath, 'utf8')).resolves.toBe('outside')
         })
     })
 })

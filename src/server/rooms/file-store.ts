@@ -1,4 +1,4 @@
-import { lstat, mkdir, readdir, realpath, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { basename, join, relative, sep } from 'node:path'
 import type {
     RoomDirectoryListing,
@@ -9,6 +9,11 @@ import type {
 } from '#/lib/room-file-types'
 import { assertPathInsideRoot } from '../security/path-boundary'
 import { getRoomPaths } from './room-paths'
+import {
+    ensureMaterializedRuntimeSandboxDirectory,
+    ensureMaterializedRuntimeSandboxFile,
+} from './runtime-sandbox-identity'
+import { shouldExposeStoreRelativePath } from './room-store-visibility'
 
 export type {
     RoomDirectoryListing,
@@ -25,7 +30,6 @@ const maxDirectoryEntries = 1000
 const maxTreeEntries = 500
 const maxTreeDepth = 6
 const maxUploadBytes = 50 * 1024 * 1024
-const internalStoreRoots = new Set(['blobs', 'manifests', 'previews'])
 
 export function rootPath(roomId: string, surface: RoomFileSurface): string {
     const paths = getRoomPaths(roomId)
@@ -81,8 +85,7 @@ function shouldExposeRoomFile(input: { surface: RoomFileSurface; relativePath: s
     if (input.surface !== 'store') {
         return true
     }
-    const root = input.relativePath.split('/')[0] ?? input.relativePath
-    return !internalStoreRoots.has(root)
+    return shouldExposeStoreRelativePath(input.relativePath)
 }
 
 function assertInside(candidate: string, root: string): string {
@@ -126,8 +129,12 @@ async function resolveWritableDirectory(input: {
     root: string
     path: string
     relativePath: string
+    paths: ReturnType<typeof getRoomPaths>
 }> {
-    const root = await resolveRoot(input.roomId, input.surface)
+    const paths = getRoomPaths(input.roomId)
+    const surfaceRootPath = input.surface === 'workspace' ? paths.workspaceDir : paths.storeDir
+    await ensureMaterializedRuntimeSandboxDirectory(paths, surfaceRootPath)
+    const root = await realpath(surfaceRootPath)
     const requested = assertInside(join(root, normalizeInputPath(input.relativePath)), root)
     const relativePath = toDisplayPath(relative(root, requested))
     if (relativePath && input.surface === 'store') {
@@ -136,28 +143,23 @@ async function resolveWritableDirectory(input: {
         }
     }
 
-    let currentPath = root
-    for (const part of pathParts(relativePath)) {
-        currentPath = assertInside(join(currentPath, part), root)
-        const directoryStat = await lstat(currentPath).catch((error: unknown) => {
-            if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-                return null
-            }
-            throw error
-        })
-        if (!directoryStat) {
-            await mkdir(currentPath, { mode: 0o700 })
-            continue
-        }
-        if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) {
+    try {
+        await ensureMaterializedRuntimeSandboxDirectory(paths, requested)
+    } catch (error) {
+        if (
+            error instanceof Error &&
+            /Shell-writable path is not a directory/.test(error.message)
+        ) {
             throw new Error('Upload target is not a directory')
         }
+        throw error
     }
 
     return {
         root,
-        path: currentPath,
+        path: requested,
         relativePath,
+        paths,
     }
 }
 
@@ -421,6 +423,12 @@ export async function writeRoomUploadedFile(input: {
                 flag: 'wx',
                 mode: 0o600,
             })
+            try {
+                await ensureMaterializedRuntimeSandboxFile(directory.paths, path)
+            } catch (materializeError) {
+                await rm(path, { force: true }).catch(() => {})
+                throw materializeError
+            }
         } else {
             throw error
         }

@@ -109,6 +109,24 @@ describe('Pi runtime usage sync', () => {
                         latencyMs: 2500,
                     },
                 }),
+                JSON.stringify({
+                    ts: 1200,
+                    event: 'tool.write',
+                    sessionKey: 'thread-1',
+                    runId: 'run-1',
+                    payload: {
+                        path: '/workspace/report.md',
+                        byteLength: 12,
+                        fileChange: {
+                            kind: 'write',
+                            root: 'workspace',
+                            path: '/workspace/report.md',
+                            beforeSha256: null,
+                            afterSha256: 'abc123',
+                            byteLength: 12,
+                        },
+                    },
+                }),
                 '',
             ].join('\n'),
             'utf8',
@@ -124,7 +142,7 @@ describe('Pi runtime usage sync', () => {
         ])
         await adapter.syncRuntimeUsageEvents(roomId)
 
-        expect(mocks.usageRepository.appendEvent).toHaveBeenCalledTimes(2)
+        expect(mocks.usageRepository.appendEvent).toHaveBeenCalledTimes(3)
         const syncState = JSON.parse(
             await readFile(join(paths.engineStateDir, 'usage-sync.json'), 'utf8'),
         ) as {
@@ -135,7 +153,7 @@ describe('Pi runtime usage sync', () => {
         expect(syncState).toEqual(
             expect.objectContaining({
                 version: 2,
-                lastLine: 2,
+                lastLine: 3,
                 lastByteOffset: expect.any(Number),
             }),
         )
@@ -168,8 +186,28 @@ describe('Pi runtime usage sync', () => {
                 kind: 'image',
                 provider: 'gemini',
                 model: 'gemini-image',
-                toolName: 'agent_room_image_generate',
+                toolName: 'image_generate',
                 durationMs: 2500,
+            }),
+        )
+        expect(mocks.usageRepository.appendEvent).toHaveBeenNthCalledWith(
+            3,
+            expect.objectContaining({
+                roomId,
+                sessionKey: 'thread-1',
+                runId: 'run-1',
+                kind: 'tool',
+                toolName: 'write',
+                metadata: expect.objectContaining({
+                    event: 'tool.write',
+                    payload: expect.objectContaining({
+                        path: '/workspace/report.md',
+                        fileChange: expect.objectContaining({
+                            kind: 'write',
+                            root: 'workspace',
+                        }),
+                    }),
+                }),
             }),
         )
     })

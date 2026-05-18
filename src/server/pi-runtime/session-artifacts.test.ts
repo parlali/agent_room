@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { SessionEntry } from '@mariozechner/pi-coding-agent'
 import { describe, expect, it } from 'vitest'
 import { createTestPiRuntimeConfig } from './test-runtime-defaults'
@@ -74,7 +74,7 @@ describe('session artifact extraction', () => {
                     {
                         type: 'toolCall',
                         id: 'call-write',
-                        name: 'agent_room_write',
+                        name: 'write',
                         arguments: {
                             path: 'notes/summary.md',
                         },
@@ -97,7 +97,7 @@ describe('session artifact extraction', () => {
                     {
                         type: 'toolCall',
                         id: 'call-edit',
-                        name: 'agent_room_edit',
+                        name: 'edit',
                         arguments: {
                             path: 'notes/summary.md',
                         },
@@ -125,8 +125,80 @@ describe('session artifact extraction', () => {
             name: 'summary.md',
             relativePath: 'notes/summary.md',
             byteLength: 50,
-            toolName: 'agent_room_edit',
+            toolName: 'edit',
         })
+    })
+
+    it('extracts legacy absolute room-id paths after opaque path migration', () => {
+        const legacyWorkspacePath = join(
+            dirname(config.paths.roomRootDir),
+            config.runtime.roomId,
+            'workspace',
+            'notes',
+            'legacy.md',
+        )
+        const artifacts = extractSessionArtifacts(config, [
+            messageEntry('assistant-1', '2026-05-11T09:00:01.000Z', {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'toolCall',
+                        id: 'call-read',
+                        name: 'read',
+                        arguments: {
+                            path: legacyWorkspacePath,
+                        },
+                    },
+                ],
+            }),
+            messageEntry('tool-1', '2026-05-11T09:00:02.000Z', {
+                role: 'toolResult',
+                toolCallId: 'call-read',
+                content: [{ type: 'text', text: 'legacy' }],
+                details: {
+                    path: legacyWorkspacePath,
+                    byteLength: 11,
+                },
+            }),
+        ])
+
+        expect(artifacts).toEqual([
+            expect.objectContaining({
+                id: 'workspace:notes/legacy.md',
+                kind: 'referenced',
+                relativePath: 'notes/legacy.md',
+                byteLength: 11,
+            }),
+        ])
+    })
+
+    it('rejects parent-traversal relative paths from artifact state', () => {
+        const artifacts = extractSessionArtifacts(config, [
+            messageEntry('assistant-1', '2026-05-11T09:00:01.000Z', {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'toolCall',
+                        id: 'call-read',
+                        name: 'read',
+                        arguments: {
+                            path: '../outside.md',
+                        },
+                    },
+                ],
+            }),
+            messageEntry('tool-1', '2026-05-11T09:00:02.000Z', {
+                role: 'toolResult',
+                toolCallId: 'call-read',
+                content: [{ type: 'text', text: 'outside' }],
+                details: {
+                    path: '../outside.md',
+                    byteLength: 11,
+                },
+            }),
+        ])
+
+        expect(artifacts).toEqual([])
     })
 
     it('hides internal store blobs while keeping session uploads', () => {
@@ -137,7 +209,7 @@ describe('session artifact extraction', () => {
                     {
                         type: 'toolCall',
                         id: 'call-read',
-                        name: 'agent_room_read',
+                        name: 'read',
                         arguments: {
                             root: 'store',
                             path: 'blobs/abc123',
@@ -177,7 +249,7 @@ describe('session artifact extraction', () => {
                     {
                         type: 'toolCall',
                         id: 'call-fetch',
-                        name: 'agent_room_fetch_url',
+                        name: 'fetch_url',
                         arguments: {
                             url: 'https://example.com/data.json',
                         },

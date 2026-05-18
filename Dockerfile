@@ -1,11 +1,11 @@
-FROM oven/bun:1.3.9
+FROM oven/bun:1.3.13
 
 ARG TARGETARCH
 
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl fonts-dejavu git libreoffice poppler-utils tini \
+    && apt-get install -y --no-install-recommends ca-certificates curl fonts-dejavu git libreoffice passwd poppler-utils tini util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 RUN case "${TARGETARCH}" in \

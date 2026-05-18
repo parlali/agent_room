@@ -176,9 +176,9 @@ describe('internal agent state', () => {
     it('exposes internal state only through dedicated tools', async () => {
         await withRoom(async (config) => {
             await ensureInternalState(config)
-            const read = await executeTool(config, 'agent_room_memory_read', {})
+            const read = await executeTool(config, 'memory_read', {})
             const hash = (read.result.details as { hash: string }).hash
-            const update = await executeTool(config, 'agent_room_memory_patch', {
+            const update = await executeTool(config, 'memory_patch', {
                 expectedHash: hash,
                 patches: [
                     {
@@ -198,11 +198,11 @@ describe('internal agent state', () => {
     it('rejects unknown memory patch sections instead of writing to a fallback section', async () => {
         await withRoom(async (config) => {
             await ensureInternalState(config)
-            const read = await executeTool(config, 'agent_room_memory_read', {})
+            const read = await executeTool(config, 'memory_read', {})
             const hash = (read.result.details as { hash: string }).hash
 
             await expect(
-                executeTool(config, 'agent_room_memory_patch', {
+                executeTool(config, 'memory_patch', {
                     expectedHash: hash,
                     patches: [
                         {

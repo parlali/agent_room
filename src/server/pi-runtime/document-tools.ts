@@ -35,12 +35,12 @@ function assertWorkspaceMutation(root: ToolRoot, operation: string): void {
 
 function createPdfTool(ctx: DocumentToolContext): ToolDefinition {
     return defineTool({
-        name: 'agent_room_pdf',
+        name: 'pdf',
         label: 'PDF',
         description:
-            'Create workspace PDF files, inspect PDF metadata, edit PDFs, and preview room-local PDF files.',
+            'Create workspace PDF files, inspect PDF metadata, edit PDFs, and preview PDF files.',
         promptSnippet:
-            'agent_room_pdf creates and edits durable workspace PDF outputs, inspects metadata, and renders previews. Use agent_room_read_pdf to read PDF content. editsJson accepts [{"type":"append_text_page","title":"...","paragraphs":["..."]}], [{"type":"stamp_text","text":"...","page":1,"x":54,"y":54}], or [{"type":"delete_pages","pages":[2]}].',
+            'pdf creates and edits durable workspace PDF outputs, inspects metadata, and renders previews. Use read_pdf to read PDF content. editsJson accepts [{"type":"append_text_page","title":"...","paragraphs":["..."]}], [{"type":"stamp_text","text":"...","page":1,"x":54,"y":54}], or [{"type":"delete_pages","pages":[2]}].',
         parameters: Type.Object({
             operation: Type.Union([
                 Type.Literal('create'),
@@ -62,7 +62,7 @@ function createPdfTool(ctx: DocumentToolContext): ToolDefinition {
             if (input.operation === 'create') {
                 assertWorkspaceMutation(root, input.operation)
                 const path = await writableWorkspacePath(ctx.config, input.path)
-                await createPdf(path, input.title, input.paragraphs ?? [])
+                await createPdf(ctx.config, path, input.title, input.paragraphs ?? [])
                 return completeOperation(ctx, {
                     path,
                     format: 'pdf',
@@ -75,7 +75,7 @@ function createPdfTool(ctx: DocumentToolContext): ToolDefinition {
             const path = await existingDocumentPath(ctx.config, root, input.path)
             if (input.operation === 'edit') {
                 assertWorkspaceMutation(root, input.operation)
-                const count = await editPdf(path, normalizePdfEdits(input.editsJson))
+                const count = await editPdf(ctx.config, path, normalizePdfEdits(input.editsJson))
                 return completeOperation(ctx, {
                     path,
                     format: 'pdf',
@@ -128,12 +128,12 @@ function createPdfTool(ctx: DocumentToolContext): ToolDefinition {
 
 function createReadPdfTool(ctx: DocumentToolContext): ToolDefinition {
     return defineTool({
-        name: 'agent_room_read_pdf',
+        name: 'read_pdf',
         label: 'Read PDF',
         description:
-            'Read a room-local PDF through the highest-fidelity configured provider path. Anthropic rooms receive native PDF document input; other vision-capable rooms receive rendered page images.',
+            'Read a PDF through the highest-fidelity configured provider path. Anthropic models receive native PDF document input; other vision-capable models receive rendered page images.',
         promptSnippet:
-            'agent_room_read_pdf is the default PDF reading path. Use pages like "1", "1-3", or "1,4-5" to bound rendered pages. It reports whether the model received a native PDF document or rendered page images.',
+            'read_pdf is the default PDF reading path. Use pages like "1", "1-3", or "1,4-5" to bound rendered pages. It reports whether the model received a native PDF document or rendered page images.',
         parameters: Type.Object({
             path: Type.String(),
             root: rootParameter,

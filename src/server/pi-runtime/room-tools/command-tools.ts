@@ -40,15 +40,18 @@ function commandHeader(record: BackgroundCommandRecord): string {
     ].join('\n')
 }
 
-function commandStatusResult(record: BackgroundCommandRecord): AgentToolResult<RoomToolDetails> {
+function commandStatusResult(
+    ctx: RoomToolContext,
+    record: BackgroundCommandRecord,
+): AgentToolResult<RoomToolDetails> {
     const header = commandHeader(record)
-    return textResult(header, commandDetails(record))
+    return textResult(header, commandDetails(ctx, record))
 }
 
-function commandDetails(record: BackgroundCommandRecord): RoomToolDetails {
+function commandDetails(ctx: RoomToolContext, record: BackgroundCommandRecord): RoomToolDetails {
     return {
         path: record.cwd,
-        sandboxMode: currentShellSandboxIdentity().mode,
+        sandboxMode: currentShellSandboxIdentity(ctx.config).mode,
         byteLength: record.outputByteLength,
         truncated: record.outputTruncated,
         exitCode: record.exitCode,
@@ -88,7 +91,7 @@ async function commandResult(
         previewMode: 'tail',
     })
     return textResult(bounded.text, {
-        ...commandDetails(record),
+        ...commandDetails(ctx, record),
         modelVisibleTruncated: bounded.modelVisibleTruncated,
         ...(bounded.outputArtifact
             ? {
@@ -100,12 +103,12 @@ async function commandResult(
 
 export function createShellTool(ctx: RoomToolContext): ToolDefinition {
     return defineTool({
-        name: 'agent_room_shell',
+        name: 'shell',
         label: 'Shell',
         description:
-            'Start a bounded background shell command from the room workspace and wait briefly for output.',
+            'Start a bounded background shell command from the workspace and wait briefly for output.',
         promptSnippet:
-            'agent_room_shell starts a room-local command, waits briefly, and returns a command id for polling.',
+            'shell starts a workspace command, waits briefly, and returns a command id for polling.',
         parameters: Type.Object({
             command: Type.String(),
             timeoutMs: Type.Optional(Type.Number()),
@@ -135,7 +138,7 @@ export function createShellTool(ctx: RoomToolContext): ToolDefinition {
                 redactOutput: ctx.redactCommandOutput,
                 onOutput: (record) => {
                     latest = record
-                    onUpdate?.(commandStatusResult(record))
+                    onUpdate?.(commandStatusResult(ctx, record))
                 },
             })
             const deadline = Date.now() + waitMs
@@ -149,7 +152,7 @@ export function createShellTool(ctx: RoomToolContext): ToolDefinition {
             }
             await audit(ctx, 'shell', {
                 path: ctx.config.paths.workspaceDir,
-                sandboxMode: currentShellSandboxIdentity().mode,
+                sandboxMode: currentShellSandboxIdentity(ctx.config).mode,
                 commandId: latest.commandId,
                 status: latest.status,
                 exitCode: latest.exitCode,
@@ -165,11 +168,10 @@ export function createShellTool(ctx: RoomToolContext): ToolDefinition {
 
 export function createCommandStartTool(ctx: RoomToolContext): ToolDefinition {
     return defineTool({
-        name: 'agent_room_command_start',
+        name: 'command_start',
         label: 'Start Command',
-        description: 'Start a bounded room-local background command and return its command id.',
-        promptSnippet:
-            'agent_room_command_start starts long room-local commands for later polling.',
+        description: 'Start a bounded workspace background command and return its command id.',
+        promptSnippet: 'command_start starts long workspace commands for later polling.',
         parameters: Type.Object({
             command: Type.String(),
             timeoutMs: Type.Optional(Type.Number()),
@@ -194,20 +196,19 @@ export function createCommandStartTool(ctx: RoomToolContext): ToolDefinition {
                 path: record.cwd,
                 commandId: record.commandId,
                 status: record.status,
-                sandboxMode: currentShellSandboxIdentity().mode,
+                sandboxMode: currentShellSandboxIdentity(ctx.config).mode,
             })
-            return commandStatusResult(record)
+            return commandStatusResult(ctx, record)
         },
     })
 }
 
 export function createCommandPollTool(ctx: RoomToolContext): ToolDefinition {
     return defineTool({
-        name: 'agent_room_command_poll',
+        name: 'command_poll',
         label: 'Poll Command',
-        description: 'Poll output and status for a room-local background command.',
-        promptSnippet:
-            'agent_room_command_poll reads bounded output and status from a background command id.',
+        description: 'Poll output and status for a workspace background command.',
+        promptSnippet: 'command_poll reads bounded output and status from a background command id.',
         parameters: Type.Object({
             commandId: Type.String(),
         }),
@@ -233,11 +234,10 @@ export function createCommandPollTool(ctx: RoomToolContext): ToolDefinition {
 
 export function createCommandStatusTool(ctx: RoomToolContext): ToolDefinition {
     return defineTool({
-        name: 'agent_room_command_status',
+        name: 'command_status',
         label: 'Command Status',
-        description: 'List recent room-local background commands or read one status by id.',
-        promptSnippet:
-            'agent_room_command_status lists recent background commands without unbounded output.',
+        description: 'List recent workspace background commands or read one status by id.',
+        promptSnippet: 'command_status lists recent background commands without unbounded output.',
         parameters: Type.Object({
             commandId: Type.Optional(Type.String()),
         }),
@@ -255,7 +255,7 @@ export function createCommandStatusTool(ctx: RoomToolContext): ToolDefinition {
                     commandId: record.commandId,
                     status: record.status,
                 })
-                return commandStatusResult(record)
+                return commandStatusResult(ctx, record)
             }
 
             const records = await listBackgroundCommands(ctx.config)
@@ -289,11 +289,10 @@ export function createCommandStatusTool(ctx: RoomToolContext): ToolDefinition {
 
 export function createCommandTerminateTool(ctx: RoomToolContext): ToolDefinition {
     return defineTool({
-        name: 'agent_room_command_terminate',
+        name: 'command_terminate',
         label: 'Terminate Command',
-        description: 'Terminate a running room-local background command by command id.',
-        promptSnippet:
-            'agent_room_command_terminate stops a background command when it is no longer needed.',
+        description: 'Terminate a running workspace background command by command id.',
+        promptSnippet: 'command_terminate stops a background command when it is no longer needed.',
         parameters: Type.Object({
             commandId: Type.String(),
         }),
@@ -309,7 +308,7 @@ export function createCommandTerminateTool(ctx: RoomToolContext): ToolDefinition
                 status: record.status,
                 signal: record.signal,
             })
-            return commandStatusResult(record)
+            return commandStatusResult(ctx, record)
         },
     })
 }

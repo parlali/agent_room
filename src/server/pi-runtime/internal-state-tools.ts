@@ -24,11 +24,7 @@ interface InternalStateToolContext {
     audit: (event: string, payload: unknown) => Promise<void>
 }
 
-export const internalStateToolNames = [
-    'agent_room_memory_read',
-    'agent_room_memory_replace',
-    'agent_room_memory_patch',
-] as const
+export const internalStateToolNames = ['memory_read', 'memory_replace', 'memory_patch'] as const
 
 function textResult(text: string, details: MemoryToolDetails): AgentToolResult<MemoryToolDetails> {
     return {
@@ -85,12 +81,11 @@ function normalizePatch(value: unknown): MemoryPatch {
 export function createInternalStateTools(ctx: InternalStateToolContext): ToolDefinition[] {
     return [
         defineTool({
-            name: 'agent_room_memory_read',
-            label: 'Read Room Memory',
+            name: 'memory_read',
+            label: 'Read Memory',
             description:
-                'Read canonical JSON room memory and its deterministic prompt brief with a revision hash.',
-            promptSnippet:
-                'agent_room_memory_read reads the room-local canonical memory JSON and brief.',
+                'Read canonical JSON memory and its deterministic prompt brief with a revision hash.',
+            promptSnippet: 'memory_read reads the canonical memory JSON and brief.',
             parameters: Type.Object({}),
             execute: async () => {
                 const snapshot = await readMemory(ctx.config)
@@ -114,12 +109,12 @@ export function createInternalStateTools(ctx: InternalStateToolContext): ToolDef
             },
         }),
         defineTool({
-            name: 'agent_room_memory_replace',
-            label: 'Replace Room Memory',
+            name: 'memory_replace',
+            label: 'Replace Memory',
             description:
-                'Replace canonical room memory JSON after reading the current hash. Never store secrets or raw chat history.',
+                'Replace canonical memory JSON after reading the current hash. Never store secrets or raw chat history.',
             promptSnippet:
-                'agent_room_memory_replace replaces the whole room-local memory JSON using optimistic concurrency.',
+                'memory_replace replaces the whole memory JSON using optimistic concurrency.',
             parameters: Type.Object({
                 memoryJson: Type.String(),
                 expectedHash: Type.Optional(Type.String()),
@@ -151,12 +146,12 @@ export function createInternalStateTools(ctx: InternalStateToolContext): ToolDef
             },
         }),
         defineTool({
-            name: 'agent_room_memory_patch',
-            label: 'Patch Room Memory',
+            name: 'memory_patch',
+            label: 'Patch Memory',
             description:
                 'Apply typed add, update, remove, or complete operations to canonical room memory.',
             promptSnippet:
-                'agent_room_memory_patch updates room memory sections with typed operations and expectedHash.',
+                'memory_patch updates memory sections with typed operations and expectedHash.',
             parameters: Type.Object({
                 patches: Type.Array(
                     Type.Object({

@@ -1,20 +1,23 @@
-import { chmod, mkdir, rename, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { chmod, lstat, mkdir, rename, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { getAppEnv } from '../config/env'
 import type { RoomPaths } from '../domain/types'
+import { assertSafeRoomPathId, roomFilesystemId } from './room-filesystem-id'
 import { getRuntimeEngineProfile } from './runtime-engine-profile'
 
-export function assertSafeRoomPathId(roomId: string): void {
-    if (!/^[a-zA-Z0-9_-]+$/.test(roomId)) {
-        throw new Error('Room id is not a safe path segment')
-    }
+export { assertSafeRoomPathId, roomFilesystemId } from './room-filesystem-id'
+
+function legacyRoomRootDir(roomId: string): string {
+    const env = getAppEnv()
+    assertSafeRoomPathId(roomId)
+    return join(env.dataDir, 'rooms', roomId)
 }
 
 export function getRoomPaths(roomId: string): RoomPaths {
     assertSafeRoomPathId(roomId)
     const env = getAppEnv()
     const runtimeEngineProfile = getRuntimeEngineProfile()
-    const roomRootDir = join(env.dataDir, 'rooms', roomId)
+    const roomRootDir = join(env.dataDir, 'rooms', roomFilesystemId(roomId))
     const runtimeDir = join(roomRootDir, 'runtime')
     const runtimeLogsDir = join(runtimeDir, 'logs')
     const runtimeSecretsDir = join(runtimeDir, 'secrets')
@@ -45,8 +48,54 @@ export function getRoomPaths(roomId: string): RoomPaths {
     }
 }
 
+async function pathExists(path: string): Promise<boolean> {
+    try {
+        await lstat(path)
+        return true
+    } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+            return false
+        }
+        throw error
+    }
+}
+
+async function migrateLegacyRoomFilesystemLayout(roomId: string, paths: RoomPaths): Promise<void> {
+    const legacyRoot = legacyRoomRootDir(roomId)
+    if (legacyRoot === paths.roomRootDir || !(await pathExists(legacyRoot))) {
+        return
+    }
+    if (await pathExists(paths.roomRootDir)) {
+        console.warn(
+            'Legacy room filesystem layout exists beside opaque layout; using opaque layout',
+        )
+        return
+    }
+    await mkdir(dirname(paths.roomRootDir), { recursive: true })
+    try {
+        await rename(legacyRoot, paths.roomRootDir)
+    } catch (error) {
+        if (error instanceof Error && 'code' in error) {
+            if (error.code === 'ENOENT') {
+                return
+            }
+            if (
+                (error.code === 'EEXIST' || error.code === 'ENOTEMPTY') &&
+                (await pathExists(paths.roomRootDir))
+            ) {
+                console.warn(
+                    'Legacy room filesystem layout exists beside opaque layout; using opaque layout',
+                )
+                return
+            }
+        }
+        throw error
+    }
+}
+
 export async function ensureRoomFilesystemLayout(roomId: string): Promise<RoomPaths> {
     const paths = getRoomPaths(roomId)
+    await migrateLegacyRoomFilesystemLayout(roomId, paths)
     await mkdir(paths.runtimeLogsDir, { recursive: true })
     await mkdir(paths.runtimeSecretsDir, { recursive: true })
     await mkdir(paths.engineStateDir, { recursive: true })
@@ -78,7 +127,7 @@ export async function archiveFailedRoomFilesystemLayout(roomId: string): Promise
     const env = getAppEnv()
     const paths = getRoomPaths(roomId)
     const archiveRootDir = join(env.dataDir, 'system', 'failed-room-startups')
-    const archiveDirName = `${new Date().toISOString().replaceAll(':', '-')}_${roomId}`
+    const archiveDirName = `${new Date().toISOString().replaceAll(':', '-')}_${roomFilesystemId(roomId)}`
     const archivePath = join(archiveRootDir, archiveDirName)
 
     try {

@@ -106,7 +106,7 @@ export async function writableInternalPreviewPath(
 ): Promise<string> {
     const tmpRoot = await realpath(config.paths.tmpDir)
     const previewDir = assertInside(join(tmpRoot, 'previews'), tmpRoot)
-    await ensureShellWritableDirectory(previewDir)
+    await ensureShellWritableDirectory(config, previewDir)
     const extensionName = extension.replace(/^\.+/, '') || 'bin'
     const filename = `${safeGeneratedName(sourcePath)}-${randomUUID()}.${extensionName}`
     return assertInside(join(previewDir, filename), tmpRoot)
@@ -136,8 +136,12 @@ export function mediaTypeFor(path: string): string {
     return 'application/octet-stream'
 }
 
-export async function writeWorkspaceFile(path: string, buffer: Buffer): Promise<void> {
-    await ensureShellWritableDirectory(dirname(path))
+export async function writeWorkspaceFile(
+    config: PiRuntimeConfig,
+    path: string,
+    buffer: Buffer,
+): Promise<void> {
+    await ensureShellWritableDirectory(config, dirname(path))
     await writeFile(path, buffer)
-    await ensureShellWritableFile(path)
+    await ensureShellWritableFile(config, path)
 }

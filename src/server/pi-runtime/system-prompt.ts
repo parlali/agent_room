@@ -3,7 +3,7 @@ import { buildAgentHarnessPrompt } from './agent-harness'
 import { boundTextByChars } from './bounded-text'
 import { buildInternalStateSummary } from './internal-state'
 import { internalStateToolNames } from './internal-state-tools'
-import { roomToolNamesForCapabilities } from './room-tools'
+import { nativeWorkspaceToolNamesForCapabilities, roomToolNamesForCapabilities } from './room-tools'
 
 export interface ContextBudget {
     maxInputTokens: number
@@ -12,7 +12,7 @@ export interface ContextBudget {
 }
 
 const MAX_OPERATOR_INSTRUCTIONS_CHARS = 24000
-const mainThreadOrchestrationToolNames = ['agent_room_subagent', 'agent_room_deep_work'] as const
+const mainThreadOrchestrationToolNames = ['subagent', 'deep_work'] as const
 
 function boundedText(
     input: string,
@@ -43,7 +43,7 @@ export function contextBudgetForProvider(config: PiRuntimeConfig): ContextBudget
 
 function programmerGitHubInstruction(config: PiRuntimeConfig): string {
     if (!config.github.enabled) {
-        return 'GitHub is not connected for this room. Ask for setup before authenticated clone, pull, push, or pull request work.'
+        return 'GitHub is not connected. Ask for setup before authenticated clone, pull, push, or pull request work.'
     }
 
     const repositories = config.github.repositories.join(', ')
@@ -57,7 +57,7 @@ function programmerGitHubInstruction(config: PiRuntimeConfig): string {
         'Do not treat an empty workspace or "fatal: not a git repository" as missing GitHub access.',
         'To verify access, run git ls-remote against the selected HTTPS remote.',
         'Clone the selected repository when repository files are needed.',
-        'Use git with the room HOME credentials; use gh only if it is installed.',
+        'Use git with the configured HOME credentials; use gh only if it is installed.',
         'Do not print or persist tokens.',
     ].join(' ')
 }
@@ -73,24 +73,24 @@ function runtimeContextSection(config: PiRuntimeConfig, budget: ContextBudget, n
     ].join('\n')
 }
 
-function attachmentHandlingInstruction(): string {
+function attachmentHandlingInstruction(config: PiRuntimeConfig): string {
+    const pdfInstruction = config.capabilities.pdf
+        ? 'Attached PDFs are provided through native PDF input when the configured provider supports it, otherwise as rendered page images for vision-capable models; use read_pdf for PDF paths and report the limitation clearly if the PDF read tool reports that native or rendered reading is unavailable.'
+        : 'Attached PDFs may be unavailable for native reading in this runtime configuration; proceed with available attachment inputs and report the limitation clearly when PDF content is not available.'
     return [
         'Attached images are provided as direct visual input; use that input for image understanding.',
         'Do not inspect images with shell commands, OCR, conversion utilities, package installs, or storage paths.',
-        'Attached PDFs are provided through native PDF input when the configured provider supports it, otherwise as rendered page images for vision-capable models; use agent_room_read_pdf for room-local PDF paths and report the limitation clearly if the PDF read tool reports that native or rendered reading is unavailable.',
-        'For DOCX, XLSX, and PPTX create, inspect, and edit workflows, use the bundled docx, xlsx, and pptx skills through agent_room_shell.',
-        'Attached non-image, non-PDF files are room-local file references; when a root and path are shown, use the appropriate file, document, skill, or shell tools to inspect them only as needed.',
+        pdfInstruction,
+        'For DOCX, XLSX, and PPTX create, inspect, and edit workflows, use the bundled docx, xlsx, and pptx skills through shell.',
+        'Attached non-image, non-PDF files are workspace file references; when a root and path are shown, use the appropriate file, document, skill, or shell tools to inspect them only as needed.',
         'If an attachment cannot be accessed through either path, stop and report the limitation clearly.',
     ].join(' ')
 }
 
 function identitySection(config: PiRuntimeConfig): string {
-    const role =
-        config.roomMode === 'programmer'
-            ? 'programmer coworker in a room-local workspace'
-            : 'persistent room-local coworker'
     return [
-        `You are ${config.runtime.displayName}, a ${role} who reads the request, investigates what matters, and comes back with useful work done.`,
+        `You are ${config.runtime.displayName}, a standalone agent working in one workspace.`,
+        'Read the request, investigate what matters, and come back with useful work done.',
         'You think in outcomes, evidence, and follow-through instead of primers, taxonomies, or generic advice.',
     ].join('\n')
 }
@@ -108,18 +108,18 @@ function behaviorSection(): string {
         'Execution protocol:',
         'Simple factual requests get direct answers. Current-world, source-dependent, provider, runtime, or software facts get search, URL fetch, file reads, logs, commands, or docs before answering.',
         'Work-shaped requests get proportional tool use: inspect, plan briefly when useful, execute, verify direct behavior, and report the result.',
-        'Complex research, coding, artifact, or sustained analysis can be dispatched with agent_room_deep_work from main threads when a dedicated work thread materially improves the outcome.',
+        'Complex research, coding, artifact, or sustained analysis can be dispatched with deep_work from main threads when a dedicated work thread materially improves the outcome.',
         'If a required tool or source fails, try a distinct viable route; when no route remains, return a concise blocker report with what failed and what remains unverified.',
     ].join('\n')
 }
 
-function sharedPolicySection(): string {
+function sharedPolicySection(config: PiRuntimeConfig): string {
     return [
-        'Room instructions and canonical room memory are standing context for this room.',
-        'Treat workspace AGENTS.md, CLAUDE.md, and other project files as project-local files, not standing room instructions.',
-        attachmentHandlingInstruction(),
+        'Standing instructions and canonical memory are persistent context for this workspace.',
+        'Treat workspace AGENTS.md, CLAUDE.md, and other project files as project-local files, not standing instructions.',
+        attachmentHandlingInstruction(config),
         'Never read host-global Pi, Codex, provider, or credential files.',
-        'Keep provider credentials, room secrets, OAuth tokens, git credentials, and MCP authentication values out of responses, files, tool arguments, and logs.',
+        'Keep provider credentials, secrets, OAuth tokens, git credentials, and MCP authentication values out of responses, files, tool arguments, and logs.',
         'Use web search or URL fetch for current-world facts, docs lookup, prices, laws, provider details, API behavior, software versions, and other time-sensitive facts.',
     ].join('\n')
 }
@@ -131,7 +131,7 @@ function modeInstructions(config: PiRuntimeConfig): string {
             'Use shell, git, package managers, test runners, and editor tools directly when they are available in the workspace.',
             programmerGitHubInstruction(config),
             'Prefer source changes and verification over explanatory artifacts; create office, image, or presentation deliverables only when the operator explicitly asks.',
-            'Update canonical room memory for durable coding preferences, repository conventions, PR policy, current project context, or decisions.',
+            'Update canonical memory for durable coding preferences, repository conventions, PR policy, current project context, or decisions.',
             'If you create a workspace notes file for bulky repository context, also store a concise canonical memory pointer to that file.',
         ].join('\n')
     }
@@ -145,6 +145,35 @@ function modeInstructions(config: PiRuntimeConfig): string {
     ].join('\n')
 }
 
+function capabilityToolNames(config: PiRuntimeConfig): string[] {
+    const browserAutomationEnabled =
+        config.search.browserbase.enabled && Boolean(config.search.browserbase.envKey)
+    return [
+        config.capabilities.webSearch ? 'web_search' : null,
+        config.capabilities.urlFetch ? 'fetch_url' : null,
+        browserAutomationEnabled ? 'browser_open' : null,
+        browserAutomationEnabled ? 'browser_close' : null,
+        browserAutomationEnabled ? 'browser_navigate' : null,
+        browserAutomationEnabled ? 'browser_click' : null,
+        browserAutomationEnabled ? 'browser_type' : null,
+        browserAutomationEnabled ? 'browser_scroll' : null,
+        browserAutomationEnabled ? 'browser_screenshot' : null,
+        browserAutomationEnabled ? 'browser_read_text' : null,
+        config.capabilities.pdf ? 'read_pdf' : null,
+        config.capabilities.pdf ? 'pdf' : null,
+        config.capabilities.images ? 'image_generate' : null,
+    ].filter((toolName): toolName is string => toolName !== null)
+}
+
+function enabledToolNames(config: PiRuntimeConfig): string[] {
+    return [
+        ...nativeWorkspaceToolNamesForCapabilities(config.capabilities),
+        ...internalStateToolNames,
+        ...roomToolNamesForCapabilities(config.roomMode, config.capabilities),
+        ...capabilityToolNames(config),
+    ]
+}
+
 export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promise<string> {
     const budget = contextBudgetForProvider(config)
     const internalState = await buildInternalStateSummary(config)
@@ -154,8 +183,7 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
     )
     const browserAutomationEnabled =
         config.search.browserbase.enabled && Boolean(config.search.browserbase.envKey)
-    const enabledRoomTools = roomToolNamesForCapabilities(config.roomMode, config.capabilities)
-    const enabledTools = [...internalStateToolNames, ...enabledRoomTools]
+    const enabledTools = enabledToolNames(config)
     const enabledCapabilities = [
         config.capabilities.webSearch ? 'web search' : null,
         config.capabilities.urlFetch ? 'direct URL fetch' : null,
@@ -180,11 +208,11 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
         identitySection(config),
         runtimeContextSection(config, budget, now),
         behaviorSection(),
-        sharedPolicySection(),
+        sharedPolicySection(config),
         modeInstructions(config),
         buildAgentHarnessPrompt(internalState),
         `Enabled capabilities: ${enabledCapabilities.join(', ') || 'none'}`,
-        `Enabled built-in tools: ${enabledTools.join(', ') || 'none'}`,
+        `Enabled tools: ${enabledTools.join(', ') || 'none'}`,
         `Main-thread orchestration tools: ${mainThreadOrchestrationToolNames.join(', ')}`,
         `Enabled MCP servers: ${mcpTools.join('; ') || 'none'}`,
     ]

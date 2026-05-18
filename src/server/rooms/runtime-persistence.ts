@@ -14,6 +14,10 @@ export async function getRuntimeMetadataOrCreate(
         roomId,
         port: null,
         pid: null,
+        sandboxUid: null,
+        sandboxGid: null,
+        sandboxUserName: null,
+        sandboxGroupName: null,
         configVersion: 1,
         tokenVersion: 1,
         healthStatus: 'unknown',
@@ -27,6 +31,10 @@ export async function persistRuntimeMetadata(input: {
     roomId: string
     port: number | null
     pid: number | null
+    sandboxUid?: number | null
+    sandboxGid?: number | null
+    sandboxUserName?: string | null
+    sandboxGroupName?: string | null
     configVersion: number
     tokenVersion: number
     healthStatus: HealthStatus
@@ -37,6 +45,10 @@ export async function persistRuntimeMetadata(input: {
         roomId: input.roomId,
         port: input.port,
         pid: input.pid,
+        sandboxUid: input.sandboxUid,
+        sandboxGid: input.sandboxGid,
+        sandboxUserName: input.sandboxUserName,
+        sandboxGroupName: input.sandboxGroupName,
         configVersion: input.configVersion,
         tokenVersion: input.tokenVersion,
         healthStatus: input.healthStatus,

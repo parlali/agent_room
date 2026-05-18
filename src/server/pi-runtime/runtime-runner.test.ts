@@ -271,12 +271,7 @@ describe('runtime runner memory capture audit', () => {
 
     it('classifies substantive tool activity without storing tool arguments', () => {
         const counts = summarizeRunToolActivity([
-            assistantToolEntry([
-                'agent_room_memory_read',
-                'agent_room_web_search',
-                'agent_room_fetch_url',
-                'agent_room_read',
-            ]),
+            assistantToolEntry(['memory_read', 'web_search', 'fetch_url', 'read']),
         ])
 
         expect(counts).toMatchObject({
@@ -301,7 +296,7 @@ describe('runtime runner memory capture audit', () => {
                 entries,
                 prompt: async () => {
                     entries.push(
-                        assistantToolEntry(['agent_room_web_search', 'agent_room_fetch_url']),
+                        assistantToolEntry(['web_search', 'fetch_url']),
                         textAssistantEntry('Done'),
                     )
                 },
@@ -360,11 +355,7 @@ describe('runtime runner memory capture audit', () => {
                         ],
                     })
                     entries.push(
-                        assistantToolEntry([
-                            'agent_room_web_search',
-                            'agent_room_fetch_url',
-                            'agent_room_memory_patch',
-                        ]),
+                        assistantToolEntry(['web_search', 'fetch_url', 'memory_patch']),
                         textAssistantEntry('Done'),
                     )
                 },

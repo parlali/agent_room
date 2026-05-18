@@ -3,7 +3,6 @@ import { readFile, realpath, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, join, relative } from 'node:path'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { ensureShellWritableDirectory, ensureShellWritableFile } from './shell-sandbox'
-import { currentToolRunContext } from './tool-run-context'
 
 export interface RuntimeArtifact {
     artifactId: string
@@ -38,12 +37,11 @@ export async function promoteRuntimeArtifact(input: {
     const manifestPath = join(input.config.paths.storeDir, 'manifests', `${artifactId}.json`)
     const workspaceRoot = await realpath(input.config.paths.workspaceDir)
     const sourcePath = relative(workspaceRoot, await realpath(input.path))
-    const runContext = currentToolRunContext()
 
-    await ensureShellWritableDirectory(dirname(blobPath))
-    await ensureShellWritableDirectory(dirname(manifestPath))
+    await ensureShellWritableDirectory(input.config, dirname(blobPath))
+    await ensureShellWritableDirectory(input.config, dirname(manifestPath))
     await writeFile(blobPath, buffer)
-    await ensureShellWritableFile(blobPath)
+    await ensureShellWritableFile(input.config, blobPath)
     await writeFile(
         manifestPath,
         JSON.stringify(
@@ -55,15 +53,13 @@ export async function promoteRuntimeArtifact(input: {
                 mediaType: input.mediaType,
                 sourcePath,
                 createdAt: new Date().toISOString(),
-                sessionKey: runContext?.sessionKey ?? null,
-                runId: runContext?.runId ?? null,
             },
             null,
             4,
         ),
         'utf8',
     )
-    await ensureShellWritableFile(manifestPath)
+    await ensureShellWritableFile(input.config, manifestPath)
 
     return {
         artifactId,
