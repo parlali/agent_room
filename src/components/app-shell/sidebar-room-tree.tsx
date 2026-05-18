@@ -177,6 +177,7 @@ function RoomNode({
                 <RoomSessions
                     roomId={room.roomId}
                     activePathname={activePathname}
+                    syncRoomEvents={!isActiveRoom}
                     onPreviewNavigate={onPreviewNavigate}
                     onNavigate={onNavigate}
                 />
@@ -188,11 +189,13 @@ function RoomNode({
 function RoomSessions({
     roomId,
     activePathname,
+    syncRoomEvents,
     onPreviewNavigate,
     onNavigate,
 }: {
     roomId: string
     activePathname: string
+    syncRoomEvents: boolean
     onPreviewNavigate: (pathname: string) => void
     onNavigate?: () => void
 }) {
@@ -207,7 +210,12 @@ function RoomSessions({
         staleTime: roomQueryPolicy.hotStaleMs,
         gcTime: roomQueryPolicy.retainedSessionMs,
     })
-    useRoomEventCacheSync({ roomId, queryClient, onError: setStreamError })
+    useRoomEventCacheSync({
+        roomId,
+        queryClient,
+        onError: setStreamError,
+        enabled: syncRoomEvents,
+    })
 
     useEffect(() => {
         const threads = query.data?.threads ?? []

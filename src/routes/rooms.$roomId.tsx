@@ -1,5 +1,5 @@
 import { Link, Outlet, createFileRoute, useRouterState } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import {
     CalendarClockIcon,
@@ -37,6 +37,7 @@ import {
 } from './-room-runtime-server'
 import { getRoomConfigServer } from './-operator-config-server'
 import { SessionRunStatus } from './-session-chat/session-run-status'
+import { useRoomEventCacheSync } from './-session-chat/room-event-cache'
 
 export const Route = createFileRoute('/rooms/$roomId')({
     beforeLoad: requireRouteUser,
@@ -45,9 +46,11 @@ export const Route = createFileRoute('/rooms/$roomId')({
 
 function RoomHomePage() {
     const { roomId } = Route.useParams()
+    const queryClient = useQueryClient()
     const pathname = useRouterState({
         select: (state) => state.location.pathname,
     })
+    useRoomEventCacheSync({ roomId, queryClient })
 
     if (pathname !== `/rooms/${roomId}`) {
         return <Outlet />

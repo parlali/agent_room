@@ -61,6 +61,7 @@ import {
     rollbackOptimisticWindow,
     type OptimisticWindowRollback,
 } from './chat-projection-store'
+import { cacheStreamTurn, readCachedStreamTurn, sessionStreamStateKey } from './stream-turn-cache'
 import { rowContainsMessage } from '#/lib/message-list-model'
 
 const loadSessionArtifactsPanel = () => import('./session-artifacts-panel')
@@ -76,7 +77,6 @@ const olderSessionRowLimit = 24
 const backgroundOlderRowsDelayMs = 900
 const artifactsAutoOpenDelayMs = 1300
 const artifactPanelStateCache = new Map<string, SessionArtifactPanelState>()
-const streamTurnStateCache = new Map<string, StreamTurnState>()
 
 export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessionKey: string }) {
     const navigate = useNavigate()
@@ -92,7 +92,10 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         () => sessionArtifactStateKey(roomId, sessionKey),
         [roomId, sessionKey],
     )
-    const streamStateKey = artifactStateKey
+    const streamStateKey = useMemo(
+        () => sessionStreamStateKey(roomId, sessionKey),
+        [roomId, sessionKey],
+    )
     const [streamTurn, setStreamTurn] = useState<StreamTurnState>(() =>
         readCachedStreamTurn(streamStateKey),
     )
@@ -938,18 +941,6 @@ function defaultArtifactPanelState(): SessionArtifactPanelState {
 
 function sessionArtifactStateKey(roomId: string, sessionKey: string): string {
     return `${roomId}:${sessionKey}`
-}
-
-function readCachedStreamTurn(key: string): StreamTurnState {
-    return streamTurnStateCache.get(key) ?? emptyStreamTurnState
-}
-
-function cacheStreamTurn(key: string, state: StreamTurnState): void {
-    if (state.runId || state.rows.length > 0 || state.status !== 'idle') {
-        streamTurnStateCache.set(key, state)
-        return
-    }
-    streamTurnStateCache.delete(key)
 }
 
 function SessionArtifactsShell({
