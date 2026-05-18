@@ -114,4 +114,34 @@ describe('room paths', () => {
             })
         }
     })
+
+    it('archives failed layouts under opaque filesystem ids', async () => {
+        const previousDataDir = process.env.AGENT_ROOM_DATA_DIR
+        const root = await mkdtemp(join(tmpdir(), 'agent-room-paths-'))
+        try {
+            process.env.AGENT_ROOM_DATA_DIR = root
+            const roomId = 'failed-room'
+
+            vi.resetModules()
+            const { archiveFailedRoomFilesystemLayout, ensureRoomFilesystemLayout } =
+                await import('./room-paths')
+            await ensureRoomFilesystemLayout(roomId)
+            const archivePath = await archiveFailedRoomFilesystemLayout(roomId)
+
+            expect(archivePath).not.toBeNull()
+            expect(basename(archivePath ?? '')).toContain(roomFilesystemId(roomId))
+            expect(basename(archivePath ?? '')).not.toContain(roomId)
+        } finally {
+            if (previousDataDir === undefined) {
+                delete process.env.AGENT_ROOM_DATA_DIR
+            } else {
+                process.env.AGENT_ROOM_DATA_DIR = previousDataDir
+            }
+            vi.resetModules()
+            await rm(root, {
+                recursive: true,
+                force: true,
+            })
+        }
+    })
 })

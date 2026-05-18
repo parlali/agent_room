@@ -1,10 +1,9 @@
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { assertSafeRoomPathId } from '../rooms/room-filesystem-id'
+import { shouldExposeStoreRelativePath } from '../rooms/room-store-visibility'
 
 export type RoomVisibleSurface = 'workspace' | 'store'
-
-export const hiddenStoreRoots = new Set(['blobs', 'manifests', 'previews'])
 
 function rootPath(config: PiRuntimeConfig, surface: RoomVisibleSurface): string {
     return surface === 'store' ? config.paths.storeDir : config.paths.workspaceDir
@@ -42,9 +41,13 @@ function rootCandidates(config: PiRuntimeConfig, surface: RoomVisibleSurface): s
 
 function normalizePath(path: string): string {
     return path
-        .split(sep)
+        .split(/[\\/]+/)
         .join('/')
         .replace(/^\.\/+/, '')
+}
+
+function hasParentTraversal(path: string): boolean {
+    return path.split('/').includes('..')
 }
 
 function relativePathInsideRoot(path: string, root: string): string | null {
@@ -59,7 +62,6 @@ export function visibleRoomRelativePath(input: {
     config: PiRuntimeConfig
     surface: RoomVisibleSurface
     path: unknown
-    hiddenStoreRootNames?: Set<string>
 }): string | null {
     if (typeof input.path !== 'string' || !input.path.trim()) {
         return null
@@ -79,14 +81,11 @@ export function visibleRoomRelativePath(input: {
     }
 
     relativePath = normalizePath(relativePath)
-    if (!relativePath || relativePath === '.') {
+    if (!relativePath || relativePath === '.' || hasParentTraversal(relativePath)) {
         return null
     }
-    if (input.surface === 'store') {
-        const root = relativePath.split('/')[0] ?? relativePath
-        if ((input.hiddenStoreRootNames ?? hiddenStoreRoots).has(root)) {
-            return null
-        }
+    if (input.surface === 'store' && !shouldExposeStoreRelativePath(relativePath)) {
+        return null
     }
     return relativePath
 }

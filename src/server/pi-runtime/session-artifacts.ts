@@ -10,7 +10,7 @@ import {
     promptAttachmentMetadataByEntryId,
     type PromptAttachmentMetadata,
 } from './prompt-attachments'
-import { hiddenStoreRoots, visibleRoomRelativePath } from './room-visible-paths'
+import { visibleRoomRelativePath } from './room-visible-paths'
 
 type ArtifactSurface = RoomSessionArtifact['surface']
 
@@ -74,7 +74,6 @@ function visibleRelativePath(
         config,
         surface,
         path,
-        hiddenStoreRootNames: hiddenStoreRoots,
     })
 }
 

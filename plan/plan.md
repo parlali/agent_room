@@ -63,6 +63,7 @@ The brainstorm has been split into three public OSS work-stream issues. Implemen
 - [x] Remove duplicate model-facing workspace tools and register Pi-native `read`, `grep`, `find`, `ls`, `edit`, and `write` directly as the canonical workspace surface.
 - [x] Rename remaining custom runtime tools to product-neutral names while preserving historical `agent_room_*` categorization and artifact tracking for old sessions.
 - [x] Simplify the model-facing prompt and bundled office skill text so it describes workspace capabilities instead of Agent Room wrapper semantics.
+- [x] Keep internal store path visibility policy canonical across file APIs, artifact extraction, and runtime event read models.
 - [x] Persist per-room sandbox UID/GID/user/group metadata and expose it through runtime truth snapshots for auditability.
 - [x] Materialize deterministic per-room Linux users and groups for shell-capable rooms, fail closed when sandbox identity cannot be created or validated, and chown only shell-writable workspace, store, home, and tmp paths to that identity. (Adjusted after review to keep backend-only runtime secrets out of same-room shell reach.)
 - [x] Run shell/document worker processes through an explicit `setpriv` privilege-drop wrapper while the backend-owned runtime process keeps access to backend-only runtime config and secret materialization. (Adjusted from wrapping the whole runtime process after review showed same-room shell could otherwise read runtime secrets.)

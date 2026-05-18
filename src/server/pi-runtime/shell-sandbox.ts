@@ -3,7 +3,7 @@ import { ensureSandboxOwnedDirectory, ensureSandboxOwnedFile } from '../rooms/sa
 import {
     runtimeSandboxShellCommand,
     runtimeSandboxSpawnCommand,
-} from '../rooms/runtime-sandbox-identity'
+} from '../rooms/runtime-sandbox-command'
 import type { RuntimeSandboxIdentity } from '../domain/types'
 
 export type ShellSandboxIdentity = Extract<

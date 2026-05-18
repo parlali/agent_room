@@ -107,4 +107,25 @@ describe('runtime event log', () => {
             }),
         ])
     })
+
+    it('does not broadcast file changes for relative parent traversal paths', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'agent-room-events-'))
+        const broadcasts: unknown[] = []
+        const append = createRuntimeEventAppender({
+            config: testConfig(root),
+            redactPayload: (payload) => payload,
+            broadcast: (_sessionKey, _event, payload) => broadcasts.push(payload),
+        })
+
+        await append('tool.write', {
+            fileChange: {
+                kind: 'write',
+                root: 'workspace',
+                path: '../outside.md',
+                byteLength: 5,
+            },
+        })
+
+        expect(broadcasts).toEqual([])
+    })
 })

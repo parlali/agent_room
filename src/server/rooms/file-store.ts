@@ -13,6 +13,7 @@ import {
     ensureMaterializedRuntimeSandboxDirectory,
     ensureMaterializedRuntimeSandboxFile,
 } from './runtime-sandbox-identity'
+import { shouldExposeStoreRelativePath } from './room-store-visibility'
 
 export type {
     RoomDirectoryListing,
@@ -29,7 +30,6 @@ const maxDirectoryEntries = 1000
 const maxTreeEntries = 500
 const maxTreeDepth = 6
 const maxUploadBytes = 50 * 1024 * 1024
-const internalStoreRoots = new Set(['blobs', 'manifests', 'previews'])
 
 export function rootPath(roomId: string, surface: RoomFileSurface): string {
     const paths = getRoomPaths(roomId)
@@ -85,8 +85,7 @@ function shouldExposeRoomFile(input: { surface: RoomFileSurface; relativePath: s
     if (input.surface !== 'store') {
         return true
     }
-    const root = input.relativePath.split('/')[0] ?? input.relativePath
-    return !internalStoreRoots.has(root)
+    return shouldExposeStoreRelativePath(input.relativePath)
 }
 
 function assertInside(candidate: string, root: string): string {

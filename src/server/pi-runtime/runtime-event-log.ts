@@ -5,7 +5,7 @@ import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { currentToolRunContext } from './tool-run-context'
 import { isRecord } from './runtime-redaction'
 import { runtimeEventLogPayload } from './runtime-event-payload'
-import { hiddenStoreRoots, visibleRoomRelativePath } from './room-visible-paths'
+import { visibleRoomRelativePath } from './room-visible-paths'
 
 type RuntimeEventAppenderInput = {
     config: PiRuntimeConfig
@@ -120,7 +120,6 @@ function normalizeVisibleRelativePath(input: {
         config: input.config,
         surface: input.surface,
         path: input.path,
-        hiddenStoreRootNames: hiddenStoreRoots,
     })
 }
 

@@ -127,7 +127,7 @@ export async function archiveFailedRoomFilesystemLayout(roomId: string): Promise
     const env = getAppEnv()
     const paths = getRoomPaths(roomId)
     const archiveRootDir = join(env.dataDir, 'system', 'failed-room-startups')
-    const archiveDirName = `${new Date().toISOString().replaceAll(':', '-')}_${roomId}`
+    const archiveDirName = `${new Date().toISOString().replaceAll(':', '-')}_${roomFilesystemId(roomId)}`
     const archivePath = join(archiveRootDir, archiveDirName)
 
     try {

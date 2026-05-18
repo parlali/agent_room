@@ -172,6 +172,35 @@ describe('session artifact extraction', () => {
         ])
     })
 
+    it('rejects parent-traversal relative paths from artifact state', () => {
+        const artifacts = extractSessionArtifacts(config, [
+            messageEntry('assistant-1', '2026-05-11T09:00:01.000Z', {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'toolCall',
+                        id: 'call-read',
+                        name: 'read',
+                        arguments: {
+                            path: '../outside.md',
+                        },
+                    },
+                ],
+            }),
+            messageEntry('tool-1', '2026-05-11T09:00:02.000Z', {
+                role: 'toolResult',
+                toolCallId: 'call-read',
+                content: [{ type: 'text', text: 'outside' }],
+                details: {
+                    path: '../outside.md',
+                    byteLength: 11,
+                },
+            }),
+        ])
+
+        expect(artifacts).toEqual([])
+    })
+
     it('hides internal store blobs while keeping session uploads', () => {
         const artifacts = extractSessionArtifacts(config, [
             messageEntry('assistant-1', '2026-05-11T09:00:01.000Z', {
