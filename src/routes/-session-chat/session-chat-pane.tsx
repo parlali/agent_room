@@ -58,11 +58,20 @@ import { useStreamingRefetch } from './streaming'
 import {
     addOptimisticUserMessage,
     editOptimisticUserMessage,
+    promoteOptimisticUserMessageToPendingRun,
     rollbackOptimisticWindow,
     type OptimisticWindowRollback,
 } from './chat-projection-store'
 import { cacheStreamTurn, readCachedStreamTurn, sessionStreamStateKey } from './stream-turn-cache'
 import { rowContainsMessage } from '#/lib/message-list-model'
+import {
+    artifactPanelStatesEqual,
+    defaultArtifactPanelState,
+    patchArtifactPanelState,
+    resolveSelectedArtifactId,
+    sessionArtifactStateKey,
+    type SessionArtifactPanelState,
+} from './session-artifact-state'
 
 const loadSessionArtifactsPanel = () => import('./session-artifacts-panel')
 
@@ -77,6 +86,7 @@ const olderSessionRowLimit = 24
 const backgroundOlderRowsDelayMs = 900
 const artifactsAutoOpenDelayMs = 1300
 const artifactPanelStateCache = new Map<string, SessionArtifactPanelState>()
+const emptyArtifacts: RoomSessionArtifact[] = []
 
 export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessionKey: string }) {
     const navigate = useNavigate()
@@ -183,7 +193,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         [windowQuery.data?.pages],
     )
     const messages = useMemo(() => messagesFromRows(rows), [rows])
-    const artifacts = windowQuery.data?.pages[0]?.artifacts ?? []
+    const artifacts = windowQuery.data?.pages[0]?.artifacts ?? emptyArtifacts
     const totalRows = windowQuery.data?.pages[0]?.totalRows ?? rows.length
     const showArtifacts = room?.roomMode !== 'programmer'
     const browserSession = snapshot?.browserSession ?? null
@@ -203,17 +213,20 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const selectedThread = snapshot?.selectedThread ?? null
     const artifactState =
         artifactStateBySession.get(artifactStateKey) ?? defaultArtifactPanelState()
+    const selectedArtifactId = resolveSelectedArtifactId(
+        artifacts,
+        artifactState.selectedArtifactId,
+    )
     const artifactsOpen = showArtifacts && artifactState.open
     const updateArtifactState = useCallback(
         (targetKey: string, patch: Partial<SessionArtifactPanelState>) => {
             setArtifactStateBySession((current) => {
+                const currentState = current.get(targetKey) ?? defaultArtifactPanelState()
+                const nextState = patchArtifactPanelState(currentState, patch)
+                if (artifactPanelStatesEqual(currentState, nextState)) return current
                 const next = new Map(current)
-                next.set(targetKey, {
-                    ...defaultArtifactPanelState(),
-                    ...next.get(targetKey),
-                    ...patch,
-                })
-                artifactPanelStateCache.set(targetKey, next.get(targetKey)!)
+                next.set(targetKey, nextState)
+                artifactPanelStateCache.set(targetKey, nextState)
                 return next
             })
         },
@@ -395,7 +408,14 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 timestamp: Date.now(),
             })
         },
-        onSuccess: () => {
+        onSuccess: (result, _message, rollback) => {
+            promoteOptimisticUserMessageToPendingRun({
+                queryClient,
+                roomId,
+                sessionKey,
+                rollback,
+                runId: result.runId,
+            })
             setDraft('')
             setAttachments([])
             void queryClient.invalidateQueries({ queryKey })
@@ -551,7 +571,6 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         if (sending) return
         const value = draft.trim()
         if (!value && attachments.length === 0) return
-        updateStreamTurn(emptyStreamTurnState)
         const message = formatMessageWithAttachments(value, attachments)
         sendMutation.mutate(message)
     }
@@ -733,6 +752,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                         sessionKey={sessionKey}
                         artifacts={artifacts}
                         state={artifactState}
+                        selectedArtifactId={selectedArtifactId}
                         open={artifactsOpen}
                         onChangeState={(patch) => updateArtifactState(artifactStateKey, patch)}
                     />
@@ -922,33 +942,12 @@ function streamTurnPersisted(streamTurn: StreamTurnState, rows: ChatTimelineRow[
     return finalsPersisted
 }
 
-interface SessionArtifactPanelState {
-    open: boolean
-    loaded: boolean
-    autoOpened: boolean
-    selectedArtifactId: string | null
-    width: number
-}
-
-function defaultArtifactPanelState(): SessionArtifactPanelState {
-    return {
-        open: false,
-        loaded: false,
-        autoOpened: false,
-        selectedArtifactId: null,
-        width: 384,
-    }
-}
-
-function sessionArtifactStateKey(roomId: string, sessionKey: string): string {
-    return `${roomId}:${sessionKey}`
-}
-
 function SessionArtifactsShell({
     roomId,
     sessionKey,
     artifacts,
     state,
+    selectedArtifactId,
     open,
     onChangeState,
 }: {
@@ -956,6 +955,7 @@ function SessionArtifactsShell({
     sessionKey: string
     artifacts: RoomSessionArtifact[]
     state: SessionArtifactPanelState
+    selectedArtifactId: string | null
     open: boolean
     onChangeState: (patch: Partial<SessionArtifactPanelState>) => void
 }) {
@@ -1031,9 +1031,9 @@ function SessionArtifactsShell({
                             <SessionArtifactsPanel
                                 roomId={roomId}
                                 artifacts={artifacts}
-                                selectedArtifactId={state.selectedArtifactId}
-                                onSelectArtifact={(selectedArtifactId) =>
-                                    onChangeState({ selectedArtifactId })
+                                selectedArtifactId={selectedArtifactId}
+                                onSelectArtifact={(nextSelectedArtifactId) =>
+                                    onChangeState({ selectedArtifactId: nextSelectedArtifactId })
                                 }
                                 onClose={() => onChangeState({ open: false })}
                                 className="h-full pl-1"
@@ -1051,9 +1051,9 @@ function SessionArtifactsShell({
                         <SessionArtifactsPanel
                             roomId={roomId}
                             artifacts={artifacts}
-                            selectedArtifactId={state.selectedArtifactId}
-                            onSelectArtifact={(selectedArtifactId) =>
-                                onChangeState({ selectedArtifactId })
+                            selectedArtifactId={selectedArtifactId}
+                            onSelectArtifact={(nextSelectedArtifactId) =>
+                                onChangeState({ selectedArtifactId: nextSelectedArtifactId })
                             }
                             onClose={() => onChangeState({ open: false })}
                         />

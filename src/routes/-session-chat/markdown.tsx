@@ -119,9 +119,11 @@ function renderNode(node: MarkdownNode, key: string): ReactNode {
 function renderText(value: string, key: string): ReactNode {
     if (!value.includes('\n')) return value
 
-    return value.split('\n').flatMap((segment, index) =>
-        index === 0 ? [segment] : [<br key={`${key}-br-${index}`} />, segment],
-    )
+    return value
+        .split('\n')
+        .flatMap((segment, index) =>
+            index === 0 ? [segment] : [<br key={`${key}-br-${index}`} />, segment],
+        )
 }
 
 function renderHeading(node: MarkdownNode, key: string): ReactNode {

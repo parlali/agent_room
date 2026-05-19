@@ -1,4 +1,5 @@
 import type { RoomAttachment } from '#/lib/room-attachments'
+import { emptyRuntimePart } from '#/lib/runtime-message'
 import type {
     ChatTimelineRow,
     RoomExecutionMessage,
@@ -296,6 +297,64 @@ export function rowContainsMessage(
     row: ChatTimelineRow,
 ): row is Extract<ChatTimelineRow, { type: 'user_message' | 'assistant_final' | 'system' }> {
     return row.type === 'user_message' || row.type === 'assistant_final' || row.type === 'system'
+}
+
+export function createPendingUserMessageRow(input: {
+    id: string
+    text: string
+    timestamp: number
+    seq: number
+}): Extract<ChatTimelineRow, { type: 'user_message' }> {
+    const message: RoomExecutionMessage = {
+        id: input.id,
+        role: 'user',
+        text: input.text,
+        parts: [
+            emptyRuntimePart({
+                type: 'text',
+                text: input.text,
+            }),
+        ],
+        timestamp: input.timestamp,
+    }
+    return {
+        type: 'user_message',
+        id: input.id,
+        seq: input.seq,
+        message,
+        timestamp: input.timestamp,
+        pending: true,
+    }
+}
+
+export function createPendingUserDisplayRows(input: {
+    messageId: string
+    runId: string
+    text: string
+    queuedAt: number
+    startSeq: number
+}): [Extract<ChatTimelineRow, { type: 'user_message' }>, RunTranscriptRow] {
+    const userRow = createPendingUserMessageRow({
+        id: `pending-user-${input.messageId}`,
+        text: input.text,
+        timestamp: input.queuedAt,
+        seq: input.startSeq,
+    })
+    const runRow = {
+        ...createRunTranscriptRow({
+            id: `pending-run-${input.messageId}`,
+            seq: input.startSeq + 1,
+            runId: input.runId,
+            status: 'queued',
+            startedAt: input.queuedAt,
+            runtimeMs: null,
+            collapsed: false,
+            timestamp: input.queuedAt,
+            items: [],
+        }),
+        pending: true,
+    }
+    return [userRow, runRow]
 }
 
 export function latestUserMessageId(messages: RoomExecutionMessage[]): string | null {

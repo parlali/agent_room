@@ -1,8 +1,8 @@
 import type { InfiniteData, QueryClient } from '@tanstack/react-query'
 
+import { createPendingUserDisplayRows, createPendingUserMessageRow } from '#/lib/message-list-model'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import type {
-    RoomExecutionMessage,
     RoomSessionDisplayRow,
     RoomSessionShellSnapshot,
     RoomSessionWindow,
@@ -19,6 +19,11 @@ export interface SessionDetailPrewarmTarget {
 
 export interface OptimisticWindowRollback {
     previous: InfiniteData<RoomSessionWindow, string | null> | undefined
+    optimisticUserMessage?: {
+        id: string
+        text: string
+        timestamp: number
+    }
 }
 
 export async function prewarmSessionDetail(
@@ -68,11 +73,19 @@ export async function addOptimisticUserMessage(input: {
     await input.queryClient.cancelQueries({ queryKey })
     const previous =
         input.queryClient.getQueryData<InfiniteData<RoomSessionWindow, string | null>>(queryKey)
+    const row = optimisticMessageRow(input)
     input.queryClient.setQueryData<InfiniteData<RoomSessionWindow, string | null>>(
         queryKey,
-        (current) => appendOptimisticRow(current, input.sessionKey, optimisticMessageRow(input)),
+        (current) => appendOptimisticRow(current, input.sessionKey, row),
     )
-    return { previous }
+    return {
+        previous,
+        optimisticUserMessage: {
+            id: row.id,
+            text: input.message,
+            timestamp: input.timestamp,
+        },
+    }
 }
 
 export async function editOptimisticUserMessage(input: {
@@ -103,6 +116,22 @@ export function rollbackOptimisticWindow(input: {
     input.queryClient.setQueryData(
         roomQueryKey.sessionWindow(input.roomId, input.sessionKey),
         input.rollback.previous,
+    )
+}
+
+export function promoteOptimisticUserMessageToPendingRun(input: {
+    queryClient: QueryClient
+    roomId: string
+    sessionKey: string
+    rollback: OptimisticWindowRollback | undefined
+    runId: string | null
+}): void {
+    const optimistic = input.rollback?.optimisticUserMessage
+    const runId = input.runId
+    if (!optimistic || !runId) return
+    input.queryClient.setQueryData<InfiniteData<RoomSessionWindow, string | null>>(
+        roomQueryKey.sessionWindow(input.roomId, input.sessionKey),
+        (current) => promoteOptimisticRow(current, optimistic, runId),
     )
 }
 
@@ -150,6 +179,91 @@ function appendOptimisticRow(
         ...current,
         pages,
     }
+}
+
+function promoteOptimisticRow(
+    current: InfiniteData<RoomSessionWindow, string | null> | undefined,
+    optimistic: NonNullable<OptimisticWindowRollback['optimisticUserMessage']>,
+    runId: string,
+): InfiniteData<RoomSessionWindow, string | null> | undefined {
+    if (!current || current.pages.length === 0) return current
+    const [pendingUserRow, pendingRunRow] = createPendingUserDisplayRows({
+        messageId: runId,
+        runId,
+        text: optimistic.text,
+        queuedAt: optimistic.timestamp,
+        startSeq: optimistic.timestamp,
+    })
+    const hasPendingUser = windowHasRow(current, pendingUserRow.id)
+    const hasPendingRun = windowHasRow(current, pendingRunRow.id)
+    let insertedUser = hasPendingUser
+    let insertedRun = hasPendingRun
+    let foundOptimistic = false
+    const pages = current.pages.map((page) => {
+        const rows: RoomSessionDisplayRow[] = []
+        for (const row of page.rows) {
+            if (row.id === optimistic.id) {
+                foundOptimistic = true
+                if (!insertedUser) {
+                    rows.push({
+                        ...pendingUserRow,
+                        seq: row.seq,
+                    })
+                    insertedUser = true
+                }
+                if (!insertedRun) {
+                    rows.push({
+                        ...pendingRunRow,
+                        seq: row.seq + 1,
+                    })
+                    insertedRun = true
+                }
+                continue
+            }
+            rows.push(row)
+            if (row.id === pendingUserRow.id && !insertedRun) {
+                rows.push({
+                    ...pendingRunRow,
+                    seq: row.seq + 1,
+                })
+                insertedRun = true
+            }
+        }
+        return {
+            ...page,
+            rows,
+            totalRows: Math.max(page.totalRows + rows.length - page.rows.length, rows.length),
+        }
+    })
+    if (foundOptimistic || insertedUser) {
+        return {
+            ...current,
+            pages,
+        }
+    }
+    const latestPage = pages[0]!
+    const appendedRows: RoomSessionDisplayRow[] = []
+    if (!insertedUser) appendedRows.push(pendingUserRow)
+    if (!insertedRun) appendedRows.push(pendingRunRow)
+    pages[0] = {
+        ...latestPage,
+        rows: [...latestPage.rows, ...appendedRows],
+        totalRows: Math.max(
+            latestPage.totalRows + appendedRows.length,
+            latestPage.rows.length + appendedRows.length,
+        ),
+    }
+    return {
+        ...current,
+        pages,
+    }
+}
+
+function windowHasRow(
+    current: InfiniteData<RoomSessionWindow, string | null>,
+    rowId: string,
+): boolean {
+    return current.pages.some((page) => page.rows.some((row) => row.id === rowId))
 }
 
 function pruneAfterEditedMessage(
@@ -230,31 +344,10 @@ function optimisticMessageRow(input: {
     message: string
     timestamp: number
 }): RoomSessionDisplayRow {
-    const message: RoomExecutionMessage = {
+    return createPendingUserMessageRow({
         id: `optimistic-${input.sessionKey}-${input.timestamp}`,
-        role: 'user',
         text: input.message,
-        parts: [
-            {
-                type: 'text',
-                text: input.message,
-                toolName: null,
-                toolCallId: null,
-                status: null,
-                input: null,
-                result: null,
-                rawType: null,
-                contentIndex: null,
-                textPhase: null,
-            },
-        ],
         timestamp: input.timestamp,
-    }
-    return {
-        type: 'user_message',
-        id: message.id,
         seq: input.timestamp,
-        message,
-        timestamp: input.timestamp,
-    }
+    })
 }

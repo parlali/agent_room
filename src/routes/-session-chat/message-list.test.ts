@@ -153,6 +153,68 @@ describe('message list stream merge', () => {
         ])
     })
 
+    it('anchors a live stream on the matching pending run id', () => {
+        const persistedRows: RoomSessionDisplayRow[] = [
+            userRow('user-1', 1),
+            createRunTranscriptRow({
+                id: 'run-transcript-static',
+                seq: 1,
+                runId: 'static',
+                status: 'complete',
+                startedAt: 2,
+                runtimeMs: 2000,
+                collapsed: true,
+                timestamp: 4,
+                items: [],
+            }),
+            assistantFinalRow('static-final', 'Static final', 4),
+            pendingUserRow('pending-user-run-2', 5),
+            {
+                ...createRunTranscriptRow({
+                    id: 'pending-run-run-2',
+                    seq: 4,
+                    runId: 'run-2',
+                    status: 'queued',
+                    startedAt: 5,
+                    runtimeMs: null,
+                    collapsed: false,
+                    timestamp: 5,
+                    items: [],
+                }),
+                pending: true,
+            },
+        ]
+        const stream = streamState(
+            [
+                createRunTranscriptRow({
+                    id: 'run-transcript-live',
+                    seq: 1,
+                    runId: 'run-2',
+                    status: 'working',
+                    startedAt: 3,
+                    runtimeMs: null,
+                    collapsed: false,
+                    timestamp: 6,
+                    items: [],
+                }),
+            ],
+            {
+                runId: 'run-2',
+                startedAt: 3,
+            },
+        )
+
+        const rows = buildTimelineRows(persistedRows, stream, true, 'session-1')
+
+        expect(rows.map((row) => row.id)).toEqual([
+            'user-1',
+            'run-transcript-static',
+            'static-final',
+            'pending-user-run-2',
+            'run-transcript-live',
+        ])
+    })
+
     it('scopes virtual row keys to the session', () => {
         expect(timelineRowKey('session-1', assistantFinalRow('same-row', 'A', 1), 0)).toBe(
             'session-1:same-row',
@@ -163,15 +225,22 @@ describe('message list stream merge', () => {
     })
 })
 
-function streamState(rows: ChatTimelineRow[]): StreamTurnState {
+function streamState(
+    rows: ChatTimelineRow[],
+    options: {
+        runId?: string
+        startedAt?: number
+        updatedAt?: number
+    } = {},
+): StreamTurnState {
     return {
         ...emptyStreamTurnState,
-        runId: 'live',
+        runId: options.runId ?? 'live',
         status: 'complete',
         rows,
         finished: true,
-        startedAt: 2,
-        updatedAt: 4,
+        startedAt: options.startedAt ?? 2,
+        updatedAt: options.updatedAt ?? 4,
     }
 }
 
