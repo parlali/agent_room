@@ -4,6 +4,7 @@ import { PDFDocument } from 'pdf-lib'
 import { getModel, type Api, type ImageContent, type Model } from '@mariozechner/pi-ai'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { runDocumentWorker } from './document-tools/worker'
+import { ensureShellWritableDirectory } from './shell-sandbox'
 
 export const pdfIngestionModes = ['native_document', 'image_render', 'unsupported'] as const
 
@@ -164,6 +165,7 @@ export async function renderPdfPageImages(input: {
     signal?: AbortSignal
 }): Promise<ImageContent[]> {
     const tempDir = await mkdtemp(join(input.config.paths.tmpDir, 'pdf-pages-'))
+    await ensureShellWritableDirectory(input.config, tempDir)
     const prefix = join(tempDir, 'page')
     try {
         for (const page of input.selection.pages) {
