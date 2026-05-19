@@ -104,6 +104,7 @@ export async function updateRoomThreadModel(input: {
     provider: string
     model: string
     thinkingLevel?: RoomExecutionThinkingLevel | null
+    speedMode?: RoomExecutionModelState['speedMode']
 }): Promise<RoomExecutionModelState> {
     return requestPiRuntime(
         input.roomId,
@@ -115,6 +116,7 @@ export async function updateRoomThreadModel(input: {
                 provider: input.provider,
                 model: input.model,
                 thinkingLevel: input.thinkingLevel ?? null,
+                speedMode: input.speedMode ?? null,
             },
         },
     )

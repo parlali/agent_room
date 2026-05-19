@@ -8,6 +8,11 @@ import {
     type AgentSession,
     type ToolDefinition,
 } from '@mariozechner/pi-coding-agent'
+import { type Api, type Model, type SimpleStreamOptions, supportsXhigh } from '@mariozechner/pi-ai'
+import {
+    type OpenAICodexResponsesOptions,
+    streamOpenAICodexResponses,
+} from '@mariozechner/pi-ai/openai-codex-responses'
 import type { RoomExecutionMessage } from '../rooms/execution-types'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import type { PiRuntimeThreadCreatePayload } from './protocol'
@@ -26,6 +31,9 @@ import { createDeepWorkTool } from './deep-work-tool'
 import { rewriteNativePdfPayload } from './pdf-document-payload'
 import type { ThreadKind, ThreadRecord } from './thread-records'
 import type { RunKind } from './run-budget'
+import { codexServiceTierForSpeedMode } from './runtime-speed-mode'
+
+type CodexResponsesModel = Model<'openai-codex-responses'>
 
 export interface PiRuntimeSessionInput {
     config: PiRuntimeConfig
@@ -68,6 +76,18 @@ export interface PiRuntimeSessionInput {
     }) => Promise<string>
     readThreadMessages: (record: ThreadRecord, limit: number) => RoomExecutionMessage[]
     persistThreadIndex: () => Promise<void>
+}
+
+function isCodexResponsesModel(model: Model<Api>): model is CodexResponsesModel {
+    return model.provider === 'openai-codex' && model.api === 'openai-codex-responses'
+}
+
+function codexReasoningEffort(
+    model: CodexResponsesModel,
+    reasoning: SimpleStreamOptions['reasoning'],
+): OpenAICodexResponsesOptions['reasoningEffort'] {
+    if (!reasoning) return undefined
+    return supportsXhigh(model) ? reasoning : reasoning === 'xhigh' ? 'high' : reasoning
 }
 
 export function createPiRuntimeCustomTools(input: PiRuntimeSessionInput): ToolDefinition[] {
@@ -211,6 +231,31 @@ export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Prom
         tools: enabledTools,
         customTools,
     })
+    const streamWithRuntimeOptions = session.agent.streamFn
+    session.agent.streamFn = async (model, context, options) => {
+        const serviceTier = codexServiceTierForSpeedMode(model, record.speedMode)
+        if (!serviceTier || !isCodexResponsesModel(model)) {
+            return streamWithRuntimeOptions(model, context, options)
+        }
+        const auth = await modelRegistry.getApiKeyAndHeaders(model)
+        if (!auth.ok) {
+            throw new Error(auth.error)
+        }
+        const providerRetrySettings = settingsManager.getProviderRetrySettings()
+        return streamOpenAICodexResponses(model, context, {
+            ...options,
+            apiKey: auth.apiKey,
+            timeoutMs: options?.timeoutMs ?? providerRetrySettings.timeoutMs,
+            maxRetries: options?.maxRetries ?? providerRetrySettings.maxRetries,
+            maxRetryDelayMs: options?.maxRetryDelayMs ?? providerRetrySettings.maxRetryDelayMs,
+            headers:
+                auth.headers || options?.headers
+                    ? { ...auth.headers, ...options?.headers }
+                    : undefined,
+            reasoningEffort: codexReasoningEffort(model, options?.reasoning),
+            serviceTier,
+        })
+    }
     session.agent.onPayload = async (payload, model) => {
         const rewritten = rewriteNativePdfPayload(payload)
         if (rewritten.count > 0) {

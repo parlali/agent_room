@@ -246,6 +246,7 @@ function threadRecord(key: string): ThreadRecord {
         modelProvider: null,
         model: null,
         thinkingLevel: null,
+        speedMode: null,
         activeRunId: null,
         activeRunKind: null,
         heartbeatAt: null,

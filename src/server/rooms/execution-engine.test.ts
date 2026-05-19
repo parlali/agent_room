@@ -67,6 +67,8 @@ describe('runtime-neutral execution engine facade', () => {
             label: 'GPT-5.5',
             thinkingLevel: 'xhigh',
             availableThinkingLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+            speedMode: 'fast',
+            availableSpeedModes: ['normal', 'fast'],
             options: [],
         })
         mocks.compactRoomThread.mockResolvedValue({ status: 'idle' })
@@ -105,6 +107,8 @@ describe('runtime-neutral execution engine facade', () => {
             label: 'GPT-5.5',
             thinkingLevel: 'xhigh',
             availableThinkingLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+            speedMode: 'fast',
+            availableSpeedModes: ['normal', 'fast'],
             options: [],
         })
         await expect(

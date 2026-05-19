@@ -2,12 +2,14 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { getModel } from '@mariozechner/pi-ai'
 import { createTestPiRuntimeConfig, ensureTestPiRuntimeDirectories } from './test-runtime-defaults'
 import {
     createPiRuntimeCustomTools,
     enabledToolNamesForSession,
     type PiRuntimeSessionInput,
 } from './pi-runtime-session'
+import { codexServiceTierForSpeedMode } from './runtime-speed-mode'
 import { BrowserbaseBrowserAutomationManager } from './browserbase-browser'
 import type { ThreadRecord } from './thread-records'
 
@@ -26,6 +28,7 @@ function threadRecord(input: { key: string; kind?: ThreadRecord['kind'] }): Thre
         modelProvider: 'ollama',
         model: 'llama',
         thinkingLevel: 'medium',
+        speedMode: null,
         activeRunId: null,
         activeRunKind: null,
         heartbeatAt: null,
@@ -117,6 +120,15 @@ async function withToolInput<T>(
 }
 
 describe('Pi runtime session tools', () => {
+    it('maps Codex fast mode to the priority service tier', () => {
+        const codexModel = getModel('openai-codex', 'gpt-5.5')
+        const googleModel = getModel('google', 'gemini-2.5-pro')
+
+        expect(codexServiceTierForSpeedMode(codexModel, 'fast')).toBe('priority')
+        expect(codexServiceTierForSpeedMode(codexModel, 'normal')).toBeUndefined()
+        expect(codexServiceTierForSpeedMode(googleModel, 'fast')).toBeUndefined()
+    })
+
     it('exposes canonical memory tools to programmer rooms', async () => {
         await withToolInput('programmer', (input) => {
             const names = createPiRuntimeCustomTools(input).map((tool) => tool.name)

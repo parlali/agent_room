@@ -14,6 +14,7 @@ import type {
     PiRuntimeThreadCreatePayload,
 } from './protocol'
 import type {
+    RoomExecutionSpeedMode,
     RoomExecutionThinkingLevel,
     RoomFileChangedPayload,
     RoomFileChangeOperation,
@@ -114,6 +115,7 @@ export function createPiRuntimeRouter({
         provider: string
         model: string
         thinkingLevel?: RoomExecutionThinkingLevel | null
+        speedMode?: RoomExecutionSpeedMode | null
     }) => Promise<PiRuntimeThreadModelPayload>
     renameThread: (input: { record: ThreadRecord; title: string }) => Promise<void>
     deleteThread: (record: ThreadRecord) => Promise<void>
@@ -259,6 +261,10 @@ export function createPiRuntimeRouter({
                 isRecord(body) && typeof body.thinkingLevel === 'string'
                     ? (body.thinkingLevel as RoomExecutionThinkingLevel)
                     : null
+            const speedMode =
+                isRecord(body) && (body.speedMode === 'normal' || body.speedMode === 'fast')
+                    ? (body.speedMode as RoomExecutionSpeedMode)
+                    : null
             sendJson(
                 response,
                 200,
@@ -267,6 +273,7 @@ export function createPiRuntimeRouter({
                     provider,
                     model,
                     thinkingLevel,
+                    speedMode,
                 }),
             )
             return

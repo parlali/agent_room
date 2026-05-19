@@ -43,6 +43,7 @@ const updateThreadModelInputSchema = z.object({
         .enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh'])
         .nullable()
         .optional(),
+    speedMode: z.enum(['normal', 'fast']).nullable().optional(),
 })
 
 const abortMessageInputSchema = z.object({
@@ -487,6 +488,7 @@ export const updateThreadModelServer = createServerFn({ method: 'POST' })
             provider: data.provider,
             model: data.model,
             thinkingLevel: data.thinkingLevel ?? null,
+            speedMode: data.speedMode ?? null,
         })
     })
 

@@ -1,4 +1,5 @@
 import type { RunKind } from './run-budget'
+import type { RoomExecutionSpeedMode } from '../rooms/execution-types'
 
 export type ThreadKind = 'main' | 'subagent' | 'deep_work'
 export type ThreadTitleSource = 'initial' | 'generated' | 'manual'
@@ -25,6 +26,7 @@ export interface ThreadRecord {
     modelProvider: string | null
     model: string | null
     thinkingLevel: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | null
+    speedMode: RoomExecutionSpeedMode | null
     activeRunId: string | null
     activeRunKind: ThreadRunKind | null
     heartbeatAt: number | null
@@ -65,6 +67,7 @@ export function normalizeThreadRecord(
         modelProvider?: string | null
         model?: string | null
         thinkingLevel?: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | null
+        speedMode?: RoomExecutionSpeedMode | null
         activeRunId?: string | null
         activeRunKind?: ThreadRunKind | null
         heartbeatAt?: number | null
@@ -92,6 +95,8 @@ export function normalizeThreadRecord(
         modelProvider: record.modelProvider ?? null,
         model: record.model ?? null,
         thinkingLevel: record.thinkingLevel ?? null,
+        speedMode:
+            record.speedMode === 'fast' || record.speedMode === 'normal' ? record.speedMode : null,
         activeRunId: record.activeRunId ?? null,
         activeRunKind: record.activeRunKind ?? null,
         heartbeatAt: record.heartbeatAt ?? null,

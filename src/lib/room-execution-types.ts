@@ -70,6 +70,7 @@ export interface RoomExecutionThread {
 }
 
 export type RoomExecutionThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+export type RoomExecutionSpeedMode = 'normal' | 'fast'
 
 export interface RoomExecutionModelOption {
     value: string
@@ -78,6 +79,7 @@ export interface RoomExecutionModelOption {
     label: string
     supportsReasoning: boolean
     availableThinkingLevels: RoomExecutionThinkingLevel[]
+    availableSpeedModes: RoomExecutionSpeedMode[]
 }
 
 export interface RoomExecutionModelState {
@@ -87,6 +89,8 @@ export interface RoomExecutionModelState {
     label: string
     thinkingLevel: RoomExecutionThinkingLevel
     availableThinkingLevels: RoomExecutionThinkingLevel[]
+    speedMode: RoomExecutionSpeedMode | null
+    availableSpeedModes: RoomExecutionSpeedMode[]
     options: RoomExecutionModelOption[]
 }
 

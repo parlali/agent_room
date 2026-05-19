@@ -87,6 +87,7 @@ export async function updateRoomThreadModel(input: {
     provider: string
     model: string
     thinkingLevel?: RoomExecutionThinkingLevel | null
+    speedMode?: RoomExecutionModelState['speedMode']
 }): Promise<RoomExecutionModelState> {
     const module = await loadExecutionEngineModule()
     return module.updateRoomThreadModel(input)

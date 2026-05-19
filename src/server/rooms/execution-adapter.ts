@@ -43,6 +43,7 @@ export interface RoomExecutionAdapter {
         provider: string
         model: string
         thinkingLevel?: RoomExecutionThinkingLevel | null
+        speedMode?: RoomExecutionModelState['speedMode']
     }) => Promise<RoomExecutionModelState>
     abortRoomThreadMessage: (input: {
         roomId: string

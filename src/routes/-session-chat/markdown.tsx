@@ -60,7 +60,7 @@ function renderNode(node: MarkdownNode, key: string): ReactNode {
         case 'heading':
             return renderHeading(node, key)
         case 'text':
-            return node.value ?? ''
+            return renderText(node.value ?? '', key)
         case 'strong':
             return <strong key={key}>{renderInlineChildren(node.children, key)}</strong>
         case 'emphasis':
@@ -114,6 +114,14 @@ function renderNode(node: MarkdownNode, key: string): ReactNode {
         default:
             return renderInlineChildren(node.children, key)
     }
+}
+
+function renderText(value: string, key: string): ReactNode {
+    if (!value.includes('\n')) return value
+
+    return value.split('\n').flatMap((segment, index) =>
+        index === 0 ? [segment] : [<br key={`${key}-br-${index}`} />, segment],
+    )
 }
 
 function renderHeading(node: MarkdownNode, key: string): ReactNode {

@@ -459,6 +459,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     provider: input.provider,
                     model: input.model,
                     thinkingLevel: input.thinkingLevel,
+                    speedMode: input.speedMode,
                 },
             }),
         onSuccess: async () => {
