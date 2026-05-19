@@ -165,9 +165,9 @@ export async function renderPdfPageImages(input: {
     signal?: AbortSignal
 }): Promise<ImageContent[]> {
     const tempDir = await mkdtemp(join(input.config.paths.tmpDir, 'pdf-pages-'))
-    await ensureShellWritableDirectory(input.config, tempDir)
-    const prefix = join(tempDir, 'page')
     try {
+        await ensureShellWritableDirectory(input.config, tempDir)
+        const prefix = join(tempDir, 'page')
         for (const page of input.selection.pages) {
             await runDocumentWorker({
                 config: input.config,

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -115,6 +115,34 @@ describe('PDF ingestion', () => {
             expect(ensureShellWritableDirectoryMock.mock.invocationCallOrder[0]).toBeLessThan(
                 runDocumentWorkerMock.mock.invocationCallOrder[0],
             )
+        })
+    })
+
+    it('removes the render temp directory when shell-writable setup fails', async () => {
+        await withConfig(async (root) => {
+            const config = createTestPiRuntimeConfig({ root })
+            await ensureTestPiRuntimeDirectories(config)
+            await mkdir(config.paths.workspaceDir, {
+                recursive: true,
+            })
+            const source = join(config.paths.workspaceDir, 'source.pdf')
+            await writeFile(source, Buffer.from('%PDF-1.7'))
+            ensureShellWritableDirectoryMock.mockRejectedValueOnce(new Error('ownership failed'))
+
+            await expect(
+                renderPdfPageImages({
+                    config,
+                    path: source,
+                    selection: {
+                        pages: [1],
+                        label: 'pages 1',
+                        truncated: false,
+                    },
+                }),
+            ).rejects.toThrow('ownership failed')
+
+            expect(runDocumentWorkerMock).not.toHaveBeenCalled()
+            await expect(readdir(config.paths.tmpDir)).resolves.toEqual([])
         })
     })
 })
