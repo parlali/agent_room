@@ -1,20 +1,10 @@
-import type { ReactNode } from 'react'
-import { parseMarkdown, StreamingMarkdownRenderer } from 'chat'
+import type { ComponentPropsWithoutRef, ReactNode } from 'react'
+import ReactMarkdown from 'react-markdown'
 import { Link } from '@tanstack/react-router'
+import remend from 'remend'
+import remarkGfm from 'remark-gfm'
 
 import { cn } from '#/lib/utils'
-
-interface MarkdownNode {
-    type: string
-    value?: string
-    children?: MarkdownNode[]
-    url?: string
-    title?: string | null
-    lang?: string | null
-    ordered?: boolean | null
-    checked?: boolean | null
-    depth?: number
-}
 
 export function renderMarkdown(
     text: string,
@@ -24,236 +14,127 @@ export function renderMarkdown(
     },
 ): ReactNode {
     if (!text) return null
-    const markdown = options?.streaming ? streamingMarkdownText(text, options.complete) : text
-    const ast = parseMarkdown(markdown) as MarkdownNode
+    const markdown = options?.streaming && !options.complete ? remend(text) : text
     return (
         <div className="space-y-3 text-sm leading-6 break-words">
-            {renderChildren(ast.children ?? [], 'root')}
+            <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={markdownComponents}
+                skipHtml
+                unwrapDisallowed
+            >
+                {markdown}
+            </ReactMarkdown>
         </div>
     )
 }
 
-function streamingMarkdownText(text: string, complete = false): string {
-    const renderer = new StreamingMarkdownRenderer()
-    renderer.push(text)
-    return complete ? renderer.finish() : renderer.render()
-}
-
-function renderChildren(children: MarkdownNode[], keyPrefix: string): ReactNode[] {
-    return children.map((child, index) => renderNode(child, `${keyPrefix}-${index}`))
-}
-
-function renderInlineChildren(children: MarkdownNode[] | undefined, keyPrefix: string): ReactNode {
-    return renderChildren(children ?? [], keyPrefix)
-}
-
-function renderNode(node: MarkdownNode, key: string): ReactNode {
-    switch (node.type) {
-        case 'root':
-            return <div key={key}>{renderChildren(node.children ?? [], key)}</div>
-        case 'paragraph':
-            return (
-                <p key={key} className="my-0">
-                    {renderInlineChildren(node.children, key)}
-                </p>
-            )
-        case 'heading':
-            return renderHeading(node, key)
-        case 'text':
-            return renderText(node.value ?? '', key)
-        case 'strong':
-            return <strong key={key}>{renderInlineChildren(node.children, key)}</strong>
-        case 'emphasis':
-            return <em key={key}>{renderInlineChildren(node.children, key)}</em>
-        case 'delete':
-            return <del key={key}>{renderInlineChildren(node.children, key)}</del>
-        case 'inlineCode':
-            return (
-                <code key={key} className="rounded bg-muted/70 px-1 py-0.5 text-[0.85em]">
-                    {node.value ?? ''}
-                </code>
-            )
-        case 'code':
-            return (
-                <pre
-                    key={key}
-                    className="max-h-96 overflow-auto rounded-md bg-muted/70 px-3 py-2 text-xs leading-5"
-                >
-                    <code>{node.value ?? ''}</code>
-                </pre>
-            )
-        case 'blockquote':
-            return (
-                <blockquote
-                    key={key}
-                    className="border-l-2 border-border pl-3 text-muted-foreground"
-                >
-                    {renderChildren(node.children ?? [], key)}
-                </blockquote>
-            )
-        case 'list':
-            return renderList(node, key)
-        case 'listItem':
-            return renderListItem(node, key)
-        case 'link':
-            return renderLink(node, key)
-        case 'break':
-            return <br key={key} />
-        case 'thematicBreak':
-            return <hr key={key} className="border-border" />
-        case 'table':
-            return renderTable(node, key)
-        case 'tableRow':
-            return <tr key={key}>{renderChildren(node.children ?? [], key)}</tr>
-        case 'tableCell':
-            return (
-                <td key={key} className="border border-border px-2 py-1 align-top">
-                    {renderInlineChildren(node.children, key)}
-                </td>
-            )
-        default:
-            return renderInlineChildren(node.children, key)
-    }
-}
-
-function renderText(value: string, key: string): ReactNode {
-    if (!value.includes('\n')) return value
-
-    return value
-        .split('\n')
-        .flatMap((segment, index) =>
-            index === 0 ? [segment] : [<br key={`${key}-br-${index}`} />, segment],
-        )
-}
-
-function renderHeading(node: MarkdownNode, key: string): ReactNode {
-    const className = 'my-0 font-semibold leading-tight text-foreground'
-    const children = renderInlineChildren(node.children, key)
-    if (node.depth === 1) {
+const markdownComponents = {
+    p({ children }: ComponentPropsWithoutRef<'p'>) {
+        return <p className="my-0">{children}</p>
+    },
+    h1({ children }: ComponentPropsWithoutRef<'h1'>) {
         return (
-            <h1 key={key} className={cn(className, 'text-lg')}>
-                {children}
-            </h1>
+            <h1 className="my-0 text-lg font-semibold leading-tight text-foreground">{children}</h1>
         )
-    }
-    if (node.depth === 2) {
+    },
+    h2({ children }: ComponentPropsWithoutRef<'h2'>) {
         return (
-            <h2 key={key} className={cn(className, 'text-base')}>
+            <h2 className="my-0 text-base font-semibold leading-tight text-foreground">
                 {children}
             </h2>
         )
-    }
-    return (
-        <h3 key={key} className={cn(className, 'text-sm')}>
-            {children}
-        </h3>
-    )
-}
-
-function renderList(node: MarkdownNode, key: string): ReactNode {
-    const className = 'my-0 space-y-1 pl-5'
-    const children = renderChildren(node.children ?? [], key)
-    return node.ordered ? (
-        <ol key={key} className={cn(className, 'list-decimal')}>
-            {children}
-        </ol>
-    ) : (
-        <ul key={key} className={cn(className, 'list-disc')}>
-            {children}
-        </ul>
-    )
-}
-
-function renderListItem(node: MarkdownNode, key: string): ReactNode {
-    const hasTaskState = typeof node.checked === 'boolean'
-    return (
-        <li key={key} className={cn('pl-1', hasTaskState && 'list-none')}>
-            <span className={cn(hasTaskState && '-ml-5 flex items-start gap-2')}>
-                {hasTaskState ? (
-                    <input
-                        type="checkbox"
-                        checked={node.checked ?? false}
-                        readOnly
-                        aria-label={node.checked ? 'Complete' : 'Incomplete'}
-                        className="mt-1 size-3.5 shrink-0 accent-primary"
-                    />
-                ) : null}
-                <span className="min-w-0">{renderChildren(node.children ?? [], key)}</span>
-            </span>
-        </li>
-    )
-}
-
-function renderLink(node: MarkdownNode, key: string): ReactNode {
-    const href = typeof node.url === 'string' ? node.url : ''
-    if (isAppRouteHref(href)) {
+    },
+    h3({ children }: ComponentPropsWithoutRef<'h3'>) {
         return (
-            <Link
-                key={key}
-                to={href}
-                title={node.title ?? undefined}
+            <h3 className="my-0 text-sm font-semibold leading-tight text-foreground">{children}</h3>
+        )
+    },
+    strong({ children }: ComponentPropsWithoutRef<'strong'>) {
+        return <strong>{children}</strong>
+    },
+    em({ children }: ComponentPropsWithoutRef<'em'>) {
+        return <em>{children}</em>
+    },
+    del({ children }: ComponentPropsWithoutRef<'del'>) {
+        return <del>{children}</del>
+    },
+    code({ children, className }: ComponentPropsWithoutRef<'code'>) {
+        const inline = !className
+        if (inline) {
+            return <code className="rounded bg-muted/70 px-1 py-0.5 text-[0.85em]">{children}</code>
+        }
+        return <code>{children}</code>
+    },
+    pre({ children }: ComponentPropsWithoutRef<'pre'>) {
+        return (
+            <pre className="max-h-96 overflow-auto rounded-md bg-muted/70 px-3 py-2 text-xs leading-5">
+                {children}
+            </pre>
+        )
+    },
+    blockquote({ children }: ComponentPropsWithoutRef<'blockquote'>) {
+        return (
+            <blockquote className="border-l-2 border-border pl-3 text-muted-foreground">
+                {children}
+            </blockquote>
+        )
+    },
+    ul({ children }: ComponentPropsWithoutRef<'ul'>) {
+        return <ul className="my-0 list-disc space-y-1 pl-5">{children}</ul>
+    },
+    ol({ children }: ComponentPropsWithoutRef<'ol'>) {
+        return <ol className="my-0 list-decimal space-y-1 pl-5">{children}</ol>
+    },
+    li({ children, className }: ComponentPropsWithoutRef<'li'>) {
+        return <li className={cn('pl-1', className)}>{children}</li>
+    },
+    a({ children, href, title }: ComponentPropsWithoutRef<'a'>) {
+        const targetHref = typeof href === 'string' ? href : ''
+        if (isAppRouteHref(targetHref)) {
+            return (
+                <Link
+                    to={targetHref}
+                    title={title}
+                    className="font-medium text-primary underline underline-offset-3"
+                >
+                    {children}
+                </Link>
+            )
+        }
+        return (
+            <a
+                href={targetHref}
+                title={title}
+                target={isExternalHref(targetHref) ? '_blank' : undefined}
+                rel={isExternalHref(targetHref) ? 'noreferrer' : undefined}
                 className="font-medium text-primary underline underline-offset-3"
             >
-                {renderInlineChildren(node.children, key)}
-            </Link>
+                {children}
+            </a>
         )
-    }
-
-    return (
-        <a
-            key={key}
-            href={href}
-            title={node.title ?? undefined}
-            target={isExternalHref(href) ? '_blank' : undefined}
-            rel={isExternalHref(href) ? 'noreferrer' : undefined}
-            className="font-medium text-primary underline underline-offset-3"
-        >
-            {renderInlineChildren(node.children, key)}
-        </a>
-    )
-}
-
-function renderTable(node: MarkdownNode, key: string): ReactNode {
-    const rows = node.children ?? []
-    const [head, ...body] = rows
-
-    return (
-        <div key={key} className="overflow-x-auto">
-            <table className="w-full min-w-80 border-collapse text-left text-xs">
-                {head ? (
-                    <thead className="bg-muted/60">
-                        <tr>
-                            {(head.children ?? []).map((cell, index) => (
-                                <th
-                                    key={`${key}-head-${index}`}
-                                    className="border border-border px-2 py-1 font-medium"
-                                >
-                                    {renderInlineChildren(cell.children, `${key}-head-${index}`)}
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                ) : null}
-                <tbody>
-                    {body.map((row, rowIndex) => (
-                        <tr key={`${key}-row-${rowIndex}`}>
-                            {(row.children ?? []).map((cell, cellIndex) => (
-                                <td
-                                    key={`${key}-cell-${rowIndex}-${cellIndex}`}
-                                    className="border border-border px-2 py-1 align-top"
-                                >
-                                    {renderInlineChildren(
-                                        cell.children,
-                                        `${key}-cell-${rowIndex}-${cellIndex}`,
-                                    )}
-                                </td>
-                            ))}
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
-    )
+    },
+    table({ children }: ComponentPropsWithoutRef<'table'>) {
+        return (
+            <div className="overflow-x-auto">
+                <table className="w-full min-w-80 border-collapse text-left text-xs">
+                    {children}
+                </table>
+            </div>
+        )
+    },
+    thead({ children }: ComponentPropsWithoutRef<'thead'>) {
+        return <thead className="bg-muted/60">{children}</thead>
+    },
+    th({ children }: ComponentPropsWithoutRef<'th'>) {
+        return <th className="border border-border px-2 py-1 font-medium">{children}</th>
+    },
+    td({ children }: ComponentPropsWithoutRef<'td'>) {
+        return <td className="border border-border px-2 py-1 align-top">{children}</td>
+    },
+    hr() {
+        return <hr className="border-border" />
+    },
 }
 
 function isExternalHref(href: string): boolean {

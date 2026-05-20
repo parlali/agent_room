@@ -14,7 +14,7 @@ describe('message list stream merge', () => {
             createRunTranscriptRow({
                 id: 'run-transcript-static',
                 seq: 1,
-                runId: 'static',
+                runId: 'live',
                 status: 'complete',
                 startedAt: 1,
                 runtimeMs: null,
@@ -53,7 +53,7 @@ describe('message list stream merge', () => {
 
         const rows = buildTimelineRows(persistedRows, stream, true, 'session-1')
 
-        expect(rows.map((row) => row.id)).toEqual(['old-final', 'live-final'])
+        expect(rows.map((row) => row.id)).toEqual(['old-final', 'static-final', 'live-final'])
     })
 
     it('keeps queued pending user rows visible while an earlier run streams', () => {
@@ -104,9 +104,9 @@ describe('message list stream merge', () => {
 
         expect(rows.map((row) => row.id)).toEqual([
             'user-1',
-            'run-transcript-live',
             'pending-user-run-2',
             'pending-run-run-2',
+            'run-transcript-live',
         ])
     })
 
@@ -147,9 +147,9 @@ describe('message list stream merge', () => {
 
         expect(rows.map((row) => row.id)).toEqual([
             'user-1',
-            'run-transcript-live',
             'stable-user-message',
             'stable-run-row',
+            'run-transcript-live',
         ])
     })
 
@@ -212,6 +212,54 @@ describe('message list stream merge', () => {
             'static-final',
             'pending-user-run-2',
             'run-transcript-live',
+        ])
+    })
+
+    it('does not anchor a live stream to a persisted user row by timestamp', () => {
+        const persistedRows: RoomSessionDisplayRow[] = [
+            userRow('previous-user', 1),
+            createRunTranscriptRow({
+                id: 'previous-run',
+                seq: 1,
+                runId: 'previous-run',
+                status: 'complete',
+                startedAt: 2,
+                runtimeMs: 1000,
+                collapsed: true,
+                timestamp: 2,
+                items: [],
+            }),
+            assistantFinalRow('previous-final', 'Previous final', 3),
+            userRow('persisted-current-user', 5),
+        ]
+        const stream = streamState(
+            [
+                createRunTranscriptRow({
+                    id: 'live-run',
+                    seq: 1,
+                    runId: 'live-run',
+                    status: 'working',
+                    startedAt: 4,
+                    runtimeMs: null,
+                    collapsed: false,
+                    timestamp: 4,
+                    items: [],
+                }),
+            ],
+            {
+                runId: 'live-run',
+                startedAt: 4,
+            },
+        )
+
+        const rows = buildTimelineRows(persistedRows, stream, true, 'session-1')
+
+        expect(rows.map((row) => row.id)).toEqual([
+            'previous-user',
+            'previous-run',
+            'previous-final',
+            'persisted-current-user',
+            'live-run',
         ])
     })
 

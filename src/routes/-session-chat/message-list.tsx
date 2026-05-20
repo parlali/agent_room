@@ -292,21 +292,16 @@ function persistedRowsForLiveRun(
     const pendingAnchor = persistedRowsForMatchingPendingRun(rows, stream.runId)
     if (pendingAnchor) return pendingAnchor
 
-    const latestUserIndex = findLatestUserRowIndex(rows, stream.startedAt)
-    if (latestUserIndex < 0) {
-        const filtered = rows.filter((row) => {
-            if (row.type === 'run_transcript') return !isActiveRunStatus(row.status)
-            return !isCurrentStreamFinalRow(row, stream.startedAt)
-        })
-        return {
-            before: filtered,
-            after: [],
-        }
-    }
-    const replacementEnd = currentRunReplacementEnd(rows, latestUserIndex)
+    const persistedRunAnchor = persistedRowsForMatchingRun(rows, stream.runId)
+    if (persistedRunAnchor) return persistedRunAnchor
+
     return {
-        before: rows.slice(0, latestUserIndex + 1),
-        after: rows.slice(replacementEnd),
+        before: rows.filter((row) => {
+            if (row.type === 'run_transcript')
+                return row.pending === true || !isActiveRunStatus(row.status)
+            return true
+        }),
+        after: [],
     }
 }
 
@@ -332,6 +327,21 @@ function persistedRowsForMatchingPendingRun(
     }
 }
 
+function persistedRowsForMatchingRun(
+    rows: RoomSessionDisplayRow[],
+    runId: string | null,
+): { before: RoomSessionDisplayRow[]; after: RoomSessionDisplayRow[] } | null {
+    if (!runId) return null
+    const runIndex = rows.findIndex((row) => row.type === 'run_transcript' && row.runId === runId)
+    if (runIndex < 0) return null
+    const userIndex = nearestUserRowIndexBefore(rows, runIndex)
+    const replacementStart = userIndex < 0 ? runIndex : userIndex + 1
+    return {
+        before: rows.slice(0, replacementStart),
+        after: rows.slice(currentRunReplacementEnd(rows, replacementStart - 1)),
+    }
+}
+
 function nearestUserRowIndexBefore(rows: RoomSessionDisplayRow[], beforeIndex: number): number {
     for (let index = beforeIndex - 1; index >= 0; index -= 1) {
         if (rows[index]?.type === 'user_message') return index
@@ -346,33 +356,6 @@ function currentRunReplacementEnd(rows: RoomSessionDisplayRow[], userIndex: numb
         if (row.type === 'user_message' || row.type === 'system') return index
     }
     return rows.length
-}
-
-function isCurrentStreamFinalRow(
-    row: RoomSessionDisplayRow,
-    streamStartedAt: number | null,
-): boolean {
-    return (
-        streamStartedAt !== null &&
-        row.type === 'assistant_final' &&
-        row.timestamp !== null &&
-        row.timestamp >= streamStartedAt
-    )
-}
-
-function findLatestUserRowIndex(
-    rows: RoomSessionDisplayRow[],
-    streamStartedAt: number | null,
-): number {
-    for (let index = rows.length - 1; index >= 0; index -= 1) {
-        const row = rows[index]
-        if (!row || row.type !== 'user_message') continue
-        if (streamStartedAt !== null && row.timestamp !== null && row.timestamp > streamStartedAt) {
-            continue
-        }
-        return index
-    }
-    return -1
 }
 
 function hasActiveTranscript(row: ChatTimelineRow): boolean {
