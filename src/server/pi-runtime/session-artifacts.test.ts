@@ -66,7 +66,7 @@ describe('session artifact extraction', () => {
         )
     })
 
-    it('extracts created and edited files from tool result details', () => {
+    it('extracts explicitly promoted created and edited files from tool result details', () => {
         const artifacts = extractSessionArtifacts(config, [
             messageEntry('assistant-1', '2026-05-11T09:00:01.000Z', {
                 role: 'assistant',
@@ -88,6 +88,7 @@ describe('session artifact extraction', () => {
                 details: {
                     path: join(config.paths.workspaceDir, 'notes/summary.md'),
                     operation: 'create',
+                    artifactId: 'summary-artifact',
                     byteLength: 42,
                 },
             }),
@@ -109,6 +110,7 @@ describe('session artifact extraction', () => {
                 toolCallId: 'call-edit',
                 content: [{ type: 'text', text: 'Edited notes/summary.md' }],
                 details: {
+                    artifactId: 'summary-artifact',
                     fileChange: {
                         kind: 'edit',
                         path: join(config.paths.workspaceDir, 'notes/summary.md'),
@@ -124,12 +126,13 @@ describe('session artifact extraction', () => {
             kind: 'edited',
             name: 'summary.md',
             relativePath: 'notes/summary.md',
+            artifactId: 'summary-artifact',
             byteLength: 50,
             toolName: 'edit',
         })
     })
 
-    it('extracts legacy absolute room-id paths after opaque path migration', () => {
+    it('excludes read-only legacy absolute room-id paths from primary artifacts', () => {
         const legacyWorkspacePath = join(
             dirname(config.paths.roomRootDir),
             config.runtime.roomId,
@@ -162,14 +165,7 @@ describe('session artifact extraction', () => {
             }),
         ])
 
-        expect(artifacts).toEqual([
-            expect.objectContaining({
-                id: 'workspace:notes/legacy.md',
-                kind: 'referenced',
-                relativePath: 'notes/legacy.md',
-                byteLength: 11,
-            }),
-        ])
+        expect(artifacts).toEqual([])
     })
 
     it('rejects parent-traversal relative paths from artifact state', () => {
@@ -241,7 +237,7 @@ describe('session artifact extraction', () => {
         })
     })
 
-    it('extracts saved bounded tool outputs as referenced artifacts', () => {
+    it('excludes saved bounded tool outputs unless explicitly promoted', () => {
         const artifacts = extractSessionArtifacts(config, [
             messageEntry('assistant-1', '2026-05-11T09:00:01.000Z', {
                 role: 'assistant',
@@ -271,13 +267,62 @@ describe('session artifact extraction', () => {
             }),
         ])
 
+        expect(artifacts).toEqual([])
+    })
+
+    it('excludes scratch writes while keeping explicitly promoted deliverables', () => {
+        const artifacts = extractSessionArtifacts(config, [
+            messageEntry('assistant-1', '2026-05-11T09:00:01.000Z', {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'toolCall',
+                        id: 'call-scratch',
+                        name: 'write',
+                        arguments: {
+                            path: 'scratch/build-report.py',
+                        },
+                    },
+                    {
+                        type: 'toolCall',
+                        id: 'call-deliverable',
+                        name: 'artifact_export',
+                        arguments: {
+                            path: 'deliverables/report.pdf',
+                        },
+                    },
+                ],
+            }),
+            messageEntry('tool-1', '2026-05-11T09:00:02.000Z', {
+                role: 'toolResult',
+                toolCallId: 'call-scratch',
+                content: [{ type: 'text', text: 'Wrote scratch/build-report.py' }],
+                details: {
+                    path: join(config.paths.workspaceDir, 'scratch/build-report.py'),
+                    operation: 'create',
+                    byteLength: 200,
+                },
+            }),
+            messageEntry('tool-2', '2026-05-11T09:00:03.000Z', {
+                role: 'toolResult',
+                toolCallId: 'call-deliverable',
+                content: [{ type: 'text', text: 'Exported deliverables/report.pdf' }],
+                details: {
+                    path: join(config.paths.workspaceDir, 'deliverables/report.pdf'),
+                    operation: 'artifact_export',
+                    artifactId: 'report-artifact',
+                    byteLength: 2048,
+                },
+            }),
+        ])
+
         expect(artifacts).toEqual([
             expect.objectContaining({
-                id: 'store:tool-output/thread/run/fetch.txt',
-                kind: 'referenced',
-                relativePath: 'tool-output/thread/run/fetch.txt',
-                source: 'fetch url tool_output',
-                byteLength: 90000,
+                id: 'workspace:deliverables/report.pdf',
+                kind: 'created',
+                relativePath: 'deliverables/report.pdf',
+                artifactId: 'report-artifact',
+                byteLength: 2048,
             }),
         ])
     })

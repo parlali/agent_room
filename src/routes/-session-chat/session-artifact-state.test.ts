@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest'
 import type { RoomSessionArtifact } from '#/lib/room-execution-types'
 import {
     artifactPanelStatesEqual,
+    artifactPanelDefaultWidth,
+    artifactPanelMaxWidth,
+    artifactPanelMinWidth,
     defaultArtifactPanelState,
     patchArtifactPanelState,
     resolveSelectedArtifact,
@@ -21,8 +24,18 @@ describe('session artifact state', () => {
             loaded: false,
             autoOpened: false,
             selectedArtifactId: null,
-            width: 384,
+            width: artifactPanelDefaultWidth,
         })
+    })
+
+    it('clamps persisted desktop width to stable panel bounds', () => {
+        const current = defaultArtifactPanelState()
+
+        expect(patchArtifactPanelState(current, { width: 100 }).width).toBe(artifactPanelMinWidth)
+        expect(patchArtifactPanelState(current, { width: 900 }).width).toBe(artifactPanelMaxWidth)
+        expect(patchArtifactPanelState(current, { width: Number.NaN }).width).toBe(
+            artifactPanelDefaultWidth,
+        )
     })
 
     it('preserves a valid explicit artifact selection', () => {
