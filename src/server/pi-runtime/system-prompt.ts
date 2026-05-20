@@ -41,9 +41,9 @@ export function contextBudgetForProvider(config: PiRuntimeConfig): ContextBudget
     }
 }
 
-function programmerGitHubInstruction(config: PiRuntimeConfig): string {
+function githubRepositoryInstruction(config: PiRuntimeConfig): string | null {
     if (!config.github.enabled) {
-        return 'GitHub is not connected. Ask for setup before authenticated clone, pull, push, or pull request work.'
+        return null
     }
 
     const repositories = config.github.repositories.join(', ')
@@ -51,6 +51,7 @@ function programmerGitHubInstruction(config: PiRuntimeConfig): string {
         .map((repository) => `https://github.com/${repository}.git`)
         .join(', ')
     return [
+        'GitHub repository access:',
         `GitHub is connected for ${repositories}.`,
         `Available HTTPS remotes: ${remotes}.`,
         'The workspace may be empty until you clone a selected repository.',
@@ -114,6 +115,7 @@ function behaviorSection(): string {
 }
 
 function sharedPolicySection(config: PiRuntimeConfig): string {
+    const githubInstruction = githubRepositoryInstruction(config)
     return [
         'Standing instructions and canonical memory are persistent context for this workspace.',
         'Treat workspace AGENTS.md, CLAUDE.md, and other project files as project-local files, not standing instructions.',
@@ -121,19 +123,24 @@ function sharedPolicySection(config: PiRuntimeConfig): string {
         'Never read host-global Pi, Codex, provider, or credential files.',
         'Keep provider credentials, secrets, OAuth tokens, git credentials, and MCP authentication values out of responses, files, tool arguments, and logs.',
         'Use web search or URL fetch for current-world facts, docs lookup, prices, laws, provider details, API behavior, software versions, and other time-sensitive facts.',
-    ].join('\n')
+        githubInstruction,
+    ]
+        .filter((line): line is string => line !== null)
+        .join('\n')
 }
 
 function modeInstructions(config: PiRuntimeConfig): string {
     if (config.roomMode === 'programmer') {
-        return [
+        const lines = [
             'Programmer mode: inspect the repository, make the smallest correct change, run the relevant checks, and report the result plainly.',
             'Use shell, git, package managers, test runners, and editor tools directly when they are available in the workspace.',
-            programmerGitHubInstruction(config),
-            'Prefer source changes and verification over explanatory artifacts; create office, image, or presentation deliverables only when the operator explicitly asks.',
+            config.capabilities.images
+                ? 'Prefer source changes and verification over explanatory artifacts; create image deliverables only when the operator explicitly asks.'
+                : 'Prefer source changes and verification over explanatory artifacts.',
             'Update canonical memory for durable coding preferences, repository conventions, PR policy, current project context, or decisions.',
             'If you create a workspace notes file for bulky repository context, also store a concise canonical memory pointer to that file.',
-        ].join('\n')
+        ]
+        return lines.join('\n')
     }
 
     return [

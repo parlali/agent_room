@@ -302,7 +302,7 @@ export function GitHubAppSection({
                             <EmptyState
                                 icon={GitBranchIcon}
                                 title="No GitHub accounts"
-                                description="Connect GitHub or install the app on accounts programmer rooms should use."
+                                description="Connect GitHub or install the app on accounts that rooms should use."
                             />
                         ) : (
                             <div className="divide-y divide-border/60 rounded-md border">

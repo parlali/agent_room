@@ -1,18 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
     AppGitHubAppRecord,
+    AppGitHubInstallationRecord,
     AppGitHubManifestSessionRecord,
     AppGitHubUserAuthSessionRecord,
     AppGitHubUserConnectionRecord,
+    RoomGitHubBindingRecord,
     SecretRecord,
 } from '../domain/types'
 
 const mocks = vi.hoisted(() => ({
     state: {
         app: null as AppGitHubAppRecord | null,
+        installation: null as AppGitHubInstallationRecord | null,
         session: null as AppGitHubManifestSessionRecord | null,
         userAuthSession: null as AppGitHubUserAuthSessionRecord | null,
         userConnection: null as AppGitHubUserConnectionRecord | null,
+        binding: null as RoomGitHubBindingRecord | null,
         audits: [] as { action: string; payload: unknown }[],
         sessionStatusUpdates: [] as string[],
         userSessionStatusUpdates: [] as string[],
@@ -32,6 +36,48 @@ function secret(id: string): SecretRecord {
         nonce: Buffer.alloc(0),
         authTag: Buffer.alloc(0),
         keyVersion: 1,
+        createdAt: now(),
+        updatedAt: now(),
+    }
+}
+
+function readyApp(): AppGitHubAppRecord {
+    return {
+        id: true,
+        appId: '3697071',
+        slug: 'agent-room',
+        name: 'Agent Room',
+        clientId: 'client-id',
+        clientSecretSecretId: 'client-secret-secret',
+        privateKeySecretId: 'private-key-secret',
+        webhookSecretSecretId: null,
+        htmlUrl: 'https://github.com/apps/agent-room',
+        status: 'ready',
+        validationMessage: null,
+        lastValidatedAt: now(),
+        createdByUserId: 'user-1',
+        createdAt: now(),
+        updatedAt: now(),
+    }
+}
+
+function readyInstallation(): AppGitHubInstallationRecord {
+    return {
+        installationId: '123',
+        accountLogin: 'agent-room',
+        accountType: 'Organization',
+        targetType: 'Organization',
+        htmlUrl: 'https://github.com/organizations/agent-room/settings/installations/123',
+        repositorySelection: 'selected',
+        permissions: {
+            contents: 'write',
+            metadata: 'read',
+            pull_requests: 'write',
+            issues: 'write',
+        },
+        suspendedAt: null,
+        status: 'ready',
+        lastSyncedAt: now(),
         createdAt: now(),
         updatedAt: now(),
     }
@@ -115,8 +161,12 @@ vi.mock('../db/repositories', () => ({
         delete: vi.fn(),
     },
     appGitHubInstallationRepository: {
-        list: vi.fn(async () => []),
-        findById: vi.fn(),
+        list: vi.fn(async () => (mocks.state.installation ? [mocks.state.installation] : [])),
+        findById: vi.fn(async (installationId: string) =>
+            mocks.state.installation?.installationId === installationId
+                ? mocks.state.installation
+                : null,
+        ),
         upsert: vi.fn(),
         markMissingInvalid: vi.fn(async () => 0),
         deleteAll: vi.fn(),
@@ -185,6 +235,27 @@ vi.mock('../db/repositories', () => ({
         }),
     },
     roomGitHubBindingRepository: {
+        findByRoomId: vi.fn(async (roomId: string) =>
+            mocks.state.binding?.roomId === roomId ? mocks.state.binding : null,
+        ),
+        upsert: vi.fn(
+            async (
+                input: Omit<RoomGitHubBindingRecord, 'createdAt' | 'updatedAt'>,
+            ): Promise<RoomGitHubBindingRecord> => {
+                const binding = {
+                    ...input,
+                    createdAt: now(),
+                    updatedAt: now(),
+                }
+                mocks.state.binding = binding
+                return binding
+            },
+        ),
+        deleteByRoomId: vi.fn(async (roomId: string) => {
+            if (mocks.state.binding?.roomId === roomId) {
+                mocks.state.binding = null
+            }
+        }),
         deleteAll: vi.fn(),
     },
     secretRepository: {
@@ -200,6 +271,8 @@ describe('completeGitHubAppManifest', () => {
             now: now(),
         })
         mocks.state.app = null
+        mocks.state.installation = null
+        mocks.state.binding = null
         mocks.state.userAuthSession = null
         mocks.state.userConnection = null
         mocks.state.session = {
@@ -279,23 +352,7 @@ describe('completeGitHubAppManifest', () => {
     })
 
     it('connects a GitHub user through the interactive app OAuth callback', async () => {
-        mocks.state.app = {
-            id: true,
-            appId: '3697071',
-            slug: 'agent-room',
-            name: 'Agent Room',
-            clientId: 'client-id',
-            clientSecretSecretId: 'client-secret-secret',
-            privateKeySecretId: 'private-key-secret',
-            webhookSecretSecretId: null,
-            htmlUrl: 'https://github.com/apps/agent-room',
-            status: 'ready',
-            validationMessage: null,
-            lastValidatedAt: now(),
-            createdByUserId: 'user-1',
-            createdAt: now(),
-            updatedAt: now(),
-        }
+        mocks.state.app = readyApp()
         mocks.state.userAuthSession = {
             stateHash: 'hashed-user-state',
             actorUserId: 'user-1',
@@ -372,5 +429,88 @@ describe('completeGitHubAppManifest', () => {
         ])
         expect(mocks.state.userSessionStatusUpdates).toEqual(['completed'])
         expect(mocks.state.audits.map((event) => event.action)).toContain('github_user.connected')
+    })
+})
+
+describe('room GitHub bindings', () => {
+    beforeEach(() => {
+        vi.useFakeTimers({
+            now: now(),
+        })
+        mocks.state.app = readyApp()
+        mocks.state.installation = readyInstallation()
+        mocks.state.binding = null
+        mocks.state.userAuthSession = null
+        mocks.state.userConnection = null
+        mocks.state.session = null
+        mocks.state.audits = []
+        mocks.state.sessionStatusUpdates = []
+        mocks.state.userSessionStatusUpdates = []
+        mocks.state.deletedSecretIds = []
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async (url: string | URL | Request) => {
+                const href = String(url)
+                if (href.includes('/app/installations/123/access_tokens')) {
+                    return response({
+                        token: 'installation-token',
+                        expires_at: '2026-05-13T07:19:19.000Z',
+                    })
+                }
+                return response(
+                    {
+                        message: 'Unexpected GitHub request',
+                    },
+                    500,
+                )
+            }),
+        )
+    })
+
+    afterEach(() => {
+        vi.useRealTimers()
+    })
+
+    it('saves, reports, and materializes room GitHub access without a mode gate', async () => {
+        const { saveRoomGitHubBinding, resolveRoomGitHubStatus, materializeRoomGitHubBinding } =
+            await import('./github-app')
+
+        const saved = await saveRoomGitHubBinding({
+            roomId: 'room-1',
+            enabled: true,
+            installationId: '123',
+            repositories: ['agent-room/example'],
+            actorUserId: 'user-1',
+        })
+        const status = await resolveRoomGitHubStatus({
+            binding: mocks.state.binding,
+        })
+        const materialized = await materializeRoomGitHubBinding({
+            binding: mocks.state.binding,
+        })
+
+        expect(saved).toEqual({
+            enabled: true,
+            installationId: '123',
+            repositories: ['agent-room/example'],
+        })
+        expect(status).toMatchObject({
+            ready: true,
+            enabled: true,
+            installationId: '123',
+            accountLogin: 'agent-room',
+            repositories: ['agent-room/example'],
+        })
+        expect(materialized.internalEnv).toEqual({
+            AGENT_ROOM_GITHUB_INSTALLATION_TOKEN: 'installation-token',
+        })
+        expect(materialized.github).toMatchObject({
+            enabled: true,
+            installationId: '123',
+            accountLogin: 'agent-room',
+            repositories: ['agent-room/example'],
+            tokenEnvKey: 'AGENT_ROOM_GITHUB_INSTALLATION_TOKEN',
+            tokenExpiresAt: '2026-05-13T07:19:19.000Z',
+        })
     })
 })

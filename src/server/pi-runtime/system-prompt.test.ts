@@ -126,6 +126,10 @@ describe('Agent Room Pi system prompt', () => {
             expect(prompt).toContain('memory_patch')
             expect(prompt).toContain('deep_work')
             expect(prompt).not.toContain('read_pdf')
+            expect(prompt).not.toContain('image_generate')
+            expect(prompt).not.toContain('GitHub is not connected')
+            expect(prompt).not.toContain('office, image, or presentation')
+            expect(prompt).not.toContain('create image deliverables')
             expect(prompt).not.toContain('explicitly asks you to remember')
             expect(prompt).toContain('Use memory as an internal habit after substantive work')
             expect(prompt).toContain('used multiple web search or URL fetch calls')
@@ -139,9 +143,29 @@ describe('Agent Room Pi system prompt', () => {
         })
     })
 
-    it('includes explicit GitHub status in programmer mode', async () => {
+    it('includes image generation in programmer mode when enabled', async () => {
         await withConfig(async (config) => {
             config.roomMode = 'programmer'
+            config.capabilities.documents = false
+            config.capabilities.spreadsheets = false
+            config.capabilities.presentations = false
+            config.capabilities.pdf = false
+            config.capabilities.images = true
+
+            const prompt = await buildAgentRoomSystemPrompt(config)
+
+            expect(prompt).toContain('Mode: programmer')
+            expect(prompt).toContain('image generation')
+            expect(prompt).toContain('image_generate')
+            expect(prompt).toContain(
+                'create image deliverables only when the operator explicitly asks',
+            )
+            expect(prompt).not.toContain('office, image, or presentation')
+        })
+    })
+
+    it('includes explicit GitHub status in every room mode', async () => {
+        await withConfig(async (config) => {
             config.github = {
                 enabled: true,
                 installationId: '123',
@@ -154,23 +178,26 @@ describe('Agent Room Pi system prompt', () => {
                 gitConfigPath: '/tmp/home/.gitconfig',
             }
 
-            const prompt = await buildAgentRoomSystemPrompt(config)
+            for (const roomMode of ['programmer', 'coworker'] as const) {
+                config.roomMode = roomMode
+                const prompt = await buildAgentRoomSystemPrompt(config)
 
-            expect(prompt).toContain('GitHub repository access')
-            expect(prompt).toContain('GitHub is connected for agent-room/example')
-            expect(prompt).toContain(
-                'Available HTTPS remotes: https://github.com/agent-room/example.git',
-            )
-            expect(prompt).toContain(
-                'The workspace may be empty until you clone a selected repository',
-            )
-            expect(prompt).toContain(
-                'Do not treat an empty workspace or "fatal: not a git repository" as missing GitHub access',
-            )
-            expect(prompt).toContain('To verify access, run git ls-remote')
-            expect(prompt).toContain(
-                'Use git with the configured HOME credentials; use gh only if it is installed',
-            )
+                expect(prompt).toContain('GitHub repository access')
+                expect(prompt).toContain('GitHub is connected for agent-room/example')
+                expect(prompt).toContain(
+                    'Available HTTPS remotes: https://github.com/agent-room/example.git',
+                )
+                expect(prompt).toContain(
+                    'The workspace may be empty until you clone a selected repository',
+                )
+                expect(prompt).toContain(
+                    'Do not treat an empty workspace or "fatal: not a git repository" as missing GitHub access',
+                )
+                expect(prompt).toContain('To verify access, run git ls-remote')
+                expect(prompt).toContain(
+                    'Use git with the configured HOME credentials; use gh only if it is installed',
+                )
+            }
         })
     })
 

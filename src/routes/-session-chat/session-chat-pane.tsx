@@ -195,7 +195,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const messages = useMemo(() => messagesFromRows(rows), [rows])
     const artifacts = windowQuery.data?.pages[0]?.artifacts ?? emptyArtifacts
     const totalRows = windowQuery.data?.pages[0]?.totalRows ?? rows.length
-    const showArtifacts = room?.roomMode !== 'programmer'
+    const showArtifacts = room?.roomMode !== 'programmer' || artifacts.length > 0
     const browserSession = snapshot?.browserSession ?? null
     const browserSessionAvailable =
         Boolean(browserSession && browserSession.status !== 'closed') &&

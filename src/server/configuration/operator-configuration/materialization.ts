@@ -508,7 +508,6 @@ export async function materializeRoomConfiguration(input: {
         encryptionKey: env.encryptionKey,
     })
     const githubMaterialization = await materializeRoomGitHubBinding({
-        roomMode: config.roomMode,
         binding: githubBinding,
     })
     const enabledBindings = bindings.filter((binding) => binding.enabled)

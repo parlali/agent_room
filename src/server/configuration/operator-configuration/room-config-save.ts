@@ -252,7 +252,6 @@ export async function saveRoomConfig(
     )
     await saveRoomGitHubBinding({
         roomId: input.roomId,
-        roomMode: input.roomMode,
         enabled: input.githubEnabled,
         installationId: input.githubInstallationId,
         repositories: input.githubRepositories,
@@ -268,7 +267,7 @@ export async function saveRoomConfig(
             providerConnectionId: config.providerConnectionId,
             roomMode: config.roomMode,
             mcpConnectionCount: input.mcpConnectionIds.length,
-            githubEnabled: input.roomMode === 'programmer' && input.githubEnabled,
+            githubEnabled: input.githubEnabled,
             hasInstructions: config.instructions.length > 0,
             enabledCapabilities: Object.entries(
                 config.capabilityOverrides &&

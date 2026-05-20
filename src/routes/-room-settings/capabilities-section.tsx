@@ -60,6 +60,7 @@ export function CapabilitiesSection({
               (option) =>
                   option.id === 'web_search' ||
                   option.id === 'url_fetch' ||
+                  option.id === 'images' ||
                   option.id === 'mcp' ||
                   option.id === 'shell_coding',
           )
@@ -74,7 +75,7 @@ export function CapabilitiesSection({
             title="Capabilities"
             description={
                 programmerMode
-                    ? 'Programmer mode keeps the harness focused on source work.'
+                    ? 'Programmer mode keeps the harness focused on source work, search, and image generation.'
                     : 'Built-in room features and provider-backed image generation.'
             }
             actions={<SaveBar dirty={dirty} pending={pending} onSave={onSave} />}
@@ -128,92 +129,88 @@ export function CapabilitiesSection({
                     })}
                 </div>
 
-                {!programmerMode ? (
-                    <div className="rounded-lg border border-border/60 p-3">
-                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                            <div>
-                                <div className="text-sm font-medium text-foreground">
-                                    Image provider
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                    App default: {inheritedImage}. Room keys are write-only.
-                                </div>
+                <div className="rounded-lg border border-border/60 p-3">
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <div className="text-sm font-medium text-foreground">
+                                Image provider
                             </div>
-                            <div className="flex flex-wrap gap-2">
-                                <StateBadge
-                                    tone={searchReady ? 'ready' : 'muted'}
-                                    label={searchReady ? 'Search ready' : 'Search off'}
-                                />
-                                <StateBadge
-                                    tone={imageReady ? 'ready' : 'muted'}
-                                    label={imageReady ? 'Images ready' : 'Images not ready'}
-                                />
+                            <div className="text-xs text-muted-foreground">
+                                App default: {inheritedImage}. Room keys are write-only.
                             </div>
                         </div>
-                        <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                            <div className="space-y-1.5">
-                                <Label htmlFor="room-image-provider">Provider</Label>
-                                <Select
-                                    value={draft.imageProvider}
-                                    onValueChange={(value) => {
-                                        const imageProvider = value as ConfigDraft['imageProvider']
-                                        const options =
-                                            imageProvider === 'inherit'
-                                                ? []
-                                                : imageModelOptionsForProvider(imageProvider)
-                                        onChange({
-                                            imageProvider,
-                                            imageModel:
-                                                imageProvider === 'inherit'
-                                                    ? ''
-                                                    : (options[0]?.value ?? ''),
-                                            imageApiKey:
-                                                imageProvider === 'inherit'
-                                                    ? ''
-                                                    : draft.imageApiKey,
-                                        })
-                                    }}
-                                >
-                                    <SelectTrigger id="room-image-provider" className="w-full">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="inherit">Use app default</SelectItem>
-                                        <SelectItem value="openai">OpenAI Images</SelectItem>
-                                        <SelectItem value="gemini">Gemini Images</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label htmlFor="room-image-model">Image model</Label>
-                                {imageConfigured ? (
-                                    <ModelSelect
-                                        id="room-image-model"
-                                        value={draft.imageModel}
-                                        onChange={(imageModel) => onChange({ imageModel })}
-                                        options={roomImageModelOptions}
-                                    />
-                                ) : (
-                                    <div className="flex min-h-10 items-center rounded-md border border-border bg-muted/30 px-3 text-sm text-muted-foreground">
-                                        {appImage?.model ?? 'Use app default'}
-                                    </div>
-                                )}
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label htmlFor="room-image-key">Image API key</Label>
-                                <Input
-                                    id="room-image-key"
-                                    type="password"
-                                    value={draft.imageApiKey}
-                                    onChange={(e) => onChange({ imageApiKey: e.target.value })}
-                                    disabled={!imageConfigured}
-                                    placeholder="Leave blank to keep saved key"
-                                    autoComplete="off"
-                                />
-                            </div>
+                        <div className="flex flex-wrap gap-2">
+                            <StateBadge
+                                tone={searchReady ? 'ready' : 'muted'}
+                                label={searchReady ? 'Search ready' : 'Search off'}
+                            />
+                            <StateBadge
+                                tone={imageReady ? 'ready' : 'muted'}
+                                label={imageReady ? 'Images ready' : 'Images not ready'}
+                            />
                         </div>
                     </div>
-                ) : null}
+                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                        <div className="space-y-1.5">
+                            <Label htmlFor="room-image-provider">Provider</Label>
+                            <Select
+                                value={draft.imageProvider}
+                                onValueChange={(value) => {
+                                    const imageProvider = value as ConfigDraft['imageProvider']
+                                    const options =
+                                        imageProvider === 'inherit'
+                                            ? []
+                                            : imageModelOptionsForProvider(imageProvider)
+                                    onChange({
+                                        imageProvider,
+                                        imageModel:
+                                            imageProvider === 'inherit'
+                                                ? ''
+                                                : (options[0]?.value ?? ''),
+                                        imageApiKey:
+                                            imageProvider === 'inherit' ? '' : draft.imageApiKey,
+                                    })
+                                }}
+                            >
+                                <SelectTrigger id="room-image-provider" className="w-full">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="inherit">Use app default</SelectItem>
+                                    <SelectItem value="openai">OpenAI Images</SelectItem>
+                                    <SelectItem value="gemini">Gemini Images</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label htmlFor="room-image-model">Image model</Label>
+                            {imageConfigured ? (
+                                <ModelSelect
+                                    id="room-image-model"
+                                    value={draft.imageModel}
+                                    onChange={(imageModel) => onChange({ imageModel })}
+                                    options={roomImageModelOptions}
+                                />
+                            ) : (
+                                <div className="flex min-h-10 items-center rounded-md border border-border bg-muted/30 px-3 text-sm text-muted-foreground">
+                                    {appImage?.model ?? 'Use app default'}
+                                </div>
+                            )}
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label htmlFor="room-image-key">Image API key</Label>
+                            <Input
+                                id="room-image-key"
+                                type="password"
+                                value={draft.imageApiKey}
+                                onChange={(e) => onChange({ imageApiKey: e.target.value })}
+                                disabled={!imageConfigured}
+                                placeholder="Leave blank to keep saved key"
+                                autoComplete="off"
+                            />
+                        </div>
+                    </div>
+                </div>
 
                 <div className="rounded-lg border border-border/60 p-3">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -280,8 +277,7 @@ function capabilityValue(input: {
             input.option.id === 'documents' ||
             input.option.id === 'spreadsheets' ||
             input.option.id === 'presentations' ||
-            input.option.id === 'pdf' ||
-            input.option.id === 'images'
+            input.option.id === 'pdf'
         ) {
             return false
         }
