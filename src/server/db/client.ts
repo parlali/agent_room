@@ -10,6 +10,8 @@ export const sql = postgres(env.databaseUrl, {
     connect_timeout: 10,
 })
 
+export type DatabaseQuery = typeof sql | postgres.TransactionSql
+
 export async function withTransaction<T>(work: (trx: postgres.TransactionSql) => Promise<T>) {
     return sql.begin(async (trx) => work(trx))
 }

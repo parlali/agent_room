@@ -1,4 +1,5 @@
 import type { PiRuntimeCompactPayload, PiRuntimeForkPayload } from '../../pi-runtime/protocol'
+import type { ThreadKind } from '../../pi-runtime/thread-records'
 import { usageRepository } from '../../db/repositories'
 import type {
     RoomExecutionModelState,
@@ -22,11 +23,21 @@ import { syncRuntimeUsageEvents } from './usage-sync'
 export async function createRoomThread(input: {
     roomId: string
     firstMessage?: string | null
+    title?: string | null
+    hideUserMessage?: boolean
+    awaitInitialRun?: boolean
+    internalInstruction?: string | null
+    kind?: ThreadKind
 }): Promise<{ key: string }> {
     return requestPiRuntime(input.roomId, '/threads', createThreadSchema, {
         method: 'POST',
         body: {
             firstMessage: input.firstMessage ?? null,
+            title: input.title ?? null,
+            hideUserMessage: input.hideUserMessage === true,
+            awaitInitialRun: input.awaitInitialRun === true,
+            internalInstruction: input.internalInstruction ?? null,
+            kind: input.kind ?? 'main',
         },
     })
 }
@@ -38,6 +49,7 @@ export async function sendRoomThreadMessage(input: {
     awaitCompletion?: boolean
     runKind?: 'manual' | 'scheduled' | 'subagent' | 'maintenance'
     jobId?: string | null
+    hideUserMessage?: boolean
 }): Promise<RoomThreadSendResult> {
     const message = input.message.trim()
     if (!message) {
@@ -56,6 +68,7 @@ export async function sendRoomThreadMessage(input: {
                     message,
                     awaitCompletion: input.awaitCompletion === true,
                     runKind: input.runKind ?? 'manual',
+                    hideUserMessage: input.hideUserMessage === true,
                 },
             },
         )
@@ -104,6 +117,7 @@ export async function updateRoomThreadModel(input: {
     provider: string
     model: string
     thinkingLevel?: RoomExecutionThinkingLevel | null
+    speedMode?: RoomExecutionModelState['speedMode']
 }): Promise<RoomExecutionModelState> {
     return requestPiRuntime(
         input.roomId,
@@ -115,6 +129,7 @@ export async function updateRoomThreadModel(input: {
                 provider: input.provider,
                 model: input.model,
                 thinkingLevel: input.thinkingLevel ?? null,
+                speedMode: input.speedMode ?? null,
             },
         },
     )

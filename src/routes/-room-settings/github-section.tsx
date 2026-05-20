@@ -117,7 +117,7 @@ export function GitHubSection({
     return (
         <Section
             title="GitHub"
-            description="Room-scoped repository credentials for programmer work."
+            description="Room-scoped repository credentials."
             actions={
                 <div className="flex flex-wrap justify-end gap-2">
                     <Button
@@ -146,7 +146,7 @@ export function GitHubSection({
                 <EmptyState
                     icon={GitBranchIcon}
                     title="No GitHub installations"
-                    description="Install the GitHub App on repositories this programmer room should use."
+                    description="Install the GitHub App on repositories this room should use."
                 />
             ) : (
                 <div className="space-y-4">
@@ -154,7 +154,7 @@ export function GitHubSection({
                         <div>
                             <div className="text-sm font-medium">Enable GitHub</div>
                             <div className="text-xs text-muted-foreground">
-                                Credentials are materialized only for this programmer room.
+                                Credentials are materialized only for this room.
                             </div>
                         </div>
                         <Switch

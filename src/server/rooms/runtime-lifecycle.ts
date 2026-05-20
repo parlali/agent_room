@@ -27,6 +27,7 @@ import {
 import { writeRuntimeFileMetadata } from './runtime-materializer'
 import { ensureRoomFilesystemLayout } from './room-paths'
 import { getRuntimeEngineProfile } from './runtime-engine-profile'
+import { ensureRoomOnboardingStarted } from './room-onboarding'
 
 const startupHealthPollIntervalMs = 500
 const startupHealthTimeoutMs = 30_000
@@ -417,6 +418,13 @@ async function startRoomProcessUnlocked(room: RoomRecord): Promise<void> {
         didRegisterProcess = true
         startupLogStream = null
 
+        void ensureRoomOnboardingStarted(room.id).catch((error) => {
+            console.error(
+                `Failed to start onboarding for room ${room.id}`,
+                error instanceof Error ? error.message : error,
+            )
+        })
+
         child.on('exit', async (code, signal) => {
             const current = getRuntimeProcess(room.id)
             if (current) {
@@ -426,7 +434,8 @@ async function startRoomProcessUnlocked(room: RoomRecord): Promise<void> {
                 deleteRuntimeProcess(room.id)
             }
 
-            const stoppedCleanly = consumeRoomStopping(room.id) || code === 0
+            const stopRequest = consumeRoomStopping(room.id)
+            const stoppedCleanly = stopRequest.requested || code === 0
             const status = stoppedCleanly ? 'stopped' : 'failed'
             await roomRepository.updateRoomStatus(room.id, status)
             await writeRoomRuntimeMetadataFile({
@@ -472,7 +481,7 @@ async function startRoomProcessUnlocked(room: RoomRecord): Promise<void> {
                     status,
                 },
             })
-            if (status === 'stopped') {
+            if (status === 'stopped' && stopRequest.restartIfDesired) {
                 await restartRoomIfDesiredAfterStop({
                     roomId: room.id,
                     restart: startRoomProcess,
@@ -538,7 +547,13 @@ export async function startRoomProcess(room: RoomRecord): Promise<void> {
     })
 }
 
-export async function stopRoomProcess(roomId: string, actorUserId: string | null): Promise<void> {
+export async function stopRoomProcess(
+    roomId: string,
+    actorUserId: string | null,
+    options: {
+        restartIfDesired?: boolean
+    } = {},
+): Promise<void> {
     const running = getRuntimeProcess(roomId)
     if (!running) {
         const metadata = await getRuntimeMetadataOrCreate(roomId)
@@ -587,7 +602,9 @@ export async function stopRoomProcess(roomId: string, actorUserId: string | null
         return
     }
 
-    markRoomStopping(roomId)
+    markRoomStopping(roomId, {
+        restartIfDesired: options.restartIfDesired,
+    })
     clearInterval(running.healthTimer)
     running.child.kill('SIGTERM')
     await waitForProcessExit(running.child)

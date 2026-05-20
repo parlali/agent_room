@@ -257,7 +257,7 @@ export function buildTimelineRows(
     const streamRows = stream.rows
     const persistentMerge =
         streamRows.length > 0
-            ? persistedRowsForLiveRun(rows, stream.startedAt)
+            ? persistedRowsForLiveRun(rows, stream)
             : {
                   before: rows,
                   after: [],
@@ -287,61 +287,79 @@ export function buildTimelineRows(
 
 function persistedRowsForLiveRun(
     rows: RoomSessionDisplayRow[],
-    streamStartedAt: number | null,
+    stream: StreamTurnState,
 ): { before: RoomSessionDisplayRow[]; after: RoomSessionDisplayRow[] } {
-    const latestUserIndex = findLatestUserRowIndex(rows, streamStartedAt)
-    if (latestUserIndex < 0) {
-        const filtered = rows.filter((row) => {
-            if (row.type === 'run_transcript') return !isActiveRunStatus(row.status)
-            return !isCurrentStreamFinalRow(row, streamStartedAt)
-        })
+    const pendingAnchor = persistedRowsForMatchingPendingRun(rows, stream.runId)
+    if (pendingAnchor) return pendingAnchor
+
+    const persistedRunAnchor = persistedRowsForMatchingRun(rows, stream.runId)
+    if (persistedRunAnchor) return persistedRunAnchor
+
+    return {
+        before: rows.filter((row) => {
+            if (row.type === 'run_transcript')
+                return row.pending === true || !isActiveRunStatus(row.status)
+            return true
+        }),
+        after: [],
+    }
+}
+
+function persistedRowsForMatchingPendingRun(
+    rows: RoomSessionDisplayRow[],
+    runId: string | null,
+): { before: RoomSessionDisplayRow[]; after: RoomSessionDisplayRow[] } | null {
+    if (!runId) return null
+    const pendingRunIndex = rows.findIndex(
+        (row) => row.type === 'run_transcript' && row.pending === true && row.runId === runId,
+    )
+    if (pendingRunIndex < 0) return null
+    const userIndex = nearestUserRowIndexBefore(rows, pendingRunIndex)
+    if (userIndex < 0) {
         return {
-            before: filtered,
-            after: [],
+            before: rows.slice(0, pendingRunIndex),
+            after: rows.slice(pendingRunIndex + 1),
         }
     }
     return {
-        before: rows.slice(0, latestUserIndex + 1),
-        after: rows.slice(latestUserIndex + 1).filter(isPendingQueuedRow),
+        before: rows.slice(0, userIndex + 1),
+        after: rows.slice(pendingRunIndex + 1),
     }
 }
 
-function isCurrentStreamFinalRow(
-    row: RoomSessionDisplayRow,
-    streamStartedAt: number | null,
-): boolean {
-    return (
-        streamStartedAt !== null &&
-        row.type === 'assistant_final' &&
-        row.timestamp !== null &&
-        row.timestamp >= streamStartedAt
-    )
+function persistedRowsForMatchingRun(
+    rows: RoomSessionDisplayRow[],
+    runId: string | null,
+): { before: RoomSessionDisplayRow[]; after: RoomSessionDisplayRow[] } | null {
+    if (!runId) return null
+    const runIndex = rows.findIndex((row) => row.type === 'run_transcript' && row.runId === runId)
+    if (runIndex < 0) return null
+    const userIndex = nearestUserRowIndexBefore(rows, runIndex)
+    const replacementStart = userIndex < 0 ? runIndex : userIndex + 1
+    return {
+        before: rows.slice(0, replacementStart),
+        after: rows.slice(currentRunReplacementEnd(rows, replacementStart - 1)),
+    }
 }
 
-function findLatestUserRowIndex(
-    rows: RoomSessionDisplayRow[],
-    streamStartedAt: number | null,
-): number {
-    for (let index = rows.length - 1; index >= 0; index -= 1) {
-        const row = rows[index]
-        if (!row || row.type !== 'user_message') continue
-        if (streamStartedAt !== null && row.timestamp !== null && row.timestamp > streamStartedAt) {
-            continue
-        }
-        return index
+function nearestUserRowIndexBefore(rows: RoomSessionDisplayRow[], beforeIndex: number): number {
+    for (let index = beforeIndex - 1; index >= 0; index -= 1) {
+        if (rows[index]?.type === 'user_message') return index
     }
     return -1
 }
 
-function hasActiveTranscript(row: ChatTimelineRow): boolean {
-    return row.type === 'run_transcript' && isActiveRunStatus(row.status)
+function currentRunReplacementEnd(rows: RoomSessionDisplayRow[], userIndex: number): number {
+    for (let index = userIndex + 1; index < rows.length; index += 1) {
+        const row = rows[index]
+        if (!row) return index
+        if (row.type === 'user_message' || row.type === 'system') return index
+    }
+    return rows.length
 }
 
-function isPendingQueuedRow(row: RoomSessionDisplayRow): boolean {
-    if ('pending' in row && row.pending !== undefined) {
-        return row.pending
-    }
-    return row.id.startsWith('pending-user-') || row.id.startsWith('pending-run-')
+function hasActiveTranscript(row: ChatTimelineRow): boolean {
+    return row.type === 'run_transcript' && isActiveRunStatus(row.status)
 }
 
 function isActiveRunStatus(status: RunTranscriptRow['status']): boolean {

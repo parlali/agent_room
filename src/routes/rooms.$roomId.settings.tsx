@@ -11,6 +11,7 @@ import {
     DangerZoneSection,
     IdentitySection,
     PauseAndArchiveSection,
+    PersonalitySection,
     SecretsSection,
 } from './-room-settings/sections'
 
@@ -75,6 +76,8 @@ function RoomSettingsPage() {
                             ])
                         }}
                     />
+
+                    <PersonalitySection roomId={roomId} />
 
                     <ConfigSections
                         roomId={roomId}

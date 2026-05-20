@@ -3,6 +3,7 @@ import type { SessionEntry } from '@mariozechner/pi-coding-agent'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import type { RoomExecutionThread } from '../rooms/execution-types'
 import { createSessionWindowStore } from './session-display-window'
+import { hiddenProjectionEntryType } from './hidden-projection'
 import type { ThreadRecord } from './thread-records'
 
 const config = {
@@ -212,6 +213,34 @@ describe('createSessionWindowStore', () => {
             },
         })
     })
+
+    it('hides internal projected user messages from display windows', () => {
+        const record = threadRecord('thread-hidden')
+        const store = createSessionWindowStore({
+            config,
+            readThreadEntries: () => [
+                messageEntry('u-hidden', null, 'user', 'internal onboarding instruction'),
+                {
+                    type: 'custom',
+                    id: 'hide-1',
+                    customType: hiddenProjectionEntryType,
+                    data: { hiddenEntryId: 'u-hidden' },
+                    parentId: 'u-hidden',
+                    timestamp: '2026-05-12T10:00:00.500Z',
+                } as unknown as SessionEntry,
+                messageEntry('a1', 'hide-1', 'assistant', 'What should this room help with?'),
+            ],
+        })
+
+        const window = store.window({
+            record,
+            thread: executionThread(record),
+            limitRows: 10,
+        })
+
+        expect(JSON.stringify(window.rows)).not.toContain('internal onboarding instruction')
+        expect(window.rows.map((row) => row.type)).toEqual(['assistant_final'])
+    })
 })
 
 function messageEntry(
@@ -246,6 +275,7 @@ function threadRecord(key: string): ThreadRecord {
         modelProvider: null,
         model: null,
         thinkingLevel: null,
+        speedMode: null,
         activeRunId: null,
         activeRunKind: null,
         heartbeatAt: null,
@@ -284,9 +314,9 @@ function executionThread(record: ThreadRecord): RoomExecutionThread {
         modelProvider: null,
         totalTokens: null,
         estimatedCostUsd: null,
-        readState: {
-            readAt: null,
-            unread: false,
+        badgeState: {
+            completedClearedAt: null,
+            completed: false,
         },
         compaction: {
             enabled: true,

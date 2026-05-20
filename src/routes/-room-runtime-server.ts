@@ -1,5 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
-import { setResponseHeaders } from '@tanstack/react-start/server'
+import { setResponseHeaders, setResponseStatus } from '@tanstack/react-start/server'
 import { z } from 'zod'
 import {
     providerApis,
@@ -7,6 +7,7 @@ import {
     roomDesiredStates,
     roomProviderModes,
 } from '#/server/domain/types'
+import { maxSessionComposerDraftLength } from '#/lib/session-composer-draft'
 
 const roomIdSchema = z.string().uuid()
 
@@ -22,6 +23,20 @@ const sessionWindowInputSchema = z.object({
     before: z.string().min(1).nullable().optional(),
     after: z.string().min(1).nullable().optional(),
     limitRows: z.number().int().min(1).max(120).optional(),
+})
+
+const sessionBadgeInputSchema = z.object({
+    roomId: roomIdSchema,
+    sessionKey: z.string().min(1),
+})
+
+const sessionComposerDraftInputSchema = z.object({
+    roomId: roomIdSchema,
+    sessionKey: z.string().min(1),
+})
+
+const saveSessionComposerDraftInputSchema = sessionComposerDraftInputSchema.extend({
+    draft: z.string().max(maxSessionComposerDraftLength),
 })
 
 const sendMessageInputSchema = z.object({
@@ -43,6 +58,7 @@ const updateThreadModelInputSchema = z.object({
         .enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh'])
         .nullable()
         .optional(),
+    speedMode: z.enum(['normal', 'fast']).nullable().optional(),
 })
 
 const abortMessageInputSchema = z.object({
@@ -257,6 +273,21 @@ async function requireMutationActor() {
     return requireAuthenticatedActor()
 }
 
+async function requireRoomOwner(actor: { userId: string }, roomId: string) {
+    const { roomRepository } = await import('#/server/db/repositories')
+    const room = await roomRepository.findRoomById(roomId)
+    if (!room) {
+        setResponseStatus(404, 'Not Found')
+        throw new Error('Room not found')
+    }
+    if (room.createdByUserId !== actor.userId) {
+        console.warn(`Denied room access for user ${actor.userId} on room ${roomId}`)
+        setResponseStatus(403, 'Forbidden')
+        throw new Error('Room access denied')
+    }
+    return room
+}
+
 export const listRoomsServer = createServerFn({ method: 'GET' }).handler(async () => {
     await requireAuthenticatedActor()
     setResponseHeaders({
@@ -427,6 +458,59 @@ export const getRoomSessionWindowServer = createServerFn({ method: 'GET' })
         })
     })
 
+export const clearSessionCompletedBadgeServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => sessionBadgeInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { clearSessionCompletedBadge } = await import('#/server/rooms/execution-engine')
+        await clearSessionCompletedBadge({
+            roomId: data.roomId,
+            sessionKey: data.sessionKey,
+            actorUserId: actor.userId,
+        })
+        return {
+            ok: true,
+        }
+    })
+
+export const getSessionComposerDraftServer = createServerFn({ method: 'GET' })
+    .inputValidator((input: unknown) => sessionComposerDraftInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireAuthenticatedActor()
+        setResponseHeaders({
+            'cache-control': 'no-store',
+        })
+        await requireRoomOwner(actor, data.roomId)
+        const { sessionComposerDraftRepository } = await import('#/server/db/repositories')
+        const draft = await sessionComposerDraftRepository.find({
+            authSessionId: actor.sessionId,
+            roomId: data.roomId,
+            sessionKey: data.sessionKey,
+        })
+        return {
+            draft: draft?.draft ?? '',
+            updatedAt: draft?.updatedAt.getTime() ?? null,
+        }
+    })
+
+export const saveSessionComposerDraftServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => saveSessionComposerDraftInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        await requireRoomOwner(actor, data.roomId)
+        const { sessionComposerDraftRepository } = await import('#/server/db/repositories')
+        const draft = await sessionComposerDraftRepository.upsert({
+            authSessionId: actor.sessionId,
+            roomId: data.roomId,
+            sessionKey: data.sessionKey,
+            draft: data.draft,
+        })
+        return {
+            draft: draft?.draft ?? '',
+            updatedAt: draft?.updatedAt.getTime() ?? null,
+        }
+    })
+
 export const recordClientPerformanceServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => clientPerformanceInputSchema.parse(input))
     .handler(async ({ data }) => {
@@ -453,12 +537,60 @@ export const sendMessageServer = createServerFn({ method: 'POST' })
     .handler(async ({ data }) => {
         await requireMutationActor()
         await ensureRuntimeSupervisorBoot()
+        const { roomOnboardingRepository } = await import('#/server/db/repositories')
+        const onboarding = await roomOnboardingRepository.findByRoomId(data.roomId)
         const { sendRoomThreadMessage } = await import('#/server/rooms/execution-engine')
-        return sendRoomThreadMessage({
+        const isOnboardingReply =
+            onboarding?.status === 'pending' && onboarding.sessionKey === data.sessionKey
+        const result = await sendRoomThreadMessage({
             roomId: data.roomId,
             sessionKey: data.sessionKey,
             message: data.message,
+            awaitCompletion: isOnboardingReply,
         })
+        if (isOnboardingReply) {
+            const { completeOnboardingAfterPersonalityTool } =
+                await import('#/server/rooms/room-onboarding')
+            await completeOnboardingAfterPersonalityTool({
+                roomId: data.roomId,
+                sessionKey: data.sessionKey,
+                runId: result.runId,
+            })
+        }
+        return result
+    })
+
+const roomIdInputSchema = z.object({
+    roomId: roomIdSchema,
+})
+
+export const getRoomPersonalityServer = createServerFn({ method: 'GET' })
+    .inputValidator((input: unknown) => roomIdInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireAuthenticatedActor()
+        await requireRoomOwner(actor, data.roomId)
+        const { getRoomPersonality } = await import('#/server/rooms/room-onboarding')
+        const form = await getRoomPersonality(data.roomId)
+        return { roomId: data.roomId, form }
+    })
+
+const savePersonalityInputSchema = z.object({
+    roomId: roomIdSchema,
+    form: z.record(z.string(), z.unknown()),
+})
+
+export const saveRoomPersonalityServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => savePersonalityInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        await requireRoomOwner(actor, data.roomId)
+        const { saveRoomPersonality } = await import('#/server/rooms/room-onboarding')
+        const form = await saveRoomPersonality({
+            roomId: data.roomId,
+            form: data.form,
+            actorUserId: actor.userId,
+        })
+        return { roomId: data.roomId, form }
     })
 
 export const editMessageServer = createServerFn({ method: 'POST' })
@@ -487,6 +619,7 @@ export const updateThreadModelServer = createServerFn({ method: 'POST' })
             provider: data.provider,
             model: data.model,
             thinkingLevel: data.thinkingLevel ?? null,
+            speedMode: data.speedMode ?? null,
         })
     })
 
@@ -781,8 +914,13 @@ export const deleteSessionServer = createServerFn({ method: 'POST' })
     .handler(async ({ data }) => {
         await requireMutationActor()
         await ensureRuntimeSupervisorBoot()
+        const { sessionComposerDraftRepository } = await import('#/server/db/repositories')
         const { deleteRoomSession } = await import('#/server/rooms/execution-engine')
         await deleteRoomSession({
+            roomId: data.roomId,
+            sessionKey: data.sessionKey,
+        })
+        await sessionComposerDraftRepository.deleteByRoomSession({
             roomId: data.roomId,
             sessionKey: data.sessionKey,
         })

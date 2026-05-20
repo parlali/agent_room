@@ -7,6 +7,7 @@ import { Textarea } from '#/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
 import type { RoomAttachment } from '#/lib/room-attachments'
 import type { RoomExecutionModelState } from '#/lib/room-execution-types'
+import { maxSessionComposerDraftLength } from '#/lib/session-composer-draft'
 import { AttachmentCards } from './attachment-cards'
 import { ModelModeMenu, type ModelModeChange } from './model-mode-menu'
 
@@ -71,7 +72,7 @@ export function Composer({
             className="sticky bottom-0 border-t border-border bg-background/95 px-3 py-3 backdrop-blur sm:px-6"
         >
             {attachments.length > 0 ? (
-                <div className="mx-auto mb-2 w-full max-w-3xl">
+                <div className="mx-auto mb-2 w-full max-w-5xl">
                     <AttachmentCards
                         roomId={roomId}
                         attachments={attachments}
@@ -79,7 +80,7 @@ export function Composer({
                     />
                 </div>
             ) : null}
-            <div className="mx-auto flex w-full max-w-3xl items-end gap-2">
+            <div className="mx-auto flex w-full max-w-5xl items-end gap-2">
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <Button
@@ -109,6 +110,7 @@ export function Composer({
                     onKeyDown={onKeyDown}
                     placeholder={`Message ${roomDisplayName}`}
                     className="max-h-48 min-h-10 flex-1 resize-none"
+                    maxLength={maxSessionComposerDraftLength}
                     rows={1}
                 />
                 <ModelModeMenu

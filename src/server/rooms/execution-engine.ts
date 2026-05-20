@@ -71,6 +71,15 @@ export async function getRoomSessionWindow(input: {
     return module.getRoomSessionWindow(input)
 }
 
+export async function clearSessionCompletedBadge(input: {
+    roomId: string
+    sessionKey: string
+    actorUserId: string
+}): Promise<void> {
+    const module = await loadExecutionEngineModule()
+    return module.clearSessionCompletedBadge(input)
+}
+
 export async function sendRoomThreadMessage(input: {
     roomId: string
     sessionKey: string
@@ -87,6 +96,7 @@ export async function updateRoomThreadModel(input: {
     provider: string
     model: string
     thinkingLevel?: RoomExecutionThinkingLevel | null
+    speedMode?: RoomExecutionModelState['speedMode']
 }): Promise<RoomExecutionModelState> {
     const module = await loadExecutionEngineModule()
     return module.updateRoomThreadModel(input)

@@ -1,7 +1,10 @@
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { resolveArchetypeParagraph } from '../rooms/personality/archetypes'
+import { sanitizePersonalityForm } from '../rooms/personality/form'
 import { buildAgentHarnessPrompt } from './agent-harness'
 import { boundTextByChars } from './bounded-text'
 import { buildInternalStateSummary } from './internal-state'
+import { readMemory } from './memory'
 import { internalStateToolNames } from './internal-state-tools'
 import { nativeWorkspaceToolNamesForCapabilities, roomToolNamesForCapabilities } from './room-tools'
 
@@ -41,9 +44,9 @@ export function contextBudgetForProvider(config: PiRuntimeConfig): ContextBudget
     }
 }
 
-function programmerGitHubInstruction(config: PiRuntimeConfig): string {
+function githubRepositoryInstruction(config: PiRuntimeConfig): string | null {
     if (!config.github.enabled) {
-        return 'GitHub is not connected. Ask for setup before authenticated clone, pull, push, or pull request work.'
+        return null
     }
 
     const repositories = config.github.repositories.join(', ')
@@ -51,6 +54,7 @@ function programmerGitHubInstruction(config: PiRuntimeConfig): string {
         .map((repository) => `https://github.com/${repository}.git`)
         .join(', ')
     return [
+        'GitHub repository access:',
         `GitHub is connected for ${repositories}.`,
         `Available HTTPS remotes: ${remotes}.`,
         'The workspace may be empty until you clone a selected repository.',
@@ -81,10 +85,40 @@ function attachmentHandlingInstruction(config: PiRuntimeConfig): string {
         'Attached images are provided as direct visual input; use that input for image understanding.',
         'Do not inspect images with shell commands, OCR, conversion utilities, package installs, or storage paths.',
         pdfInstruction,
-        'For DOCX, XLSX, and PPTX create, inspect, and edit workflows, use the bundled docx, xlsx, and pptx skills through shell.',
         'Attached non-image, non-PDF files are workspace file references; when a root and path are shown, use the appropriate file, document, skill, or shell tools to inspect them only as needed.',
         'If an attachment cannot be accessed through either path, stop and report the limitation clearly.',
     ].join(' ')
+}
+
+function artifactRoutingSection(config: PiRuntimeConfig): string {
+    const hasOfficeCapability =
+        config.capabilities.documents ||
+        config.capabilities.spreadsheets ||
+        config.capabilities.presentations
+    const lines = [
+        'Artifact routing:',
+        hasOfficeCapability
+            ? 'Use the bundled Office skills as the default editable source for normal business artifacts.'
+            : null,
+        config.capabilities.documents
+            ? 'Document, report, memo, brief, proposal, white paper, and spec requests create or edit DOCX through the bundled docx skill unless the operator explicitly asks for another source format.'
+            : null,
+        config.capabilities.spreadsheets
+            ? 'Spreadsheet, tracker, model, budget, and workbook requests create or edit XLSX through the bundled xlsx skill unless the operator explicitly asks for another source format.'
+            : null,
+        config.capabilities.presentations
+            ? 'Deck, slides, and presentation requests create or edit PPTX through the bundled pptx skill unless the operator explicitly asks for another source format.'
+            : null,
+        config.capabilities.pdf && hasOfficeCapability
+            ? 'For normal business PDF requests, create or preserve the editable Office source first, then export or convert to PDF as the delivery format.'
+            : null,
+        'Use HTML, Markdown, plain text, custom PDF generation, or other renderers only when explicitly requested or when a bounded renderer is required by the task.',
+        hasOfficeCapability
+            ? 'Do not deliberate across multiple artifact formats when the request clearly maps to DOCX, XLSX, or PPTX.'
+            : null,
+    ]
+
+    return lines.filter((line): line is string => line !== null).join('\n')
 }
 
 function identitySection(config: PiRuntimeConfig): string {
@@ -95,9 +129,20 @@ function identitySection(config: PiRuntimeConfig): string {
     ].join('\n')
 }
 
+function initiativeSection(): string {
+    return [
+        'Initiative:',
+        'Take safe obvious next steps before the final report when the next step is clearly implied, safe, and in scope.',
+        'If progress requires user judgment, ask one specific blocker question instead of producing a long report.',
+        'If the task is complete, return a concise completed report without an open-ended follow-up prompt.',
+        'Do not append generic "we can do this next" menus after completed work.',
+    ].join('\n')
+}
+
 function behaviorSection(): string {
     return [
         'Behavior:',
+        initiativeSection(),
         'Lead final responses with the conclusion, judgment, changed artifact, verification result, or named blocker.',
         'Final chat answers are usually 300-500 words unless the operator asked for comprehensive reference material, code, a long-form artifact, or exhaustive analysis.',
         'For broad multi-part questions, answer the decision first, collapse overlapping subquestions into one synthesis, and include only the facts that change the recommendation.',
@@ -114,6 +159,7 @@ function behaviorSection(): string {
 }
 
 function sharedPolicySection(config: PiRuntimeConfig): string {
+    const githubInstruction = githubRepositoryInstruction(config)
     return [
         'Standing instructions and canonical memory are persistent context for this workspace.',
         'Treat workspace AGENTS.md, CLAUDE.md, and other project files as project-local files, not standing instructions.',
@@ -121,19 +167,24 @@ function sharedPolicySection(config: PiRuntimeConfig): string {
         'Never read host-global Pi, Codex, provider, or credential files.',
         'Keep provider credentials, secrets, OAuth tokens, git credentials, and MCP authentication values out of responses, files, tool arguments, and logs.',
         'Use web search or URL fetch for current-world facts, docs lookup, prices, laws, provider details, API behavior, software versions, and other time-sensitive facts.',
-    ].join('\n')
+        githubInstruction,
+    ]
+        .filter((line): line is string => line !== null)
+        .join('\n')
 }
 
 function modeInstructions(config: PiRuntimeConfig): string {
     if (config.roomMode === 'programmer') {
-        return [
+        const lines = [
             'Programmer mode: inspect the repository, make the smallest correct change, run the relevant checks, and report the result plainly.',
             'Use shell, git, package managers, test runners, and editor tools directly when they are available in the workspace.',
-            programmerGitHubInstruction(config),
-            'Prefer source changes and verification over explanatory artifacts; create office, image, or presentation deliverables only when the operator explicitly asks.',
+            config.capabilities.images
+                ? 'Prefer source changes and verification over explanatory artifacts; create image deliverables only when the operator explicitly asks.'
+                : 'Prefer source changes and verification over explanatory artifacts.',
             'Update canonical memory for durable coding preferences, repository conventions, PR policy, current project context, or decisions.',
             'If you create a workspace notes file for bulky repository context, also store a concise canonical memory pointer to that file.',
-        ].join('\n')
+        ]
+        return lines.join('\n')
     }
 
     return [
@@ -177,6 +228,9 @@ function enabledToolNames(config: PiRuntimeConfig): string[] {
 export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promise<string> {
     const budget = contextBudgetForProvider(config)
     const internalState = await buildInternalStateSummary(config)
+    const memorySnapshot = await readMemory(config)
+    const personality = sanitizePersonalityForm(memorySnapshot.memory.personality)
+    const archetypeParagraph = resolveArchetypeParagraph(personality.archetype)
     const operatorInstructions = boundedText(
         config.instructions.trim(),
         MAX_OPERATOR_INSTRUCTIONS_CHARS,
@@ -206,9 +260,11 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
 
     const sections = [
         identitySection(config),
+        archetypeParagraph,
         runtimeContextSection(config, budget, now),
         behaviorSection(),
         sharedPolicySection(config),
+        artifactRoutingSection(config),
         modeInstructions(config),
         buildAgentHarnessPrompt(internalState),
         `Enabled capabilities: ${enabledCapabilities.join(', ') || 'none'}`,

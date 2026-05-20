@@ -78,6 +78,7 @@ function threadRecord(
         modelProvider: null,
         model: null,
         thinkingLevel: null,
+        speedMode: null,
         activeRunId: input.activeRunId,
         activeRunKind: input.activeRunId ? 'manual' : null,
         heartbeatAt: null,

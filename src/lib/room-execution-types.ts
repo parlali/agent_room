@@ -39,15 +39,34 @@ export interface RoomExecutionAgent {
     latestActivityAt: number | null
 }
 
+export const roomExecutionSessionStatuses = [
+    'idle',
+    'queued',
+    'running',
+    'compacting',
+    'complete',
+    'error',
+    'stopped',
+] as const
+
+export type RoomExecutionSessionStatus = (typeof roomExecutionSessionStatuses)[number]
+
+export function isRoomExecutionSessionStatus(value: unknown): value is RoomExecutionSessionStatus {
+    return (
+        typeof value === 'string' &&
+        (roomExecutionSessionStatuses as readonly string[]).includes(value)
+    )
+}
+
 export interface RoomExecutionThread {
     key: string
     sessionId: string | null
     agentId: string
-    kind: 'main' | 'subagent' | 'deep_work'
+    kind: 'main' | 'subagent' | 'deep_work' | 'onboarding'
     parentThreadKey: string | null
     title: string
     lastMessagePreview: string | null
-    status: string | null
+    status: RoomExecutionSessionStatus | null
     updatedAt: number | null
     runStartedAt: number | null
     runtimeMs: number | null
@@ -55,9 +74,9 @@ export interface RoomExecutionThread {
     modelProvider: string | null
     totalTokens: number | null
     estimatedCostUsd: number | null
-    readState: {
-        readAt: number | null
-        unread: boolean
+    badgeState: {
+        completedClearedAt: number | null
+        completed: boolean
     }
     compaction: {
         enabled: boolean
@@ -70,6 +89,7 @@ export interface RoomExecutionThread {
 }
 
 export type RoomExecutionThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+export type RoomExecutionSpeedMode = 'normal' | 'fast'
 
 export interface RoomExecutionModelOption {
     value: string
@@ -78,6 +98,7 @@ export interface RoomExecutionModelOption {
     label: string
     supportsReasoning: boolean
     availableThinkingLevels: RoomExecutionThinkingLevel[]
+    availableSpeedModes: RoomExecutionSpeedMode[]
 }
 
 export interface RoomExecutionModelState {
@@ -87,6 +108,8 @@ export interface RoomExecutionModelState {
     label: string
     thinkingLevel: RoomExecutionThinkingLevel
     availableThinkingLevels: RoomExecutionThinkingLevel[]
+    speedMode: RoomExecutionSpeedMode | null
+    availableSpeedModes: RoomExecutionSpeedMode[]
     options: RoomExecutionModelOption[]
 }
 

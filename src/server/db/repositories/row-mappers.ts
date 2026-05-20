@@ -13,6 +13,8 @@ import type {
     HealthStatus,
     JsonValue,
     RoomDesiredState,
+    RoomOnboardingRecord,
+    RoomOnboardingStatus,
     RoomConfigRecord,
     RoomCronJobRecord,
     RoomCronRunRecord,
@@ -25,6 +27,7 @@ import type {
     UsageEventRecord,
     UsageEventKind,
     SecretRecord,
+    SessionComposerDraftRecord,
     SessionRecord,
     UserRecord,
     UserRole,
@@ -84,6 +87,17 @@ export function mapSession(row: DbRow): SessionRecord {
     }
 }
 
+export function mapSessionComposerDraft(row: DbRow): SessionComposerDraftRecord {
+    return {
+        authSessionId: String(row.auth_session_id),
+        roomId: String(row.room_id),
+        sessionKey: String(row.session_key),
+        draft: String(row.draft),
+        createdAt: row.created_at as Date,
+        updatedAt: row.updated_at as Date,
+    }
+}
+
 export function mapRoom(row: DbRow): RoomRecord {
     return {
         id: String(row.id),
@@ -94,6 +108,18 @@ export function mapRoom(row: DbRow): RoomRecord {
         createdByUserId: String(row.created_by_user_id),
         createdAt: row.created_at as Date,
         updatedAt: row.updated_at as Date,
+    }
+}
+
+export function mapRoomOnboarding(row: DbRow): RoomOnboardingRecord {
+    return {
+        roomId: String(row.room_id),
+        status: row.status as RoomOnboardingStatus,
+        sessionKey: nullableValue<string>(row.session_key),
+        createdAt: row.created_at as Date,
+        updatedAt: row.updated_at as Date,
+        completedAt: nullableValue<Date>(row.completed_at),
+        deferredAt: nullableValue<Date>(row.deferred_at),
     }
 }
 

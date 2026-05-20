@@ -14,6 +14,7 @@ import type {
     PiRuntimeThreadCreatePayload,
 } from './protocol'
 import type {
+    RoomExecutionSpeedMode,
     RoomExecutionThinkingLevel,
     RoomFileChangedPayload,
     RoomFileChangeOperation,
@@ -23,7 +24,8 @@ import { resolveAbortDecision } from './run-control'
 import { RunWatchdog, timeoutMessage, type RunKind } from './run-budget'
 import { assertAuthorized, getRequestBody, HttpError, sendJson } from './runtime-http'
 import { isRecord } from './runtime-redaction'
-import type { ThreadRecord } from './thread-records'
+import { isValidSpeedMode } from './runtime-speed-mode'
+import type { ThreadKind, ThreadRecord } from './thread-records'
 
 interface RouterActiveThread {
     session: AgentSession
@@ -101,19 +103,28 @@ export function createPiRuntimeRouter({
     config: PiRuntimeConfig
     activeThreads: Map<string, RouterActiveThread>
     findThread: (key: string) => ThreadRecord | null
-    createThread: (input: { firstMessage?: string | null }) => Promise<PiRuntimeThreadCreatePayload>
+    createThread: (input: {
+        firstMessage?: string | null
+        title?: string | null
+        internalInstruction?: string | null
+        hideUserMessage?: boolean
+        awaitInitialRun?: boolean
+        kind?: ThreadKind
+    }) => Promise<PiRuntimeThreadCreatePayload>
     runPrompt: (input: {
         record: ThreadRecord
         message: string
         runId: string
         awaitCompletion: boolean
         runKind?: RunKind
+        hideUserMessage?: boolean
     }) => Promise<string>
     updateThreadModel: (input: {
         record: ThreadRecord
         provider: string
         model: string
         thinkingLevel?: RoomExecutionThinkingLevel | null
+        speedMode?: RoomExecutionSpeedMode | null
     }) => Promise<PiRuntimeThreadModelPayload>
     renameThread: (input: { record: ThreadRecord; title: string }) => Promise<void>
     deleteThread: (record: ThreadRecord) => Promise<void>
@@ -200,7 +211,28 @@ export function createPiRuntimeRouter({
             const body = await getRequestBody(request)
             const firstMessage =
                 isRecord(body) && typeof body.firstMessage === 'string' ? body.firstMessage : null
-            sendJson(response, 200, await createThread({ firstMessage }))
+            const title = isRecord(body) && typeof body.title === 'string' ? body.title : null
+            const internalInstruction =
+                isRecord(body) && typeof body.internalInstruction === 'string'
+                    ? body.internalInstruction
+                    : null
+            const awaitInitialRun = isRecord(body) && body.awaitInitialRun === true
+            const kind =
+                isRecord(body) && body.kind === 'onboarding' ? ('onboarding' as const) : undefined
+            const hideUserMessage =
+                isRecord(body) && body.hideUserMessage === true && kind === 'onboarding'
+            sendJson(
+                response,
+                200,
+                await createThread({
+                    firstMessage,
+                    title,
+                    internalInstruction,
+                    hideUserMessage,
+                    awaitInitialRun,
+                    kind,
+                }),
+            )
             return
         }
 
@@ -226,12 +258,15 @@ export function createPiRuntimeRouter({
                     body.runKind === 'maintenance')
                     ? body.runKind
                     : 'manual'
+            const hideUserMessage =
+                isRecord(body) && body.hideUserMessage === true && record.kind === 'onboarding'
             const finalStatus = await runPrompt({
                 record,
                 message,
                 runId,
                 awaitCompletion,
                 runKind,
+                hideUserMessage,
             })
             const payload: PiRuntimeSendPayload = {
                 runId,
@@ -259,6 +294,8 @@ export function createPiRuntimeRouter({
                 isRecord(body) && typeof body.thinkingLevel === 'string'
                     ? (body.thinkingLevel as RoomExecutionThinkingLevel)
                     : null
+            const speedMode =
+                isRecord(body) && isValidSpeedMode(body.speedMode) ? body.speedMode : null
             sendJson(
                 response,
                 200,
@@ -267,6 +304,7 @@ export function createPiRuntimeRouter({
                     provider,
                     model,
                     thinkingLevel,
+                    speedMode,
                 }),
             )
             return

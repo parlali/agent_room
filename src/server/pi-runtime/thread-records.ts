@@ -1,6 +1,9 @@
 import type { RunKind } from './run-budget'
+import type { RoomExecutionSessionStatus, RoomExecutionSpeedMode } from '../rooms/execution-types'
+import { isRoomExecutionSessionStatus } from '../rooms/execution-types'
+import { isValidSpeedMode } from './runtime-speed-mode'
 
-export type ThreadKind = 'main' | 'subagent' | 'deep_work'
+export type ThreadKind = 'main' | 'subagent' | 'deep_work' | 'onboarding'
 export type ThreadTitleSource = 'initial' | 'generated' | 'manual'
 export type ThreadRunKind = RunKind
 
@@ -18,13 +21,14 @@ export interface ThreadRecord {
     sessionId: string
     title: string
     titleSource: ThreadTitleSource
-    status: string
+    status: RoomExecutionSessionStatus
     createdAt: number
     updatedAt: number
     lastMessagePreview: string | null
     modelProvider: string | null
     model: string | null
     thinkingLevel: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | null
+    speedMode: RoomExecutionSpeedMode | null
     activeRunId: string | null
     activeRunKind: ThreadRunKind | null
     heartbeatAt: number | null
@@ -65,6 +69,7 @@ export function normalizeThreadRecord(
         modelProvider?: string | null
         model?: string | null
         thinkingLevel?: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | null
+        speedMode?: RoomExecutionSpeedMode | null
         activeRunId?: string | null
         activeRunKind?: ThreadRunKind | null
         heartbeatAt?: number | null
@@ -85,13 +90,14 @@ export function normalizeThreadRecord(
             record.titleSource === 'generated' || record.titleSource === 'manual'
                 ? record.titleSource
                 : 'initial',
-        status: record.status,
+        status: isRoomExecutionSessionStatus(record.status) ? record.status : 'idle',
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
         lastMessagePreview: record.lastMessagePreview ?? null,
         modelProvider: record.modelProvider ?? null,
         model: record.model ?? null,
         thinkingLevel: record.thinkingLevel ?? null,
+        speedMode: isValidSpeedMode(record.speedMode) ? record.speedMode : null,
         activeRunId: record.activeRunId ?? null,
         activeRunKind: record.activeRunKind ?? null,
         heartbeatAt: record.heartbeatAt ?? null,
@@ -107,7 +113,12 @@ export function normalizeThreadRecord(
                 ? record.idleDurationMs
                 : 0,
         lastError: record.lastError ?? null,
-        kind: record.kind === 'subagent' || record.kind === 'deep_work' ? record.kind : 'main',
+        kind:
+            record.kind === 'subagent' ||
+            record.kind === 'deep_work' ||
+            record.kind === 'onboarding'
+                ? record.kind
+                : 'main',
         parentThreadKey: record.parentThreadKey ?? null,
         parentRunId: record.parentRunId ?? null,
         subagentRunId: record.subagentRunId ?? null,
@@ -141,6 +152,9 @@ export function threadAgentId(record: ThreadRecord): string {
     }
     if (record.kind === 'deep_work') {
         return deepWorkAgentId(record)
+    }
+    if (record.kind === 'onboarding') {
+        return `onboarding:${record.key}`
     }
     return 'main'
 }

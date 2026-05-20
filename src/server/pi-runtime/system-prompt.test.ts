@@ -71,6 +71,8 @@ describe('Agent Room Pi system prompt', () => {
             expect(prompt).toContain('read_pdf')
             expect(prompt).toContain('Main-thread orchestration tools: subagent, deep_work')
             expect(prompt).toContain('Enabled MCP servers: docs: search')
+            expect(prompt).toContain('Initiative:')
+            expect(prompt).toContain('pragmatic builder')
             expect(prompt).toContain('Lead final responses with the conclusion')
             expect(prompt).toContain('Final chat answers are usually 300-500 words')
             expect(prompt).toContain('For broad multi-part questions, answer the decision first')
@@ -90,6 +92,22 @@ describe('Agent Room Pi system prompt', () => {
             expect(prompt).toContain('Attached images are provided as direct visual input')
             expect(prompt).toContain(
                 'Attached non-image, non-PDF files are workspace file references',
+            )
+            expect(prompt).toContain('Artifact routing:')
+            expect(prompt).toContain(
+                'Document, report, memo, brief, proposal, white paper, and spec requests create or edit DOCX through the bundled docx skill',
+            )
+            expect(prompt).toContain(
+                'Spreadsheet, tracker, model, budget, and workbook requests create or edit XLSX through the bundled xlsx skill',
+            )
+            expect(prompt).toContain(
+                'Deck, slides, and presentation requests create or edit PPTX through the bundled pptx skill',
+            )
+            expect(prompt).toContain(
+                'For normal business PDF requests, create or preserve the editable Office source first',
+            )
+            expect(prompt).toContain(
+                'Do not deliberate across multiple artifact formats when the request clearly maps to DOCX, XLSX, or PPTX',
             )
             expect(prompt).not.toContain('Do not use shell commands, document tools')
             expect(prompt).toContain('Memory harness')
@@ -126,6 +144,13 @@ describe('Agent Room Pi system prompt', () => {
             expect(prompt).toContain('memory_patch')
             expect(prompt).toContain('deep_work')
             expect(prompt).not.toContain('read_pdf')
+            expect(prompt).not.toContain('image_generate')
+            expect(prompt).not.toContain('GitHub is not connected')
+            expect(prompt).not.toContain('office, image, or presentation')
+            expect(prompt).not.toContain(
+                'Use the bundled Office skills as the default editable source',
+            )
+            expect(prompt).not.toContain('create image deliverables')
             expect(prompt).not.toContain('explicitly asks you to remember')
             expect(prompt).toContain('Use memory as an internal habit after substantive work')
             expect(prompt).toContain('used multiple web search or URL fetch calls')
@@ -135,13 +160,83 @@ describe('Agent Room Pi system prompt', () => {
             expect(prompt).not.toContain('persistent room-local coworker')
             expect(prompt).not.toContain('Scheduled work is autonomous')
             expect(prompt).not.toContain('Keep the workspace reviewable for non-developers')
+            expect(prompt).toContain('Artifact routing:')
+            expect(prompt).not.toContain('Document, report, memo, brief, proposal')
+            expect(prompt).not.toContain('Spreadsheet, tracker, model, budget')
+            expect(prompt).not.toContain('Deck, slides, and presentation requests')
+            expect(prompt).not.toContain('editable Office source first')
+            expect(prompt).not.toContain('clearly maps to DOCX, XLSX, or PPTX')
             expect(prompt.length).toBeLessThan(9000)
         })
     })
 
-    it('includes explicit GitHub status in programmer mode', async () => {
+    it('does not route PDF requests through Office when Office skills are disabled', async () => {
+        await withConfig(async (config) => {
+            config.capabilities.documents = false
+            config.capabilities.spreadsheets = false
+            config.capabilities.presentations = false
+            config.capabilities.pdf = true
+
+            const prompt = await buildAgentRoomSystemPrompt(config)
+
+            expect(prompt).toContain('Artifact routing:')
+            expect(prompt).toContain('Use HTML, Markdown, plain text')
+            expect(prompt).not.toContain(
+                'Use the bundled Office skills as the default editable source',
+            )
+            expect(prompt).not.toContain('editable Office source first')
+            expect(prompt).not.toContain('DOCX through the bundled docx skill')
+        })
+    })
+
+    it('renders Office routing as default source guidance for unspecified business artifacts', async () => {
+        await withConfig(async (config) => {
+            const prompt = await buildAgentRoomSystemPrompt(config)
+
+            expect(prompt).toContain(
+                'Use the bundled Office skills as the default editable source for normal business artifacts',
+            )
+            expect(prompt).toContain(
+                'Document, report, memo, brief, proposal, white paper, and spec requests create or edit DOCX through the bundled docx skill unless the operator explicitly asks for another source format',
+            )
+            expect(prompt).toContain(
+                'Spreadsheet, tracker, model, budget, and workbook requests create or edit XLSX through the bundled xlsx skill unless the operator explicitly asks for another source format',
+            )
+            expect(prompt).toContain(
+                'Deck, slides, and presentation requests create or edit PPTX through the bundled pptx skill unless the operator explicitly asks for another source format',
+            )
+            expect(prompt).toContain(
+                'For normal business PDF requests, create or preserve the editable Office source first, then export or convert to PDF as the delivery format',
+            )
+            expect(prompt).toContain(
+                'Use HTML, Markdown, plain text, custom PDF generation, or other renderers only when explicitly requested',
+            )
+        })
+    })
+
+    it('includes image generation in programmer mode when enabled', async () => {
         await withConfig(async (config) => {
             config.roomMode = 'programmer'
+            config.capabilities.documents = false
+            config.capabilities.spreadsheets = false
+            config.capabilities.presentations = false
+            config.capabilities.pdf = false
+            config.capabilities.images = true
+
+            const prompt = await buildAgentRoomSystemPrompt(config)
+
+            expect(prompt).toContain('Mode: programmer')
+            expect(prompt).toContain('image generation')
+            expect(prompt).toContain('image_generate')
+            expect(prompt).toContain(
+                'create image deliverables only when the operator explicitly asks',
+            )
+            expect(prompt).not.toContain('office, image, or presentation')
+        })
+    })
+
+    it('includes explicit GitHub status in every room mode', async () => {
+        await withConfig(async (config) => {
             config.github = {
                 enabled: true,
                 installationId: '123',
@@ -154,23 +249,26 @@ describe('Agent Room Pi system prompt', () => {
                 gitConfigPath: '/tmp/home/.gitconfig',
             }
 
-            const prompt = await buildAgentRoomSystemPrompt(config)
+            for (const roomMode of ['programmer', 'coworker'] as const) {
+                config.roomMode = roomMode
+                const prompt = await buildAgentRoomSystemPrompt(config)
 
-            expect(prompt).toContain('GitHub repository access')
-            expect(prompt).toContain('GitHub is connected for agent-room/example')
-            expect(prompt).toContain(
-                'Available HTTPS remotes: https://github.com/agent-room/example.git',
-            )
-            expect(prompt).toContain(
-                'The workspace may be empty until you clone a selected repository',
-            )
-            expect(prompt).toContain(
-                'Do not treat an empty workspace or "fatal: not a git repository" as missing GitHub access',
-            )
-            expect(prompt).toContain('To verify access, run git ls-remote')
-            expect(prompt).toContain(
-                'Use git with the configured HOME credentials; use gh only if it is installed',
-            )
+                expect(prompt).toContain('GitHub repository access')
+                expect(prompt).toContain('GitHub is connected for agent-room/example')
+                expect(prompt).toContain(
+                    'Available HTTPS remotes: https://github.com/agent-room/example.git',
+                )
+                expect(prompt).toContain(
+                    'The workspace may be empty until you clone a selected repository',
+                )
+                expect(prompt).toContain(
+                    'Do not treat an empty workspace or "fatal: not a git repository" as missing GitHub access',
+                )
+                expect(prompt).toContain('To verify access, run git ls-remote')
+                expect(prompt).toContain(
+                    'Use git with the configured HOME credentials; use gh only if it is installed',
+                )
+            }
         })
     })
 

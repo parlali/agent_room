@@ -1184,13 +1184,12 @@ export function summarizeRoomGitHubBinding(
 
 export async function saveRoomGitHubBinding(input: {
     roomId: string
-    roomMode: 'programmer' | 'coworker'
     enabled: boolean
     installationId?: string | null
     repositories: string[]
     actorUserId: string
 }): Promise<GitHubRoomBindingSummary> {
-    if (!input.enabled || input.roomMode !== 'programmer') {
+    if (!input.enabled) {
         await roomGitHubBindingRepository.deleteByRoomId(input.roomId)
         return summarizeRoomGitHubBinding(null)
     }
@@ -1235,7 +1234,6 @@ export async function saveRoomGitHubBinding(input: {
 }
 
 export async function resolveRoomGitHubStatus(input: {
-    roomMode: 'programmer' | 'coworker'
     binding: RoomGitHubBindingRecord | null
 }): Promise<{
     ready: boolean
@@ -1245,7 +1243,7 @@ export async function resolveRoomGitHubStatus(input: {
     repositories: string[]
     message: string | null
 }> {
-    if (!input.binding?.enabled || input.roomMode !== 'programmer') {
+    if (!input.binding?.enabled) {
         return {
             ready: true,
             enabled: false,
@@ -1300,7 +1298,6 @@ export async function resolveRoomGitHubStatus(input: {
 }
 
 export async function materializeRoomGitHubBinding(input: {
-    roomMode: 'programmer' | 'coworker'
     binding: RoomGitHubBindingRecord | null
 }): Promise<{
     internalEnv: Record<string, string>
@@ -1320,11 +1317,10 @@ export async function materializeRoomGitHubBinding(input: {
             gitConfigPath: null,
         },
     }
-    if (!input.binding?.enabled || input.roomMode !== 'programmer') {
+    if (!input.binding?.enabled) {
         return disabled
     }
     const status = await resolveRoomGitHubStatus({
-        roomMode: input.roomMode,
         binding: input.binding,
     })
     if (!status.ready || !status.installationId || !status.accountLogin) {

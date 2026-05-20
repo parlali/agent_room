@@ -16,6 +16,7 @@ function thread(overrides: Partial<ThreadRecord> = {}): ThreadRecord {
         modelProvider: 'openai-codex',
         model: 'gpt-5.4-mini',
         thinkingLevel: 'medium',
+        speedMode: null,
         activeRunId: 'parent-run',
         activeRunKind: null,
         heartbeatAt: null,

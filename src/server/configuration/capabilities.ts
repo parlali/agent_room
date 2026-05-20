@@ -79,7 +79,6 @@ export function mergeCapabilities(input: {
         merged.spreadsheets = false
         merged.presentations = false
         merged.pdf = false
-        merged.images = false
     }
 
     const overrides =
@@ -100,7 +99,6 @@ export function mergeCapabilities(input: {
         merged.spreadsheets = false
         merged.presentations = false
         merged.pdf = false
-        merged.images = false
     }
 
     if (input.mcpConnectionCount === 0) {

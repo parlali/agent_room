@@ -4,11 +4,17 @@ import { supportsXhigh, type Api, type Model } from '@mariozechner/pi-ai'
 import type {
     RoomExecutionModelOption,
     RoomExecutionModelState,
+    RoomExecutionSpeedMode,
     RoomExecutionThinkingLevel,
 } from '../rooms/execution-types'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import type { ThreadRecord } from './thread-records'
 import type { ActiveThread } from './runtime-runner'
+import {
+    availableSpeedModesForModel,
+    clampSpeedMode,
+    normalizeSpeedMode,
+} from './runtime-speed-mode'
 
 const THINKING_LEVELS: RoomExecutionThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high']
 const THINKING_LEVELS_WITH_XHIGH: RoomExecutionThinkingLevel[] = [...THINKING_LEVELS, 'xhigh']
@@ -70,6 +76,7 @@ export function createRuntimeModelState(dependencies: RuntimeModelStateDependenc
             label: modelLabel(model, model.id),
             supportsReasoning: Boolean(model.reasoning),
             availableThinkingLevels: availableThinkingLevels(model),
+            availableSpeedModes: availableSpeedModesForModel(model),
         }
     }
 
@@ -98,6 +105,7 @@ export function createRuntimeModelState(dependencies: RuntimeModelStateDependenc
         provider: string
         model: string
         thinkingLevel: RoomExecutionThinkingLevel
+        speedMode: RoomExecutionSpeedMode | null
     } {
         try {
             if (existsSync(record.sessionFile)) {
@@ -119,6 +127,7 @@ export function createRuntimeModelState(dependencies: RuntimeModelStateDependenc
                     thinkingLevel: normalizeThinkingLevel(
                         context.thinkingLevel ?? record.thinkingLevel,
                     ),
+                    speedMode: record.speedMode ?? null,
                 }
             }
         } catch (error) {
@@ -128,6 +137,7 @@ export function createRuntimeModelState(dependencies: RuntimeModelStateDependenc
             provider: record.modelProvider ?? dependencies.config.provider.piProvider,
             model: record.model ?? dependencies.config.provider.piModel,
             thinkingLevel: normalizeThinkingLevel(record.thinkingLevel),
+            speedMode: record.speedMode ?? null,
         }
     }
 
@@ -136,12 +146,17 @@ export function createRuntimeModelState(dependencies: RuntimeModelStateDependenc
             record.modelProvider = session.model.provider
             record.model = session.model.id
             record.thinkingLevel = normalizeThinkingLevel(session.thinkingLevel)
+            record.speedMode = clampSpeedMode(
+                record.speedMode,
+                availableSpeedModesForModel(session.model),
+            )
             return
         }
         const persisted = persistedThreadModel(record)
         record.modelProvider = persisted.provider
         record.model = persisted.model
         record.thinkingLevel = persisted.thinkingLevel
+        record.speedMode = persisted.speedMode
     }
 
     function selectedThreadModelState(record: ThreadRecord): RoomExecutionModelState | null {
@@ -155,10 +170,12 @@ export function createRuntimeModelState(dependencies: RuntimeModelStateDependenc
         if (!model && !modelId) return null
         const levels =
             active?.session.getAvailableThinkingLevels() ?? availableThinkingLevels(model)
+        const speedModes = availableSpeedModesForModel(model)
         const thinkingLevel = clampThinkingLevel(
             active ? normalizeThinkingLevel(active.session.thinkingLevel) : persisted.thinkingLevel,
             levels,
         )
+        const speedMode = clampSpeedMode(persisted.speedMode, speedModes)
         return {
             value: modelValue(provider, modelId),
             provider,
@@ -166,6 +183,8 @@ export function createRuntimeModelState(dependencies: RuntimeModelStateDependenc
             label: modelLabel(model, modelId),
             thinkingLevel,
             availableThinkingLevels: levels,
+            speedMode,
+            availableSpeedModes: speedModes,
             options: modelOptions(registry, model),
         }
     }
@@ -173,6 +192,9 @@ export function createRuntimeModelState(dependencies: RuntimeModelStateDependenc
     return {
         createModelRegistry,
         normalizeThinkingLevel,
+        normalizeSpeedMode,
+        availableSpeedModes: availableSpeedModesForModel,
+        clampSpeedMode,
         syncRecordModelState,
         selectedThreadModelState,
     }

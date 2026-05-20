@@ -94,11 +94,9 @@ export function ConfigSections({
                     cronTimezone: input.cronTimezone,
                     browserActionBudget: input.browserActionBudget,
                     mcpConnectionIds: input.mcpConnectionIds,
-                    githubEnabled: input.roomMode === 'programmer' && input.githubEnabled,
-                    githubInstallationId:
-                        input.roomMode === 'programmer' ? input.githubInstallationId || null : null,
-                    githubRepositories:
-                        input.roomMode === 'programmer' ? input.githubRepositories : [],
+                    githubEnabled: input.githubEnabled,
+                    githubInstallationId: input.githubInstallationId || null,
+                    githubRepositories: input.githubRepositories,
                 },
             }),
         onSuccess: async () => {
@@ -192,16 +190,14 @@ export function ConfigSections({
                 pending={mutation.isPending}
             />
 
-            {draft.roomMode === 'programmer' ? (
-                <GitHubSection
-                    draft={draft}
-                    github={operatorQuery.data?.github ?? snapshot?.github ?? null}
-                    onChange={(patch) => setDraft((prev) => (prev ? { ...prev, ...patch } : prev))}
-                    onSave={handleSave}
-                    dirty={dirty}
-                    pending={mutation.isPending}
-                />
-            ) : null}
+            <GitHubSection
+                draft={draft}
+                github={operatorQuery.data?.github ?? snapshot?.github ?? null}
+                onChange={(patch) => setDraft((prev) => (prev ? { ...prev, ...patch } : prev))}
+                onSave={handleSave}
+                dirty={dirty}
+                pending={mutation.isPending}
+            />
 
             <Section
                 title="Connected tools (MCP)"

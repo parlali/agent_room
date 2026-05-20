@@ -7,6 +7,10 @@ description: Create, inspect, and edit Word DOCX files through the bundled DOCX 
 
 Use this skill for Word `.docx` create, inspect, and edit work.
 
+Default to this skill for normal written business artifacts when the user does not specify a format, including documents, reports, memos, briefs, proposals, white papers, and specs. Do not deliberate between DOCX, PDF, HTML, Markdown, or custom generation paths for these requests unless the user explicitly asks for another source format or a bounded renderer is required.
+
+When the user asks for a PDF version of a normal written document, create or preserve the editable DOCX source first, then export or convert that source to PDF as the delivery format.
+
 Run the bundled script through `shell`. Resolve `scripts/docx_document.ts` relative to this skill directory and pass that absolute path to `bun`.
 
 Commands:

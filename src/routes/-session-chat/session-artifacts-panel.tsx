@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
     ExternalLinkIcon,
     FileIcon,
@@ -35,6 +35,7 @@ import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import { readRoomFileServer } from '#/routes/-room-runtime-server'
 import type { RoomFileEntry, RoomFilePreview } from '#/lib/room-file-types'
 import type { RoomSessionArtifact, RoomSessionArtifactKind } from '#/lib/room-execution-types'
+import { resolveSelectedArtifact } from './session-artifact-state'
 
 const artifactSections: Array<{
     kind: RoomSessionArtifactKind
@@ -85,20 +86,13 @@ export function SessionArtifactsPanel({
     roomId: string
     artifacts: RoomSessionArtifact[]
     onClose?: () => void
-    selectedArtifactId?: string | null
-    onSelectArtifact?: (id: string | null) => void
+    selectedArtifactId: string | null
+    onSelectArtifact: (id: string) => void
     className?: string
 }) {
-    const [uncontrolledSelectedId, setUncontrolledSelectedId] = useState<string | null>(
-        artifacts[0]?.id ?? null,
-    )
     const [expanded, setExpanded] = useState(false)
-    const selectedId = selectedArtifactId ?? uncontrolledSelectedId
-    const setSelectedId = (id: string | null) => {
-        setUncontrolledSelectedId(id)
-        onSelectArtifact?.(id)
-    }
-    const selectedArtifact = artifacts.find((artifact) => artifact.id === selectedId) ?? null
+    const selectedArtifact = resolveSelectedArtifact(artifacts, selectedArtifactId)
+    const selectedId = selectedArtifact?.id ?? null
     const selectedEntry = selectedArtifact ? artifactToFileEntry(selectedArtifact) : null
     const previewQuery = useQuery({
         queryKey: roomQueryKey.roomFilePreview(
@@ -120,16 +114,6 @@ export function SessionArtifactsPanel({
     const preview = previewQuery.data as RoomFilePreview | undefined
     const previewUrl = selectedEntry ? roomFilePreviewUrl(roomId, selectedEntry) : ''
     const grouped = useMemo(() => groupArtifacts(artifacts), [artifacts])
-
-    useEffect(() => {
-        if (artifacts.length === 0) {
-            setSelectedId(null)
-            return
-        }
-        if (!selectedId || !artifacts.some((artifact) => artifact.id === selectedId)) {
-            setSelectedId(artifacts[0]!.id)
-        }
-    }, [artifacts, selectedId])
 
     return (
         <aside
@@ -187,7 +171,7 @@ export function SessionArtifactsPanel({
                                     label={section.label}
                                     artifacts={grouped[section.kind]}
                                     selectedId={selectedId}
-                                    onSelect={setSelectedId}
+                                    onSelect={onSelectArtifact}
                                 />
                             ) : null,
                         )}

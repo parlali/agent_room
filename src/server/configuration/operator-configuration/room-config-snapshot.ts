@@ -118,7 +118,6 @@ async function resolveEffectiveRoomSummary(input: {
         envKey: imageEnvKey,
     })
     const github = await resolveRoomGitHubStatus({
-        roomMode: input.config.roomMode,
         binding: input.githubBinding,
     })
 

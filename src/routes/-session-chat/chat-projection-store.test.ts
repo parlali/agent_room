@@ -7,7 +7,11 @@ import type {
     RoomSessionDisplayRow,
     RoomSessionWindow,
 } from '#/lib/room-execution-types'
-import { editOptimisticUserMessage } from './chat-projection-store'
+import {
+    addOptimisticUserMessage,
+    editOptimisticUserMessage,
+    promoteOptimisticUserMessageToPendingRun,
+} from './chat-projection-store'
 
 describe('chat projection store', () => {
     it('optimistically prunes rows after an edited user message', async () => {
@@ -58,6 +62,62 @@ describe('chat projection store', () => {
             },
         })
         expect(JSON.stringify(edited)).not.toContain('Original second')
+    })
+
+    it('marks optimistic user messages as pending', async () => {
+        const queryClient = new QueryClient()
+
+        await addOptimisticUserMessage({
+            queryClient,
+            roomId: 'room-1',
+            sessionKey: 'session-1',
+            message: 'Queued follow-up',
+            timestamp: 10,
+        })
+
+        const next = queryClient.getQueryData<InfiniteData<RoomSessionWindow, string | null>>(
+            roomQueryKey.sessionWindow('room-1', 'session-1'),
+        )
+        expect(next?.pages[0]?.rows[0]).toMatchObject({
+            type: 'user_message',
+            id: 'optimistic-session-1-10',
+            pending: true,
+            message: {
+                text: 'Queued follow-up',
+            },
+        })
+    })
+
+    it('promotes optimistic user messages to canonical pending run rows', async () => {
+        const queryClient = new QueryClient()
+        const rollback = await addOptimisticUserMessage({
+            queryClient,
+            roomId: 'room-1',
+            sessionKey: 'session-1',
+            message: 'Queued follow-up',
+            timestamp: 10,
+        })
+
+        promoteOptimisticUserMessageToPendingRun({
+            queryClient,
+            roomId: 'room-1',
+            sessionKey: 'session-1',
+            rollback,
+            runId: 'run-1',
+        })
+
+        const next = queryClient.getQueryData<InfiniteData<RoomSessionWindow, string | null>>(
+            roomQueryKey.sessionWindow('room-1', 'session-1'),
+        )
+        expect(next?.pages[0]?.rows.map((row) => row.id)).toEqual([
+            'pending-user-run-1',
+            'pending-run-run-1',
+        ])
+        expect(next?.pages[0]?.rows[1]).toMatchObject({
+            type: 'run_transcript',
+            runId: 'run-1',
+            pending: true,
+        })
     })
 })
 

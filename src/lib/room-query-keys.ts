@@ -22,6 +22,7 @@ export const roomQueryKey = {
             ? (['rooms', roomId, 'file-preview'] as const)
             : (['rooms', roomId, 'file-preview', surface ?? 'none', path ?? 'none'] as const),
     roomMemory: (roomId: string) => ['rooms', roomId, 'memory'] as const,
+    roomPersonality: (roomId: string) => ['rooms', roomId, 'personality'] as const,
     roomUsage: (roomId: string, scope?: string) =>
         ['rooms', roomId, 'usage', scope ?? 'room'] as const,
     roomRunHistory: (roomId: string) => ['rooms', roomId, 'run-history'] as const,

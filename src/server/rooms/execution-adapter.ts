@@ -31,6 +31,11 @@ export interface RoomExecutionAdapter {
         after?: string | null
         limitRows?: number
     }) => Promise<RoomSessionWindow>
+    clearSessionCompletedBadge: (input: {
+        roomId: string
+        sessionKey: string
+        actorUserId: string
+    }) => Promise<void>
     sendRoomThreadMessage: (input: {
         roomId: string
         sessionKey: string
@@ -43,6 +48,7 @@ export interface RoomExecutionAdapter {
         provider: string
         model: string
         thinkingLevel?: RoomExecutionThinkingLevel | null
+        speedMode?: RoomExecutionModelState['speedMode']
     }) => Promise<RoomExecutionModelState>
     abortRoomThreadMessage: (input: {
         roomId: string

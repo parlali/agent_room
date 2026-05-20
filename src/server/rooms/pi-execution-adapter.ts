@@ -15,6 +15,7 @@ export {
 } from './pi-execution-adapter/event-stream'
 export { getRoomExecutionTruthSnapshot } from './pi-execution-adapter/runtime-truth'
 export {
+    clearSessionCompletedBadge,
     getRoomExecutionSnapshot,
     getRoomSessionWindow,
     listRoomsWithRuntime,

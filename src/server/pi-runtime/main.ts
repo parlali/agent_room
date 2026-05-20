@@ -63,6 +63,7 @@ import { cleanManualThreadTitle, createThreadTitleGenerator } from './runtime-ti
 import { promptAttachmentMetadataByEntryId } from './prompt-attachments'
 import { createSessionEventQueue } from './session-event-queue'
 import { removeDeliveredPendingUserMessage } from './pending-user-messages'
+import { visibleProjectionEntries } from './hidden-projection'
 
 const configPath = process.env.AGENT_ROOM_PI_RUNTIME_CONFIG_PATH
 if (!configPath) {
@@ -111,6 +112,9 @@ const browserAutomation = new BrowserbaseBrowserAutomationManager({
 const {
     createModelRegistry,
     normalizeThinkingLevel,
+    normalizeSpeedMode,
+    availableSpeedModes,
+    clampSpeedMode,
     syncRecordModelState,
     selectedThreadModelState,
 } = createRuntimeModelState({
@@ -194,7 +198,7 @@ function readThreadMessages(record: ThreadRecord, limit: number): RoomExecutionM
         const entries = readThreadEntries(record)
         const completed = completedToolCallIds(entries)
         const attachmentMetadata = promptAttachmentMetadataByEntryId(entries)
-        return entries
+        return visibleProjectionEntries(entries)
             .map((entry, index) => mapSessionEntry(entry, index, completed, attachmentMetadata))
             .filter((entry): entry is RoomExecutionMessage => entry !== null)
             .slice(-limit)
@@ -471,6 +475,13 @@ function findThread(key: string): ThreadRecord | null {
     return threadIndex.threads.find((thread) => thread.key === key) ?? null
 }
 
+function defaultSpeedModeForConfiguredProvider(): RoomExecutionModelState['speedMode'] {
+    return config.provider.piProvider === 'openai-codex' &&
+        config.provider.api === 'openai-codex-responses'
+        ? 'normal'
+        : null
+}
+
 async function createThread(
     input: {
         firstMessage?: string | null
@@ -483,6 +494,9 @@ async function createThread(
         subagentTask?: string | null
         deepWorkRunId?: string | null
         deepWorkObjective?: string | null
+        hideUserMessage?: boolean
+        internalInstruction?: string | null
+        awaitInitialRun?: boolean
     } = {},
 ): Promise<PiRuntimeThreadCreatePayload> {
     const key = randomUUID()
@@ -504,6 +518,7 @@ async function createThread(
         modelProvider: config.provider.piProvider,
         model: config.provider.piModel,
         thinkingLevel: 'medium',
+        speedMode: defaultSpeedModeForConfiguredProvider(),
         activeRunId: null,
         activeRunKind: null,
         heartbeatAt: null,
@@ -525,12 +540,14 @@ async function createThread(
     }
     threadIndex.threads.unshift(record)
     await persistThreadIndex()
-    if (input.firstMessage?.trim()) {
+    const instruction = input.internalInstruction?.trim() || input.firstMessage?.trim() || ''
+    if (instruction) {
         await runPrompt({
             record,
-            message: input.firstMessage,
+            message: instruction,
             runId: randomUUID(),
-            awaitCompletion: false,
+            awaitCompletion: input.awaitInitialRun === true,
+            hideUserMessage: input.hideUserMessage === true,
         })
     }
     return {
@@ -575,6 +592,7 @@ async function updateThreadModel(input: {
     provider: string
     model: string
     thinkingLevel?: RoomExecutionThinkingLevel | null
+    speedMode?: RoomExecutionModelState['speedMode']
 }): Promise<RoomExecutionModelState> {
     if (input.record.activeRunId) {
         throw new Error('Cannot change model while a run is active')
@@ -597,6 +615,10 @@ async function updateThreadModel(input: {
         active.session.setThinkingLevel(normalizeThinkingLevel(input.thinkingLevel))
     }
     syncRecordModelState(input.record, active.session)
+    input.record.speedMode = clampSpeedMode(
+        normalizeSpeedMode(input.speedMode ?? input.record.speedMode),
+        availableSpeedModes(model),
+    )
     input.record.updatedAt = Date.now()
     await persistThreadIndex()
     await appendRuntimeEvent('thread.model_changed', {
@@ -604,12 +626,14 @@ async function updateThreadModel(input: {
         provider: input.record.modelProvider,
         model: input.record.model,
         thinkingLevel: input.record.thinkingLevel,
+        speedMode: input.record.speedMode,
     })
     broadcast(input.record.key, 'thread.model_changed', {
         sessionKey: input.record.key,
         provider: input.record.modelProvider,
         model: input.record.model,
         thinkingLevel: input.record.thinkingLevel,
+        speedMode: input.record.speedMode,
     })
 
     const state = selectedThreadModelState(input.record)
@@ -688,6 +712,7 @@ async function forkThread(input: {
         modelProvider: config.provider.piProvider,
         model: config.provider.piModel,
         thinkingLevel: 'medium',
+        speedMode: input.record.speedMode ?? defaultSpeedModeForConfiguredProvider(),
         activeRunId: null,
         activeRunKind: null,
         heartbeatAt: null,

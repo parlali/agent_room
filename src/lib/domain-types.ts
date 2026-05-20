@@ -1,4 +1,12 @@
-export const roomStatuses = ['starting', 'running', 'stopped', 'degraded', 'failed'] as const
+export const roomStatuses = [
+    'starting',
+    'running',
+    'stopped',
+    'degraded',
+    'failed',
+    'setup_required',
+] as const
+export const roomOnboardingStatuses = ['pending', 'completed', 'user_deferred'] as const
 export const roomDesiredStates = ['running', 'stopped'] as const
 export const userRoles = ['root', 'operator'] as const
 export const healthStatuses = ['unknown', 'healthy', 'unhealthy'] as const
@@ -53,6 +61,7 @@ export const usageEventKinds = [
 ] as const
 
 export type RoomStatus = (typeof roomStatuses)[number]
+export type RoomOnboardingStatus = (typeof roomOnboardingStatuses)[number]
 export type RoomDesiredState = (typeof roomDesiredStates)[number]
 export type UserRole = (typeof userRoles)[number]
 export type HealthStatus = (typeof healthStatuses)[number]
@@ -97,6 +106,15 @@ export interface SessionRecord {
     ipAddress: string | null
 }
 
+export interface SessionComposerDraftRecord {
+    authSessionId: string
+    roomId: string
+    sessionKey: string
+    draft: string
+    createdAt: Date
+    updatedAt: Date
+}
+
 export interface RoomRecord {
     id: string
     slug: string
@@ -106,6 +124,16 @@ export interface RoomRecord {
     createdByUserId: string
     createdAt: Date
     updatedAt: Date
+}
+
+export interface RoomOnboardingRecord {
+    roomId: string
+    status: RoomOnboardingStatus
+    sessionKey: string | null
+    createdAt: Date
+    updatedAt: Date
+    completedAt: Date | null
+    deferredAt: Date | null
 }
 
 export interface RoomRuntimeMetadataRecord {

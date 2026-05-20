@@ -113,7 +113,7 @@ function GitHubAppCallbackPage() {
                 ) : installationCount === 0 ? (
                     <Section
                         title="GitHub App created"
-                        description="Install it on repositories before binding programmer rooms."
+                        description="Install it on repositories before binding rooms."
                     >
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <StateBadge tone="ready" label="Ready" />

@@ -20,6 +20,8 @@ import type {
 } from '../domain/types'
 import { describeJobSchedule, type JobSchedule } from '#/lib/job-schedule'
 import { getRoomPaths } from './room-paths'
+import { beginRoomOnboarding, seedDefaultRoomMemory } from './room-onboarding'
+import { reconcileRoomAutostart } from './room-autostart'
 import { assertRoomSetupReady } from './runtime-readiness'
 import { roomRuntimeManager } from './runtime-manager'
 
@@ -120,6 +122,9 @@ export async function createRoom(input: {
                 mcpConnectionIds: input.mcpConnectionIds ?? [],
             },
             input.createdByUserId,
+            {
+                reconcileAutostart: false,
+            },
         )
     } catch (error) {
         await auditRepository.appendEvent({
@@ -135,10 +140,40 @@ export async function createRoom(input: {
         throw error
     }
 
+    try {
+        await seedDefaultRoomMemory(room.id)
+        await beginRoomOnboarding(room.id)
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'unknown onboarding init error'
+        console.error(`Failed to initialize onboarding for room ${room.id}`, message)
+        try {
+            await auditRepository.appendEvent({
+                actorUserId: input.createdByUserId,
+                roomId: room.id,
+                action: 'room.onboarding_init_failed',
+                payload: {
+                    error: message,
+                },
+            })
+        } catch (auditError) {
+            console.error(
+                `Failed to audit onboarding initialization failure for room ${room.id}`,
+                auditError instanceof Error ? auditError.message : auditError,
+            )
+        }
+    }
+
     if (input.startImmediately) {
         try {
-            await roomRuntimeManager.startRoom(room.id, input.createdByUserId)
-            if (input.initialCron) {
+            const autostart = await reconcileRoomAutostart({
+                roomId: room.id,
+                actorUserId: input.createdByUserId,
+                trigger: 'room_created',
+            })
+            if (autostart.blocked) {
+                return (await roomRepository.findRoomById(room.id)) ?? room
+            }
+            if (input.initialCron && autostart.started) {
                 const { createRoomCronJob } = await import('./execution-engine')
                 await createRoomCronJob({
                     roomId: room.id,
@@ -158,7 +193,6 @@ export async function createRoom(input: {
             }
         } catch (error) {
             const message = error instanceof Error ? error.message : 'unknown runtime start error'
-            await roomRepository.updateRoomDesiredState(room.id, 'stopped')
             await roomRepository.updateRoomStatus(room.id, 'failed')
             await roomRuntimeMetadataRepository.upsert({
                 roomId: room.id,

@@ -7,6 +7,10 @@ description: Create, inspect, and edit Excel XLSX files through the bundled XLSX
 
 Use this skill for Excel `.xlsx` create, inspect, and edit work.
 
+Default to this skill for normal spreadsheet business artifacts when the user does not specify a format, including spreadsheets, trackers, models, budgets, and workbooks. Do not deliberate between XLSX, CSV, PDF, HTML, Markdown, or custom generation paths for these requests unless the user explicitly asks for another source format or a bounded renderer is required.
+
+When the user asks for a PDF version of a normal spreadsheet deliverable, create or preserve the editable XLSX source first, then export or convert that source to PDF as the delivery format.
+
 Run the bundled script through `shell`. Resolve `scripts/xlsx_workbook.ts` relative to this skill directory and pass that absolute path to `bun`.
 
 Commands:
