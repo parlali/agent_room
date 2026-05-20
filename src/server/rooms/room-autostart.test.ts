@@ -138,4 +138,31 @@ describe('reconcileRoomAutostart', () => {
             }),
         )
     })
+
+    it('preserves the original runtime error when failure audit logging fails', async () => {
+        const runtimeError = new Error('runtime failed')
+        const auditError = new Error('audit failed')
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+        mocks.findRoomById.mockResolvedValue({
+            id: 'room-1',
+            desiredState: 'running',
+            status: 'setup_required',
+        })
+        mocks.reconcileRoom.mockRejectedValue(runtimeError)
+        mocks.appendEvent.mockRejectedValue(auditError)
+
+        await expect(
+            reconcileRoomAutostart({
+                roomId: 'room-1',
+                actorUserId: 'user-1',
+                trigger: 'room_config_saved',
+            }),
+        ).rejects.toBe(runtimeError)
+
+        expect(consoleError).toHaveBeenCalledWith(
+            'Failed to audit runtime autostart failure for room room-1',
+            'audit failed',
+        )
+        consoleError.mockRestore()
+    })
 })

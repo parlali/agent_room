@@ -45,7 +45,9 @@ export function PersonalitySection({ roomId }: { roomId: string }) {
                     form,
                 },
             }),
-        onSuccess: async () => {
+        onSuccess: async (response) => {
+            setDraft(response.form)
+            setDraftRoomId(response.roomId)
             await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomPersonality(roomId) })
             toast.success('Personality saved')
         },
@@ -57,19 +59,33 @@ export function PersonalitySection({ roomId }: { roomId: string }) {
     })
 
     const [draft, setDraft] = useState<PersonalityForm | null>(null)
+    const [draftRoomId, setDraftRoomId] = useState(roomId)
     useEffect(() => {
-        if (personalityQuery.data?.form) {
-            setDraft(personalityQuery.data.form)
+        if (!personalityQuery.data?.form || personalityQuery.data.roomId !== roomId) {
+            return
         }
-    }, [personalityQuery.data?.form])
+        if (draft && draftRoomId === roomId) {
+            return
+        }
+        setDraft(personalityQuery.data.form)
+        setDraftRoomId(roomId)
+    }, [draft, draftRoomId, personalityQuery.data?.form, personalityQuery.data?.roomId, roomId])
 
-    if (!draft) {
+    if (!draft || draftRoomId !== roomId) {
         return (
             <Section
                 title="Working style"
                 description="How this coworker communicates and reports back."
             >
-                <p className="px-4 py-3 text-sm text-muted-foreground">Loading personality...</p>
+                {personalityQuery.isError ? (
+                    <p className="px-4 py-3 text-sm text-destructive">
+                        Could not load working style.
+                    </p>
+                ) : (
+                    <p className="px-4 py-3 text-sm text-muted-foreground">
+                        Loading personality...
+                    </p>
+                )}
             </Section>
         )
     }

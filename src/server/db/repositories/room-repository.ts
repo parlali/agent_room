@@ -1,5 +1,5 @@
 import type { RoomDesiredState, RoomRecord, RoomStatus } from '../../domain/types'
-import { sql } from '../client'
+import { sql, type DatabaseQuery } from '../client'
 import { mapRoom } from './row-mappers'
 
 export const roomRepository = {
@@ -53,8 +53,12 @@ export const roomRepository = {
         return mapRoom(rows[0] as Record<string, unknown>)
     },
 
-    async updateRoomStatus(roomId: string, status: RoomStatus): Promise<void> {
-        await sql`UPDATE rooms SET status = ${status}, updated_at = now() WHERE id = ${roomId}`
+    async updateRoomStatus(
+        roomId: string,
+        status: RoomStatus,
+        query: DatabaseQuery = sql,
+    ): Promise<void> {
+        await query`UPDATE rooms SET status = ${status}, updated_at = now() WHERE id = ${roomId}`
     },
 
     async updateRoomDesiredState(roomId: string, desiredState: RoomDesiredState): Promise<void> {

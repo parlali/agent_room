@@ -43,16 +43,24 @@ export async function reconcileRoomAutostart(input: {
         }
         return { started: changedRuntime, blocked: false, skipped: !changedRuntime }
     } catch (error) {
+        const originalError = error
         const message = error instanceof Error ? error.message : 'runtime autostart failed'
-        await auditRepository.appendEvent({
-            actorUserId: input.actorUserId,
-            roomId: input.roomId,
-            action: 'room.runtime_autostart_failed',
-            payload: {
-                trigger: input.trigger,
-                error: message,
-            },
-        })
-        throw error
+        try {
+            await auditRepository.appendEvent({
+                actorUserId: input.actorUserId,
+                roomId: input.roomId,
+                action: 'room.runtime_autostart_failed',
+                payload: {
+                    trigger: input.trigger,
+                    error: message,
+                },
+            })
+        } catch (auditError) {
+            console.error(
+                `Failed to audit runtime autostart failure for room ${input.roomId}`,
+                auditError instanceof Error ? auditError.message : auditError,
+            )
+        }
+        throw originalError
     }
 }

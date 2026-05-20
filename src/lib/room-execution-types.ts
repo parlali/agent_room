@@ -39,6 +39,25 @@ export interface RoomExecutionAgent {
     latestActivityAt: number | null
 }
 
+export const roomExecutionSessionStatuses = [
+    'idle',
+    'queued',
+    'running',
+    'compacting',
+    'complete',
+    'error',
+    'stopped',
+] as const
+
+export type RoomExecutionSessionStatus = (typeof roomExecutionSessionStatuses)[number]
+
+export function isRoomExecutionSessionStatus(value: unknown): value is RoomExecutionSessionStatus {
+    return (
+        typeof value === 'string' &&
+        (roomExecutionSessionStatuses as readonly string[]).includes(value)
+    )
+}
+
 export interface RoomExecutionThread {
     key: string
     sessionId: string | null
@@ -47,7 +66,7 @@ export interface RoomExecutionThread {
     parentThreadKey: string | null
     title: string
     lastMessagePreview: string | null
-    status: string | null
+    status: RoomExecutionSessionStatus | null
     updatedAt: number | null
     runStartedAt: number | null
     runtimeMs: number | null

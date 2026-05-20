@@ -24,6 +24,7 @@ import { resolveAbortDecision } from './run-control'
 import { RunWatchdog, timeoutMessage, type RunKind } from './run-budget'
 import { assertAuthorized, getRequestBody, HttpError, sendJson } from './runtime-http'
 import { isRecord } from './runtime-redaction'
+import { isValidSpeedMode } from './runtime-speed-mode'
 import type { ThreadKind, ThreadRecord } from './thread-records'
 
 interface RouterActiveThread {
@@ -215,10 +216,11 @@ export function createPiRuntimeRouter({
                 isRecord(body) && typeof body.internalInstruction === 'string'
                     ? body.internalInstruction
                     : null
-            const hideUserMessage = isRecord(body) && body.hideUserMessage === true
             const awaitInitialRun = isRecord(body) && body.awaitInitialRun === true
             const kind =
                 isRecord(body) && body.kind === 'onboarding' ? ('onboarding' as const) : undefined
+            const hideUserMessage =
+                isRecord(body) && body.hideUserMessage === true && kind === 'onboarding'
             sendJson(
                 response,
                 200,
@@ -256,7 +258,8 @@ export function createPiRuntimeRouter({
                     body.runKind === 'maintenance')
                     ? body.runKind
                     : 'manual'
-            const hideUserMessage = isRecord(body) && body.hideUserMessage === true
+            const hideUserMessage =
+                isRecord(body) && body.hideUserMessage === true && record.kind === 'onboarding'
             const finalStatus = await runPrompt({
                 record,
                 message,
@@ -292,9 +295,7 @@ export function createPiRuntimeRouter({
                     ? (body.thinkingLevel as RoomExecutionThinkingLevel)
                     : null
             const speedMode =
-                isRecord(body) && (body.speedMode === 'normal' || body.speedMode === 'fast')
-                    ? (body.speedMode as RoomExecutionSpeedMode)
-                    : null
+                isRecord(body) && isValidSpeedMode(body.speedMode) ? body.speedMode : null
             sendJson(
                 response,
                 200,

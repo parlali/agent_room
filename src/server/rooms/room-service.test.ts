@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
     startRoom: vi.fn(),
     assertRoomSetupReady: vi.fn(),
     saveRoomConfig: vi.fn(),
+    beginRoomOnboarding: vi.fn(),
+    seedDefaultRoomMemory: vi.fn(),
 }))
 
 const createRoomRecord = {
@@ -50,8 +52,8 @@ vi.mock('./room-autostart', () => ({
 }))
 
 vi.mock('./room-onboarding', () => ({
-    beginRoomOnboarding: vi.fn().mockResolvedValue(undefined),
-    seedDefaultRoomMemory: vi.fn().mockResolvedValue(undefined),
+    beginRoomOnboarding: mocks.beginRoomOnboarding,
+    seedDefaultRoomMemory: mocks.seedDefaultRoomMemory,
 }))
 
 vi.mock('./room-paths', () => ({
@@ -76,6 +78,8 @@ describe('room service', () => {
         mocks.startRoom.mockReset()
         mocks.assertRoomSetupReady.mockReset()
         mocks.saveRoomConfig.mockReset()
+        mocks.beginRoomOnboarding.mockReset()
+        mocks.seedDefaultRoomMemory.mockReset()
 
         mocks.auditAppendEvent.mockResolvedValue(undefined)
         mocks.roomCreate.mockResolvedValue(createRoomRecord)
@@ -85,6 +89,8 @@ describe('room service', () => {
         mocks.runtimeMetadataUpsert.mockResolvedValue(undefined)
         mocks.assertRoomSetupReady.mockReturnValue(undefined)
         mocks.saveRoomConfig.mockResolvedValue(undefined)
+        mocks.beginRoomOnboarding.mockResolvedValue(undefined)
+        mocks.seedDefaultRoomMemory.mockResolvedValue(undefined)
         mocks.roomFindById.mockResolvedValue({
             ...createRoomRecord,
             status: 'failed',
@@ -149,5 +155,34 @@ describe('room service', () => {
                 }),
             }),
         )
+    })
+
+    it('returns the persisted room when onboarding initialization fails after creation', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+        mocks.seedDefaultRoomMemory.mockRejectedValueOnce(new Error('memory unavailable'))
+
+        const result = await createRoom({
+            displayName: 'Marketing',
+            createdByUserId: 'user-1',
+            startImmediately: false,
+        })
+
+        expect(result).toEqual(createRoomRecord)
+        expect(mocks.roomDelete).not.toHaveBeenCalled()
+        expect(mocks.startRoom).not.toHaveBeenCalled()
+        expect(mocks.auditAppendEvent).toHaveBeenCalledWith(
+            expect.objectContaining({
+                roomId: 'room-1',
+                action: 'room.onboarding_init_failed',
+                payload: {
+                    error: 'memory unavailable',
+                },
+            }),
+        )
+        expect(consoleError).toHaveBeenCalledWith(
+            'Failed to initialize onboarding for room room-1',
+            'memory unavailable',
+        )
+        consoleError.mockRestore()
     })
 })

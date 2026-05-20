@@ -1,5 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
-import { setResponseHeaders } from '@tanstack/react-start/server'
+import { setResponseHeaders, setResponseStatus } from '@tanstack/react-start/server'
 import { z } from 'zod'
 import {
     providerApis,
@@ -273,6 +273,21 @@ async function requireMutationActor() {
     return requireAuthenticatedActor()
 }
 
+async function requireRoomOwner(actor: { userId: string }, roomId: string) {
+    const { roomRepository } = await import('#/server/db/repositories')
+    const room = await roomRepository.findRoomById(roomId)
+    if (!room) {
+        setResponseStatus(404, 'Not Found')
+        throw new Error('Room not found')
+    }
+    if (room.createdByUserId !== actor.userId) {
+        console.warn(`Denied room access for user ${actor.userId} on room ${roomId}`)
+        setResponseStatus(403, 'Forbidden')
+        throw new Error('Room access denied')
+    }
+    return room
+}
+
 export const listRoomsServer = createServerFn({ method: 'GET' }).handler(async () => {
     await requireAuthenticatedActor()
     setResponseHeaders({
@@ -465,6 +480,7 @@ export const getSessionComposerDraftServer = createServerFn({ method: 'GET' })
         setResponseHeaders({
             'cache-control': 'no-store',
         })
+        await requireRoomOwner(actor, data.roomId)
         const { sessionComposerDraftRepository } = await import('#/server/db/repositories')
         const draft = await sessionComposerDraftRepository.find({
             authSessionId: actor.sessionId,
@@ -481,12 +497,8 @@ export const saveSessionComposerDraftServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => saveSessionComposerDraftInputSchema.parse(input))
     .handler(async ({ data }) => {
         const actor = await requireMutationActor()
-        const { roomRepository, sessionComposerDraftRepository } =
-            await import('#/server/db/repositories')
-        const room = await roomRepository.findRoomById(data.roomId)
-        if (!room) {
-            throw new Error('Room not found')
-        }
+        await requireRoomOwner(actor, data.roomId)
+        const { sessionComposerDraftRepository } = await import('#/server/db/repositories')
         const draft = await sessionComposerDraftRepository.upsert({
             authSessionId: actor.sessionId,
             roomId: data.roomId,
@@ -555,7 +567,8 @@ const roomIdInputSchema = z.object({
 export const getRoomPersonalityServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => roomIdInputSchema.parse(input))
     .handler(async ({ data }) => {
-        await requireAuthenticatedActor()
+        const actor = await requireAuthenticatedActor()
+        await requireRoomOwner(actor, data.roomId)
         const { getRoomPersonality } = await import('#/server/rooms/room-onboarding')
         const form = await getRoomPersonality(data.roomId)
         return { roomId: data.roomId, form }
@@ -570,6 +583,7 @@ export const saveRoomPersonalityServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => savePersonalityInputSchema.parse(input))
     .handler(async ({ data }) => {
         const actor = await requireMutationActor()
+        await requireRoomOwner(actor, data.roomId)
         const { saveRoomPersonality } = await import('#/server/rooms/room-onboarding')
         const form = await saveRoomPersonality({
             roomId: data.roomId,

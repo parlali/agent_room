@@ -14,7 +14,7 @@ async function reconcileDesiredRunningRooms(): Promise<void> {
             (room.status === 'setup_required' ||
                 room.status === 'stopped' ||
                 room.status === 'failed')
-        if (!needsStoppedReconcile && !needsRunningReconcile && room.desiredState !== 'running') {
+        if (!needsStoppedReconcile && !needsRunningReconcile) {
             continue
         }
         try {

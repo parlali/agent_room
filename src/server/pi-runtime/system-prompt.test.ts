@@ -147,6 +147,9 @@ describe('Agent Room Pi system prompt', () => {
             expect(prompt).not.toContain('image_generate')
             expect(prompt).not.toContain('GitHub is not connected')
             expect(prompt).not.toContain('office, image, or presentation')
+            expect(prompt).not.toContain(
+                'Use the bundled Office skills as the default editable source',
+            )
             expect(prompt).not.toContain('create image deliverables')
             expect(prompt).not.toContain('explicitly asks you to remember')
             expect(prompt).toContain('Use memory as an internal habit after substantive work')
@@ -161,7 +164,28 @@ describe('Agent Room Pi system prompt', () => {
             expect(prompt).not.toContain('Document, report, memo, brief, proposal')
             expect(prompt).not.toContain('Spreadsheet, tracker, model, budget')
             expect(prompt).not.toContain('Deck, slides, and presentation requests')
+            expect(prompt).not.toContain('editable Office source first')
+            expect(prompt).not.toContain('clearly maps to DOCX, XLSX, or PPTX')
             expect(prompt.length).toBeLessThan(9000)
+        })
+    })
+
+    it('does not route PDF requests through Office when Office skills are disabled', async () => {
+        await withConfig(async (config) => {
+            config.capabilities.documents = false
+            config.capabilities.spreadsheets = false
+            config.capabilities.presentations = false
+            config.capabilities.pdf = true
+
+            const prompt = await buildAgentRoomSystemPrompt(config)
+
+            expect(prompt).toContain('Artifact routing:')
+            expect(prompt).toContain('Use HTML, Markdown, plain text')
+            expect(prompt).not.toContain(
+                'Use the bundled Office skills as the default editable source',
+            )
+            expect(prompt).not.toContain('editable Office source first')
+            expect(prompt).not.toContain('DOCX through the bundled docx skill')
         })
     })
 

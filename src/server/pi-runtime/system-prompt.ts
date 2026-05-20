@@ -91,9 +91,15 @@ function attachmentHandlingInstruction(config: PiRuntimeConfig): string {
 }
 
 function artifactRoutingSection(config: PiRuntimeConfig): string {
+    const hasOfficeCapability =
+        config.capabilities.documents ||
+        config.capabilities.spreadsheets ||
+        config.capabilities.presentations
     const lines = [
         'Artifact routing:',
-        'Use the bundled Office skills as the default editable source for normal business artifacts.',
+        hasOfficeCapability
+            ? 'Use the bundled Office skills as the default editable source for normal business artifacts.'
+            : null,
         config.capabilities.documents
             ? 'Document, report, memo, brief, proposal, white paper, and spec requests create or edit DOCX through the bundled docx skill unless the operator explicitly asks for another source format.'
             : null,
@@ -103,11 +109,13 @@ function artifactRoutingSection(config: PiRuntimeConfig): string {
         config.capabilities.presentations
             ? 'Deck, slides, and presentation requests create or edit PPTX through the bundled pptx skill unless the operator explicitly asks for another source format.'
             : null,
-        config.capabilities.pdf
+        config.capabilities.pdf && hasOfficeCapability
             ? 'For normal business PDF requests, create or preserve the editable Office source first, then export or convert to PDF as the delivery format.'
             : null,
         'Use HTML, Markdown, plain text, custom PDF generation, or other renderers only when explicitly requested or when a bounded renderer is required by the task.',
-        'Do not deliberate across multiple artifact formats when the request clearly maps to DOCX, XLSX, or PPTX.',
+        hasOfficeCapability
+            ? 'Do not deliberate across multiple artifact formats when the request clearly maps to DOCX, XLSX, or PPTX.'
+            : null,
     ]
 
     return lines.filter((line): line is string => line !== null).join('\n')

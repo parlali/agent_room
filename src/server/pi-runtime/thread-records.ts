@@ -1,5 +1,7 @@
 import type { RunKind } from './run-budget'
-import type { RoomExecutionSpeedMode } from '../rooms/execution-types'
+import type { RoomExecutionSessionStatus, RoomExecutionSpeedMode } from '../rooms/execution-types'
+import { isRoomExecutionSessionStatus } from '../rooms/execution-types'
+import { isValidSpeedMode } from './runtime-speed-mode'
 
 export type ThreadKind = 'main' | 'subagent' | 'deep_work' | 'onboarding'
 export type ThreadTitleSource = 'initial' | 'generated' | 'manual'
@@ -19,7 +21,7 @@ export interface ThreadRecord {
     sessionId: string
     title: string
     titleSource: ThreadTitleSource
-    status: string
+    status: RoomExecutionSessionStatus
     createdAt: number
     updatedAt: number
     lastMessagePreview: string | null
@@ -88,15 +90,14 @@ export function normalizeThreadRecord(
             record.titleSource === 'generated' || record.titleSource === 'manual'
                 ? record.titleSource
                 : 'initial',
-        status: record.status,
+        status: isRoomExecutionSessionStatus(record.status) ? record.status : 'idle',
         createdAt: record.createdAt,
         updatedAt: record.updatedAt,
         lastMessagePreview: record.lastMessagePreview ?? null,
         modelProvider: record.modelProvider ?? null,
         model: record.model ?? null,
         thinkingLevel: record.thinkingLevel ?? null,
-        speedMode:
-            record.speedMode === 'fast' || record.speedMode === 'normal' ? record.speedMode : null,
+        speedMode: isValidSpeedMode(record.speedMode) ? record.speedMode : null,
         activeRunId: record.activeRunId ?? null,
         activeRunKind: record.activeRunKind ?? null,
         heartbeatAt: record.heartbeatAt ?? null,

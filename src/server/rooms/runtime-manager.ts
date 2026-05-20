@@ -1,7 +1,6 @@
 import { auditRepository, roomRepository } from '../db/repositories'
 import { assertRoomConfigurationStartable } from '../configuration/operator-configuration'
 import { markRoomSetupRequired } from './runtime-setup-state'
-import { ensureRoomOnboardingStarted } from './room-onboarding'
 import { roomProcessSnapshot, startRoomProcess, stopRoomProcess } from './runtime-lifecycle'
 
 export interface RuntimeReconcileResult {
@@ -85,13 +84,6 @@ export const roomRuntimeManager = {
             roomId,
             action: 'room.runtime_reconciled_running',
             payload: {},
-        })
-
-        void ensureRoomOnboardingStarted(roomId).catch((error) => {
-            console.error(
-                `Failed to start onboarding for room ${roomId}`,
-                error instanceof Error ? error.message : error,
-            )
         })
 
         return {

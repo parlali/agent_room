@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
     updateRoomDesiredState: vi.fn(),
     updateRoomStatus: vi.fn(),
     assertRoomConfigurationStartable: vi.fn(),
+    markRoomSetupRequired: vi.fn(),
     startRoomProcess: vi.fn(),
     stopRoomProcess: vi.fn(),
     roomProcessSnapshot: vi.fn(),
@@ -38,6 +39,10 @@ vi.mock('../configuration/operator-configuration', () => ({
     assertRoomConfigurationStartable: mocks.assertRoomConfigurationStartable,
 }))
 
+vi.mock('./runtime-setup-state', () => ({
+    markRoomSetupRequired: mocks.markRoomSetupRequired,
+}))
+
 vi.mock('./runtime-lifecycle', () => ({
     roomProcessSnapshot: mocks.roomProcessSnapshot,
     startRoomProcess: mocks.startRoomProcess,
@@ -58,6 +63,7 @@ describe('room runtime manager', () => {
         mocks.updateRoomDesiredState.mockReset()
         mocks.updateRoomStatus.mockReset()
         mocks.assertRoomConfigurationStartable.mockReset()
+        mocks.markRoomSetupRequired.mockReset()
         mocks.startRoomProcess.mockReset()
         mocks.stopRoomProcess.mockReset()
         mocks.roomProcessSnapshot.mockReset()
@@ -69,6 +75,18 @@ describe('room runtime manager', () => {
         mocks.startRoomProcess.mockResolvedValue(undefined)
         mocks.stopRoomProcess.mockResolvedValue(undefined)
         mocks.roomProcessSnapshot.mockResolvedValue({ running: false })
+        mocks.markRoomSetupRequired.mockImplementation(async (input) => {
+            await mocks.updateRoomStatus(input.roomId, 'setup_required')
+            await mocks.appendEvent({
+                actorUserId: input.actorUserId,
+                roomId: input.roomId,
+                action: 'room.runtime_start_blocked',
+                payload: {
+                    trigger: input.trigger,
+                    ...(input.error ? { error: input.error } : {}),
+                },
+            })
+        })
 
         const runtimeManagerModule = await import('./runtime-manager')
         roomRuntimeManager = runtimeManagerModule.roomRuntimeManager

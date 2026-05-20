@@ -4,7 +4,11 @@ import {
     roomRuntimeMetadataRepository,
     roomSessionBadgeRepository,
 } from '../../db/repositories'
-import type { RoomExecutionSnapshot, RoomRuntimeOverview } from '../execution-types'
+import type {
+    RoomExecutionSnapshot,
+    RoomExecutionThread,
+    RoomRuntimeOverview,
+} from '../execution-types'
 import type { RoomSessionWindow } from '#/lib/room-execution-types'
 import { requestPiRuntime } from '../pi-runtime-client'
 
@@ -213,13 +217,15 @@ async function applySessionBadgeState(input: {
         ...input.snapshot,
         threads: input.snapshot.threads.map((thread) => {
             const completedClearedAt = completedClearedBySession.get(thread.key) ?? null
+            const completedActivity = hasCompletedActivity({
+                threadUpdatedAt: thread.updatedAt,
+                completedClearedAt,
+            })
+            const idleWithVisibleActivity =
+                thread.status === 'idle' && Boolean(thread.lastMessagePreview?.trim())
             const completed =
-                isTerminalSessionStatus(thread.status) &&
-                hasCompletedActivity({
-                    threadUpdatedAt: thread.updatedAt,
-                    completedClearedAt,
-                    hasPreview: Boolean(thread.lastMessagePreview?.trim()),
-                })
+                completedActivity &&
+                (isTerminalSessionStatus(thread.status) || idleWithVisibleActivity)
             return {
                 ...thread,
                 badgeState: {
@@ -231,16 +237,15 @@ async function applySessionBadgeState(input: {
     }
 }
 
-function isTerminalSessionStatus(status: string | null): boolean {
+function isTerminalSessionStatus(status: RoomExecutionThread['status']): boolean {
     return status === 'complete' || status === 'error' || status === 'stopped'
 }
 
 function hasCompletedActivity(input: {
     threadUpdatedAt: number | null
     completedClearedAt: number | null
-    hasPreview: boolean
 }): boolean {
-    if (!input.threadUpdatedAt || !input.hasPreview) return false
+    if (!input.threadUpdatedAt) return false
     if (!input.completedClearedAt) return true
     return input.threadUpdatedAt > input.completedClearedAt + 1000
 }

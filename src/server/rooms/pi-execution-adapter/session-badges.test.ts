@@ -48,7 +48,7 @@ function thread(input: {
         kind: 'main' as const,
         parentThreadKey: null,
         title: input.key,
-        lastMessagePreview: input.preview ?? 'Done',
+        lastMessagePreview: input.preview === undefined ? 'Done' : input.preview,
         status: input.status,
         updatedAt: input.updatedAt,
         runStartedAt: null,
@@ -139,6 +139,24 @@ describe('session completed badge projection', () => {
                 thread({ key: 'queued', status: 'queued', updatedAt: 3000 }),
                 thread({ key: 'old-complete', status: 'complete', updatedAt: 2000 }),
                 thread({ key: 'new-complete', status: 'complete', updatedAt: 3000 }),
+                thread({
+                    key: 'empty-terminal',
+                    status: 'complete',
+                    updatedAt: 3000,
+                    preview: null,
+                }),
+                thread({
+                    key: 'empty-idle',
+                    status: 'idle',
+                    updatedAt: 3000,
+                    preview: null,
+                }),
+                thread({
+                    key: 'idle-with-preview',
+                    status: 'idle',
+                    updatedAt: 3000,
+                    preview: 'Done',
+                }),
             ],
             selectedThreadKey: null,
             selectedThreadModel: null,
@@ -159,6 +177,9 @@ describe('session completed badge projection', () => {
             ['queued', false],
             ['old-complete', false],
             ['new-complete', true],
+            ['empty-terminal', true],
+            ['empty-idle', false],
+            ['idle-with-preview', true],
         ])
     })
 })

@@ -140,8 +140,28 @@ export async function createRoom(input: {
         throw error
     }
 
-    await seedDefaultRoomMemory(room.id)
-    await beginRoomOnboarding(room.id)
+    try {
+        await seedDefaultRoomMemory(room.id)
+        await beginRoomOnboarding(room.id)
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'unknown onboarding init error'
+        console.error(`Failed to initialize onboarding for room ${room.id}`, message)
+        try {
+            await auditRepository.appendEvent({
+                actorUserId: input.createdByUserId,
+                roomId: room.id,
+                action: 'room.onboarding_init_failed',
+                payload: {
+                    error: message,
+                },
+            })
+        } catch (auditError) {
+            console.error(
+                `Failed to audit onboarding initialization failure for room ${room.id}`,
+                auditError instanceof Error ? auditError.message : auditError,
+            )
+        }
+    }
 
     if (input.startImmediately) {
         try {
