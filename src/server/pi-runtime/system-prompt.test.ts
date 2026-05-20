@@ -93,6 +93,22 @@ describe('Agent Room Pi system prompt', () => {
             expect(prompt).toContain(
                 'Attached non-image, non-PDF files are workspace file references',
             )
+            expect(prompt).toContain('Artifact routing:')
+            expect(prompt).toContain(
+                'Document, report, memo, brief, proposal, white paper, and spec requests create or edit DOCX through the bundled docx skill',
+            )
+            expect(prompt).toContain(
+                'Spreadsheet, tracker, model, budget, and workbook requests create or edit XLSX through the bundled xlsx skill',
+            )
+            expect(prompt).toContain(
+                'Deck, slides, and presentation requests create or edit PPTX through the bundled pptx skill',
+            )
+            expect(prompt).toContain(
+                'For normal business PDF requests, create or preserve the editable Office source first',
+            )
+            expect(prompt).toContain(
+                'Do not deliberate across multiple artifact formats when the request clearly maps to DOCX, XLSX, or PPTX',
+            )
             expect(prompt).not.toContain('Do not use shell commands, document tools')
             expect(prompt).toContain('Memory harness')
             expect(prompt).not.toContain('memory.md')
@@ -141,7 +157,36 @@ describe('Agent Room Pi system prompt', () => {
             expect(prompt).not.toContain('persistent room-local coworker')
             expect(prompt).not.toContain('Scheduled work is autonomous')
             expect(prompt).not.toContain('Keep the workspace reviewable for non-developers')
+            expect(prompt).toContain('Artifact routing:')
+            expect(prompt).not.toContain('Document, report, memo, brief, proposal')
+            expect(prompt).not.toContain('Spreadsheet, tracker, model, budget')
+            expect(prompt).not.toContain('Deck, slides, and presentation requests')
             expect(prompt.length).toBeLessThan(9000)
+        })
+    })
+
+    it('renders Office routing as default source guidance for unspecified business artifacts', async () => {
+        await withConfig(async (config) => {
+            const prompt = await buildAgentRoomSystemPrompt(config)
+
+            expect(prompt).toContain(
+                'Use the bundled Office skills as the default editable source for normal business artifacts',
+            )
+            expect(prompt).toContain(
+                'Document, report, memo, brief, proposal, white paper, and spec requests create or edit DOCX through the bundled docx skill unless the operator explicitly asks for another source format',
+            )
+            expect(prompt).toContain(
+                'Spreadsheet, tracker, model, budget, and workbook requests create or edit XLSX through the bundled xlsx skill unless the operator explicitly asks for another source format',
+            )
+            expect(prompt).toContain(
+                'Deck, slides, and presentation requests create or edit PPTX through the bundled pptx skill unless the operator explicitly asks for another source format',
+            )
+            expect(prompt).toContain(
+                'For normal business PDF requests, create or preserve the editable Office source first, then export or convert to PDF as the delivery format',
+            )
+            expect(prompt).toContain(
+                'Use HTML, Markdown, plain text, custom PDF generation, or other renderers only when explicitly requested',
+            )
         })
     })
 
