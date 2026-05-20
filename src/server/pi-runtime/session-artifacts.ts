@@ -45,13 +45,13 @@ const writeToolNames = new Set([
     'agent_room_pdf',
 ])
 
-const readToolNames = new Set([
-    'read',
+const explicitArtifactToolNames = new Set([
+    'artifact_export',
     'pdf',
-    'read_pdf',
-    'agent_room_read',
+    'artifact_import',
+    'agent_room_artifact_export',
     'agent_room_pdf',
-    'agent_room_read_pdf',
+    'agent_room_artifact_import',
 ])
 
 function artifactId(surface: ArtifactSurface, relativePath: string): string {
@@ -190,6 +190,16 @@ function addArtifact(
     })
 }
 
+function hasExplicitArtifactPromotion(input: {
+    toolName: string | null
+    artifactId: string | null
+    operation: string | null
+}): boolean {
+    if (input.artifactId) return true
+    if (input.operation === 'artifact_export' || input.operation === 'export_pdf') return true
+    return input.toolName ? explicitArtifactToolNames.has(input.toolName) : false
+}
+
 function artifactFromPath(input: {
     config: PiRuntimeConfig
     surface: ArtifactSurface
@@ -293,27 +303,13 @@ function collectToolResult(input: {
     const byteLength = numberValue(details?.byteLength)
     const artifactIdValue = stringValue(details?.artifactId)
     const fileChange = isRecord(details?.fileChange) ? details.fileChange : null
-    const outputArtifact = isRecord(details?.outputArtifact) ? details.outputArtifact : null
+    const explicitlyPromoted = hasExplicitArtifactPromotion({
+        toolName,
+        artifactId: artifactIdValue,
+        operation,
+    })
 
-    if (outputArtifact) {
-        addArtifact(
-            input.artifacts,
-            artifactFromPath({
-                config: input.config,
-                surface: normalizeSurface(outputArtifact.root),
-                path: stringValue(outputArtifact.path),
-                kind: 'referenced',
-                toolName,
-                operation: 'tool_output',
-                artifactId: null,
-                byteLength: numberValue(outputArtifact.byteLength),
-                timestamp,
-                messageId,
-            }),
-        )
-    }
-
-    if (fileChange) {
+    if (fileChange && explicitlyPromoted) {
         addArtifact(
             input.artifacts,
             artifactFromPath({
@@ -331,7 +327,10 @@ function collectToolResult(input: {
         )
     }
 
-    if (toolName === 'artifact_import' || toolName === 'agent_room_artifact_import') {
+    if (
+        explicitlyPromoted &&
+        (toolName === 'artifact_import' || toolName === 'agent_room_artifact_import')
+    ) {
         addArtifact(
             input.artifacts,
             artifactFromPath({
@@ -350,7 +349,7 @@ function collectToolResult(input: {
         return
     }
 
-    if (writeToolNames.has(toolName ?? '')) {
+    if (explicitlyPromoted && writeToolNames.has(toolName ?? '')) {
         addArtifact(
             input.artifacts,
             artifactFromPath({
@@ -360,24 +359,6 @@ function collectToolResult(input: {
                     stringValue(details?.path) ??
                     stringValue(args.outputPath) ??
                     stringValue(args.path),
-                kind: kindFromTool(toolName, operation),
-                toolName,
-                operation,
-                artifactId: artifactIdValue,
-                byteLength,
-                timestamp,
-                messageId,
-            }),
-        )
-    }
-
-    if (readToolNames.has(toolName ?? '')) {
-        addArtifact(
-            input.artifacts,
-            artifactFromPath({
-                config: input.config,
-                surface: normalizeSurface(details?.root ?? args.root),
-                path: stringValue(details?.path) ?? stringValue(args.path),
                 kind: kindFromTool(toolName, operation),
                 toolName,
                 operation,

@@ -8,13 +8,17 @@ export interface SessionArtifactPanelState {
     width: number
 }
 
+export const artifactPanelMinWidth = 320
+export const artifactPanelMaxWidth = 560
+export const artifactPanelDefaultWidth = 384
+
 export function defaultArtifactPanelState(): SessionArtifactPanelState {
     return {
         open: false,
         loaded: false,
         autoOpened: false,
         selectedArtifactId: null,
-        width: 384,
+        width: artifactPanelDefaultWidth,
     }
 }
 
@@ -45,10 +49,18 @@ export function patchArtifactPanelState(
     current: SessionArtifactPanelState,
     patch: Partial<SessionArtifactPanelState>,
 ): SessionArtifactPanelState {
+    const width =
+        typeof patch.width === 'number' ? clampArtifactPanelWidth(patch.width) : current.width
     return {
         ...current,
         ...patch,
+        width,
     }
+}
+
+export function clampArtifactPanelWidth(width: number): number {
+    if (!Number.isFinite(width)) return artifactPanelDefaultWidth
+    return Math.min(artifactPanelMaxWidth, Math.max(artifactPanelMinWidth, Math.round(width)))
 }
 
 export function artifactPanelStatesEqual(

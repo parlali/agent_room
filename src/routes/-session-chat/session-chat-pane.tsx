@@ -74,6 +74,7 @@ import { cacheStreamTurn, readCachedStreamTurn, sessionStreamStateKey } from './
 import { rowContainsMessage } from '#/lib/message-list-model'
 import {
     artifactPanelStatesEqual,
+    clampArtifactPanelWidth,
     defaultArtifactPanelState,
     patchArtifactPanelState,
     resolveSelectedArtifactId,
@@ -1233,6 +1234,7 @@ function SessionArtifactsShell({
 }) {
     const mountedLoggedRef = useRef(false)
     const openStartedAtRef = useRef<number | null>(null)
+    const [resizing, setResizing] = useState(false)
     const shouldLoad = state.loaded || open || artifacts.length > 0
 
     useEffect(() => {
@@ -1269,16 +1271,15 @@ function SessionArtifactsShell({
         event.preventDefault()
         const startX = event.clientX
         const startWidth = state.width
+        setResizing(true)
         const onMove = (moveEvent: MouseEvent) => {
-            const nextWidth = Math.min(
-                560,
-                Math.max(320, startWidth - (moveEvent.clientX - startX)),
-            )
+            const nextWidth = clampArtifactPanelWidth(startWidth - (moveEvent.clientX - startX))
             onChangeState({ width: nextWidth })
         }
         const onUp = () => {
             window.removeEventListener('mousemove', onMove)
             window.removeEventListener('mouseup', onUp)
+            setResizing(false)
         }
         window.addEventListener('mousemove', onMove)
         window.addEventListener('mouseup', onUp, { once: true })
@@ -1287,14 +1288,14 @@ function SessionArtifactsShell({
     return (
         <>
             <div
-                className="hidden shrink-0 overflow-hidden border-l border-border/60 transition-[width] duration-200 ease-out xl:block"
+                className={`hidden shrink-0 overflow-hidden border-l border-border/60 xl:block ${resizing ? '' : 'transition-[width] duration-200 ease-out'}`}
                 style={{ width: open ? state.width : 0 }}
                 aria-hidden={!open}
             >
                 <div className="relative h-full" style={{ width: state.width }}>
                     <button
                         type="button"
-                        className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize bg-transparent hover:bg-border"
+                        className="absolute inset-y-0 left-0 z-10 w-3 -translate-x-1/2 cursor-col-resize bg-transparent after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-border/70 hover:after:bg-border"
                         aria-label="Resize artifacts"
                         onMouseDown={onDesktopResizeStart}
                     />
