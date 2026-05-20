@@ -48,7 +48,9 @@ export function PersonalitySection({ roomId }: { roomId: string }) {
         onSuccess: async (response) => {
             setDraft(response.form)
             setDraftRoomId(response.roomId)
-            await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomPersonality(roomId) })
+            await queryClient.invalidateQueries({
+                queryKey: roomQueryKey.roomPersonality(response.roomId),
+            })
             toast.success('Personality saved')
         },
         onError: (error: unknown) => {

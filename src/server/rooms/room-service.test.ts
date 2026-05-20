@@ -159,30 +159,33 @@ describe('room service', () => {
 
     it('returns the persisted room when onboarding initialization fails after creation', async () => {
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-        mocks.seedDefaultRoomMemory.mockRejectedValueOnce(new Error('memory unavailable'))
+        try {
+            mocks.seedDefaultRoomMemory.mockRejectedValueOnce(new Error('memory unavailable'))
 
-        const result = await createRoom({
-            displayName: 'Marketing',
-            createdByUserId: 'user-1',
-            startImmediately: false,
-        })
+            const result = await createRoom({
+                displayName: 'Marketing',
+                createdByUserId: 'user-1',
+                startImmediately: false,
+            })
 
-        expect(result).toEqual(createRoomRecord)
-        expect(mocks.roomDelete).not.toHaveBeenCalled()
-        expect(mocks.startRoom).not.toHaveBeenCalled()
-        expect(mocks.auditAppendEvent).toHaveBeenCalledWith(
-            expect.objectContaining({
-                roomId: 'room-1',
-                action: 'room.onboarding_init_failed',
-                payload: {
-                    error: 'memory unavailable',
-                },
-            }),
-        )
-        expect(consoleError).toHaveBeenCalledWith(
-            'Failed to initialize onboarding for room room-1',
-            'memory unavailable',
-        )
-        consoleError.mockRestore()
+            expect(result).toEqual(createRoomRecord)
+            expect(mocks.roomDelete).not.toHaveBeenCalled()
+            expect(mocks.startRoom).not.toHaveBeenCalled()
+            expect(mocks.auditAppendEvent).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    roomId: 'room-1',
+                    action: 'room.onboarding_init_failed',
+                    payload: {
+                        error: 'memory unavailable',
+                    },
+                }),
+            )
+            expect(consoleError).toHaveBeenCalledWith(
+                'Failed to initialize onboarding for room room-1',
+                'memory unavailable',
+            )
+        } finally {
+            consoleError.mockRestore()
+        }
     })
 })

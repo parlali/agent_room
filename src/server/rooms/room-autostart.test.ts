@@ -151,18 +151,21 @@ describe('reconcileRoomAutostart', () => {
         mocks.reconcileRoom.mockRejectedValue(runtimeError)
         mocks.appendEvent.mockRejectedValue(auditError)
 
-        await expect(
-            reconcileRoomAutostart({
-                roomId: 'room-1',
-                actorUserId: 'user-1',
-                trigger: 'room_config_saved',
-            }),
-        ).rejects.toBe(runtimeError)
+        try {
+            await expect(
+                reconcileRoomAutostart({
+                    roomId: 'room-1',
+                    actorUserId: 'user-1',
+                    trigger: 'room_config_saved',
+                }),
+            ).rejects.toBe(runtimeError)
 
-        expect(consoleError).toHaveBeenCalledWith(
-            'Failed to audit runtime autostart failure for room room-1',
-            'audit failed',
-        )
-        consoleError.mockRestore()
+            expect(consoleError).toHaveBeenCalledWith(
+                'Failed to audit runtime autostart failure for room room-1',
+                'audit failed',
+            )
+        } finally {
+            consoleError.mockRestore()
+        }
     })
 })
