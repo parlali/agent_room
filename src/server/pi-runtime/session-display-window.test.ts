@@ -314,9 +314,9 @@ function executionThread(record: ThreadRecord): RoomExecutionThread {
         modelProvider: null,
         totalTokens: null,
         estimatedCostUsd: null,
-        readState: {
-            readAt: null,
-            unread: false,
+        badgeState: {
+            completedClearedAt: null,
+            completed: false,
         },
         compaction: {
             enabled: true,

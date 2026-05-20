@@ -350,7 +350,11 @@ function isThreadActive(thread: RoomExecutionThread): boolean {
 }
 
 function SessionStatusBadge({ thread }: { thread: RoomExecutionThread }) {
-    if (thread.status === 'running' || thread.status === 'compacting') {
+    if (
+        thread.status === 'queued' ||
+        thread.status === 'running' ||
+        thread.status === 'compacting'
+    ) {
         return (
             <span className="ml-2 shrink-0 rounded-full bg-working-soft px-1.5 py-0.5 text-[0.625rem] font-medium text-working-fg">
                 Working
@@ -358,13 +362,13 @@ function SessionStatusBadge({ thread }: { thread: RoomExecutionThread }) {
         )
     }
 
-    if (thread.readState.unread) {
+    if (thread.badgeState.completed) {
         return (
             <span
                 className="ml-2 shrink-0 rounded-full bg-ready-soft px-1.5 py-0.5 text-[0.625rem] font-medium text-ready-fg"
-                aria-label="Done, unread"
+                aria-label="Completed"
             >
-                Done
+                Completed
             </span>
         )
     }

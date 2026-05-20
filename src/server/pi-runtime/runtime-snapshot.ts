@@ -46,9 +46,9 @@ export function mapThread(
         modelProvider: record.modelProvider,
         totalTokens: null,
         estimatedCostUsd: null,
-        readState: {
-            readAt: null,
-            unread: false,
+        badgeState: {
+            completedClearedAt: null,
+            completed: false,
         },
         compaction: compactionStats(record),
     }

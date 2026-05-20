@@ -25,6 +25,11 @@ const sessionWindowInputSchema = z.object({
     limitRows: z.number().int().min(1).max(120).optional(),
 })
 
+const sessionBadgeInputSchema = z.object({
+    roomId: roomIdSchema,
+    sessionKey: z.string().min(1),
+})
+
 const sessionComposerDraftInputSchema = z.object({
     roomId: roomIdSchema,
     sessionKey: z.string().min(1),
@@ -436,6 +441,21 @@ export const getRoomSessionWindowServer = createServerFn({ method: 'GET' })
             after: data.after ?? null,
             limitRows: data.limitRows ?? 40,
         })
+    })
+
+export const clearSessionCompletedBadgeServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => sessionBadgeInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { clearSessionCompletedBadge } = await import('#/server/rooms/execution-engine')
+        await clearSessionCompletedBadge({
+            roomId: data.roomId,
+            sessionKey: data.sessionKey,
+            actorUserId: actor.userId,
+        })
+        return {
+            ok: true,
+        }
     })
 
 export const getSessionComposerDraftServer = createServerFn({ method: 'GET' })
