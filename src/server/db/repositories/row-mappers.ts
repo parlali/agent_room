@@ -25,6 +25,7 @@ import type {
     UsageEventRecord,
     UsageEventKind,
     SecretRecord,
+    SessionComposerDraftRecord,
     SessionRecord,
     UserRecord,
     UserRole,
@@ -81,6 +82,17 @@ export function mapSession(row: DbRow): SessionRecord {
         revokedAt: nullableValue<Date>(row.revoked_at),
         userAgent: nullableValue<string>(row.user_agent),
         ipAddress: nullableValue<string>(row.ip_address),
+    }
+}
+
+export function mapSessionComposerDraft(row: DbRow): SessionComposerDraftRecord {
+    return {
+        authSessionId: String(row.auth_session_id),
+        roomId: String(row.room_id),
+        sessionKey: String(row.session_key),
+        draft: String(row.draft),
+        createdAt: row.created_at as Date,
+        updatedAt: row.updated_at as Date,
     }
 }
 

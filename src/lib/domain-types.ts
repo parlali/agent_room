@@ -97,6 +97,15 @@ export interface SessionRecord {
     ipAddress: string | null
 }
 
+export interface SessionComposerDraftRecord {
+    authSessionId: string
+    roomId: string
+    sessionKey: string
+    draft: string
+    createdAt: Date
+    updatedAt: Date
+}
+
 export interface RoomRecord {
     id: string
     slug: string

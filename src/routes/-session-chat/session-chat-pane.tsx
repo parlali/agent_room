@@ -18,11 +18,18 @@ import {
 } from '#/lib/browser-performance'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import {
+    sessionComposerDraftKey,
+    sessionComposerDraftSaveDebounceMs,
+    type SessionComposerDraftSnapshot,
+} from '#/lib/session-composer-draft'
+import {
     abortMessageServer,
     editMessageServer,
+    getSessionComposerDraftServer,
     getRoomSessionShellServer,
     getRoomSessionWindowServer,
     renameSessionServer,
+    saveSessionComposerDraftServer,
     sendMessageServer,
     updateThreadModelServer,
 } from '#/routes/-room-runtime-server'
@@ -88,10 +95,31 @@ const artifactsAutoOpenDelayMs = 1300
 const artifactPanelStateCache = new Map<string, SessionArtifactPanelState>()
 const emptyArtifacts: RoomSessionArtifact[] = []
 
+type SendMutationInput = {
+    roomId: string
+    sessionKey: string
+    composerKey: string
+    message: string
+}
+
 export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessionKey: string }) {
     const navigate = useNavigate()
     const queryClient = useQueryClient()
-    const [draft, setDraft] = useState('')
+    const composerStateKey = useMemo(
+        () => sessionComposerDraftKey(roomId, sessionKey),
+        [roomId, sessionKey],
+    )
+    const composerQueryKey = useMemo(
+        () => roomQueryKey.sessionComposer(roomId, sessionKey),
+        [roomId, sessionKey],
+    )
+    const cachedComposerDraft =
+        queryClient.getQueryData<SessionComposerDraftSnapshot>(composerQueryKey)?.draft ?? ''
+    const [draftState, setDraftState] = useState(() => ({
+        key: composerStateKey,
+        value: cachedComposerDraft,
+    }))
+    const draft = draftState.key === composerStateKey ? draftState.value : cachedComposerDraft
     const [streamError, setStreamError] = useState<string | null>(null)
     const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
     const [editingMessage, setEditingMessage] = useState<EditingMessageDraft | null>(null)
@@ -109,6 +137,11 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const [streamTurn, setStreamTurn] = useState<StreamTurnState>(() =>
         readCachedStreamTurn(streamStateKey),
     )
+    const draftRef = useRef(draft)
+    const activeComposerKeyRef = useRef(composerStateKey)
+    const composerEditedSinceLoadRef = useRef(false)
+    const draftSaveTimerRef = useRef<number | null>(null)
+    const draftSaveErrorKeyRef = useRef<string | null>(null)
     const shellPaintLoggedRef = useRef<string | null>(null)
     const latestPaintLoggedRef = useRef<string | null>(null)
     const queryKey = useMemo(
@@ -185,6 +218,94 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         staleTime: roomQueryPolicy.warmStaleMs,
         gcTime: roomQueryPolicy.retainedSessionMs,
     })
+    const composerDraftQuery = useQuery<SessionComposerDraftSnapshot>({
+        queryKey: composerQueryKey,
+        queryFn: () =>
+            getSessionComposerDraftServer({
+                data: {
+                    roomId,
+                    sessionKey,
+                },
+            }),
+        staleTime: 0,
+        gcTime: roomQueryPolicy.retainedSessionMs,
+    })
+
+    const setComposerDraft = useCallback(
+        (value: string, key = composerStateKey) => {
+            draftRef.current = value
+            setDraftState({ key, value })
+        },
+        [composerStateKey],
+    )
+
+    const cancelScheduledDraftSave = useCallback(() => {
+        if (!draftSaveTimerRef.current) return
+        window.clearTimeout(draftSaveTimerRef.current)
+        draftSaveTimerRef.current = null
+    }, [])
+
+    const persistComposerDraft = useCallback(
+        async (input: { roomId: string; sessionKey: string; draft: string }) => {
+            try {
+                const snapshot = await saveSessionComposerDraftServer({
+                    data: input,
+                })
+                queryClient.setQueryData(
+                    roomQueryKey.sessionComposer(input.roomId, input.sessionKey),
+                    snapshot,
+                )
+                const persistedKey = sessionComposerDraftKey(input.roomId, input.sessionKey)
+                if (draftSaveErrorKeyRef.current === persistedKey) {
+                    draftSaveErrorKeyRef.current = null
+                }
+            } catch (error) {
+                const failedKey = sessionComposerDraftKey(input.roomId, input.sessionKey)
+                if (draftSaveErrorKeyRef.current === failedKey) return
+                draftSaveErrorKeyRef.current = failedKey
+                toast.error(
+                    error instanceof Error ? error.message : 'Composer draft could not be saved',
+                )
+            }
+        },
+        [queryClient],
+    )
+
+    const scheduleComposerDraftSave = useCallback(
+        (value: string) => {
+            cancelScheduledDraftSave()
+            const target = {
+                roomId,
+                sessionKey,
+                draft: value,
+            }
+            draftSaveTimerRef.current = window.setTimeout(() => {
+                draftSaveTimerRef.current = null
+                void persistComposerDraft(target)
+            }, sessionComposerDraftSaveDebounceMs)
+        },
+        [cancelScheduledDraftSave, persistComposerDraft, roomId, sessionKey],
+    )
+
+    const onChangeComposerDraft = useCallback(
+        (value: string) => {
+            composerEditedSinceLoadRef.current = true
+            setComposerDraft(value)
+            scheduleComposerDraftSave(value)
+        },
+        [scheduleComposerDraftSave, setComposerDraft],
+    )
+
+    const clearComposerDraft = useCallback(() => {
+        cancelScheduledDraftSave()
+        composerEditedSinceLoadRef.current = false
+        setComposerDraft('')
+        void persistComposerDraft({
+            roomId,
+            sessionKey,
+            draft: '',
+        })
+    }, [cancelScheduledDraftSave, persistComposerDraft, roomId, sessionKey, setComposerDraft])
 
     const snapshot = executionQuery.data
     const room = snapshot?.room ?? null
@@ -268,6 +389,52 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         shellPaintLoggedRef.current = null
         latestPaintLoggedRef.current = null
     }, [streamStateKey])
+
+    useEffect(() => {
+        const cachedDraft =
+            queryClient.getQueryData<SessionComposerDraftSnapshot>(composerQueryKey)?.draft ?? ''
+        activeComposerKeyRef.current = composerStateKey
+        composerEditedSinceLoadRef.current = false
+        setComposerDraft(cachedDraft, composerStateKey)
+
+        return () => {
+            const draftToPersist = draftRef.current
+            cancelScheduledDraftSave()
+            void persistComposerDraft({
+                roomId,
+                sessionKey,
+                draft: draftToPersist,
+            })
+        }
+    }, [
+        cancelScheduledDraftSave,
+        composerQueryKey,
+        composerStateKey,
+        persistComposerDraft,
+        queryClient,
+        roomId,
+        sessionKey,
+        setComposerDraft,
+    ])
+
+    useEffect(() => {
+        const serverDraft = composerDraftQuery.data
+        if (!serverDraft) return
+        if (activeComposerKeyRef.current !== composerStateKey) return
+        if (composerEditedSinceLoadRef.current) return
+        setComposerDraft(serverDraft.draft, composerStateKey)
+    }, [composerDraftQuery.data, composerStateKey, setComposerDraft])
+
+    useEffect(() => {
+        if (!composerDraftQuery.isError) return
+        if (draftSaveErrorKeyRef.current === composerStateKey) return
+        draftSaveErrorKeyRef.current = composerStateKey
+        toast.error(
+            composerDraftQuery.error instanceof Error
+                ? composerDraftQuery.error.message
+                : 'Composer draft could not be loaded',
+        )
+    }, [composerDraftQuery.error, composerDraftQuery.isError, composerStateKey])
 
     useEffect(() => {
         if (!showArtifacts) return
@@ -397,39 +564,66 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     })
 
     const sendMutation = useMutation({
-        mutationFn: (message: string) =>
-            sendMessageServer({ data: { roomId, sessionKey, message } }),
-        onMutate: async (message): Promise<OptimisticWindowRollback> => {
+        mutationFn: (input: SendMutationInput) =>
+            sendMessageServer({
+                data: {
+                    roomId: input.roomId,
+                    sessionKey: input.sessionKey,
+                    message: input.message,
+                },
+            }),
+        onMutate: async (input): Promise<OptimisticWindowRollback> => {
             return addOptimisticUserMessage({
                 queryClient,
-                roomId,
-                sessionKey,
-                message,
+                roomId: input.roomId,
+                sessionKey: input.sessionKey,
+                message: input.message,
                 timestamp: Date.now(),
             })
         },
-        onSuccess: (result, _message, rollback) => {
+        onSuccess: (result, input, rollback) => {
             promoteOptimisticUserMessageToPendingRun({
                 queryClient,
-                roomId,
-                sessionKey,
+                roomId: input.roomId,
+                sessionKey: input.sessionKey,
                 rollback,
                 runId: result.runId,
             })
-            setDraft('')
-            setAttachments([])
-            void queryClient.invalidateQueries({ queryKey })
-            void queryClient.invalidateQueries({ queryKey: windowQueryKey })
-            void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) })
+            if (activeComposerKeyRef.current === input.composerKey) {
+                clearComposerDraft()
+                setAttachments([])
+            } else {
+                void persistComposerDraft({
+                    roomId: input.roomId,
+                    sessionKey: input.sessionKey,
+                    draft: '',
+                })
+            }
+            void queryClient.invalidateQueries({
+                queryKey: roomQueryKey.sessionShell(input.roomId, input.sessionKey),
+            })
+            void queryClient.invalidateQueries({
+                queryKey: roomQueryKey.sessionWindow(input.roomId, input.sessionKey),
+            })
+            void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(input.roomId) })
         },
-        onError: (error, message, rollback) => {
+        onError: (error, input, rollback) => {
             rollbackOptimisticWindow({
                 queryClient,
-                roomId,
-                sessionKey,
+                roomId: input.roomId,
+                sessionKey: input.sessionKey,
                 rollback,
             })
-            setDraft(message)
+            if (activeComposerKeyRef.current === input.composerKey) {
+                cancelScheduledDraftSave()
+                composerEditedSinceLoadRef.current = true
+                setComposerDraft(input.message, input.composerKey)
+            }
+            void persistComposerDraft({
+                roomId: input.roomId,
+                sessionKey: input.sessionKey,
+                draft: input.message,
+            })
             toast.error(error instanceof Error ? error.message : 'Message could not be sent')
         },
     })
@@ -572,7 +766,12 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         const value = draft.trim()
         if (!value && attachments.length === 0) return
         const message = formatMessageWithAttachments(value, attachments)
-        sendMutation.mutate(message)
+        sendMutation.mutate({
+            roomId,
+            sessionKey,
+            composerKey: composerStateKey,
+            message,
+        })
     }
 
     const submitEditedMessage = () => {
@@ -762,7 +961,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 roomId={roomId}
                 roomDisplayName={room.displayName}
                 draft={draft}
-                onChangeDraft={setDraft}
+                onChangeDraft={onChangeComposerDraft}
                 onSubmit={onSubmit}
                 onKeyDown={onComposerKeyDown}
                 sending={sending}

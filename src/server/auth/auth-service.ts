@@ -1,6 +1,11 @@
 import { randomBytes } from 'node:crypto'
 import { getAppEnv } from '../config/env'
-import { userRepository, sessionRepository, auditRepository } from '../db/repositories'
+import {
+    userRepository,
+    sessionRepository,
+    auditRepository,
+    sessionComposerDraftRepository,
+} from '../db/repositories'
 import { hashPassword, hashSessionToken, verifyPassword } from '../security/password'
 
 const env = getAppEnv()
@@ -112,6 +117,7 @@ export async function revokeSession(token: string) {
         return
     }
     await sessionRepository.revokeSession(session.id, new Date())
+    await sessionComposerDraftRepository.deleteByAuthSession(session.id)
     await auditRepository.appendEvent({
         actorUserId: session.userId,
         roomId: null,

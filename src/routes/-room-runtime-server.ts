@@ -7,6 +7,7 @@ import {
     roomDesiredStates,
     roomProviderModes,
 } from '#/server/domain/types'
+import { maxSessionComposerDraftLength } from '#/lib/session-composer-draft'
 
 const roomIdSchema = z.string().uuid()
 
@@ -22,6 +23,15 @@ const sessionWindowInputSchema = z.object({
     before: z.string().min(1).nullable().optional(),
     after: z.string().min(1).nullable().optional(),
     limitRows: z.number().int().min(1).max(120).optional(),
+})
+
+const sessionComposerDraftInputSchema = z.object({
+    roomId: roomIdSchema,
+    sessionKey: z.string().min(1),
+})
+
+const saveSessionComposerDraftInputSchema = sessionComposerDraftInputSchema.extend({
+    draft: z.string().max(maxSessionComposerDraftLength),
 })
 
 const sendMessageInputSchema = z.object({
@@ -428,6 +438,47 @@ export const getRoomSessionWindowServer = createServerFn({ method: 'GET' })
         })
     })
 
+export const getSessionComposerDraftServer = createServerFn({ method: 'GET' })
+    .inputValidator((input: unknown) => sessionComposerDraftInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireAuthenticatedActor()
+        setResponseHeaders({
+            'cache-control': 'no-store',
+        })
+        const { sessionComposerDraftRepository } = await import('#/server/db/repositories')
+        const draft = await sessionComposerDraftRepository.find({
+            authSessionId: actor.sessionId,
+            roomId: data.roomId,
+            sessionKey: data.sessionKey,
+        })
+        return {
+            draft: draft?.draft ?? '',
+            updatedAt: draft?.updatedAt.getTime() ?? null,
+        }
+    })
+
+export const saveSessionComposerDraftServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => saveSessionComposerDraftInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { roomRepository, sessionComposerDraftRepository } =
+            await import('#/server/db/repositories')
+        const room = await roomRepository.findRoomById(data.roomId)
+        if (!room) {
+            throw new Error('Room not found')
+        }
+        const draft = await sessionComposerDraftRepository.upsert({
+            authSessionId: actor.sessionId,
+            roomId: data.roomId,
+            sessionKey: data.sessionKey,
+            draft: data.draft,
+        })
+        return {
+            draft: draft?.draft ?? '',
+            updatedAt: draft?.updatedAt.getTime() ?? null,
+        }
+    })
+
 export const recordClientPerformanceServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => clientPerformanceInputSchema.parse(input))
     .handler(async ({ data }) => {
@@ -783,8 +834,13 @@ export const deleteSessionServer = createServerFn({ method: 'POST' })
     .handler(async ({ data }) => {
         await requireMutationActor()
         await ensureRuntimeSupervisorBoot()
+        const { sessionComposerDraftRepository } = await import('#/server/db/repositories')
         const { deleteRoomSession } = await import('#/server/rooms/execution-engine')
         await deleteRoomSession({
+            roomId: data.roomId,
+            sessionKey: data.sessionKey,
+        })
+        await sessionComposerDraftRepository.deleteByRoomSession({
             roomId: data.roomId,
             sessionKey: data.sessionKey,
         })
