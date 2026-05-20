@@ -2,6 +2,10 @@ import type { AgentSession } from '@mariozechner/pi-coding-agent'
 import type { AssistantMessage, Usage } from '@mariozechner/pi-ai'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import {
+    appendHiddenProjectionForLatestUserMessage,
+    appendHiddenProjectionForPromptText,
+} from './hidden-projection'
+import {
     preparePromptWithAttachments,
     promptAttachmentMetadataType,
     type PreparedPrompt,
@@ -56,6 +60,7 @@ export interface RunPromptInput {
     awaitCompletion: boolean
     runKind?: RunKind
     editMessageId?: string | null
+    hideUserMessage?: boolean
 }
 
 interface RuntimeRunnerDependencies {
@@ -133,16 +138,18 @@ function appendFailedPromptMessages(
     message: string,
     timestamp: number,
 ): void {
-    active.session.sessionManager.appendMessage({
-        role: 'user',
-        content: [
-            {
-                type: 'text',
-                text: input.message,
-            },
-        ],
-        timestamp,
-    })
+    if (!input.hideUserMessage) {
+        active.session.sessionManager.appendMessage({
+            role: 'user',
+            content: [
+                {
+                    type: 'text',
+                    text: input.message,
+                },
+            ],
+            timestamp,
+        })
+    }
     appendAssistantRunError(active, input.record, message, timestamp)
 }
 
@@ -402,7 +409,10 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                             runId: input.runId,
                             preparedPrompt,
                         })
-                        return active.session.prompt(
+                        if (input.hideUserMessage) {
+                            appendHiddenProjectionForPromptText(active.session, preparedPrompt.text)
+                        }
+                        const promptResult = await active.session.prompt(
                             preparedPrompt.text,
                             active.session.isStreaming
                                 ? {
@@ -415,6 +425,10 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                                       images: preparedPrompt.images,
                                   },
                         )
+                        if (input.hideUserMessage) {
+                            appendHiddenProjectionForLatestUserMessage(active.session)
+                        }
+                        return promptResult
                     },
                 )
                 if (watchdogError) {
@@ -428,6 +442,9 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                     abortController.signal.reason instanceof RunWatchdog
                         ? abortController.signal.reason
                         : watchdogError
+                if (input.hideUserMessage) {
+                    appendHiddenProjectionForLatestUserMessage(active.session)
+                }
                 if (abortReason?.reason === 'explicit_abort') {
                     input.record.status = 'idle'
                     input.record.lastError = null
@@ -541,7 +558,7 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
         }
 
         const active = await dependencies.getActiveThread(input.record)
-        if (!input.editMessageId) {
+        if (!input.editMessageId && !input.hideUserMessage) {
             addPendingUserMessage(input.record, {
                 messageId: input.runId,
                 runId: input.runId,

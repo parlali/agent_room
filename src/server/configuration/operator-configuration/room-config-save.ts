@@ -25,6 +25,7 @@ import {
 import type { RoomConfigSaveInput, RoomConfigSnapshot } from './contracts'
 import { roomConfigSaveSchema } from './contracts'
 import { imageProviderEnvKey, nullableText, validateBaseUrl } from './helpers'
+import { reconcileRoomAutostart } from '../../rooms/room-autostart'
 import { getRoomConfigSnapshot } from './room-config-snapshot'
 import { decryptSecretRecord, resolveSecret, upsertEncryptedSecret } from './secrets'
 
@@ -82,6 +83,9 @@ async function upsertRoomImageSecret(input: {
 export async function saveRoomConfig(
     rawInput: RoomConfigSaveInput,
     actorUserId: string,
+    options: {
+        reconcileAutostart?: boolean
+    } = {},
 ): Promise<RoomConfigSnapshot> {
     const input = roomConfigSaveSchema.parse(rawInput)
     const room = await roomRepository.findRoomById(input.roomId)
@@ -307,5 +311,18 @@ export async function saveRoomConfig(
         })
     }
 
-    return getRoomConfigSnapshot(input.roomId)
+    const snapshot = await getRoomConfigSnapshot(input.roomId)
+    if (options.reconcileAutostart !== false) {
+        await reconcileRoomAutostart({
+            roomId: input.roomId,
+            actorUserId,
+            trigger: 'room_config_saved',
+        }).catch((error) => {
+            if (error instanceof Error) {
+                throw error
+            }
+            throw new Error('Room autostart reconciliation failed')
+        })
+    }
+    return snapshot
 }

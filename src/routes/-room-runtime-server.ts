@@ -505,12 +505,58 @@ export const sendMessageServer = createServerFn({ method: 'POST' })
     .handler(async ({ data }) => {
         await requireMutationActor()
         await ensureRuntimeSupervisorBoot()
+        const { roomOnboardingRepository } = await import('#/server/db/repositories')
+        const onboarding = await roomOnboardingRepository.findByRoomId(data.roomId)
         const { sendRoomThreadMessage } = await import('#/server/rooms/execution-engine')
-        return sendRoomThreadMessage({
+        const isOnboardingReply =
+            onboarding?.status === 'pending' && onboarding.sessionKey === data.sessionKey
+        const result = await sendRoomThreadMessage({
             roomId: data.roomId,
             sessionKey: data.sessionKey,
             message: data.message,
+            awaitCompletion: isOnboardingReply,
         })
+        if (isOnboardingReply) {
+            const { completeOnboardingAfterPersonalityTool } =
+                await import('#/server/rooms/room-onboarding')
+            await completeOnboardingAfterPersonalityTool({
+                roomId: data.roomId,
+                sessionKey: data.sessionKey,
+                runId: result.runId,
+            })
+        }
+        return result
+    })
+
+const roomIdInputSchema = z.object({
+    roomId: roomIdSchema,
+})
+
+export const getRoomPersonalityServer = createServerFn({ method: 'GET' })
+    .inputValidator((input: unknown) => roomIdInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        await requireAuthenticatedActor()
+        const { getRoomPersonality } = await import('#/server/rooms/room-onboarding')
+        const form = await getRoomPersonality(data.roomId)
+        return { roomId: data.roomId, form }
+    })
+
+const savePersonalityInputSchema = z.object({
+    roomId: roomIdSchema,
+    form: z.record(z.string(), z.unknown()),
+})
+
+export const saveRoomPersonalityServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => savePersonalityInputSchema.parse(input))
+    .handler(async ({ data }) => {
+        const actor = await requireMutationActor()
+        const { saveRoomPersonality } = await import('#/server/rooms/room-onboarding')
+        const form = await saveRoomPersonality({
+            roomId: data.roomId,
+            form: data.form,
+            actorUserId: actor.userId,
+        })
+        return { roomId: data.roomId, form }
     })
 
 export const editMessageServer = createServerFn({ method: 'POST' })

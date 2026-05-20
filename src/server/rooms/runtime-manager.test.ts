@@ -44,6 +44,10 @@ vi.mock('./runtime-lifecycle', () => ({
     stopRoomProcess: mocks.stopRoomProcess,
 }))
 
+vi.mock('./room-onboarding', () => ({
+    ensureRoomOnboardingStarted: vi.fn().mockResolvedValue({ sessionKey: null, started: false }),
+}))
+
 describe('room runtime manager', () => {
     let roomRuntimeManager: typeof RuntimeManager.roomRuntimeManager
 
@@ -64,30 +68,76 @@ describe('room runtime manager', () => {
         mocks.updateRoomStatus.mockResolvedValue(undefined)
         mocks.startRoomProcess.mockResolvedValue(undefined)
         mocks.stopRoomProcess.mockResolvedValue(undefined)
+        mocks.roomProcessSnapshot.mockResolvedValue({ running: false })
 
         const runtimeManagerModule = await import('./runtime-manager')
         roomRuntimeManager = runtimeManagerModule.roomRuntimeManager
     })
 
-    it('fails closed before changing desired state when effective config is blocked', async () => {
+    it('preserves running intent and marks setup required when configuration is blocked', async () => {
         mocks.assertRoomConfigurationStartable.mockRejectedValue(
             new Error('Room configuration is blocked: missing provider'),
         )
+        mocks.roomProcessSnapshot.mockResolvedValue({ running: false })
 
-        await expect(roomRuntimeManager.startRoom('room-1', 'user-1')).rejects.toThrow(
-            'Room configuration is blocked: missing provider',
-        )
+        await roomRuntimeManager.startRoom('room-1', 'user-1')
 
-        expect(mocks.updateRoomDesiredState).not.toHaveBeenCalled()
+        expect(mocks.updateRoomDesiredState).toHaveBeenCalledWith('room-1', 'running')
         expect(mocks.startRoomProcess).not.toHaveBeenCalled()
-        expect(mocks.updateRoomStatus).toHaveBeenCalledWith('room-1', 'failed')
-        expect(mocks.appendEvent).toHaveBeenCalledWith({
-            actorUserId: 'user-1',
-            roomId: 'room-1',
-            action: 'room.runtime_start_blocked',
-            payload: {
-                error: 'Room configuration is blocked: missing provider',
-            },
+        expect(mocks.updateRoomStatus).toHaveBeenCalledWith('room-1', 'setup_required')
+    })
+
+    it('stops a live runtime without restart when configuration becomes blocked', async () => {
+        mocks.findRoomById.mockResolvedValue({
+            ...runningRoom,
+            status: 'running',
         })
+        mocks.assertRoomConfigurationStartable.mockRejectedValue(
+            new Error('Room configuration is blocked: missing provider'),
+        )
+        mocks.roomProcessSnapshot.mockResolvedValue({ running: true, pid: 123, port: 4567 })
+
+        const result = await roomRuntimeManager.reconcileRoom('room-1', 'user-1', {
+            blockedTrigger: 'room_config_saved',
+        })
+
+        expect(result).toEqual({
+            started: false,
+            restarted: false,
+            blocked: true,
+            skipped: false,
+        })
+        expect(mocks.stopRoomProcess).toHaveBeenCalledWith('room-1', 'user-1', {
+            restartIfDesired: false,
+        })
+        expect(mocks.updateRoomStatus).toHaveBeenCalledWith('room-1', 'setup_required')
+    })
+
+    it('restarts a live desired-running room when requested after config changes', async () => {
+        mocks.findRoomById.mockResolvedValue({
+            ...runningRoom,
+            status: 'running',
+        })
+        mocks.assertRoomConfigurationStartable.mockResolvedValue(undefined)
+        mocks.roomProcessSnapshot.mockResolvedValue({ running: true, pid: 123, port: 4567 })
+
+        const result = await roomRuntimeManager.reconcileRoom('room-1', 'user-1', {
+            restartRunning: true,
+        })
+
+        expect(result).toEqual({
+            started: false,
+            restarted: true,
+            blocked: false,
+            skipped: false,
+        })
+        expect(mocks.stopRoomProcess).toHaveBeenCalledWith('room-1', 'user-1', {
+            restartIfDesired: false,
+        })
+        expect(mocks.startRoomProcess).toHaveBeenCalledWith(
+            expect.objectContaining({
+                id: 'room-1',
+            }),
+        )
     })
 })

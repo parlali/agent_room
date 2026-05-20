@@ -51,6 +51,16 @@ export function buildOverall(input: {
 }): OverallStatus {
     const { execution, config, readiness, history } = input
     const room = execution?.room ?? null
+    if (room?.status === 'setup_required') {
+        const blockedReason = config?.effective.blockedReasons[0] ?? null
+        return {
+            tone: 'attention',
+            label: 'Needs setup',
+            description:
+                blockedReason ?? 'Add room-scoped provider configuration to start this room.',
+        }
+    }
+
     if (room?.status === 'failed' || execution?.executionState === 'error') {
         return {
             tone: 'danger',

@@ -32,6 +32,10 @@ import { rewriteNativePdfPayload } from './pdf-document-payload'
 import type { ThreadKind, ThreadRecord } from './thread-records'
 import type { RunKind } from './run-budget'
 import { codexServiceTierForSpeedMode } from './runtime-speed-mode'
+import {
+    createOnboardingPersonalityTool,
+    onboardingSystemPrompt,
+} from './onboarding-personality-tool'
 
 type CodexResponsesModel = Model<'openai-codex-responses'>
 
@@ -92,6 +96,14 @@ function codexReasoningEffort(
 
 export function createPiRuntimeCustomTools(input: PiRuntimeSessionInput): ToolDefinition[] {
     const { config, record } = input
+    if (record.kind === 'onboarding') {
+        return [
+            createOnboardingPersonalityTool({
+                config,
+                audit: input.audit,
+            }),
+        ]
+    }
     return [
         ...createNativeWorkspaceTools({
             config,
@@ -225,7 +237,11 @@ export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Prom
         modelRegistry,
         model: hasPersistedModelState ? undefined : configuredModel,
         thinkingLevel: hasPersistedModelState ? undefined : (record.thinkingLevel ?? 'medium'),
-        resourceLoader: createPiResourceLoader(input.systemPrompt),
+        resourceLoader: createPiResourceLoader(() =>
+            record.kind === 'onboarding'
+                ? onboardingSystemPrompt(input.systemPrompt())
+                : input.systemPrompt(),
+        ),
         sessionManager,
         settingsManager,
         tools: enabledTools,

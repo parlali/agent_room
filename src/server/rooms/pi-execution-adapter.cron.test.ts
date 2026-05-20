@@ -661,9 +661,9 @@ describe('Pi cron adapter', () => {
             expect.anything(),
             expect.objectContaining({
                 method: 'POST',
-                body: {
+                body: expect.objectContaining({
                     firstMessage: 'Wake up',
-                },
+                }),
             }),
         )
         expect(mocks.requestPiRuntime).not.toHaveBeenCalledWith(

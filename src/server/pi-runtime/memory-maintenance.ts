@@ -1,3 +1,4 @@
+import { sanitizePersonalityForm } from '../rooms/personality/form'
 import {
     canonicalMemoryJson,
     lowPriorityTrimTarget,
@@ -69,6 +70,10 @@ function normalizeTimedItems(items: TimedMemoryItem[], now: number): TimedMemory
         })
 }
 
+function isLegacyPersonalityPreference(item: MemoryItem): boolean {
+    return item.source === 'personality' || item.tags?.includes('personality') === true
+}
+
 function trimLowPriority(items: MemoryItem[]): MemoryItem[] {
     if (items.length <= maxSectionItems) {
         return items
@@ -92,7 +97,11 @@ export function maintainMemory(memory: RoomMemory): { memory: RoomMemory; change
         },
         operator: {
             facts: trimLowPriority(normalizeItems(memory.operator.facts)),
-            preferences: trimLowPriority(normalizeItems(memory.operator.preferences)),
+            preferences: trimLowPriority(
+                normalizeItems(memory.operator.preferences).filter(
+                    (item) => !isLegacyPersonalityPreference(item),
+                ),
+            ),
         },
         behavior: {
             rules: trimLowPriority(normalizeItems(memory.behavior.rules)),
@@ -110,6 +119,7 @@ export function maintainMemory(memory: RoomMemory): { memory: RoomMemory; change
         },
         decisions: trimLowPriority(normalizeItems(memory.decisions)),
         doNotForget: trimLowPriority(normalizeItems(memory.doNotForget)),
+        personality: sanitizePersonalityForm(memory.personality),
     }
     return {
         memory: next,

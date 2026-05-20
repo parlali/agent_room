@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { z } from 'zod'
+import { defaultPersonalityForm, personalityFormSchema } from '../rooms/personality/form'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 
 export const maxMemoryBytes = 64000
@@ -56,6 +57,7 @@ export const roomMemorySchema = z.strictObject({
     }),
     decisions: z.array(memoryItemSchema),
     doNotForget: z.array(memoryItemSchema),
+    personality: personalityFormSchema.optional(),
 })
 
 export type MemoryItem = z.infer<typeof memoryItemSchema>
@@ -178,6 +180,7 @@ export function emptyRoomMemory(createdAt = nowIso()): RoomMemory {
                 tags: ['safety'],
             },
         ],
+        personality: defaultPersonalityForm(),
     }
 }
 

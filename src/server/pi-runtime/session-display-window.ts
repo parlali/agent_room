@@ -17,6 +17,7 @@ import {
     elapsedPerformanceMs,
 } from '../telemetry/performance'
 import { extractSessionArtifacts } from './session-artifacts'
+import { visibleProjectionEntries } from './hidden-projection'
 import { completedToolCallIds, mapSessionEntry } from './session-entry-mapper'
 import { promptAttachmentMetadataByEntryId } from './prompt-attachments'
 import type { ThreadRecord } from './thread-records'
@@ -135,7 +136,7 @@ function buildSessionDisplayIndex(input: {
 }): SessionDisplayIndex {
     const completed = completedToolCallIds(input.entries)
     const attachmentMetadata = promptAttachmentMetadataByEntryId(input.entries)
-    const messages = input.entries
+    const messages = visibleProjectionEntries(input.entries)
         .map((entry, index) => mapSessionEntry(entry, index, completed, attachmentMetadata))
         .filter((message): message is RoomExecutionMessage => message !== null)
     const rows = buildChatTimelineRows(

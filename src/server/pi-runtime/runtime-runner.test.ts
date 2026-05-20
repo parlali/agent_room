@@ -10,6 +10,7 @@ import { memoryCaptureExpectationReasons, summarizeRunToolActivity } from './run
 import { patchMemory, readMemory } from './memory'
 import { createTestPiRuntimeConfig, ensureTestPiRuntimeDirectories } from './test-runtime-defaults'
 import { normalizeThreadRecord, type ThreadRecord } from './thread-records'
+import { hiddenProjectionEntryType } from './hidden-projection'
 
 function messageEntry(message: Record<string, unknown>): SessionEntry {
     return {
@@ -70,7 +71,16 @@ function fakeActiveThread(input: {
             input.entries.push(messageEntry(message))
             return input.entries[input.entries.length - 1]!.id
         },
-        appendCustomEntry: () => {},
+        appendCustomEntry: (customType: string, data: unknown) => {
+            input.entries.push({
+                id: randomUUID(),
+                parentId: null,
+                type: 'custom',
+                customType,
+                data,
+                timestamp: new Date().toISOString(),
+            } as unknown as SessionEntry)
+        },
     }
     return {
         session: {
@@ -216,6 +226,89 @@ describe('runtime runner memory capture audit', () => {
                 errorMessage: 'Codex error: cyber_policy rejected the request',
             })
             expect(JSON.stringify(assistant?.content)).toContain('safety policy')
+        })
+    })
+
+    it('does not expose hidden internal prompts as pending user messages', async () => {
+        await withConfig(async ({ config, root }) => {
+            const record = threadRecord(root)
+            const entries: SessionEntry[] = []
+            const active = fakeActiveThread({
+                entries,
+                prompt: async () => {},
+            })
+            active.queue = new Promise(() => {})
+            const events: Array<{ event: string; payload: unknown }> = []
+            const runPrompt = createRunner({
+                config,
+                record,
+                active,
+                events,
+            })
+
+            await runPrompt({
+                record,
+                message: 'internal onboarding instruction',
+                runId: 'run-hidden',
+                awaitCompletion: false,
+                hideUserMessage: true,
+            })
+
+            expect(record.pendingUserMessages ?? []).toEqual([])
+        })
+    })
+
+    it('marks hidden internal prompts before persisting provider errors', async () => {
+        await withConfig(async ({ config, root }) => {
+            const record = threadRecord(root)
+            const entries: SessionEntry[] = []
+            const active = fakeActiveThread({
+                entries,
+                prompt: async () => {
+                    entries.push(
+                        messageEntry({
+                            role: 'user',
+                            content: 'internal onboarding instruction',
+                        }),
+                    )
+                    throw new Error('Provider rejected the onboarding opener')
+                },
+            })
+            const events: Array<{ event: string; payload: unknown }> = []
+            const runPrompt = createRunner({
+                config,
+                record,
+                active,
+                events,
+            })
+
+            await runPrompt({
+                record,
+                message: 'internal onboarding instruction',
+                runId: 'run-hidden-error',
+                awaitCompletion: true,
+                hideUserMessage: true,
+            })
+
+            const hiddenMarker = entries.find(
+                (entry) =>
+                    entry.type === 'custom' &&
+                    entry.customType === hiddenProjectionEntryType &&
+                    typeof entry.data === 'object' &&
+                    entry.data !== null &&
+                    'hiddenEntryId' in entry.data,
+            )
+            const userMessages = entries.filter(
+                (entry) => entry.type === 'message' && entry.message.role === 'user',
+            )
+
+            expect(hiddenMarker).toMatchObject({
+                data: {
+                    hiddenEntryId: userMessages[0]?.id,
+                },
+            })
+            expect(record.pendingUserMessages ?? []).toEqual([])
+            expect(record.status).toBe('error')
         })
     })
 

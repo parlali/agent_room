@@ -68,6 +68,8 @@ export function describeRoomState(input: {
             return { label: 'Degraded', tone: 'attention' }
         case 'failed':
             return { label: 'Failed', tone: 'danger' }
+        case 'setup_required':
+            return { label: 'Needs setup', tone: 'attention' }
     }
 }
 

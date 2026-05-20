@@ -1,7 +1,7 @@
 import type { RunKind } from './run-budget'
 import type { RoomExecutionSpeedMode } from '../rooms/execution-types'
 
-export type ThreadKind = 'main' | 'subagent' | 'deep_work'
+export type ThreadKind = 'main' | 'subagent' | 'deep_work' | 'onboarding'
 export type ThreadTitleSource = 'initial' | 'generated' | 'manual'
 export type ThreadRunKind = RunKind
 
@@ -112,7 +112,12 @@ export function normalizeThreadRecord(
                 ? record.idleDurationMs
                 : 0,
         lastError: record.lastError ?? null,
-        kind: record.kind === 'subagent' || record.kind === 'deep_work' ? record.kind : 'main',
+        kind:
+            record.kind === 'subagent' ||
+            record.kind === 'deep_work' ||
+            record.kind === 'onboarding'
+                ? record.kind
+                : 'main',
         parentThreadKey: record.parentThreadKey ?? null,
         parentRunId: record.parentRunId ?? null,
         subagentRunId: record.subagentRunId ?? null,
@@ -146,6 +151,9 @@ export function threadAgentId(record: ThreadRecord): string {
     }
     if (record.kind === 'deep_work') {
         return deepWorkAgentId(record)
+    }
+    if (record.kind === 'onboarding') {
+        return `onboarding:${record.key}`
     }
     return 'main'
 }

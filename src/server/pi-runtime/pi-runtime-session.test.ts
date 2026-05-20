@@ -12,6 +12,7 @@ import {
 import { codexServiceTierForSpeedMode } from './runtime-speed-mode'
 import { BrowserbaseBrowserAutomationManager } from './browserbase-browser'
 import type { ThreadRecord } from './thread-records'
+import { onboardingPersonalityToolName } from './onboarding-personality-tool'
 
 function threadRecord(input: { key: string; kind?: ThreadRecord['kind'] }): ThreadRecord {
     const now = Date.now()
@@ -159,6 +160,18 @@ describe('Pi runtime session tools', () => {
                 expect(names).not.toContain('deep_work')
             },
             'deep_work',
+        )
+    })
+
+    it('exposes only the personality tool to onboarding threads', async () => {
+        await withToolInput(
+            'coworker',
+            (input) => {
+                const names = createPiRuntimeCustomTools(input).map((tool) => tool.name)
+
+                expect(names).toEqual([onboardingPersonalityToolName])
+            },
+            'onboarding',
         )
     })
 

@@ -24,7 +24,7 @@ import { resolveAbortDecision } from './run-control'
 import { RunWatchdog, timeoutMessage, type RunKind } from './run-budget'
 import { assertAuthorized, getRequestBody, HttpError, sendJson } from './runtime-http'
 import { isRecord } from './runtime-redaction'
-import type { ThreadRecord } from './thread-records'
+import type { ThreadKind, ThreadRecord } from './thread-records'
 
 interface RouterActiveThread {
     session: AgentSession
@@ -102,13 +102,21 @@ export function createPiRuntimeRouter({
     config: PiRuntimeConfig
     activeThreads: Map<string, RouterActiveThread>
     findThread: (key: string) => ThreadRecord | null
-    createThread: (input: { firstMessage?: string | null }) => Promise<PiRuntimeThreadCreatePayload>
+    createThread: (input: {
+        firstMessage?: string | null
+        title?: string | null
+        internalInstruction?: string | null
+        hideUserMessage?: boolean
+        awaitInitialRun?: boolean
+        kind?: ThreadKind
+    }) => Promise<PiRuntimeThreadCreatePayload>
     runPrompt: (input: {
         record: ThreadRecord
         message: string
         runId: string
         awaitCompletion: boolean
         runKind?: RunKind
+        hideUserMessage?: boolean
     }) => Promise<string>
     updateThreadModel: (input: {
         record: ThreadRecord
@@ -202,7 +210,27 @@ export function createPiRuntimeRouter({
             const body = await getRequestBody(request)
             const firstMessage =
                 isRecord(body) && typeof body.firstMessage === 'string' ? body.firstMessage : null
-            sendJson(response, 200, await createThread({ firstMessage }))
+            const title = isRecord(body) && typeof body.title === 'string' ? body.title : null
+            const internalInstruction =
+                isRecord(body) && typeof body.internalInstruction === 'string'
+                    ? body.internalInstruction
+                    : null
+            const hideUserMessage = isRecord(body) && body.hideUserMessage === true
+            const awaitInitialRun = isRecord(body) && body.awaitInitialRun === true
+            const kind =
+                isRecord(body) && body.kind === 'onboarding' ? ('onboarding' as const) : undefined
+            sendJson(
+                response,
+                200,
+                await createThread({
+                    firstMessage,
+                    title,
+                    internalInstruction,
+                    hideUserMessage,
+                    awaitInitialRun,
+                    kind,
+                }),
+            )
             return
         }
 
@@ -228,12 +256,14 @@ export function createPiRuntimeRouter({
                     body.runKind === 'maintenance')
                     ? body.runKind
                     : 'manual'
+            const hideUserMessage = isRecord(body) && body.hideUserMessage === true
             const finalStatus = await runPrompt({
                 record,
                 message,
                 runId,
                 awaitCompletion,
                 runKind,
+                hideUserMessage,
             })
             const payload: PiRuntimeSendPayload = {
                 runId,

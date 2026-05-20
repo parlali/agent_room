@@ -65,7 +65,9 @@ export function CreateRoomButton({
             setOpen(false)
             toast.success('Room created', {
                 description:
-                    room.status === 'failed' || room.desiredState === 'stopped'
+                    room.status === 'failed' ||
+                    room.status === 'setup_required' ||
+                    room.desiredState === 'stopped'
                         ? `"${room.displayName}" needs setup before it can run.`
                         : `"${room.displayName}" is starting up.`,
             })

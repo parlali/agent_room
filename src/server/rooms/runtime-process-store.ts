@@ -12,6 +12,7 @@ interface RuntimeProcessStore {
     runtimeProcesses: Map<string, RuntimeProcessEntry>
     runtimeStarts: Map<string, Promise<void>>
     roomsStopping: Set<string>
+    roomsSuppressRestartAfterStop: Set<string>
 }
 
 const globalRuntimeProcessStore = globalThis as typeof globalThis & {
@@ -20,6 +21,7 @@ const globalRuntimeProcessStore = globalThis as typeof globalThis & {
 
 function normalizeRuntimeProcessStore(store: RuntimeProcessStore): RuntimeProcessStore {
     store.runtimeStarts ??= new Map<string, Promise<void>>()
+    store.roomsSuppressRestartAfterStop ??= new Set<string>()
     return store
 }
 
@@ -29,6 +31,7 @@ const runtimeProcessStore = globalRuntimeProcessStore.__agentRoomRuntimeProcessS
           runtimeProcesses: new Map<string, RuntimeProcessEntry>(),
           runtimeStarts: new Map<string, Promise<void>>(),
           roomsStopping: new Set<string>(),
+          roomsSuppressRestartAfterStop: new Set<string>(),
       })
 
 export function hasRuntimeProcess(roomId: string): boolean {
@@ -47,14 +50,32 @@ export function deleteRuntimeProcess(roomId: string) {
     runtimeProcessStore.runtimeProcesses.delete(roomId)
 }
 
-export function markRoomStopping(roomId: string) {
+export function markRoomStopping(
+    roomId: string,
+    options: {
+        restartIfDesired?: boolean
+    } = {},
+) {
     runtimeProcessStore.roomsStopping.add(roomId)
+    if (options.restartIfDesired === false) {
+        runtimeProcessStore.roomsSuppressRestartAfterStop.add(roomId)
+    } else {
+        runtimeProcessStore.roomsSuppressRestartAfterStop.delete(roomId)
+    }
 }
 
-export function consumeRoomStopping(roomId: string): boolean {
-    const exists = runtimeProcessStore.roomsStopping.has(roomId)
+export function consumeRoomStopping(roomId: string): {
+    requested: boolean
+    restartIfDesired: boolean
+} {
+    const requested = runtimeProcessStore.roomsStopping.has(roomId)
+    const restartIfDesired = !runtimeProcessStore.roomsSuppressRestartAfterStop.has(roomId)
     runtimeProcessStore.roomsStopping.delete(roomId)
-    return exists
+    runtimeProcessStore.roomsSuppressRestartAfterStop.delete(roomId)
+    return {
+        requested,
+        restartIfDesired,
+    }
 }
 
 export async function withRuntimeStartLock(

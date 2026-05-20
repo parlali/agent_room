@@ -1,7 +1,10 @@
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { resolveArchetypeParagraph } from '../rooms/personality/archetypes'
+import { sanitizePersonalityForm } from '../rooms/personality/form'
 import { buildAgentHarnessPrompt } from './agent-harness'
 import { boundTextByChars } from './bounded-text'
 import { buildInternalStateSummary } from './internal-state'
+import { readMemory } from './memory'
 import { internalStateToolNames } from './internal-state-tools'
 import { nativeWorkspaceToolNamesForCapabilities, roomToolNamesForCapabilities } from './room-tools'
 
@@ -96,9 +99,20 @@ function identitySection(config: PiRuntimeConfig): string {
     ].join('\n')
 }
 
+function initiativeSection(): string {
+    return [
+        'Initiative:',
+        'Take safe obvious next steps before the final report when the next step is clearly implied, safe, and in scope.',
+        'If progress requires user judgment, ask one specific blocker question instead of producing a long report.',
+        'If the task is complete, return a concise completed report without an open-ended follow-up prompt.',
+        'Do not append generic "we can do this next" menus after completed work.',
+    ].join('\n')
+}
+
 function behaviorSection(): string {
     return [
         'Behavior:',
+        initiativeSection(),
         'Lead final responses with the conclusion, judgment, changed artifact, verification result, or named blocker.',
         'Final chat answers are usually 300-500 words unless the operator asked for comprehensive reference material, code, a long-form artifact, or exhaustive analysis.',
         'For broad multi-part questions, answer the decision first, collapse overlapping subquestions into one synthesis, and include only the facts that change the recommendation.',
@@ -184,6 +198,9 @@ function enabledToolNames(config: PiRuntimeConfig): string[] {
 export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promise<string> {
     const budget = contextBudgetForProvider(config)
     const internalState = await buildInternalStateSummary(config)
+    const memorySnapshot = await readMemory(config)
+    const personality = sanitizePersonalityForm(memorySnapshot.memory.personality)
+    const archetypeParagraph = resolveArchetypeParagraph(personality.archetype)
     const operatorInstructions = boundedText(
         config.instructions.trim(),
         MAX_OPERATOR_INSTRUCTIONS_CHARS,
@@ -213,6 +230,7 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
 
     const sections = [
         identitySection(config),
+        archetypeParagraph,
         runtimeContextSection(config, budget, now),
         behaviorSection(),
         sharedPolicySection(config),

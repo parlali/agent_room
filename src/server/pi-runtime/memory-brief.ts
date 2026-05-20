@@ -1,3 +1,4 @@
+import { personalityMemoryLines } from '../rooms/personality/form'
 import type { MemoryItem, RoomMemory } from './memory-model'
 import { boundTextByChars } from './bounded-text'
 
@@ -26,6 +27,12 @@ export function renderMemoryBrief(memory: RoomMemory): string {
         ...sectionLines('Boundaries', memory.identity.boundaries),
         ...sectionLines('Operator facts', memory.operator.facts),
         ...sectionLines('Operator preferences', memory.operator.preferences),
+        ...(memory.personality
+            ? [
+                  'Personality preferences',
+                  ...personalityMemoryLines(memory.personality).map((line) => `- ${line}`),
+              ]
+            : []),
         ...sectionLines('Behavior rules', memory.behavior.rules),
         ...sectionLines('Communication preferences', memory.behavior.communication),
         ...sectionLines('Current goals', memory.currentWork.goals),

@@ -43,7 +43,7 @@ export interface RoomExecutionThread {
     key: string
     sessionId: string | null
     agentId: string
-    kind: 'main' | 'subagent' | 'deep_work'
+    kind: 'main' | 'subagent' | 'deep_work' | 'onboarding'
     parentThreadKey: string | null
     title: string
     lastMessagePreview: string | null

@@ -71,6 +71,8 @@ describe('Agent Room Pi system prompt', () => {
             expect(prompt).toContain('read_pdf')
             expect(prompt).toContain('Main-thread orchestration tools: subagent, deep_work')
             expect(prompt).toContain('Enabled MCP servers: docs: search')
+            expect(prompt).toContain('Initiative:')
+            expect(prompt).toContain('pragmatic builder')
             expect(prompt).toContain('Lead final responses with the conclusion')
             expect(prompt).toContain('Final chat answers are usually 300-500 words')
             expect(prompt).toContain('For broad multi-part questions, answer the decision first')
