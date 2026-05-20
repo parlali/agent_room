@@ -85,10 +85,32 @@ function attachmentHandlingInstruction(config: PiRuntimeConfig): string {
         'Attached images are provided as direct visual input; use that input for image understanding.',
         'Do not inspect images with shell commands, OCR, conversion utilities, package installs, or storage paths.',
         pdfInstruction,
-        'For DOCX, XLSX, and PPTX create, inspect, and edit workflows, use the bundled docx, xlsx, and pptx skills through shell.',
         'Attached non-image, non-PDF files are workspace file references; when a root and path are shown, use the appropriate file, document, skill, or shell tools to inspect them only as needed.',
         'If an attachment cannot be accessed through either path, stop and report the limitation clearly.',
     ].join(' ')
+}
+
+function artifactRoutingSection(config: PiRuntimeConfig): string {
+    const lines = [
+        'Artifact routing:',
+        'Use the bundled Office skills as the default editable source for normal business artifacts.',
+        config.capabilities.documents
+            ? 'Document, report, memo, brief, proposal, white paper, and spec requests create or edit DOCX through the bundled docx skill unless the operator explicitly asks for another source format.'
+            : null,
+        config.capabilities.spreadsheets
+            ? 'Spreadsheet, tracker, model, budget, and workbook requests create or edit XLSX through the bundled xlsx skill unless the operator explicitly asks for another source format.'
+            : null,
+        config.capabilities.presentations
+            ? 'Deck, slides, and presentation requests create or edit PPTX through the bundled pptx skill unless the operator explicitly asks for another source format.'
+            : null,
+        config.capabilities.pdf
+            ? 'For normal business PDF requests, create or preserve the editable Office source first, then export or convert to PDF as the delivery format.'
+            : null,
+        'Use HTML, Markdown, plain text, custom PDF generation, or other renderers only when explicitly requested or when a bounded renderer is required by the task.',
+        'Do not deliberate across multiple artifact formats when the request clearly maps to DOCX, XLSX, or PPTX.',
+    ]
+
+    return lines.filter((line): line is string => line !== null).join('\n')
 }
 
 function identitySection(config: PiRuntimeConfig): string {
@@ -234,6 +256,7 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
         runtimeContextSection(config, budget, now),
         behaviorSection(),
         sharedPolicySection(config),
+        artifactRoutingSection(config),
         modeInstructions(config),
         buildAgentHarnessPrompt(internalState),
         `Enabled capabilities: ${enabledCapabilities.join(', ') || 'none'}`,

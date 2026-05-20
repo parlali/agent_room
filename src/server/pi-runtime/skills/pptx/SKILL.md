@@ -7,6 +7,10 @@ description: Create, inspect, and edit PowerPoint PPTX files through the bundled
 
 Use this skill for PowerPoint `.pptx` create, inspect, and edit work.
 
+Default to this skill for normal presentation business artifacts when the user does not specify a format, including decks, slides, and presentations. Do not deliberate between PPTX, PDF, HTML, Markdown, or custom generation paths for these requests unless the user explicitly asks for another source format or a bounded renderer is required.
+
+When the user asks for a PDF version of a normal presentation deliverable, create or preserve the editable PPTX source first, then export or convert that source to PDF as the delivery format.
+
 Run the bundled script through `shell`. Resolve `scripts/pptx_deck.ts` relative to this skill directory and pass that absolute path to `bun`.
 
 Commands:
