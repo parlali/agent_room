@@ -31,6 +31,11 @@ export interface RoomExecutionAdapter {
         after?: string | null
         limitRows?: number
     }) => Promise<RoomSessionWindow>
+    clearSessionCompletedBadge: (input: {
+        roomId: string
+        sessionKey: string
+        actorUserId: string
+    }) => Promise<void>
     sendRoomThreadMessage: (input: {
         roomId: string
         sessionKey: string

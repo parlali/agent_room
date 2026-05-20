@@ -2,7 +2,7 @@ import {
     roomConfigRepository,
     roomRepository,
     roomRuntimeMetadataRepository,
-    roomThreadReadRepository,
+    roomSessionBadgeRepository,
 } from '../../db/repositories'
 import type { RoomExecutionSnapshot, RoomRuntimeOverview } from '../execution-types'
 import type { RoomSessionWindow } from '#/lib/room-execution-types'
@@ -88,7 +88,7 @@ export async function getRoomExecutionSnapshot(input: {
             : 200
     let metadataMs: number | null = null
     let runtimeFetchMs: number | null = null
-    let readStateMs: number | null = null
+    let badgeStateMs: number | null = null
 
     const logSnapshot = (status: string, snapshot: RoomExecutionSnapshot | null) => {
         logPerformanceEvent('snapshot.load', {
@@ -102,7 +102,7 @@ export async function getRoomExecutionSnapshot(input: {
             metadataMs,
             runtimeFetchMs,
             usageSyncMs: null,
-            readStateMs,
+            badgeStateMs,
             threadCount: snapshot?.threads.length ?? null,
             selectedMessageCount: snapshot?.selectedThreadMessages.length ?? null,
             selectedArtifactCount: snapshot?.selectedThreadArtifacts.length ?? null,
@@ -165,11 +165,10 @@ export async function getRoomExecutionSnapshot(input: {
             snapshotSchema,
         )
         runtimeFetchMs = elapsedPerformanceMs(runtimeFetchStartedAt)
-        const readStateStartedAt = performanceNow()
-        const snapshot = await applyThreadReadState({
+        const badgeStateStartedAt = performanceNow()
+        const snapshot = await applySessionBadgeState({
             roomId: input.roomId,
             actorUserId: input.actorUserId ?? null,
-            markReadSessionKey: input.selectedThreadKey ? payload.selectedThreadKey : null,
             snapshot: {
                 room: roomOverview,
                 executionState: 'connected',
@@ -180,7 +179,7 @@ export async function getRoomExecutionSnapshot(input: {
                 browserSession: payload.browserSession ?? null,
             },
         })
-        readStateMs = elapsedPerformanceMs(readStateStartedAt)
+        badgeStateMs = elapsedPerformanceMs(badgeStateStartedAt)
 
         logSnapshot('connected', snapshot)
         return snapshot
@@ -195,64 +194,68 @@ export async function getRoomExecutionSnapshot(input: {
     }
 }
 
-async function applyThreadReadState(input: {
+async function applySessionBadgeState(input: {
     roomId: string
     actorUserId: string | null
-    markReadSessionKey: string | null
     snapshot: RoomExecutionSnapshot
 }): Promise<RoomExecutionSnapshot> {
     if (!input.actorUserId) return input.snapshot
 
-    const readAt = new Date()
-    const readRecords = await roomThreadReadRepository.listForRoom({
+    const badgeRecords = await roomSessionBadgeRepository.listForRoom({
         userId: input.actorUserId,
         roomId: input.roomId,
     })
-    const readBySession = new Map(
-        readRecords.map((record) => [record.sessionKey, record.readAt.getTime()]),
+    const completedClearedBySession = new Map(
+        badgeRecords.map((record) => [record.sessionKey, record.completedClearedAt.getTime()]),
     )
-
-    if (input.markReadSessionKey) {
-        await roomThreadReadRepository.markRead({
-            userId: input.actorUserId,
-            roomId: input.roomId,
-            sessionKey: input.markReadSessionKey,
-            readAt,
-        })
-        readBySession.set(input.markReadSessionKey, readAt.getTime())
-    }
 
     return {
         ...input.snapshot,
         threads: input.snapshot.threads.map((thread) => {
-            const readAtMs = readBySession.get(thread.key) ?? null
-            const unread =
-                thread.status !== 'running' &&
-                thread.status !== 'compacting' &&
-                hasUnreadActivity({
+            const completedClearedAt = completedClearedBySession.get(thread.key) ?? null
+            const completed =
+                isTerminalSessionStatus(thread.status) &&
+                hasCompletedActivity({
                     threadUpdatedAt: thread.updatedAt,
-                    readAt: readAtMs,
+                    completedClearedAt,
                     hasPreview: Boolean(thread.lastMessagePreview?.trim()),
                 })
             return {
                 ...thread,
-                readState: {
-                    readAt: readAtMs,
-                    unread,
+                badgeState: {
+                    completedClearedAt,
+                    completed,
                 },
             }
         }),
     }
 }
 
-function hasUnreadActivity(input: {
+function isTerminalSessionStatus(status: string | null): boolean {
+    return status === 'complete' || status === 'error' || status === 'stopped'
+}
+
+function hasCompletedActivity(input: {
     threadUpdatedAt: number | null
-    readAt: number | null
+    completedClearedAt: number | null
     hasPreview: boolean
 }): boolean {
     if (!input.threadUpdatedAt || !input.hasPreview) return false
-    if (!input.readAt) return true
-    return input.threadUpdatedAt > input.readAt + 1000
+    if (!input.completedClearedAt) return true
+    return input.threadUpdatedAt > input.completedClearedAt + 1000
+}
+
+export async function clearSessionCompletedBadge(input: {
+    roomId: string
+    sessionKey: string
+    actorUserId: string
+}): Promise<void> {
+    await roomSessionBadgeRepository.clearCompleted({
+        userId: input.actorUserId,
+        roomId: input.roomId,
+        sessionKey: input.sessionKey,
+        clearedAt: new Date(),
+    })
 }
 
 export async function wakeRoomRuntime(input: {

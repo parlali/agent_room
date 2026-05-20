@@ -55,9 +55,9 @@ export interface RoomExecutionThread {
     modelProvider: string | null
     totalTokens: number | null
     estimatedCostUsd: number | null
-    readState: {
-        readAt: number | null
-        unread: boolean
+    badgeState: {
+        completedClearedAt: number | null
+        completed: boolean
     }
     compaction: {
         enabled: boolean

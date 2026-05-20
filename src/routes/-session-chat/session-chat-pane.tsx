@@ -24,6 +24,7 @@ import {
 } from '#/lib/session-composer-draft'
 import {
     abortMessageServer,
+    clearSessionCompletedBadgeServer,
     editMessageServer,
     getSessionComposerDraftServer,
     getRoomSessionShellServer,
@@ -92,6 +93,7 @@ const initialSessionRowLimit = 8
 const olderSessionRowLimit = 24
 const backgroundOlderRowsDelayMs = 900
 const artifactsAutoOpenDelayMs = 1300
+const completedBadgeClearVisibleMs = 1000
 const artifactPanelStateCache = new Map<string, SessionArtifactPanelState>()
 const emptyArtifacts: RoomSessionArtifact[] = []
 
@@ -758,6 +760,77 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             toast.error(error instanceof Error ? error.message : 'Session could not be renamed')
         },
     })
+
+    const clearCompletedBadgeMutation = useMutation({
+        mutationFn: () =>
+            clearSessionCompletedBadgeServer({
+                data: {
+                    roomId,
+                    sessionKey,
+                },
+            }),
+        onSuccess: () => {
+            void queryClient.invalidateQueries({ queryKey })
+            void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) })
+        },
+    })
+    const clearCompletedBadge = clearCompletedBadgeMutation.mutate
+    const clearingCompletedBadge = clearCompletedBadgeMutation.isPending
+
+    useEffect(() => {
+        if (!selectedThread?.badgeState.completed) return
+        if (clearingCompletedBadge) return
+
+        let visibleSince: number | null = null
+        let timeout: number | null = null
+        let cancelled = false
+
+        const clearTimer = () => {
+            if (!timeout) return
+            window.clearTimeout(timeout)
+            timeout = null
+        }
+
+        const visibleAndFocused = () =>
+            document.visibilityState === 'visible' && document.hasFocus()
+
+        const schedule = () => {
+            clearTimer()
+            if (!visibleAndFocused()) {
+                visibleSince = null
+                return
+            }
+            visibleSince ??= performance.now()
+            const elapsed = performance.now() - visibleSince
+            const remaining = Math.max(0, completedBadgeClearVisibleMs - elapsed)
+            timeout = window.setTimeout(() => {
+                timeout = null
+                if (cancelled || !visibleAndFocused()) {
+                    visibleSince = null
+                    schedule()
+                    return
+                }
+                clearCompletedBadge()
+            }, remaining)
+        }
+
+        const handleVisibilityChange = () => schedule()
+        const handleFocus = () => schedule()
+        const handleBlur = () => schedule()
+
+        schedule()
+        document.addEventListener('visibilitychange', handleVisibilityChange)
+        window.addEventListener('focus', handleFocus)
+        window.addEventListener('blur', handleBlur)
+
+        return () => {
+            cancelled = true
+            clearTimer()
+            document.removeEventListener('visibilitychange', handleVisibilityChange)
+            window.removeEventListener('focus', handleFocus)
+            window.removeEventListener('blur', handleBlur)
+        }
+    }, [clearCompletedBadge, clearingCompletedBadge, selectedThread?.badgeState.completed])
 
     const sending = sendMutation.isPending || editMutation.isPending
 

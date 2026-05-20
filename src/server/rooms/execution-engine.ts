@@ -71,6 +71,15 @@ export async function getRoomSessionWindow(input: {
     return module.getRoomSessionWindow(input)
 }
 
+export async function clearSessionCompletedBadge(input: {
+    roomId: string
+    sessionKey: string
+    actorUserId: string
+}): Promise<void> {
+    const module = await loadExecutionEngineModule()
+    return module.clearSessionCompletedBadge(input)
+}
+
 export async function sendRoomThreadMessage(input: {
     roomId: string
     sessionKey: string
