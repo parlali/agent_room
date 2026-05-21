@@ -44,9 +44,10 @@ import {
 import { extractSessionArtifacts } from './session-artifacts'
 import { readMemory } from './memory'
 import {
-    estimateSessionBranchContextBytes,
+    estimateRuntimeMessageContextBytes,
     proactiveCompactionContextBytes,
 } from './session-context-budget'
+import { isSessionCompactionLeaf } from './session-compaction-state'
 import { createPiRuntimeSession } from './pi-runtime-session'
 import {
     BrowserbaseBrowserAutomationManager,
@@ -158,9 +159,10 @@ async function compactOversizedThreadContext(input: {
 }): Promise<void> {
     if (!config.compaction.enabled) return
     if (input.active.session.isCompacting || input.active.session.isStreaming) return
+    if (isSessionCompactionLeaf(input.active.session.sessionManager)) return
 
-    const contextBytes = estimateSessionBranchContextBytes(
-        input.active.session.sessionManager.getBranch(),
+    const contextBytes = estimateRuntimeMessageContextBytes(
+        input.active.session.sessionManager.buildSessionContext().messages,
     )
     if (contextBytes < proactiveCompactionContextBytes) return
 

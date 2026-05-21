@@ -1,3 +1,16 @@
+# Plan: issue 24 post-compaction message edits
+
+## Status
+
+Implementation passes `bun run check`.
+
+## Direction
+
+- [x] Editing a user message whose parent is a compaction entry appends the replacement prompt and continues the run without attempting another pre-prompt compaction. (Implemented through a shared compaction-leaf guard.)
+- [x] The proactive compaction gate estimates Pi's resolved runtime message context instead of the raw append-only branch.
+- [x] If an edit fails after leaf navigation but before prompt append, the previous active leaf is restored before persisting the error.
+- [x] Regression tests cover successful post-compaction edit reruns and failed edit setup restoring the prior leaf.
+
 # Plan: proactive room onboarding, autostart, and personality
 
 ## Status

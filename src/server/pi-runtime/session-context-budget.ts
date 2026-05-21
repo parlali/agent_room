@@ -35,6 +35,16 @@ function messageContentBytes(content: unknown): number {
     return bytes
 }
 
+export function estimateRuntimeMessageContextBytes(messages: readonly unknown[]): number {
+    let bytes = 0
+    for (const message of messages) {
+        if (isRecord(message)) {
+            bytes += messageContentBytes(message.content)
+        }
+    }
+    return bytes
+}
+
 export function estimateSessionBranchContextBytes(entries: SessionEntry[]): number {
     let bytes = 0
     for (const entry of entries) {
