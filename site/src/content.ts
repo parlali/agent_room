@@ -19,7 +19,10 @@ export const capabilityRows = CAPABILITY_OPTIONS.map((option) => ({
 export const modeRows = ROOM_MODE_OPTIONS.map((mode) => ({
     title: mode.label,
     description: mode.description,
-}))
+})) satisfies Array<{
+    title: (typeof ROOM_MODE_OPTIONS)[number]['label']
+    description: string
+}>
 
 export const roomPrimitives = [
     {

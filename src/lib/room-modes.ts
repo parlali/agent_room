@@ -12,7 +12,7 @@ export const ROOM_MODE_OPTIONS = [
         description:
             'Full room harness for durable memory, artifacts, office files, jobs, and broad work.',
     },
-] satisfies Array<{ value: RoomMode; label: string; description: string }>
+] as const satisfies ReadonlyArray<{ value: RoomMode; label: string; description: string }>
 
 export function roomModeLabel(roomMode: RoomMode): string {
     return ROOM_MODE_OPTIONS.find((option) => option.value === roomMode)?.label ?? 'Coworker'

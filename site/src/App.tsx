@@ -47,10 +47,10 @@ const capabilityIconById = {
     shell_coding: TerminalIcon,
 } satisfies Record<CapabilityOption['id'], LucideIcon>
 
-const modeIconByTitle: Record<string, LucideIcon> = {
+const modeIconByTitle = {
     Programmer: CodeIcon,
     Coworker: MonitorIcon,
-}
+} satisfies Record<(typeof modeRows)[number]['title'], LucideIcon>
 
 const roomSignals = [
     {
