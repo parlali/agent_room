@@ -1,6 +1,8 @@
+import { Children, isValidElement } from 'react'
 import type { ComponentPropsWithoutRef, ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { Link } from '@tanstack/react-router'
+import { ExternalLinkIcon } from 'lucide-react'
 import remend from 'remend'
 import remarkGfm from 'remark-gfm'
 
@@ -31,6 +33,10 @@ export function renderMarkdown(
 
 const markdownComponents = {
     p({ children }: ComponentPropsWithoutRef<'p'>) {
+        const preview = standaloneLinkPreview(children)
+        if (preview) {
+            return <p className="my-1">{preview}</p>
+        }
         return <p className="my-0">{children}</p>
     },
     h1({ children }: ComponentPropsWithoutRef<'h1'>) {
@@ -135,6 +141,85 @@ const markdownComponents = {
     hr() {
         return <hr className="border-border" />
     },
+}
+
+function standaloneLinkPreview(children: ReactNode): ReactNode | null {
+    const nodes = Children.toArray(children).filter((child) => {
+        return typeof child !== 'string' || child.trim().length > 0
+    })
+    if (nodes.length !== 1) return null
+
+    const node = nodes[0]
+    if (!isValidElement<ComponentPropsWithoutRef<'a'>>(node)) return null
+
+    const href = typeof node.props.href === 'string' ? node.props.href : ''
+    if (!isExternalHref(href)) return null
+
+    const label = textFromReactNode(node.props.children)
+    if (!isBareUrlLabel(label, href)) return null
+
+    return <ExternalLinkPreview href={href} title={node.props.title} label={label} />
+}
+
+function ExternalLinkPreview({
+    href,
+    title,
+    label,
+}: {
+    href: string
+    title: string | undefined
+    label: string
+}) {
+    const host = externalLinkHost(href)
+    return (
+        <a
+            href={href}
+            title={title}
+            target="_blank"
+            rel="noreferrer"
+            data-link-preview="true"
+            className="block max-w-full rounded-lg border border-border bg-background px-3 py-2.5 text-foreground shadow-sm ring-1 ring-foreground/10 transition-colors hover:bg-muted/60 hover:no-underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+            <span className="flex min-w-0 items-center gap-2">
+                <span className="min-w-0 truncate text-sm font-medium">
+                    {host ?? 'External link'}
+                </span>
+                <ExternalLinkIcon className="size-3.5 shrink-0 text-muted-foreground" />
+            </span>
+            <span className="mt-1 block truncate text-xs text-muted-foreground">{label}</span>
+        </a>
+    )
+}
+
+function textFromReactNode(value: ReactNode): string {
+    return Children.toArray(value)
+        .map((child) => {
+            if (typeof child === 'string' || typeof child === 'number') return String(child)
+            return ''
+        })
+        .join('')
+        .trim()
+}
+
+function isBareUrlLabel(label: string, href: string): boolean {
+    if (!label) return false
+    const normalizedLabel = normalizeUrlLabel(label)
+    const normalizedHref = normalizeUrlLabel(href)
+    return (
+        normalizedLabel === normalizedHref || normalizedLabel === normalizedHref.replace(/\/$/, '')
+    )
+}
+
+function normalizeUrlLabel(value: string): string {
+    return value.trim().replace(/^<|>$/g, '')
+}
+
+function externalLinkHost(href: string): string | null {
+    try {
+        return new URL(href).hostname.replace(/^www\./, '')
+    } catch {
+        return null
+    }
 }
 
 function isExternalHref(href: string): boolean {
