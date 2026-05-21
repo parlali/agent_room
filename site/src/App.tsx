@@ -47,6 +47,11 @@ const capabilityIconById = {
     shell_coding: TerminalIcon,
 } satisfies Record<CapabilityOption['id'], LucideIcon>
 
+const modeIconByTitle: Record<string, LucideIcon> = {
+    Programmer: CodeIcon,
+    Coworker: MonitorIcon,
+}
+
 const roomSignals = [
     {
         label: 'Memory',
@@ -448,7 +453,7 @@ function CapabilitiesSection() {
             </div>
             <div className="mode-strip">
                 {modeRows.map((mode) => {
-                    const Icon = mode.title === 'Programmer' ? CodeIcon : MonitorIcon
+                    const Icon = modeIconByTitle[mode.title] ?? MonitorIcon
                     return (
                         <article key={mode.title}>
                             <Icon aria-hidden />
