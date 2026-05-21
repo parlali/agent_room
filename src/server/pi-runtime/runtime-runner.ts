@@ -29,6 +29,7 @@ import {
     memoryWasCaptured,
     summarizeRunToolActivity,
 } from './runtime-tool-activity'
+import { isSessionCompactionLeaf } from './session-compaction-state'
 
 const zeroUsage: Usage = {
     input: 0,
@@ -231,6 +232,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function restoreSessionLeaf(active: ActiveThread, leafId: string | null): void {
+    if (leafId === null) {
+        active.session.sessionManager.resetLeaf()
+        return
+    }
+    active.session.sessionManager.branch(leafId)
+}
+
 export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) {
     return async function runPrompt(input: RunPromptInput): Promise<string> {
         const execute = async () => {
@@ -254,6 +263,7 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
             }
             let branchLengthBeforePrompt = 0
             let memoryHashBeforeRun: string | null = null
+            let editLeafBeforeNavigation: string | null | undefined
             await dependencies.refreshSystemPrompt(dependencies.activeThreads.get(input.record.key))
             const active = await dependencies.getActiveThread(input.record)
             try {
@@ -265,6 +275,7 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                     if (!target || target.type !== 'message' || target.message.role !== 'user') {
                         throw new Error('Only user messages on this thread can be edited')
                     }
+                    editLeafBeforeNavigation = active.session.sessionManager.getLeafId()
                     const result = await active.session.navigateTree(input.editMessageId, {
                         summarize: false,
                     })
@@ -284,10 +295,14 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                         messageId: input.editMessageId,
                     })
                 }
-                await dependencies.compactOversizedThreadContext({
-                    record: input.record,
-                    active,
-                })
+                const skipPrePromptCompaction =
+                    input.editMessageId && isSessionCompactionLeaf(active.session.sessionManager)
+                if (!skipPrePromptCompaction) {
+                    await dependencies.compactOversizedThreadContext({
+                        record: input.record,
+                        active,
+                    })
+                }
                 preparedPrompt = await preparePromptWithAttachments({
                     config: dependencies.config,
                     model: active.session.model,
@@ -300,8 +315,21 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                     assertPromptMetadataCanBePersisted(active)
                 }
             } catch (error) {
+                let finalError = error
+                if (input.editMessageId && editLeafBeforeNavigation !== undefined) {
+                    try {
+                        restoreSessionLeaf(active, editLeafBeforeNavigation)
+                    } catch (restoreError) {
+                        finalError = new Error(
+                            [
+                                dependencies.errorMessage(error),
+                                `Failed to restore edited thread branch: ${dependencies.errorMessage(restoreError)}`,
+                            ].join('\n'),
+                        )
+                    }
+                }
                 input.record.status = 'error'
-                input.record.lastError = dependencies.errorMessage(error)
+                input.record.lastError = dependencies.errorMessage(finalError)
                 if (!input.editMessageId) {
                     appendFailedPromptMessages(active, input, input.record.lastError, Date.now())
                     removePendingUserMessage(input.record, input.runId)
