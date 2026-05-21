@@ -41,7 +41,22 @@ describe('session context budget', () => {
     })
 
     it('can estimate Pi resolved context without counting raw pre-compaction history', () => {
-        const messages = [
+        const rawMessages = [
+            {
+                role: 'toolResult',
+                content: [
+                    {
+                        type: 'text',
+                        text: 'x'.repeat(proactiveCompactionContextBytes),
+                    },
+                ],
+            },
+            {
+                role: 'user',
+                content: [{ type: 'text', text: 'post-compaction edit prompt' }],
+            },
+        ]
+        const resolvedMessages = [
             {
                 role: 'user',
                 content: [{ type: 'text', text: 'summary of previous work' }],
@@ -52,7 +67,10 @@ describe('session context budget', () => {
             },
         ]
 
-        expect(estimateRuntimeMessageContextBytes(messages)).toBeLessThan(
+        expect(estimateRuntimeMessageContextBytes(rawMessages)).toBeGreaterThanOrEqual(
+            proactiveCompactionContextBytes,
+        )
+        expect(estimateRuntimeMessageContextBytes(resolvedMessages)).toBeLessThan(
             proactiveCompactionContextBytes,
         )
     })
