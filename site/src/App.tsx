@@ -453,7 +453,7 @@ function CapabilitiesSection() {
             </div>
             <div className="mode-strip">
                 {modeRows.map((mode) => {
-                    const Icon = modeIconByTitle[mode.title] ?? MonitorIcon
+                    const Icon = modeIconByTitle[mode.title]
                     return (
                         <article key={mode.title}>
                             <Icon aria-hidden />
