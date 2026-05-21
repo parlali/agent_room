@@ -15,6 +15,7 @@ import type {
 } from './execution-types'
 import type { JobSchedule } from '#/lib/job-schedule'
 import type { RoomExecutionAdapter } from './execution-adapter'
+import { cancelReadableStreamReaderInBackground } from '../streams/readable-stream'
 
 export type {
     RoomAgentExecutionTruth,
@@ -177,8 +178,9 @@ export function createRoomSessionEventStream(input: {
         cancel() {
             closed = true
             if (reader) {
-                void reader.cancel()
+                const currentReader = reader
                 reader = null
+                cancelReadableStreamReaderInBackground(currentReader)
             }
         },
     })
@@ -220,8 +222,9 @@ export function createRoomEventStream(input: {
         cancel() {
             closed = true
             if (reader) {
-                void reader.cancel()
+                const currentReader = reader
                 reader = null
+                cancelReadableStreamReaderInBackground(currentReader)
             }
         },
     })

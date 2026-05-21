@@ -176,10 +176,10 @@ export function SessionArtifactsPanel({
                             ) : null,
                         )}
                     </div>
-                    <div className="min-h-0 overflow-y-auto border-t border-border/60 p-3">
+                    <div className="flex min-h-0 flex-col overflow-hidden border-t border-border/60 p-3">
                         {selectedEntry ? (
-                            <div className="space-y-3">
-                                <div className="flex items-center justify-between gap-2">
+                            <div className="flex min-h-0 flex-1 flex-col gap-3">
+                                <div className="flex shrink-0 items-center justify-between gap-2">
                                     <div className="min-w-0">
                                         <div className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">
                                             Preview
@@ -198,14 +198,19 @@ export function SessionArtifactsPanel({
                                         Expand
                                     </Button>
                                 </div>
-                                <RoomFileMetadata entry={selectedEntry} />
-                                <RoomFilePreviewContent
-                                    entry={selectedEntry}
-                                    preview={preview}
-                                    previewUrl={previewUrl}
-                                    loading={previewQuery.isLoading}
-                                    error={previewQuery.error}
-                                />
+                                <div className="shrink-0">
+                                    <RoomFileMetadata entry={selectedEntry} />
+                                </div>
+                                <div className="min-h-0 flex-1">
+                                    <RoomFilePreviewContent
+                                        entry={selectedEntry}
+                                        preview={preview}
+                                        previewUrl={previewUrl}
+                                        loading={previewQuery.isLoading}
+                                        error={previewQuery.error}
+                                        displayMode="fill"
+                                    />
+                                </div>
                                 <Dialog open={expanded} onOpenChange={setExpanded}>
                                     <DialogContent className="grid h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-none grid-rows-[auto_minmax(0,1fr)] gap-3 p-4">
                                         <DialogHeader className="min-w-0 pr-8">

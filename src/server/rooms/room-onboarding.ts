@@ -101,11 +101,8 @@ function runtimePersonalityEventPayload(value: unknown): Record<string, unknown>
 async function findRuntimePersonalityEvent(input: {
     roomId: string
     sessionKey: string
-    runId: string | null
+    runId?: string | null
 }): Promise<Record<string, unknown> | null> {
-    if (!input.runId) {
-        return null
-    }
     let raw = ''
     try {
         raw = await readFile(
@@ -126,7 +123,10 @@ async function findRuntimePersonalityEvent(input: {
         if (!isRecord(parsed)) {
             continue
         }
-        if (parsed.sessionKey !== input.sessionKey || parsed.runId !== input.runId) {
+        if (parsed.sessionKey !== input.sessionKey) {
+            continue
+        }
+        if (input.runId && parsed.runId !== input.runId) {
             continue
         }
         const payload = runtimePersonalityEventPayload(parsed)
@@ -135,6 +135,79 @@ async function findRuntimePersonalityEvent(input: {
         }
     }
     return null
+}
+
+function runtimeRunFinished(
+    value: unknown,
+    input: {
+        sessionKey: string
+        runId: string | null
+    },
+): boolean {
+    if (!isRecord(value)) return false
+    if (value.event !== 'run.finished') return false
+    if (value.sessionKey !== input.sessionKey) return false
+    if (input.runId && value.runId !== input.runId) return false
+    return true
+}
+
+async function runtimeRunFinishedFor(input: {
+    roomId: string
+    sessionKey: string
+    runId: string | null
+}): Promise<boolean> {
+    let raw = ''
+    try {
+        raw = await readFile(
+            join(getRoomPaths(input.roomId).engineStateDir, 'runtime-events.jsonl'),
+            'utf8',
+        )
+    } catch {
+        return false
+    }
+    const lines = raw.split(/\r?\n/).filter(Boolean).reverse()
+    for (const line of lines) {
+        let parsed: unknown
+        try {
+            parsed = JSON.parse(line)
+        } catch {
+            continue
+        }
+        if (runtimeRunFinished(parsed, input)) {
+            return true
+        }
+    }
+    return false
+}
+
+async function markOnboardingCompleted(input: {
+    roomId: string
+    sessionKey: string
+    event: Record<string, unknown>
+    source: string
+}): Promise<void> {
+    await roomOnboardingRepository.update({
+        roomId: input.roomId,
+        status: 'completed',
+        completedAt: new Date(),
+    })
+    await auditRepository.appendEvent({
+        actorUserId: null,
+        roomId: input.roomId,
+        action: 'room.onboarding_completed',
+        payload: {
+            sessionKey: input.sessionKey,
+            archetype: typeof input.event.archetype === 'string' ? input.event.archetype : null,
+            tone: typeof input.event.tone === 'string' ? input.event.tone : null,
+            directness: typeof input.event.directness === 'string' ? input.event.directness : null,
+            reportStyle:
+                typeof input.event.reportStyle === 'string' ? input.event.reportStyle : null,
+            humor: typeof input.event.humor === 'string' ? input.event.humor : null,
+            challengeStyle:
+                typeof input.event.challengeStyle === 'string' ? input.event.challengeStyle : null,
+            source: input.source,
+        },
+    })
 }
 
 export async function ensureRoomOnboardingStarted(roomId: string): Promise<{
@@ -188,7 +261,7 @@ export async function ensureRoomOnboardingStarted(roomId: string): Promise<{
                   title: onboardingSessionTitle,
                   kind: 'onboarding',
                   hideUserMessage: true,
-                  awaitInitialRun: true,
+                  awaitInitialRun: false,
                   internalInstruction: instruction,
               })
 
@@ -198,7 +271,7 @@ export async function ensureRoomOnboardingStarted(roomId: string): Promise<{
                 sessionKey: onboarding.sessionKey,
                 message: instruction,
                 hideUserMessage: true,
-                awaitCompletion: true,
+                awaitCompletion: false,
             })
         }
 
@@ -243,28 +316,76 @@ export async function completeOnboardingAfterPersonalityTool(input: {
         if (!event) {
             return { completed: false }
         }
-        await roomOnboardingRepository.update({
+        await markOnboardingCompleted({
             roomId: input.roomId,
-            status: 'completed',
-            completedAt: new Date(),
-        })
-        await auditRepository.appendEvent({
-            actorUserId: null,
-            roomId: input.roomId,
-            action: 'room.onboarding_completed',
-            payload: {
-                sessionKey: input.sessionKey,
-                archetype: typeof event.archetype === 'string' ? event.archetype : null,
-                tone: typeof event.tone === 'string' ? event.tone : null,
-                directness: typeof event.directness === 'string' ? event.directness : null,
-                reportStyle: typeof event.reportStyle === 'string' ? event.reportStyle : null,
-                humor: typeof event.humor === 'string' ? event.humor : null,
-                challengeStyle:
-                    typeof event.challengeStyle === 'string' ? event.challengeStyle : null,
-            },
+            sessionKey: input.sessionKey,
+            event,
+            source: 'send_result',
         })
         return { completed: true }
     })
+}
+
+export async function syncRoomOnboardingCompletion(
+    roomId: string,
+): Promise<{ completed: boolean }> {
+    return withRoomOnboardingLock(roomId, async () => {
+        const onboarding = await roomOnboardingRepository.findByRoomId(roomId)
+        if (!onboarding || onboarding.status !== 'pending' || !onboarding.sessionKey) {
+            return { completed: false }
+        }
+        const event = await findRuntimePersonalityEvent({
+            roomId,
+            sessionKey: onboarding.sessionKey,
+        })
+        if (!event) {
+            return { completed: false }
+        }
+        await markOnboardingCompleted({
+            roomId,
+            sessionKey: onboarding.sessionKey,
+            event,
+            source: 'runtime_event_sync',
+        })
+        return { completed: true }
+    })
+}
+
+export function scheduleOnboardingCompletionCheck(input: {
+    roomId: string
+    sessionKey: string
+    runId: string | null
+}): void {
+    void pollOnboardingCompletion(input).catch((error) => {
+        console.error(
+            `Failed to reconcile onboarding completion for room ${input.roomId}`,
+            error instanceof Error ? error.message : error,
+        )
+    })
+}
+
+async function pollOnboardingCompletion(input: {
+    roomId: string
+    sessionKey: string
+    runId: string | null
+}): Promise<void> {
+    const delays = [500, 1500, 3000, 5000, 10000, 15000, 30000]
+    for (const delay of delays) {
+        await new Promise((resolve) => setTimeout(resolve, delay))
+        const result = await completeOnboardingAfterPersonalityTool(input)
+        if (result.completed) {
+            return
+        }
+        if (
+            await runtimeRunFinishedFor({
+                roomId: input.roomId,
+                sessionKey: input.sessionKey,
+                runId: input.runId,
+            })
+        ) {
+            return
+        }
+    }
 }
 
 export async function saveRoomPersonality(input: {

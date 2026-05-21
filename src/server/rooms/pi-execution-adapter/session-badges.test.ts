@@ -14,6 +14,9 @@ const mocks = {
         listForRoom: vi.fn(),
         clearCompleted: vi.fn(),
     },
+    roomOnboardingRepository: {
+        findByRoomId: vi.fn(),
+    },
     usageRepository: {},
     roomCronRepository: {},
     requestPiRuntime: vi.fn(),
@@ -24,6 +27,7 @@ vi.mock('../../db/repositories', () => ({
     roomRuntimeMetadataRepository: mocks.roomRuntimeMetadataRepository,
     roomConfigRepository: mocks.roomConfigRepository,
     roomSessionBadgeRepository: mocks.roomSessionBadgeRepository,
+    roomOnboardingRepository: mocks.roomOnboardingRepository,
     usageRepository: mocks.usageRepository,
     roomCronRepository: mocks.roomCronRepository,
 }))
@@ -93,6 +97,12 @@ describe('session completed badge projection', () => {
         })
         mocks.roomSessionBadgeRepository.listForRoom.mockReset()
         mocks.roomSessionBadgeRepository.clearCompleted.mockReset()
+        mocks.roomOnboardingRepository.findByRoomId.mockResolvedValue({
+            roomId,
+            status: 'completed',
+            sessionKey: 'onboarding-session',
+            completedAt: new Date('2026-05-20T09:00:00.000Z'),
+        })
         mocks.requestPiRuntime.mockReset()
     })
 

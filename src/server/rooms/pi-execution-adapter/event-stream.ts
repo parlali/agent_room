@@ -10,6 +10,10 @@ import {
     logPerformanceEvent,
     performanceNow,
 } from '../../telemetry/performance'
+import {
+    cancelReadableStreamReader,
+    cancelReadableStreamReaderInBackground,
+} from '../../streams/readable-stream'
 
 const ROOM_STREAM_BACKPRESSURE_LIMIT = -64
 
@@ -86,6 +90,19 @@ function createRuntimeEventProxyStream(input: {
         })
     }
 
+    const logCancelError = (error: unknown) => {
+        logPerformanceEvent('sse.runtime_proxy.cancel_error', {
+            roomId: input.roomId,
+            sessionKey: input.sessionKey,
+            streamKind: input.streamKind,
+            durationMs: elapsedPerformanceMs(startedAt),
+            openMs,
+            chunks,
+            bytes,
+            errorName: error instanceof Error ? error.name : typeof error,
+        })
+    }
+
     return new ReadableStream<Uint8Array>({
         start(controller) {
             const close = async (reason: string) => {
@@ -95,8 +112,9 @@ function createRuntimeEventProxyStream(input: {
                 closed = true
                 input.abortSignal?.removeEventListener('abort', onAbort)
                 if (reader) {
-                    await reader.cancel()
+                    const currentReader = reader
                     reader = null
+                    await cancelReadableStreamReader(currentReader, logCancelError)
                 }
                 try {
                     controller.close()
@@ -171,20 +189,22 @@ function createRuntimeEventProxyStream(input: {
                     }
                 } catch (error) {
                     if (!closed) {
-                        controller.enqueue(
-                            encodeRoomSseEvent(
-                                'stream-error',
-                                toRoomRealtimeEvent({
-                                    event: 'stream-error',
-                                    payload: {
-                                        message:
-                                            error instanceof Error
-                                                ? error.message
-                                                : 'Room stream failed',
-                                    },
-                                }),
-                            ),
-                        )
+                        try {
+                            controller.enqueue(
+                                encodeRoomSseEvent(
+                                    'stream-error',
+                                    toRoomRealtimeEvent({
+                                        event: 'stream-error',
+                                        payload: {
+                                            message:
+                                                error instanceof Error
+                                                    ? error.message
+                                                    : 'Room stream failed',
+                                        },
+                                    }),
+                                ),
+                            )
+                        } catch {}
                         logPerformanceEvent('sse.runtime_proxy.error', {
                             roomId: input.roomId,
                             sessionKey: input.sessionKey,
@@ -206,8 +226,9 @@ function createRuntimeEventProxyStream(input: {
         cancel() {
             closed = true
             if (reader) {
-                void reader.cancel()
+                const currentReader = reader
                 reader = null
+                cancelReadableStreamReaderInBackground(currentReader, logCancelError)
             }
             logClose('consumer_cancelled')
         },

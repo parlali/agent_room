@@ -1,4 +1,4 @@
-import { Link, Outlet, createFileRoute, useRouterState } from '@tanstack/react-router'
+import { Link, Outlet, createFileRoute, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import {
@@ -28,6 +28,7 @@ import {
 } from '#/components/agent-room'
 import { describeSchedule, describeSessionState } from '#/lib/state'
 import { formatBytes, formatRelativeTime, pluralize } from '#/lib/format'
+import { markChatSelection } from '#/lib/browser-performance'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import { requireRouteUser } from './-route-auth'
 import {
@@ -70,6 +71,7 @@ function RoomHomePage() {
 }
 
 function RoomHomeContent({ roomId }: { roomId: string }) {
+    const navigate = useNavigate()
     const executionQuery = useQuery({
         queryKey: roomQueryKey.roomSidebar(roomId),
         queryFn: () => getRoomSidebarServer({ data: { roomId } }),
@@ -104,6 +106,7 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
     const startSession = useStartRoomSession({ roomId })
 
     const snapshot = executionQuery.data
+    const setup = snapshot?.setup ?? null
     const room = snapshot?.room ?? null
     const threads = snapshot?.threads ?? []
     const recentActivity = snapshot?.recentActivity ?? []
@@ -113,6 +116,32 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
     const personality = personalityQuery.data?.form ?? null
     const blockingIssues =
         readinessQuery.data?.issues.filter((i) => i.severity === 'blocking') ?? []
+    const onboardingSessionKey = setup?.phase === 'onboarding' ? setup.onboardingSessionKey : null
+    const openOnboardingSession = () => {
+        if (!onboardingSessionKey) return
+        markChatSelection(roomId, onboardingSessionKey)
+        void navigate({
+            to: '/rooms/$roomId/sessions/$sessionKey',
+            params: {
+                roomId,
+                sessionKey: onboardingSessionKey,
+            },
+        })
+    }
+    const sessionAction = {
+        label: onboardingSessionKey
+            ? 'Continue setup'
+            : setup?.phase === 'starting'
+              ? 'Starting setup'
+              : setup?.phase === 'setup_required'
+                ? 'Setup required'
+                : 'Start session',
+        disabled:
+            onboardingSessionKey === null &&
+            (startSession.isPending || setup?.canStartSessions === false),
+        pending: startSession.isPending,
+        run: onboardingSessionKey ? openOnboardingSession : () => startSession.mutate(),
+    }
 
     const activeSessions = useMemo(() => {
         return threads.filter((t) => {
@@ -165,12 +194,8 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
             roomId={roomId}
             activeTab="home"
             headerActions={
-                <Button
-                    size="sm"
-                    onClick={() => startSession.mutate()}
-                    disabled={startSession.isPending}
-                >
-                    <MessagesSquareIcon /> Start session
+                <Button size="sm" onClick={sessionAction.run} disabled={sessionAction.disabled}>
+                    <MessagesSquareIcon /> {sessionAction.label}
                 </Button>
             }
         >
@@ -218,9 +243,10 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     <ActionTile
                         icon={<MessagesSquareIcon className="size-4" />}
-                        label="Start session"
-                        onClick={() => startSession.mutate()}
-                        pending={startSession.isPending}
+                        label={sessionAction.label}
+                        onClick={sessionAction.run}
+                        pending={sessionAction.pending}
+                        disabled={sessionAction.disabled}
                     />
                     <ActionTile
                         icon={<CalendarClockIcon className="size-4" />}
@@ -265,10 +291,10 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                                     action={
                                         <Button
                                             size="sm"
-                                            onClick={() => startSession.mutate()}
-                                            disabled={startSession.isPending}
+                                            onClick={sessionAction.run}
+                                            disabled={sessionAction.disabled}
                                         >
-                                            Start session
+                                            {sessionAction.label}
                                         </Button>
                                     }
                                 />
@@ -463,12 +489,14 @@ function ActionTile({
     label,
     onClick,
     pending,
+    disabled,
     href,
 }: {
     icon: React.ReactNode
     label: string
     onClick?: () => void
     pending?: boolean
+    disabled?: boolean
     href?: {
         to: '/rooms/$roomId/files' | '/rooms/$roomId/jobs' | '/rooms/$roomId/settings'
         params: { roomId: string }
@@ -494,7 +522,7 @@ function ActionTile({
             <TooltipTrigger asChild>
                 <CardButton
                     onClick={onClick}
-                    disabled={pending}
+                    disabled={pending || disabled}
                     className="h-full flex-col items-start gap-2 px-3 py-3 disabled:opacity-50"
                 >
                     {inner}

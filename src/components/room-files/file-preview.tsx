@@ -1,9 +1,15 @@
+import { useEffect, useState } from 'react'
+import { Loader2Icon } from 'lucide-react'
+
 import type { RoomFileEntry, RoomFilePreview, RoomFileSurface } from '#/lib/room-file-types'
 import { formatBytes, formatRelativeTime } from '#/lib/format'
+import { cn } from '#/lib/utils'
 
 const officeExtensions = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp'])
 
 const textPreviewLimitBytes = 512000
+
+type PreviewDisplayMode = 'inline' | 'fill' | 'expanded'
 
 export function getRoomFileExtension(name: string): string {
     const idx = name.lastIndexOf('.')
@@ -39,6 +45,7 @@ export function RoomFilePreviewContent({
     previewUrl,
     loading,
     error,
+    displayMode,
     expanded = false,
 }: {
     entry: RoomFileEntry
@@ -46,10 +53,13 @@ export function RoomFilePreviewContent({
     previewUrl: string
     loading: boolean
     error: unknown
+    displayMode?: PreviewDisplayMode
     expanded?: boolean
 }) {
     const extension = getRoomFileExtension(entry.name)
     const officeLike = officeExtensions.has(extension)
+    const mode = displayMode ?? (expanded ? 'expanded' : 'inline')
+    const fillsAvailableSpace = mode !== 'inline'
     if (loading) {
         return (
             <div className="rounded-md border border-border/60 px-3 py-8 text-center text-sm text-muted-foreground">
@@ -80,36 +90,39 @@ export function RoomFilePreviewContent({
     }
     if (preview.kind === 'image') {
         return (
-            <div className="flex h-full min-h-0 overflow-hidden rounded-md border border-border/60 bg-muted/30">
+            <div
+                className={cn(
+                    'flex min-h-0 overflow-hidden rounded-md border border-border/60 bg-muted/30',
+                    fillsAvailableSpace && 'h-full',
+                )}
+            >
                 <img
                     src={previewUrl}
                     alt={entry.name}
-                    className={
-                        expanded
-                            ? 'h-full max-h-[calc(100vh-9rem)] w-full object-contain'
-                            : 'max-h-[34rem] w-full object-contain'
-                    }
+                    className={cn(
+                        'w-full object-contain',
+                        mode === 'inline'
+                            ? 'max-h-[34rem]'
+                            : 'h-full min-h-0 max-h-[calc(100vh-9rem)]',
+                    )}
                 />
             </div>
         )
     }
     if (preview.kind === 'pdf') {
         return (
-            <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-border/60 bg-muted/30">
+            <div
+                className={cn(
+                    'flex min-h-0 flex-col overflow-hidden rounded-md border border-border/60 bg-muted/30',
+                    fillsAvailableSpace && 'h-full',
+                )}
+            >
                 {preview.generated || officeLike ? (
                     <div className="border-b border-border/60 px-3 py-2 text-xs text-muted-foreground">
                         Preview generated from {extension.toUpperCase()}
                     </div>
                 ) : null}
-                <iframe
-                    src={previewUrl}
-                    title={entry.name}
-                    className={
-                        expanded
-                            ? 'h-full min-h-0 flex-1 border-0 bg-background'
-                            : 'h-[34rem] w-full border-0 bg-background'
-                    }
-                />
+                <PdfPreviewFrame entry={entry} previewUrl={previewUrl} mode={mode} />
             </div>
         )
     }
@@ -121,19 +134,69 @@ export function RoomFilePreviewContent({
         )
     }
     return (
-        <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-border/60 bg-muted/30">
+        <div
+            className={cn(
+                'flex min-h-0 flex-col overflow-hidden rounded-md border border-border/60 bg-muted/30',
+                fillsAvailableSpace && 'h-full',
+            )}
+        >
             <pre
-                className={
-                    expanded
-                        ? 'min-h-0 flex-1 overflow-auto whitespace-pre-wrap p-3 font-mono text-xs text-foreground'
-                        : 'max-h-[34rem] overflow-auto whitespace-pre-wrap p-3 font-mono text-xs text-foreground'
-                }
+                className={cn(
+                    'whitespace-pre-wrap p-3 font-mono text-xs text-foreground',
+                    mode === 'inline'
+                        ? 'max-h-[34rem] overflow-auto'
+                        : 'min-h-0 flex-1 overflow-auto',
+                )}
             >
                 {preview.content}
             </pre>
             {preview.truncated ? (
                 <div className="border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
                     Only the first {formatBytes(textPreviewLimitBytes)} is shown.
+                </div>
+            ) : null}
+        </div>
+    )
+}
+
+function PdfPreviewFrame({
+    entry,
+    previewUrl,
+    mode,
+}: {
+    entry: RoomFileEntry
+    previewUrl: string
+    mode: PreviewDisplayMode
+}) {
+    const [loadedUrl, setLoadedUrl] = useState<string | null>(null)
+    const loaded = loadedUrl === previewUrl
+
+    useEffect(() => {
+        setLoadedUrl(null)
+    }, [previewUrl])
+
+    return (
+        <div
+            className={cn(
+                'relative overflow-hidden bg-muted/30',
+                mode === 'inline' ? 'h-[34rem] w-full' : 'min-h-0 flex-1',
+            )}
+        >
+            <iframe
+                src={previewUrl}
+                title={entry.name}
+                onLoad={() => {
+                    requestAnimationFrame(() => setLoadedUrl(previewUrl))
+                }}
+                className={cn(
+                    'h-full w-full border-0 bg-transparent transition-opacity duration-150',
+                    loaded ? 'opacity-100' : 'opacity-0',
+                )}
+            />
+            {!loaded ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-muted/40 px-4 text-center text-sm text-muted-foreground">
+                    <Loader2Icon className="size-4 animate-spin text-working-fg" />
+                    <span>Loading PDF preview</span>
                 </div>
             ) : null}
         </div>

@@ -1,5 +1,6 @@
 import { cdpCommandTimeoutMs } from './browserbase-browser-types'
 import { asRecord } from './browserbase-utils'
+import { cancelReadableStreamReaderInBackground } from '../streams/readable-stream'
 
 const browserbaseApiBaseUrl = 'https://api.browserbase.com/v1'
 
@@ -168,7 +169,7 @@ async function readBrowserbaseResponseTextWithAbort(input: {
         if (interrupted) return
         interrupted = true
         timedOut = timeout
-        reader.cancel().catch(() => undefined)
+        cancelReadableStreamReaderInBackground(reader)
         rejectRead?.(new Error(message))
     }
     const timeout = setTimeout(() => {

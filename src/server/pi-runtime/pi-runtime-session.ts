@@ -21,7 +21,7 @@ import type { createMcpTools } from './mcp-bridge'
 import { createInternalStateTools } from './internal-state-tools'
 import { createNativeWorkspaceTools } from './native-workspace-tools'
 import { createRoomTools, nativeWorkspaceToolNamesForCapabilities } from './room-tools'
-import { createWebTools } from './web-tools'
+import { createUrlFetchTools, createWebTools } from './web-tools'
 import { createBrowserAutomationTools } from './browserbase-tools'
 import type { BrowserAutomationController } from './browserbase-browser-types'
 import { createDocumentTools } from './document-tools'
@@ -99,6 +99,10 @@ export function createPiRuntimeCustomTools(input: PiRuntimeSessionInput): ToolDe
     if (record.kind === 'onboarding') {
         return [
             createOnboardingPersonalityTool({
+                config,
+                audit: input.audit,
+            }),
+            ...createUrlFetchTools({
                 config,
                 audit: input.audit,
             }),

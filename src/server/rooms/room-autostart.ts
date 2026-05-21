@@ -6,6 +6,7 @@ export type RoomAutostartTrigger =
     | 'room_created'
     | 'supervisor_reconcile'
     | 'runtime_recovered'
+    | 'codex_oauth_completed'
 
 export async function reconcileRoomAutostart(input: {
     roomId: string

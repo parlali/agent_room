@@ -26,6 +26,7 @@ import { assertAuthorized, getRequestBody, HttpError, sendJson } from './runtime
 import { isRecord } from './runtime-redaction'
 import { isValidSpeedMode } from './runtime-speed-mode'
 import type { ThreadKind, ThreadRecord } from './thread-records'
+import { cancelReadableStreamReaderInBackground } from '../streams/readable-stream'
 
 interface RouterActiveThread {
     session: AgentSession
@@ -471,7 +472,7 @@ export function createPiRuntimeRouter({
             })
             const reader = createEventStream(sessionKey).getReader()
             request.on('close', () => {
-                void reader.cancel()
+                cancelReadableStreamReaderInBackground(reader)
             })
             while (true) {
                 const next = await reader.read()
@@ -491,7 +492,7 @@ export function createPiRuntimeRouter({
             })
             const reader = createRoomEventStream().getReader()
             request.on('close', () => {
-                void reader.cancel()
+                cancelReadableStreamReaderInBackground(reader)
             })
             while (true) {
                 const next = await reader.read()

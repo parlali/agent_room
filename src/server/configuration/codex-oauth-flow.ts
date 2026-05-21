@@ -9,6 +9,7 @@ import {
     roomRepository,
 } from '../db/repositories'
 import type { AppProviderConnectionRecord, ProviderApi } from '../domain/types'
+import { reconcileRoomAutostart } from '../rooms/room-autostart'
 import { ensureRoomFilesystemLayout } from '../rooms/room-paths'
 import { getCodexAuthProfilePath, inspectCodexAuthStatus } from './codex-auth'
 import { assertRoomConfigurationStartable } from './operator-configuration'
@@ -234,6 +235,25 @@ async function clearStaleConfigurationBlocker(roomId: string): Promise<void> {
     await roomRepository.updateRoomStatus(roomId, 'stopped')
 }
 
+async function reconcileRuntimeAfterCodexOAuth(session: CodexOAuthSessionState): Promise<void> {
+    try {
+        await reconcileRoomAutostart({
+            roomId: session.roomId,
+            actorUserId: session.actorUserId,
+            trigger: 'codex_oauth_completed',
+        })
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'runtime reconcile failed'
+        console.error(
+            `Failed to reconcile room runtime after Codex OAuth for ${session.roomId}`,
+            message,
+        )
+        updateSession(session, {
+            message: `${session.message}; runtime reconcile failed: ${message}`,
+        })
+    }
+}
+
 async function runPiCodexLogin(session: CodexOAuthSessionState, target: CodexOAuthTarget) {
     try {
         await ensureRoomFilesystemLayout(target.roomId)
@@ -280,6 +300,7 @@ async function runPiCodexLogin(session: CodexOAuthSessionState, target: CodexOAu
                 message: authStatus.message,
                 action: 'codex_oauth.completed',
             })
+            await reconcileRuntimeAfterCodexOAuth(session)
             return
         }
 
@@ -448,5 +469,6 @@ export async function cancelCodexOAuthSession(input: {
 }
 
 export const __testing = {
+    reconcileRuntimeAfterCodexOAuth,
     validateRedirectUrlValue,
 }

@@ -1,4 +1,5 @@
 import { assertSafeUrl } from './web-url-safety'
+import { cancelReadableStreamReader } from '../streams/readable-stream'
 
 interface FetchResult {
     url: string
@@ -56,7 +57,7 @@ async function readBoundedBody(response: Response): Promise<{
             if (remaining > 0) {
                 chunks.push(chunk.subarray(0, remaining))
             }
-            await reader.cancel()
+            await cancelReadableStreamReader(reader)
             break
         }
         chunks.push(chunk)

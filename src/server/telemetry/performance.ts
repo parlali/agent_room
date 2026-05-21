@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { Buffer } from 'node:buffer'
 import { randomUUID } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
+import { cancelReadableStreamReaderInBackground } from '../streams/readable-stream'
 
 export type PerformancePrimitive = string | number | boolean | null
 export type PerformanceAttributes = Record<string, PerformancePrimitive | undefined>
@@ -185,12 +186,26 @@ export function instrumentReadableByteStream(input: {
         })
     }
 
+    const logCancelError = (error: unknown) => {
+        logPerformanceEvent(`${input.name}.cancel_error`, {
+            ...attributes,
+            durationMs: elapsedPerformanceMs(startedAt),
+            chunks,
+            bytes,
+            errorName: error instanceof Error ? error.name : typeof error,
+        })
+    }
+
     return new ReadableStream<Uint8Array>({
         start(controller) {
             reader = input.stream.getReader()
             const onAbort = () => {
                 finish('aborted')
-                void reader?.cancel()
+                if (reader) {
+                    const currentReader = reader
+                    reader = null
+                    cancelReadableStreamReaderInBackground(currentReader, logCancelError)
+                }
                 try {
                     controller.close()
                 } catch {}
@@ -232,7 +247,9 @@ export function instrumentReadableByteStream(input: {
                         })
                         closed = true
                         removeAbortListener?.()
-                        controller.error(error)
+                        try {
+                            controller.error(error)
+                        } catch {}
                     }
                 }
             }
@@ -242,8 +259,9 @@ export function instrumentReadableByteStream(input: {
         cancel() {
             finish('consumer_cancelled')
             if (reader) {
-                void reader.cancel()
+                const currentReader = reader
                 reader = null
+                cancelReadableStreamReaderInBackground(currentReader, logCancelError)
             }
         },
     })

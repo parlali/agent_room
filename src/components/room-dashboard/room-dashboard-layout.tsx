@@ -1,4 +1,4 @@
-import { Link, useNavigate } from '@tanstack/react-router'
+import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
     HomeIcon,
@@ -31,7 +31,11 @@ import {
 import { Skeleton } from '#/components/ui/skeleton'
 import { ScrollArea } from '#/components/ui/scroll-area'
 import { RoomGlyph, StateBadge } from '#/components/agent-room'
-import { listRoomsServer, setRoomDesiredStateServer } from '#/routes/-room-runtime-server'
+import {
+    getRoomSidebarServer,
+    listRoomsServer,
+    setRoomDesiredStateServer,
+} from '#/routes/-room-runtime-server'
 import type { RoomRuntimeOverview } from '#/lib/room-execution-types'
 import { preloadRoomDashboardRoutes, scheduleRoomDashboardRoutePreload } from './preload'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
@@ -156,6 +160,7 @@ export function RoomDashboardLayout({
     headerActions?: ReactNode
 }) {
     usePreloadRoomDashboardRoutes()
+    usePendingOnboardingRedirect(roomId)
 
     return (
         <div className="flex min-h-full flex-col">
@@ -166,6 +171,39 @@ export function RoomDashboardLayout({
             </ScrollArea>
         </div>
     )
+}
+
+function usePendingOnboardingRedirect(roomId: string): void {
+    const navigate = useNavigate()
+    const pathname = useRouterState({
+        select: (state) => state.location.pathname,
+    })
+    const sidebarQuery = useQuery({
+        queryKey: roomQueryKey.roomSidebar(roomId),
+        queryFn: () => getRoomSidebarServer({ data: { roomId } }),
+        staleTime: roomQueryPolicy.hotStaleMs,
+        refetchInterval: (query) => {
+            const data = query.state.data
+            if (!data || data.room.desiredState !== 'running') return false
+            return data.setup.phase === 'ready' ? false : 2500
+        },
+    })
+    const onboardingSessionKey = sidebarQuery.data?.setup.onboardingSessionKey ?? null
+    const shouldRedirect =
+        sidebarQuery.data?.setup.phase === 'onboarding' &&
+        Boolean(onboardingSessionKey) &&
+        pathname !== `/rooms/${roomId}/sessions/${onboardingSessionKey}`
+
+    useEffect(() => {
+        if (!shouldRedirect || !onboardingSessionKey) return
+        void navigate({
+            to: '/rooms/$roomId/sessions/$sessionKey',
+            params: {
+                roomId,
+                sessionKey: onboardingSessionKey,
+            },
+        })
+    }, [navigate, onboardingSessionKey, roomId, shouldRedirect])
 }
 
 function usePreloadRoomDashboardRoutes(): void {

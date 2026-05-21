@@ -196,13 +196,15 @@ function createFetchUrlTool(ctx: WebToolContext): ToolDefinition {
     })
 }
 
+export function createUrlFetchTools(ctx: WebToolContext): ToolDefinition[] {
+    return ctx.config.capabilities.urlFetch ? [createFetchUrlTool(ctx)] : []
+}
+
 export function createWebTools(ctx: WebToolContext): ToolDefinition[] {
     const tools: ToolDefinition[] = []
     if (ctx.config.capabilities.webSearch) {
         tools.push(createWebSearchTool(ctx, new SearchRouter()))
     }
-    if (ctx.config.capabilities.urlFetch) {
-        tools.push(createFetchUrlTool(ctx))
-    }
+    tools.push(...createUrlFetchTools(ctx))
     return tools
 }

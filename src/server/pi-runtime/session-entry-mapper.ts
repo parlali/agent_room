@@ -70,12 +70,13 @@ function thinkingPart(
 
 function toolResultPart(message: Record<string, unknown>): RoomExecutionMessagePart {
     const text = extractTextFromRuntimeContent(message.content)
+    const isError = message.isError === true || message.is_error === true
     return emptyRuntimePart({
         type: 'tool_result',
         text,
         toolCallId: typeof message.toolCallId === 'string' ? message.toolCallId : null,
         toolName: typeof message.toolName === 'string' ? message.toolName : null,
-        status: 'complete',
+        status: isError ? 'error' : 'complete',
         result: toRuntimeSerializable(message.content ?? text),
         rawType: 'toolResult',
     })

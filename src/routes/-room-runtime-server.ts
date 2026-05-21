@@ -262,6 +262,11 @@ async function ensureRuntimeSupervisorBoot() {
     await ensureBoot()
 }
 
+async function syncRoomOnboarding(roomId: string) {
+    const { syncRoomOnboardingCompletion } = await import('#/server/rooms/room-onboarding')
+    await syncRoomOnboardingCompletion(roomId)
+}
+
 async function requireAuthenticatedActor() {
     const { requireAuthenticatedActor: requireActor } = await import('#/server/auth/session-auth')
     return requireActor()
@@ -368,6 +373,7 @@ export const getRoomExecutionServer = createServerFn({ method: 'GET' })
             'cache-control': 'no-store',
         })
         await ensureRuntimeSupervisorBoot()
+        await syncRoomOnboarding(data.roomId)
         const { getRoomExecutionSnapshot } = await import('#/server/rooms/execution-engine')
         return getRoomExecutionSnapshot({
             roomId: data.roomId,
@@ -385,6 +391,7 @@ export const getRoomSidebarServer = createServerFn({ method: 'GET' })
             'cache-control': 'no-store',
         })
         await ensureRuntimeSupervisorBoot()
+        await syncRoomOnboarding(data.roomId)
         const { getRoomExecutionSnapshot } = await import('#/server/rooms/execution-engine')
         const snapshot = await getRoomExecutionSnapshot({
             roomId: data.roomId,
@@ -394,6 +401,7 @@ export const getRoomSidebarServer = createServerFn({ method: 'GET' })
         })
         return {
             room: snapshot.room,
+            setup: snapshot.setup,
             executionState: snapshot.executionState,
             executionMessage: snapshot.executionMessage,
             threads: snapshot.threads,
@@ -416,6 +424,7 @@ export const getRoomSessionShellServer = createServerFn({ method: 'GET' })
             'cache-control': 'no-store',
         })
         await ensureRuntimeSupervisorBoot()
+        await syncRoomOnboarding(data.roomId)
         const { getRoomExecutionSnapshot } = await import('#/server/rooms/execution-engine')
         const snapshot = await getRoomExecutionSnapshot({
             roomId: data.roomId,
@@ -427,6 +436,7 @@ export const getRoomSessionShellServer = createServerFn({ method: 'GET' })
             snapshot.threads.find((thread) => thread.key === snapshot.selectedThreadKey) ?? null
         return {
             room: snapshot.room,
+            setup: snapshot.setup,
             executionState: snapshot.executionState,
             executionMessage: snapshot.executionMessage,
             capabilities: snapshot.capabilities,
@@ -537,27 +547,12 @@ export const sendMessageServer = createServerFn({ method: 'POST' })
     .handler(async ({ data }) => {
         await requireMutationActor()
         await ensureRuntimeSupervisorBoot()
-        const { roomOnboardingRepository } = await import('#/server/db/repositories')
-        const onboarding = await roomOnboardingRepository.findByRoomId(data.roomId)
-        const { sendRoomThreadMessage } = await import('#/server/rooms/execution-engine')
-        const isOnboardingReply =
-            onboarding?.status === 'pending' && onboarding.sessionKey === data.sessionKey
-        const result = await sendRoomThreadMessage({
+        const { sendRoomSessionMessage } = await import('#/server/rooms/room-session-actions')
+        return sendRoomSessionMessage({
             roomId: data.roomId,
             sessionKey: data.sessionKey,
             message: data.message,
-            awaitCompletion: isOnboardingReply,
         })
-        if (isOnboardingReply) {
-            const { completeOnboardingAfterPersonalityTool } =
-                await import('#/server/rooms/room-onboarding')
-            await completeOnboardingAfterPersonalityTool({
-                roomId: data.roomId,
-                sessionKey: data.sessionKey,
-                runId: result.runId,
-            })
-        }
-        return result
     })
 
 const roomIdInputSchema = z.object({
@@ -641,8 +636,8 @@ export const createThreadServer = createServerFn({ method: 'POST' })
     .handler(async ({ data }) => {
         await requireMutationActor()
         await ensureRuntimeSupervisorBoot()
-        const { createRoomThread } = await import('#/server/rooms/execution-engine')
-        return createRoomThread({
+        const { createRegularRoomThread } = await import('#/server/rooms/room-session-actions')
+        return createRegularRoomThread({
             roomId: data.roomId,
             firstMessage: data.firstMessage,
         })

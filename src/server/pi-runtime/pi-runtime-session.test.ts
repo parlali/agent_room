@@ -163,13 +163,13 @@ describe('Pi runtime session tools', () => {
         )
     })
 
-    it('exposes only the personality tool to onboarding threads', async () => {
+    it('exposes only profile capture and bounded URL fetch to onboarding threads', async () => {
         await withToolInput(
             'coworker',
             (input) => {
                 const names = createPiRuntimeCustomTools(input).map((tool) => tool.name)
 
-                expect(names).toEqual([onboardingPersonalityToolName])
+                expect(names).toEqual([onboardingPersonalityToolName, 'fetch_url'])
             },
             'onboarding',
         )

@@ -7,7 +7,7 @@ import { createOnboardingPersonalityTool } from './onboarding-personality-tool'
 import { ensureMemory, readMemory } from './memory'
 
 describe('onboarding personality tool', () => {
-    it('writes the canonical personality object without duplicating operator preferences', async () => {
+    it('writes personality and visible room profile memory from natural setup input', async () => {
         const root = await mkdtemp(join(tmpdir(), 'agent-room-onboarding-tool-'))
         try {
             const config = createTestPiRuntimeConfig({ root })
@@ -24,13 +24,18 @@ describe('onboarding personality tool', () => {
             await tool.execute(
                 'call-1',
                 {
-                    archetype: 'rigorous_researcher',
+                    archetype: 'Analyst',
                     tone: 'direct',
                     directness: 'firm',
                     reportStyle: 'structured',
                     humor: 'none',
                     challengeStyle: 'pushback',
                     notes: 'Use evidence and flag uncertainty.',
+                    operatorFacts: ['The operator is the founder and CTO.'],
+                    roomPurpose: 'Build a research copilot.',
+                    currentGoals: ['Keep work practical and evidence-based.'],
+                    knownUrls: ['https://example.com'],
+                    openQuestions: ['Which workflows matter first?'],
                 },
                 undefined,
                 undefined,
@@ -49,12 +54,28 @@ describe('onboarding personality tool', () => {
             expect(memory.operator.preferences.some((item) => item.source === 'personality')).toBe(
                 false,
             )
+            expect(memory.operator.facts.map((item) => item.text)).toContain(
+                'The operator is the founder and CTO.',
+            )
+            expect(memory.currentWork.projects.map((item) => item.text)).toContain(
+                'Room purpose: Build a research copilot.',
+            )
+            expect(memory.currentWork.goals.map((item) => item.text)).toContain(
+                'Keep work practical and evidence-based.',
+            )
+            expect(memory.currentWork.context.map((item) => item.text)).toEqual(
+                expect.arrayContaining([
+                    'Reference URL: https://example.com/',
+                    'Open question: Which workflows matter first?',
+                ]),
+            )
             expect(events).toEqual([
                 expect.objectContaining({
-                    event: 'tool.personality_update',
+                    event: 'tool.room_profile_update',
                     payload: expect.objectContaining({
                         archetype: 'rigorous_researcher',
                         hasNotes: true,
+                        urlCount: 1,
                     }),
                 }),
             ])

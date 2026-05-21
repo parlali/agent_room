@@ -1,5 +1,9 @@
 import type { RoomMode, RoomRuntimeMetadataRecord, RoomStatus } from '../../domain/types'
-import type { RoomExecutionSnapshot, RoomRuntimeOverview } from '../execution-types'
+import type {
+    RoomExecutionSnapshot,
+    RoomRuntimeOverview,
+    RoomSetupSnapshot,
+} from '../execution-types'
 
 export function mapRuntimeOverview(input: {
     roomId: string
@@ -39,11 +43,13 @@ export function buildRoomExecutionCapabilities(connected: boolean) {
 
 export function emptySnapshot(input: {
     room: RoomRuntimeOverview
+    setup: RoomSetupSnapshot
     state: RoomExecutionSnapshot['executionState']
     message: string
 }): RoomExecutionSnapshot {
     return {
         room: input.room,
+        setup: input.setup,
         executionState: input.state,
         executionMessage: input.message,
         capabilities: buildRoomExecutionCapabilities(input.state === 'connected'),

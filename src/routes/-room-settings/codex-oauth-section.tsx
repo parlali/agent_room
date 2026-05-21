@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { CopyIcon, ExternalLinkIcon, Loader2Icon, SignalHighIcon, XIcon } from 'lucide-react'
@@ -48,13 +48,26 @@ export function CodexOAuthSection({ roomId }: { roomId: string }) {
         }
     }, [status])
 
+    const invalidateRoomState = useCallback(async () => {
+        await Promise.all([
+            queryClient.invalidateQueries({
+                queryKey: roomQueryKey.roomCodexOAuthSession(roomId),
+            }),
+            queryClient.invalidateQueries({ queryKey: roomQueryKey.roomConfig(roomId) }),
+            queryClient.invalidateQueries({ queryKey: roomQueryKey.roomExecution(roomId) }),
+            queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) }),
+            queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList }),
+        ])
+    }, [queryClient, roomId])
+
+    useEffect(() => {
+        if (status !== 'complete') return
+        void invalidateRoomState()
+    }, [invalidateRoomState, status])
+
     const startMutation = useMutation({
         mutationFn: () => startCodexOAuthSessionServer({ data: { roomId } }),
-        onSuccess: async () => {
-            await queryClient.invalidateQueries({
-                queryKey: roomQueryKey.roomCodexOAuthSession(roomId),
-            })
-        },
+        onSuccess: invalidateRoomState,
         onError: (e: unknown) =>
             toast.error('Could not start OpenAI sign-in', {
                 description: e instanceof Error ? e.message : 'Unexpected error',
@@ -66,11 +79,7 @@ export function CodexOAuthSection({ roomId }: { roomId: string }) {
             submitCodexOAuthRedirectServer({
                 data: { roomId, redirectUrl: value },
             }),
-        onSuccess: async () => {
-            await queryClient.invalidateQueries({
-                queryKey: roomQueryKey.roomCodexOAuthSession(roomId),
-            })
-        },
+        onSuccess: invalidateRoomState,
         onError: (e: unknown) =>
             toast.error('Could not submit redirect URL', {
                 description: e instanceof Error ? e.message : 'Unexpected error',
@@ -80,9 +89,7 @@ export function CodexOAuthSection({ roomId }: { roomId: string }) {
     const cancelMutation = useMutation({
         mutationFn: () => cancelCodexOAuthSessionServer({ data: { roomId } }),
         onSuccess: async () => {
-            await queryClient.invalidateQueries({
-                queryKey: roomQueryKey.roomCodexOAuthSession(roomId),
-            })
+            await invalidateRoomState()
             toast.message('OpenAI sign-in cancelled')
         },
         onError: (e: unknown) =>

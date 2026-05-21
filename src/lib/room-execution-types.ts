@@ -3,6 +3,7 @@ import type {
     JsonValue,
     RoomDesiredState,
     RoomMode,
+    RoomOnboardingStatus,
     RoomStatus,
 } from './domain-types'
 import type { RoomFileSurface } from './room-file-types'
@@ -20,6 +21,17 @@ export interface RoomRuntimeOverview {
     pid: number | null
     lastError: string | null
     lastHealthAt: string | null
+}
+
+export type RoomSetupPhase = 'setup_required' | 'starting' | 'onboarding' | 'ready'
+
+export interface RoomSetupSnapshot {
+    phase: RoomSetupPhase
+    onboardingStatus: RoomOnboardingStatus | null
+    onboardingSessionKey: string | null
+    canStartSessions: boolean
+    message: string | null
+    completedAt: string | null
 }
 
 export interface RoomExecutionAgent {
@@ -287,6 +299,7 @@ export interface RoomBrowserSessionSnapshot {
 
 export interface RoomExecutionSnapshot {
     room: RoomRuntimeOverview
+    setup: RoomSetupSnapshot
     executionState: 'connected' | 'unavailable' | 'error'
     executionMessage: string | null
     capabilities: RoomExecutionCapabilities
@@ -303,6 +316,7 @@ export interface RoomExecutionSnapshot {
 
 export interface RoomSummarySnapshot {
     room: RoomRuntimeOverview
+    setup: RoomSetupSnapshot
     executionState: RoomExecutionSnapshot['executionState']
     executionMessage: string | null
     roomAgent: RoomExecutionAgent | null
@@ -311,6 +325,7 @@ export interface RoomSummarySnapshot {
 
 export interface RoomSidebarSnapshot {
     room: RoomRuntimeOverview
+    setup: RoomSetupSnapshot
     executionState: RoomExecutionSnapshot['executionState']
     executionMessage: string | null
     threads: RoomExecutionThread[]
@@ -319,6 +334,7 @@ export interface RoomSidebarSnapshot {
 
 export interface RoomSessionShellSnapshot {
     room: RoomRuntimeOverview
+    setup: RoomSetupSnapshot
     executionState: RoomExecutionSnapshot['executionState']
     executionMessage: string | null
     capabilities: RoomExecutionCapabilities

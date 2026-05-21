@@ -80,6 +80,24 @@ async function upsertRoomImageSecret(input: {
     return secret
 }
 
+async function reconcileRuntimeAfterRoomConfigSave(input: {
+    roomId: string
+    actorUserId: string
+}): Promise<void> {
+    try {
+        await reconcileRoomAutostart({
+            roomId: input.roomId,
+            actorUserId: input.actorUserId,
+            trigger: 'room_config_saved',
+        })
+    } catch (error) {
+        console.error(
+            `Room configuration saved but runtime autostart reconciliation failed for ${input.roomId}`,
+            error instanceof Error ? error.message : error,
+        )
+    }
+}
+
 export async function saveRoomConfig(
     rawInput: RoomConfigSaveInput,
     actorUserId: string,
@@ -313,16 +331,14 @@ export async function saveRoomConfig(
 
     const snapshot = await getRoomConfigSnapshot(input.roomId)
     if (options.reconcileAutostart !== false) {
-        await reconcileRoomAutostart({
+        await reconcileRuntimeAfterRoomConfigSave({
             roomId: input.roomId,
             actorUserId,
-            trigger: 'room_config_saved',
-        }).catch((error) => {
-            if (error instanceof Error) {
-                throw error
-            }
-            throw new Error('Room autostart reconciliation failed')
         })
     }
     return snapshot
+}
+
+export const __testing = {
+    reconcileRuntimeAfterRoomConfigSave,
 }

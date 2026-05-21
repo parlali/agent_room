@@ -1,4 +1,5 @@
 import type { SearchErrorCode, SearchProviderId, SearchRuntimeConfig } from '../domain/types'
+import { cancelReadableStreamReaderInBackground } from '../streams/readable-stream'
 
 export interface SearchRuntimeConfigScope {
     runtime: {
@@ -306,7 +307,7 @@ export async function readResponseTextWithTimeout(input: {
     const interruptRead = (error: SearchProviderError) => {
         if (interrupted) return
         interrupted = true
-        reader.cancel().catch(() => undefined)
+        cancelReadableStreamReaderInBackground(reader)
         rejectRead?.(error)
     }
     const timeoutAbort = () => {

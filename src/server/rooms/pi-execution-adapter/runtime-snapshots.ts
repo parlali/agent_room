@@ -1,5 +1,6 @@
 import {
     roomConfigRepository,
+    roomOnboardingRepository,
     roomRepository,
     roomRuntimeMetadataRepository,
     roomSessionBadgeRepository,
@@ -19,6 +20,7 @@ import {
 } from './runtime-overview'
 import { sessionWindowSchema, snapshotSchema } from './runtime-schemas'
 import { createRoomThread, sendRoomThreadMessage } from './thread-operations'
+import { buildRoomSetupSnapshot } from '../room-setup-read-model'
 import {
     elapsedPerformanceMs,
     jsonPayloadByteLength,
@@ -123,8 +125,11 @@ export async function getRoomExecutionSnapshot(input: {
         throw new Error(`Room ${input.roomId} does not exist`)
     }
 
-    const runtimeMetadata = await roomRuntimeMetadataRepository.findByRoomId(input.roomId)
-    const config = await roomConfigRepository.getOrCreate(input.roomId)
+    const [runtimeMetadata, config, onboarding] = await Promise.all([
+        roomRuntimeMetadataRepository.findByRoomId(input.roomId),
+        roomConfigRepository.getOrCreate(input.roomId),
+        roomOnboardingRepository.findByRoomId(input.roomId),
+    ])
     metadataMs = elapsedPerformanceMs(metadataStartedAt)
     const roomOverview = mapRuntimeOverview({
         roomId: room.id,
@@ -135,10 +140,16 @@ export async function getRoomExecutionSnapshot(input: {
         roomMode: config.roomMode,
         runtimeMetadata,
     })
+    const setup = buildRoomSetupSnapshot({
+        room,
+        runtimeMetadata,
+        onboarding,
+    })
 
     if (!runtimeMetadata || runtimeMetadata.port === null) {
         const snapshot = emptySnapshot({
             room: roomOverview,
+            setup,
             state: 'unavailable',
             message: 'Room runtime has no allocated Pi endpoint',
         })
@@ -149,6 +160,7 @@ export async function getRoomExecutionSnapshot(input: {
     if (room.status !== 'running' && room.status !== 'degraded') {
         const snapshot = emptySnapshot({
             room: roomOverview,
+            setup,
             state: 'unavailable',
             message: `Room is ${room.status}. Start the runtime to load threads and chat`,
         })
@@ -175,6 +187,7 @@ export async function getRoomExecutionSnapshot(input: {
             actorUserId: input.actorUserId ?? null,
             snapshot: {
                 room: roomOverview,
+                setup,
                 executionState: 'connected',
                 executionMessage: null,
                 capabilities: buildRoomExecutionCapabilities(true),
@@ -190,6 +203,7 @@ export async function getRoomExecutionSnapshot(input: {
     } catch (error) {
         const snapshot = emptySnapshot({
             room: roomOverview,
+            setup,
             state: 'error',
             message: error instanceof Error ? error.message : 'Unknown Pi adapter error',
         })

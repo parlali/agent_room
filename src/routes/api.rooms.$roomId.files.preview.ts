@@ -6,6 +6,7 @@ import {
     resolveRoomFileDownloadAsset,
     resolveRoomFilePreviewAsset,
 } from '#/server/rooms/file-store-preview'
+import { resolveHttpByteRange } from '#/server/http/byte-range'
 import { contentDispositionHeader } from '#/server/http/content-disposition'
 import type { RoomFileSurface } from '#/lib/room-file-types'
 
@@ -44,18 +45,46 @@ export const Route = createFileRoute('/api/rooms/$roomId/files/preview')({
                     const asset = download
                         ? await resolveRoomFileDownloadAsset(assetInput)
                         : await resolveRoomFilePreviewAsset(assetInput)
+                    const rangeResult = resolveHttpByteRange(
+                        request.headers.get('range'),
+                        asset.byteLength,
+                    )
+                    if (rangeResult.kind === 'unsatisfiable') {
+                        return new Response(null, {
+                            status: 416,
+                            headers: {
+                                'accept-ranges': 'bytes',
+                                'cache-control': 'no-store',
+                                'content-range': `bytes */${asset.byteLength}`,
+                            },
+                        })
+                    }
+                    const byteRange = rangeResult.kind === 'satisfiable' ? rangeResult.range : null
                     const body = Readable.toWeb(
-                        createReadStream(asset.path),
+                        byteRange
+                            ? createReadStream(asset.path, {
+                                  start: byteRange.start,
+                                  end: byteRange.end,
+                              })
+                            : createReadStream(asset.path),
                     ) as ReadableStream<Uint8Array>
+                    const contentLength = byteRange ? byteRange.contentLength : asset.byteLength
                     return new Response(body, {
+                        status: byteRange ? 206 : 200,
                         headers: {
+                            'accept-ranges': 'bytes',
                             'content-type': asset.mediaType,
-                            'content-length': String(asset.byteLength),
+                            'content-length': String(contentLength),
                             'cache-control': 'no-store',
                             'content-disposition': contentDispositionHeader({
                                 disposition: download ? 'attachment' : 'inline',
                                 filename: asset.name,
                             }),
+                            ...(byteRange
+                                ? {
+                                      'content-range': `bytes ${byteRange.start}-${byteRange.end}/${asset.byteLength}`,
+                                  }
+                                : {}),
                             'x-content-type-options': 'nosniff',
                         },
                     })

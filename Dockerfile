@@ -5,7 +5,39 @@ ARG TARGETARCH
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl fonts-dejavu git libreoffice passwd poppler-utils tini util-linux \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        bash \
+        bzip2 \
+        ca-certificates \
+        curl \
+        file \
+        fonts-dejavu \
+        gh \
+        ghostscript \
+        git \
+        jq \
+        less \
+        libreoffice \
+        make \
+        openssh-client \
+        pandoc \
+        passwd \
+        patch \
+        poppler-utils \
+        python3 \
+        python3-pip \
+        python3-venv \
+        qpdf \
+        ripgrep \
+        rsync \
+        sqlite3 \
+        tini \
+        tree \
+        unzip \
+        util-linux \
+        xz-utils \
+        zip \
+        zstd \
     && rm -rf /var/lib/apt/lists/*
 
 RUN case "${TARGETARCH}" in \

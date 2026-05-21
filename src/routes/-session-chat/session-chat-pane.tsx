@@ -184,6 +184,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             if (!sidebar || !selectedThread) return undefined
             return {
                 room: sidebar.room,
+                setup: sidebar.setup,
                 executionState: sidebar.executionState,
                 executionMessage: sidebar.executionMessage,
                 capabilities: {
@@ -551,6 +552,14 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 void queryClient.invalidateQueries({ queryKey: windowQueryKey })
                 void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) })
                 void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
+                if (event.event === 'run.finished') {
+                    void queryClient.invalidateQueries({
+                        queryKey: roomQueryKey.roomMemory(roomId),
+                    })
+                    void queryClient.invalidateQueries({
+                        queryKey: roomQueryKey.roomPersonality(roomId),
+                    })
+                }
             }
         },
         [queryClient, queryKey, roomId, updateStreamTurn, windowQueryKey],
