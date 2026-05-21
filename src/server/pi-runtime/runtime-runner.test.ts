@@ -46,6 +46,36 @@ function textAssistantEntry(text: string): SessionEntry {
     })
 }
 
+function treeMessageEntry(
+    id: string,
+    parentId: string | null,
+    role: 'user' | 'assistant',
+    text: string,
+): SessionEntry {
+    return {
+        id,
+        parentId,
+        type: 'message',
+        timestamp: '2026-05-13T12:00:00.000Z',
+        message: {
+            role,
+            content: [{ type: 'text', text }],
+        },
+    } as unknown as SessionEntry
+}
+
+function treeCompactionEntry(id: string, parentId: string, firstKeptEntryId: string): SessionEntry {
+    return {
+        id,
+        parentId,
+        type: 'compaction',
+        timestamp: '2026-05-13T12:00:01.000Z',
+        summary: 'Compacted context summary',
+        firstKeptEntryId,
+        tokensBefore: 100000,
+    } as unknown as SessionEntry
+}
+
 function threadRecord(root: string): ThreadRecord {
     return normalizeThreadRecord({
         key: 'thread-1',
@@ -110,6 +140,123 @@ function fakeActiveThread(input: {
     }
 }
 
+function fakeEditableActiveThread(input: {
+    entries: SessionEntry[]
+    leafId: string | null
+    prompt?: (message: string) => Promise<void>
+}): ActiveThread {
+    let leafId = input.leafId
+    const byId = new Map(input.entries.map((entry) => [entry.id, entry]))
+    const appendEntry = (entry: SessionEntry) => {
+        input.entries.push(entry)
+        byId.set(entry.id, entry)
+        leafId = entry.id
+        return entry.id
+    }
+    const sessionManager = {
+        getBranch: () => {
+            const branch: SessionEntry[] = []
+            let current = leafId ? byId.get(leafId) : undefined
+            while (current) {
+                branch.unshift(current)
+                current = current.parentId ? byId.get(current.parentId) : undefined
+            }
+            return branch
+        },
+        getEntries: () => input.entries,
+        getEntry: (id: string) => byId.get(id),
+        getLeafId: () => leafId,
+        getLeafEntry: () => (leafId ? byId.get(leafId) : undefined),
+        branch: (branchFromId: string) => {
+            if (!byId.has(branchFromId)) {
+                throw new Error(`Entry ${branchFromId} not found`)
+            }
+            leafId = branchFromId
+        },
+        resetLeaf: () => {
+            leafId = null
+        },
+        buildSessionContext: () => ({
+            messages: sessionManager
+                .getBranch()
+                .filter((entry) => entry.type === 'message')
+                .map((entry) => entry.message),
+            thinkingLevel: 'off',
+            model: null,
+        }),
+        appendMessage: (message: Record<string, unknown>) =>
+            appendEntry({
+                id: `entry-${input.entries.length + 1}`,
+                parentId: leafId,
+                type: 'message',
+                timestamp: '2026-05-13T12:00:02.000Z',
+                message,
+            } as unknown as SessionEntry),
+        appendCustomEntry: (customType: string, data: unknown) =>
+            appendEntry({
+                id: `entry-${input.entries.length + 1}`,
+                parentId: leafId,
+                type: 'custom',
+                customType,
+                data,
+                timestamp: '2026-05-13T12:00:02.000Z',
+            } as unknown as SessionEntry),
+    }
+    return {
+        session: {
+            model: {
+                provider: 'test',
+                id: 'model',
+            },
+            modelRegistry: {
+                hasConfiguredAuth: () => true,
+            },
+            state: {
+                model: null,
+            },
+            messages: [],
+            isStreaming: false,
+            sessionManager,
+            prompt: async (message: string) => {
+                sessionManager.appendMessage({
+                    role: 'user',
+                    content: [{ type: 'text', text: message }],
+                })
+                if (input.prompt) {
+                    await input.prompt(message)
+                } else {
+                    sessionManager.appendMessage({
+                        role: 'assistant',
+                        content: [{ type: 'text', text: 'Edited response' }],
+                        api: 'test',
+                        provider: 'test',
+                        model: 'model',
+                    })
+                }
+            },
+            abort: async () => {},
+            navigateTree: async (targetId: string) => {
+                const target = sessionManager.getEntry(targetId)
+                if (!target) {
+                    throw new Error(`Entry ${targetId} not found`)
+                }
+                if (target.type === 'message' && target.message.role === 'user') {
+                    leafId = target.parentId
+                } else {
+                    leafId = target.id
+                }
+                return {
+                    cancelled: false,
+                }
+            },
+        } as unknown as AgentSession,
+        unsubscribe: null,
+        queue: Promise.resolve(),
+        abortController: null,
+        touchRunHeartbeat: null,
+    }
+}
+
 async function withConfig<T>(fn: (input: { config: PiRuntimeConfig; root: string }) => Promise<T>) {
     const root = await mkdtemp(join(tmpdir(), 'agent-room-runner-'))
     const config = createTestPiRuntimeConfig({ root })
@@ -129,6 +276,10 @@ function createRunner(input: {
     record: ThreadRecord
     active: ActiveThread
     events: Array<{ event: string; payload: unknown }>
+    compactOversizedThreadContext?: (input: {
+        record: ThreadRecord
+        active: ActiveThread
+    }) => Promise<void>
 }) {
     const activeThreads = new Map<string, ActiveThread>([[input.record.key, input.active]])
     return createRuntimeRunPrompt({
@@ -136,7 +287,7 @@ function createRunner(input: {
         activeThreads,
         refreshSystemPrompt: async () => {},
         getActiveThread: async () => input.active,
-        compactOversizedThreadContext: async () => {},
+        compactOversizedThreadContext: input.compactOversizedThreadContext ?? (async () => {}),
         updateThreadFromMessages: () => {},
         persistThreadIndex: async () => {},
         broadcast: () => {},
@@ -151,6 +302,102 @@ function createRunner(input: {
         errorMessage: (error) => (error instanceof Error ? error.message : String(error)),
     })
 }
+
+describe('runtime runner edit compaction handling', () => {
+    it('edits a post-compaction user message without compacting the compaction leaf', async () => {
+        await withConfig(async ({ config, root }) => {
+            const record = threadRecord(root)
+            const entries: SessionEntry[] = [
+                treeMessageEntry('u-old', null, 'user', 'Large earlier request'),
+                treeMessageEntry('a-old', 'u-old', 'assistant', 'Large earlier response'),
+                treeCompactionEntry('c1', 'a-old', 'a-old'),
+                treeMessageEntry('u-post', 'c1', 'user', 'Original post-compaction prompt'),
+                treeMessageEntry('a-post', 'u-post', 'assistant', 'Original response'),
+            ]
+            const active = fakeEditableActiveThread({
+                entries,
+                leafId: 'a-post',
+            })
+            const events: Array<{ event: string; payload: unknown }> = []
+            let compactCalls = 0
+            const runPrompt = createRunner({
+                config,
+                record,
+                active,
+                events,
+                compactOversizedThreadContext: async () => {
+                    compactCalls += 1
+                    throw new Error('Already compacted')
+                },
+            })
+
+            await runPrompt({
+                record,
+                message: 'Replacement post-compaction prompt',
+                runId: 'run-edit',
+                awaitCompletion: true,
+                editMessageId: 'u-post',
+            })
+
+            const branch = active.session.sessionManager.getBranch()
+            expect(compactCalls).toBe(0)
+            expect(record.status).toBe('idle')
+            expect(branch.map((entry) => entry.id)).not.toContain('u-post')
+            expect(branch.map((entry) => entry.id)).not.toContain('a-post')
+            expect(JSON.stringify(branch)).toContain('Replacement post-compaction prompt')
+            expect(active.session.sessionManager.getLeafEntry()).toMatchObject({
+                type: 'message',
+                message: {
+                    role: 'assistant',
+                },
+            })
+        })
+    })
+
+    it('restores the previous leaf when an edit fails after navigation', async () => {
+        await withConfig(async ({ config, root }) => {
+            const record = threadRecord(root)
+            const entries: SessionEntry[] = [
+                treeMessageEntry('u-old', null, 'user', 'Earlier request'),
+                treeMessageEntry('a-old', 'u-old', 'assistant', 'Earlier response'),
+                treeMessageEntry('u-edit', 'a-old', 'user', 'Original prompt'),
+                treeMessageEntry('a-post', 'u-edit', 'assistant', 'Original response'),
+            ]
+            const active = fakeEditableActiveThread({
+                entries,
+                leafId: 'a-post',
+            })
+            const events: Array<{ event: string; payload: unknown }> = []
+            const runPrompt = createRunner({
+                config,
+                record,
+                active,
+                events,
+                compactOversizedThreadContext: async () => {
+                    throw new Error('forced pre-prompt failure')
+                },
+            })
+
+            await runPrompt({
+                record,
+                message: 'Replacement prompt',
+                runId: 'run-edit-fail',
+                awaitCompletion: true,
+                editMessageId: 'u-edit',
+            })
+
+            expect(record.status).toBe('error')
+            expect(record.lastError).toBe('forced pre-prompt failure')
+            expect(active.session.sessionManager.getLeafId()).toBe('a-post')
+            expect(active.session.sessionManager.getBranch().map((entry) => entry.id)).toEqual([
+                'u-old',
+                'a-old',
+                'u-edit',
+                'a-post',
+            ])
+        })
+    })
+})
 
 describe('runtime runner memory capture audit', () => {
     it('persists a pending user turn as soon as an async run is queued', async () => {

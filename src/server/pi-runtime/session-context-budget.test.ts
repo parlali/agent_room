@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { SessionEntry } from '@mariozechner/pi-coding-agent'
 import { describe, expect, it } from 'vitest'
 import {
+    estimateRuntimeMessageContextBytes,
     estimateSessionBranchContextBytes,
     proactiveCompactionContextBytes,
 } from './session-context-budget'
@@ -35,6 +36,41 @@ describe('session context budget', () => {
         ]
 
         expect(estimateSessionBranchContextBytes(entries)).toBeGreaterThan(
+            proactiveCompactionContextBytes,
+        )
+    })
+
+    it('can estimate Pi resolved context without counting raw pre-compaction history', () => {
+        const rawMessages = [
+            {
+                role: 'toolResult',
+                content: [
+                    {
+                        type: 'text',
+                        text: 'x'.repeat(proactiveCompactionContextBytes),
+                    },
+                ],
+            },
+            {
+                role: 'user',
+                content: [{ type: 'text', text: 'post-compaction edit prompt' }],
+            },
+        ]
+        const resolvedMessages = [
+            {
+                role: 'user',
+                content: [{ type: 'text', text: 'summary of previous work' }],
+            },
+            {
+                role: 'user',
+                content: [{ type: 'text', text: 'replacement prompt' }],
+            },
+        ]
+
+        expect(estimateRuntimeMessageContextBytes(rawMessages)).toBeGreaterThanOrEqual(
+            proactiveCompactionContextBytes,
+        )
+        expect(estimateRuntimeMessageContextBytes(resolvedMessages)).toBeLessThan(
             proactiveCompactionContextBytes,
         )
     })
