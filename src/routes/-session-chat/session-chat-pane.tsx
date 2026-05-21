@@ -27,6 +27,7 @@ import {
     clearSessionCompletedBadgeServer,
     editMessageServer,
     getSessionComposerDraftServer,
+    getRoomSidebarServer,
     getRoomSessionShellServer,
     getRoomSessionWindowServer,
     renameSessionServer,
@@ -46,6 +47,7 @@ import type {
     RoomSessionArtifact,
     RoomSessionShellSnapshot,
 } from '#/lib/room-execution-types'
+import { isOnboardingRequiredMessage, onboardingDeferredStatus } from '#/lib/room-onboarding-errors'
 
 import { ChatHeader } from './chat-header'
 import { ChatSkeleton } from './chat-skeleton'
@@ -310,6 +312,43 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             draft: '',
         })
     }, [cancelScheduledDraftSave, persistComposerDraft, roomId, sessionKey, setComposerDraft])
+
+    const clearSentComposer = useCallback(
+        (input: SendMutationInput) => {
+            if (activeComposerKeyRef.current === input.composerKey) {
+                clearComposerDraft()
+                setAttachments([])
+            } else {
+                void persistComposerDraft({
+                    roomId: input.roomId,
+                    sessionKey: input.sessionKey,
+                    draft: '',
+                })
+            }
+        },
+        [clearComposerDraft, persistComposerDraft],
+    )
+
+    const openOnboardingSessionFromSidebar = useCallback(async () => {
+        const sidebar = await queryClient.fetchQuery({
+            queryKey: roomQueryKey.roomSidebar(roomId),
+            queryFn: () => getRoomSidebarServer({ data: { roomId } }),
+            staleTime: 0,
+        })
+        const onboardingSessionKey =
+            sidebar.setup.phase === 'onboarding' ? sidebar.setup.onboardingSessionKey : null
+        if (!onboardingSessionKey || onboardingSessionKey === sessionKey) {
+            return false
+        }
+        await navigate({
+            to: '/rooms/$roomId/sessions/$sessionKey',
+            params: {
+                roomId,
+                sessionKey: onboardingSessionKey,
+            },
+        })
+        return true
+    }, [navigate, queryClient, roomId, sessionKey])
 
     const snapshot = executionQuery.data
     const room = snapshot?.room ?? null
@@ -594,6 +633,27 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             })
         },
         onSuccess: (result, input, rollback) => {
+            if (result.status === onboardingDeferredStatus) {
+                rollbackOptimisticWindow({
+                    queryClient,
+                    roomId: input.roomId,
+                    sessionKey: input.sessionKey,
+                    rollback,
+                })
+                clearSentComposer(input)
+                void queryClient.invalidateQueries({
+                    queryKey: roomQueryKey.sessionShell(input.roomId, input.sessionKey),
+                })
+                void queryClient.invalidateQueries({
+                    queryKey: roomQueryKey.sessionWindow(input.roomId, input.sessionKey),
+                })
+                void queryClient.invalidateQueries({
+                    queryKey: roomQueryKey.roomSidebar(input.roomId),
+                })
+                void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
+                toast.success('Room intro skipped')
+                return
+            }
             promoteOptimisticUserMessageToPendingRun({
                 queryClient,
                 roomId: input.roomId,
@@ -601,16 +661,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 rollback,
                 runId: result.runId,
             })
-            if (activeComposerKeyRef.current === input.composerKey) {
-                clearComposerDraft()
-                setAttachments([])
-            } else {
-                void persistComposerDraft({
-                    roomId: input.roomId,
-                    sessionKey: input.sessionKey,
-                    draft: '',
-                })
-            }
+            clearSentComposer(input)
             void queryClient.invalidateQueries({
                 queryKey: roomQueryKey.sessionShell(input.roomId, input.sessionKey),
             })
@@ -636,7 +687,22 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 sessionKey: input.sessionKey,
                 draft: input.message,
             })
-            toast.error(error instanceof Error ? error.message : 'Message could not be sent')
+            const message = error instanceof Error ? error.message : 'Message could not be sent'
+            if (isOnboardingRequiredMessage(message)) {
+                void openOnboardingSessionFromSidebar()
+                    .then((opened) => {
+                        toast.message(
+                            opened
+                                ? 'Continue the room intro before using regular sessions'
+                                : message,
+                        )
+                    })
+                    .catch(() => {
+                        toast.error(message)
+                    })
+                return
+            }
+            toast.error(message)
         },
     })
 

@@ -149,6 +149,8 @@ describe('Agent Room Pi system prompt', () => {
             expect(prompt).not.toContain('read_pdf')
             expect(prompt).not.toContain('image_generate')
             expect(prompt).not.toContain('GitHub is not connected')
+            expect(prompt).not.toContain('GitHub repository access')
+            expect(prompt).not.toContain('gh CLI')
             expect(prompt).not.toContain('office, image, or presentation')
             expect(prompt).not.toContain(
                 'Use the bundled Office skills as the default editable source',
@@ -269,7 +271,19 @@ describe('Agent Room Pi system prompt', () => {
                 )
                 expect(prompt).toContain('To verify access, run git ls-remote')
                 expect(prompt).toContain(
-                    'Use git with the configured HOME credentials; use gh only if it is installed',
+                    'The gh CLI is installed and authenticated through room-local GitHub App installation credentials',
+                )
+                expect(prompt).toContain(
+                    'Use GH_PROMPT_DISABLED=1 gh with explicit --repo owner/repo',
+                )
+                expect(prompt).toContain(
+                    'Do not use gh auth login, gh auth status, or gh api user as capability checks',
+                )
+                expect(prompt).toContain(
+                    'GitHub App installation tokens are repository-scoped and user identity endpoints can fail with 403',
+                )
+                expect(prompt).toContain(
+                    'Verify gh access with repo-scoped commands such as GH_PROMPT_DISABLED=1 gh repo view owner/repo --json nameWithOwner',
                 )
             }
         })

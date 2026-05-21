@@ -25,11 +25,11 @@ describe('onboarding personality tool', () => {
                 'call-1',
                 {
                     archetype: 'Analyst',
-                    tone: 'direct',
+                    tone: 'plain, professional, neutral',
                     directness: 'firm',
-                    reportStyle: 'structured',
+                    reportStyle: 'concise; lead with result and evidence',
                     humor: 'none',
-                    challengeStyle: 'pushback',
+                    challengeStyle: 'push back when useful, then offer a practical path',
                     notes: 'Use evidence and flag uncertainty.',
                     operatorFacts: ['The operator is the founder and CTO.'],
                     roomPurpose: 'Build a research copilot.',
@@ -45,9 +45,9 @@ describe('onboarding personality tool', () => {
             const memory = (await readMemory(config)).memory
             expect(memory.personality).toMatchObject({
                 archetype: 'rigorous_researcher',
-                tone: 'direct',
+                tone: 'neutral',
                 directness: 'firm',
-                reportStyle: 'structured',
+                reportStyle: 'concise',
                 humor: 'none',
                 challengeStyle: 'pushback',
             })

@@ -45,7 +45,7 @@ export function contextBudgetForProvider(config: PiRuntimeConfig): ContextBudget
 }
 
 function githubRepositoryInstruction(config: PiRuntimeConfig): string | null {
-    if (!config.github.enabled) {
+    if (!config.github.enabled || config.github.repositories.length === 0) {
         return null
     }
 
@@ -61,7 +61,10 @@ function githubRepositoryInstruction(config: PiRuntimeConfig): string | null {
         'Do not treat an empty workspace or "fatal: not a git repository" as missing GitHub access.',
         'To verify access, run git ls-remote against the selected HTTPS remote.',
         'Clone the selected repository when repository files are needed.',
-        'Use git with the configured HOME credentials; use gh only if it is installed.',
+        'The gh CLI is installed and authenticated through room-local GitHub App installation credentials for these repositories.',
+        'Use GH_PROMPT_DISABLED=1 gh with explicit --repo owner/repo for issue, pull request, release, workflow, and repository API operations.',
+        'Do not use gh auth login, gh auth status, or gh api user as capability checks; GitHub App installation tokens are repository-scoped and user identity endpoints can fail with 403 even when repository operations work.',
+        'Verify gh access with repo-scoped commands such as GH_PROMPT_DISABLED=1 gh repo view owner/repo --json nameWithOwner or GH_PROMPT_DISABLED=1 gh issue list --repo owner/repo --limit 1.',
         'Do not print or persist tokens.',
     ].join(' ')
 }
@@ -253,7 +256,9 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
         config.capabilities.images ? 'image generation' : null,
         config.capabilities.mcp ? 'connected MCP tools' : null,
         config.capabilities.shellCoding ? 'shell and coding tools' : null,
-        config.github.enabled ? 'GitHub repository access' : null,
+        config.github.enabled && config.github.repositories.length > 0
+            ? 'GitHub repository access'
+            : null,
     ].filter((capability): capability is string => capability !== null)
     const mcpTools = config.mcpServers.map((server) => {
         const tools =

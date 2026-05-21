@@ -109,9 +109,27 @@ function normalizeChoice<T extends string>(input: {
     }
     const alias = input.aliases[key]
     if (alias) return alias
+    for (const value of input.values) {
+        if (
+            containsNormalizedPhrase(key, normalizeKey(value)) ||
+            containsNormalizedPhrase(key, normalizeKey(input.profiles[value].label))
+        ) {
+            return value
+        }
+    }
+    for (const [aliasKey, aliasValue] of Object.entries(input.aliases)) {
+        if (containsNormalizedPhrase(key, normalizeKey(aliasKey))) {
+            return aliasValue
+        }
+    }
     throw new Error(
         `${input.field} must be one of: ${input.values.map((value) => `${value} (${input.profiles[value].label})`).join(', ')}`,
     )
+}
+
+function containsNormalizedPhrase(value: string, phrase: string): boolean {
+    if (!phrase) return false
+    return ` ${value} `.includes(` ${phrase} `)
 }
 
 function normalizeArchetype(
@@ -168,6 +186,8 @@ function normalizeRoomProfileInput(input: Record<string, unknown>): RoomProfileI
                 blunt: 'direct',
                 reserved: 'formal',
                 polished: 'formal',
+                practical: 'neutral',
+                pragmatic: 'neutral',
             },
         }),
         directness: normalizeChoice({
@@ -182,6 +202,7 @@ function normalizeRoomProfileInput(input: Record<string, unknown>): RoomProfileI
                 soft: 'gentle',
                 blunt: 'firm',
                 plain: 'firm',
+                pragmatic: 'balanced',
             },
         }),
         reportStyle: normalizeChoice({
@@ -198,6 +219,8 @@ function normalizeRoomProfileInput(input: Record<string, unknown>): RoomProfileI
                 bullets: 'structured',
                 detailed: 'narrative',
                 explanatory: 'narrative',
+                'lead with result': 'concise',
+                evidence: 'structured',
             },
         }),
         humor: normalizeChoice({
@@ -226,6 +249,8 @@ function normalizeRoomProfileInput(input: Record<string, unknown>): RoomProfileI
                 challenge: 'pushback',
                 challenging: 'pushback',
                 rigorous: 'pushback',
+                'push back': 'pushback',
+                proactive: 'balanced',
             },
         }),
         notes,
@@ -309,7 +334,7 @@ export function createOnboardingPersonalityTool(ctx: RoomToolContext): ToolDefin
         description:
             'Save the room intro as structured personality, operator facts, purpose, URLs, goals, and open questions.',
         promptSnippet:
-            'set_room_profile saves the durable room profile. Natural labels are accepted for style fields.',
+            'set_room_profile saves the durable room profile. Use canonical style ids and put nuance in preferences or notes.',
         parameters: Type.Object({
             archetype: Type.Optional(Type.String()),
             tone: Type.Optional(Type.String()),
@@ -364,9 +389,16 @@ export function onboardingSystemPrompt(basePrompt: string): string {
         'You are running the room intro chat.',
         'Your job is to capture durable room setup information, not to complete a normal task.',
         'Ask one concise open question if the operator has not answered yet.',
-        'If the operator shares a public website URL, you may fetch that exact URL once to understand durable public context when fetch_url is available.',
+        'If the operator shares a public website URL and fetch_url is available, fetch that exact URL once before saving the profile.',
+        'If fetch_url is unavailable or fails, save the URL and note what still needs to be learned in openQuestions.',
         `When you have enough setup context, call ${onboardingPersonalityToolName} exactly once.`,
-        `Use archetype ids when possible: ${personalityArchetypeIds.join(', ')}. Natural labels are accepted, but ids are safest.`,
+        `Use archetype ids: ${personalityArchetypeIds.join(', ')}.`,
+        `Use canonical tone ids only: ${personalityToneValues.join(', ')}.`,
+        `Use canonical directness ids only: ${personalityDirectnessValues.join(', ')}.`,
+        `Use canonical reportStyle ids only: ${personalityReportStyleValues.join(', ')}.`,
+        `Use canonical humor ids only: ${personalityHumorValues.join(', ')}.`,
+        `Use canonical challengeStyle ids only: ${personalityChallengeStyleValues.join(', ')}.`,
+        'Put nuanced style requests like "pragmatic", "evidence-based", or "lead with the result" in preferences or notes, not in enum fields.',
         'Save only durable facts, preferences, room purpose, active projects, useful URLs, goals, and open questions.',
         'Do not store secrets, provider tokens, OAuth details, account identifiers, raw transcript text, or bulky fetched content.',
         'After the tool succeeds, send a short acknowledgment naming what was saved and invite the operator to give the first task.',

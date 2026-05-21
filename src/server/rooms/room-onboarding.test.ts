@@ -1,11 +1,16 @@
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
     appendAuditEvent: vi.fn(),
     createRoomThread: vi.fn(),
+    findOnboardingByRoomId: vi.fn(),
     findRoomById: vi.fn(),
     getOrCreateConfig: vi.fn(),
     getOrCreateOnboarding: vi.fn(),
+    getRoomPaths: vi.fn(),
     getRoomSessionWindow: vi.fn(),
     roomProcessSnapshot: vi.fn(),
     sendRoomThreadMessage: vi.fn(),
@@ -20,6 +25,7 @@ vi.mock('../db/repositories', () => ({
         getOrCreate: mocks.getOrCreateConfig,
     },
     roomOnboardingRepository: {
+        findByRoomId: mocks.findOnboardingByRoomId,
         getOrCreate: mocks.getOrCreateOnboarding,
         update: mocks.updateOnboarding,
     },
@@ -41,13 +47,19 @@ vi.mock('./runtime-lifecycle', () => ({
     roomProcessSnapshot: mocks.roomProcessSnapshot,
 }))
 
+vi.mock('./room-paths', () => ({
+    getRoomPaths: mocks.getRoomPaths,
+}))
+
 describe('room onboarding startup', () => {
     beforeEach(() => {
         mocks.appendAuditEvent.mockReset()
         mocks.createRoomThread.mockReset()
+        mocks.findOnboardingByRoomId.mockReset()
         mocks.findRoomById.mockReset()
         mocks.getOrCreateConfig.mockReset()
         mocks.getOrCreateOnboarding.mockReset()
+        mocks.getRoomPaths.mockReset()
         mocks.getRoomSessionWindow.mockReset()
         mocks.roomProcessSnapshot.mockReset()
         mocks.sendRoomThreadMessage.mockReset()
@@ -55,6 +67,8 @@ describe('room onboarding startup', () => {
         mocks.roomProcessSnapshot.mockResolvedValue({ running: true })
         mocks.findRoomById.mockResolvedValue({ displayName: 'Room One' })
         mocks.getOrCreateConfig.mockResolvedValue({ instructions: 'Prefer short updates.' })
+        mocks.findOnboardingByRoomId.mockResolvedValue(null)
+        mocks.getRoomPaths.mockReturnValue({ engineStateDir: '/tmp/missing-agent-room-state' })
         mocks.createRoomThread.mockResolvedValue({ key: 'onboarding-thread' })
         mocks.sendRoomThreadMessage.mockResolvedValue({
             runId: 'run-1',
@@ -119,5 +133,75 @@ describe('room onboarding startup', () => {
             }),
         )
         expect(mocks.createRoomThread).not.toHaveBeenCalled()
+    })
+
+    it('finds legacy personality events in rotated runtime logs', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'agent-room-onboarding-events-'))
+        try {
+            await mkdir(root, { recursive: true })
+            await writeFile(join(root, 'runtime-events.jsonl'), '')
+            await writeFile(
+                join(root, 'runtime-events.jsonl.1'),
+                [
+                    JSON.stringify({
+                        event: 'tool.personality_update',
+                        sessionKey: 'onboarding-thread',
+                        runId: 'run-1',
+                        payload: {
+                            archetype: 'pragmatic_builder',
+                            tone: 'neutral',
+                        },
+                    }),
+                    '',
+                ].join('\n'),
+            )
+            mocks.getRoomPaths.mockReturnValue({ engineStateDir: root })
+            const { __testing } = await import('./room-onboarding')
+
+            await expect(
+                __testing.findRuntimePersonalityEvent({
+                    roomId: 'room-1',
+                    sessionKey: 'onboarding-thread',
+                    runId: 'run-1',
+                }),
+            ).resolves.toMatchObject({
+                archetype: 'pragmatic_builder',
+                tone: 'neutral',
+            })
+        } finally {
+            await rm(root, { recursive: true, force: true })
+        }
+    })
+
+    it('defers pending onboarding through the canonical repository state', async () => {
+        mocks.findOnboardingByRoomId.mockResolvedValue({
+            roomId: 'room-1',
+            status: 'pending',
+            sessionKey: 'onboarding-thread',
+        })
+        const { deferRoomOnboarding } = await import('./room-onboarding')
+
+        await expect(
+            deferRoomOnboarding({
+                roomId: 'room-1',
+                sessionKey: 'onboarding-thread',
+                source: 'operator_message',
+            }),
+        ).resolves.toEqual({ deferred: true })
+
+        expect(mocks.updateOnboarding).toHaveBeenCalledWith({
+            roomId: 'room-1',
+            status: 'user_deferred',
+            deferredAt: expect.any(Date),
+        })
+        expect(mocks.appendAuditEvent).toHaveBeenCalledWith(
+            expect.objectContaining({
+                action: 'room.onboarding_deferred',
+                payload: {
+                    sessionKey: 'onboarding-thread',
+                    source: 'operator_message',
+                },
+            }),
+        )
     })
 })

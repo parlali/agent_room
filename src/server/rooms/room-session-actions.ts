@@ -1,7 +1,17 @@
 import { roomOnboardingRepository } from '../db/repositories'
+import {
+    isRoomOnboardingSkipMessage,
+    onboardingDeferredStatus,
+    onboardingRequiredToContinueSessionMessage,
+    onboardingRequiredToStartSessionMessage,
+} from '#/lib/room-onboarding-errors'
 import type { RoomThreadSendResult } from './execution-types'
 import { createRoomThread, sendRoomThreadMessage } from './execution-engine'
-import { scheduleOnboardingCompletionCheck, syncRoomOnboardingCompletion } from './room-onboarding'
+import {
+    deferRoomOnboarding,
+    scheduleOnboardingCompletionCheck,
+    syncRoomOnboardingCompletion,
+} from './room-onboarding'
 
 export async function sendRoomSessionMessage(input: {
     roomId: string
@@ -11,7 +21,32 @@ export async function sendRoomSessionMessage(input: {
     await syncRoomOnboardingCompletion(input.roomId)
     const onboarding = await roomOnboardingRepository.findByRoomId(input.roomId)
     if (onboarding?.status === 'pending' && onboarding.sessionKey !== input.sessionKey) {
-        throw new Error('Complete the room intro before continuing regular sessions')
+        if (onboarding.sessionKey) {
+            scheduleOnboardingCompletionCheck({
+                roomId: input.roomId,
+                sessionKey: onboarding.sessionKey,
+                runId: null,
+            })
+        }
+        throw new Error(onboardingRequiredToContinueSessionMessage)
+    }
+    if (
+        onboarding?.status === 'pending' &&
+        onboarding.sessionKey === input.sessionKey &&
+        isRoomOnboardingSkipMessage(input.message)
+    ) {
+        await deferRoomOnboarding({
+            roomId: input.roomId,
+            sessionKey: input.sessionKey,
+            source: 'operator_message',
+        })
+        return {
+            runId: null,
+            status: onboardingDeferredStatus,
+            messageSeq: null,
+            interruptedActiveRun: false,
+            error: null,
+        }
     }
     const isOnboardingReply = onboarding?.status === 'pending'
     const result = await sendRoomThreadMessage({
@@ -37,7 +72,14 @@ export async function createRegularRoomThread(input: {
     await syncRoomOnboardingCompletion(input.roomId)
     const onboarding = await roomOnboardingRepository.findByRoomId(input.roomId)
     if (onboarding?.status === 'pending') {
-        throw new Error('Complete the room intro before starting a new session')
+        if (onboarding.sessionKey) {
+            scheduleOnboardingCompletionCheck({
+                roomId: input.roomId,
+                sessionKey: onboarding.sessionKey,
+                runId: null,
+            })
+        }
+        throw new Error(onboardingRequiredToStartSessionMessage)
     }
     return createRoomThread({
         roomId: input.roomId,

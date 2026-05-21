@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
     findOnboardingByRoomId: vi.fn(),
     createRoomThread: vi.fn(),
+    deferRoomOnboarding: vi.fn(),
     sendRoomThreadMessage: vi.fn(),
     scheduleOnboardingCompletionCheck: vi.fn(),
     syncRoomOnboardingCompletion: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock('./execution-engine', () => ({
 }))
 
 vi.mock('./room-onboarding', () => ({
+    deferRoomOnboarding: mocks.deferRoomOnboarding,
     scheduleOnboardingCompletionCheck: mocks.scheduleOnboardingCompletionCheck,
     syncRoomOnboardingCompletion: mocks.syncRoomOnboardingCompletion,
 }))
@@ -28,9 +30,11 @@ describe('room session actions', () => {
     beforeEach(() => {
         mocks.findOnboardingByRoomId.mockReset()
         mocks.createRoomThread.mockReset()
+        mocks.deferRoomOnboarding.mockReset()
         mocks.sendRoomThreadMessage.mockReset()
         mocks.scheduleOnboardingCompletionCheck.mockReset()
         mocks.syncRoomOnboardingCompletion.mockReset()
+        mocks.deferRoomOnboarding.mockResolvedValue({ deferred: true })
         mocks.syncRoomOnboardingCompletion.mockResolvedValue({ completed: false })
         mocks.sendRoomThreadMessage.mockResolvedValue({
             runId: 'run-1',
@@ -83,6 +87,11 @@ describe('room session actions', () => {
                 roomId: 'room-1',
             }),
         ).rejects.toThrow('Complete the room intro before starting a new session')
+        expect(mocks.scheduleOnboardingCompletionCheck).toHaveBeenCalledWith({
+            roomId: 'room-1',
+            sessionKey: 'onboarding-thread',
+            runId: null,
+        })
         expect(mocks.createRoomThread).not.toHaveBeenCalled()
     })
 
@@ -101,6 +110,37 @@ describe('room session actions', () => {
                 message: 'Do normal work',
             }),
         ).rejects.toThrow('Complete the room intro before continuing regular sessions')
+        expect(mocks.scheduleOnboardingCompletionCheck).toHaveBeenCalledWith({
+            roomId: 'room-1',
+            sessionKey: 'onboarding-thread',
+            runId: null,
+        })
+        expect(mocks.sendRoomThreadMessage).not.toHaveBeenCalled()
+    })
+
+    it('defers onboarding when the operator sends skip in the intro session', async () => {
+        mocks.findOnboardingByRoomId.mockResolvedValue({
+            roomId: 'room-1',
+            status: 'pending',
+            sessionKey: 'onboarding-thread',
+        })
+        const { sendRoomSessionMessage } = await import('./room-session-actions')
+
+        await expect(
+            sendRoomSessionMessage({
+                roomId: 'room-1',
+                sessionKey: 'onboarding-thread',
+                message: 'skip',
+            }),
+        ).resolves.toMatchObject({
+            runId: null,
+            status: 'onboarding_deferred',
+        })
+        expect(mocks.deferRoomOnboarding).toHaveBeenCalledWith({
+            roomId: 'room-1',
+            sessionKey: 'onboarding-thread',
+            source: 'operator_message',
+        })
         expect(mocks.sendRoomThreadMessage).not.toHaveBeenCalled()
         expect(mocks.scheduleOnboardingCompletionCheck).not.toHaveBeenCalled()
     })

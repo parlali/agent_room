@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
     auditRepository,
@@ -21,6 +21,8 @@ import { onboardingPersonalityToolEvent } from '../pi-runtime/onboarding-persona
 import { getRoomPaths } from './room-paths'
 
 const onboardingSessionTitle = 'Getting to know this room'
+const runtimeEventsFileName = 'runtime-events.jsonl'
+const legacyOnboardingPersonalityToolEvent = 'tool.personality_update'
 const onboardingOpenerInstruction = [
     'You are opening a new coworker room onboarding chat.',
     'Infer what you can from the room name and any standing instructions already configured.',
@@ -92,10 +94,51 @@ function runtimePersonalityEventPayload(value: unknown): Record<string, unknown>
     if (!isRecord(value)) {
         return null
     }
-    if (value.event !== onboardingPersonalityToolEvent) {
+    if (
+        value.event !== onboardingPersonalityToolEvent &&
+        value.event !== legacyOnboardingPersonalityToolEvent
+    ) {
         return null
     }
     return isRecord(value.payload) ? value.payload : null
+}
+
+async function runtimeEventFileNames(engineStateDir: string): Promise<string[]> {
+    let entries: string[]
+    try {
+        entries = await readdir(engineStateDir)
+    } catch {
+        return [runtimeEventsFileName]
+    }
+    const names = entries.filter(
+        (name) => name === runtimeEventsFileName || /^runtime-events\.jsonl\.\d+$/.test(name),
+    )
+    if (!names.includes(runtimeEventsFileName)) {
+        names.push(runtimeEventsFileName)
+    }
+    return names.sort((left, right) => {
+        if (left === runtimeEventsFileName) return -1
+        if (right === runtimeEventsFileName) return 1
+        const leftIndex = Number(left.slice(`${runtimeEventsFileName}.`.length))
+        const rightIndex = Number(right.slice(`${runtimeEventsFileName}.`.length))
+        return leftIndex - rightIndex
+    })
+}
+
+async function readRuntimeEventLines(roomId: string): Promise<string[]> {
+    const engineStateDir = getRoomPaths(roomId).engineStateDir
+    const fileNames = await runtimeEventFileNames(engineStateDir)
+    const lines: string[] = []
+    for (const fileName of fileNames) {
+        let raw = ''
+        try {
+            raw = await readFile(join(engineStateDir, fileName), 'utf8')
+        } catch {
+            continue
+        }
+        lines.push(...raw.split(/\r?\n/).filter(Boolean).reverse())
+    }
+    return lines
 }
 
 async function findRuntimePersonalityEvent(input: {
@@ -103,16 +146,7 @@ async function findRuntimePersonalityEvent(input: {
     sessionKey: string
     runId?: string | null
 }): Promise<Record<string, unknown> | null> {
-    let raw = ''
-    try {
-        raw = await readFile(
-            join(getRoomPaths(input.roomId).engineStateDir, 'runtime-events.jsonl'),
-            'utf8',
-        )
-    } catch {
-        return null
-    }
-    const lines = raw.split(/\r?\n/).filter(Boolean).reverse()
+    const lines = await readRuntimeEventLines(input.roomId)
     for (const line of lines) {
         let parsed: unknown
         try {
@@ -135,49 +169,6 @@ async function findRuntimePersonalityEvent(input: {
         }
     }
     return null
-}
-
-function runtimeRunFinished(
-    value: unknown,
-    input: {
-        sessionKey: string
-        runId: string | null
-    },
-): boolean {
-    if (!isRecord(value)) return false
-    if (value.event !== 'run.finished') return false
-    if (value.sessionKey !== input.sessionKey) return false
-    if (input.runId && value.runId !== input.runId) return false
-    return true
-}
-
-async function runtimeRunFinishedFor(input: {
-    roomId: string
-    sessionKey: string
-    runId: string | null
-}): Promise<boolean> {
-    let raw = ''
-    try {
-        raw = await readFile(
-            join(getRoomPaths(input.roomId).engineStateDir, 'runtime-events.jsonl'),
-            'utf8',
-        )
-    } catch {
-        return false
-    }
-    const lines = raw.split(/\r?\n/).filter(Boolean).reverse()
-    for (const line of lines) {
-        let parsed: unknown
-        try {
-            parsed = JSON.parse(line)
-        } catch {
-            continue
-        }
-        if (runtimeRunFinished(parsed, input)) {
-            return true
-        }
-    }
-    return false
 }
 
 async function markOnboardingCompleted(input: {
@@ -369,23 +360,48 @@ async function pollOnboardingCompletion(input: {
     sessionKey: string
     runId: string | null
 }): Promise<void> {
-    const delays = [500, 1500, 3000, 5000, 10000, 15000, 30000]
+    const delays = [
+        250, 250, 500, 500, 1000, 1000, 1000, 1000, 1500, 1500, 2000, 2000, 3000, 3000, 5000, 5000,
+        10000, 10000,
+    ]
     for (const delay of delays) {
         await new Promise((resolve) => setTimeout(resolve, delay))
         const result = await completeOnboardingAfterPersonalityTool(input)
         if (result.completed) {
             return
         }
-        if (
-            await runtimeRunFinishedFor({
-                roomId: input.roomId,
-                sessionKey: input.sessionKey,
-                runId: input.runId,
-            })
-        ) {
-            return
-        }
     }
+}
+
+export async function deferRoomOnboarding(input: {
+    roomId: string
+    sessionKey?: string | null
+    source: string
+}): Promise<{ deferred: boolean }> {
+    return withRoomOnboardingLock(input.roomId, async () => {
+        const onboarding = await roomOnboardingRepository.findByRoomId(input.roomId)
+        if (!onboarding || onboarding.status !== 'pending') {
+            return { deferred: false }
+        }
+        if (input.sessionKey && onboarding.sessionKey !== input.sessionKey) {
+            return { deferred: false }
+        }
+        await roomOnboardingRepository.update({
+            roomId: input.roomId,
+            status: 'user_deferred',
+            deferredAt: new Date(),
+        })
+        await auditRepository.appendEvent({
+            actorUserId: null,
+            roomId: input.roomId,
+            action: 'room.onboarding_deferred',
+            payload: {
+                sessionKey: onboarding.sessionKey,
+                source: input.source,
+            },
+        })
+        return { deferred: true }
+    })
 }
 
 export async function saveRoomPersonality(input: {
