@@ -9,8 +9,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '#/components/ui/select'
-import { Switch } from '#/components/ui/switch'
-import { Section, StateBadge } from '#/components/agent-room'
+import { Section, StateBadge, ToggleSelector } from '#/components/agent-room'
 import { CAPABILITY_OPTIONS, type CapabilityOption } from '#/lib/capabilities'
 import { imageModelOptionsForProvider } from '#/lib/model-options'
 import type {
@@ -69,6 +68,19 @@ export function CapabilitiesSection({
         draft.imageProvider === 'inherit'
             ? []
             : imageModelOptionsForProvider(draft.imageProvider, draft.imageModel)
+    const capabilitySelectorItems = visibleOptions.map((option) => ({
+        option,
+        checked: capabilityValue({
+            draft,
+            option,
+            appDefaults,
+            effectiveCapabilities,
+        }),
+        inherited:
+            !programmerMode &&
+            appDefaults !== null &&
+            draft.capabilityOverrides[option.id] === undefined,
+    }))
 
     return (
         <Section
@@ -81,53 +93,40 @@ export function CapabilitiesSection({
             actions={<SaveBar dirty={dirty} pending={pending} onSave={onSave} />}
         >
             <div className="space-y-4">
-                <div className="grid gap-2 sm:grid-cols-2">
-                    {visibleOptions.map((option) => {
-                        const checked = capabilityValue({
-                            draft,
-                            option,
-                            appDefaults,
-                            effectiveCapabilities,
-                        })
-                        const inherited =
-                            !programmerMode &&
-                            appDefaults &&
-                            draft.capabilityOverrides[option.id] === undefined
-                        return (
-                            <label
-                                key={option.id}
-                                className="flex items-start justify-between gap-3 rounded-lg border border-border/60 px-3 py-2.5"
-                            >
-                                <span className="min-w-0">
-                                    <span className="flex items-center gap-2 text-sm font-medium text-foreground">
-                                        {option.id === 'images' ? (
-                                            <ImageIcon className="size-4 text-muted-foreground" />
-                                        ) : option.id === 'web_search' ||
-                                          option.id === 'url_fetch' ? (
-                                            <GlobeIcon className="size-4 text-muted-foreground" />
-                                        ) : (
-                                            <PlugIcon className="size-4 text-muted-foreground" />
-                                        )}
-                                        {option.label}
-                                    </span>
-                                    <span className="mt-0.5 block text-xs text-muted-foreground">
-                                        {option.description}
-                                    </span>
-                                    {inherited ? (
-                                        <span className="mt-1 block text-[0.7rem] uppercase tracking-wide text-muted-foreground">
-                                            App default
-                                        </span>
-                                    ) : null}
-                                </span>
-                                <Switch
-                                    checked={checked}
-                                    onCheckedChange={(next) => setCapability(option, next)}
-                                    aria-label={`Toggle ${option.label}`}
-                                />
-                            </label>
-                        )
-                    })}
-                </div>
+                <ToggleSelector
+                    items={capabilitySelectorItems}
+                    selectedValues={capabilitySelectorItems
+                        .filter((item) => item.checked)
+                        .map((item) => item.option.id)}
+                    getValue={(item) => item.option.id}
+                    getAriaLabel={(item) => `Toggle ${item.option.label}`}
+                    onCheckedChange={(_value, next, item) => setCapability(item.option, next)}
+                    className="grid gap-2 divide-y-0 sm:grid-cols-2"
+                    itemClassName="items-start rounded-lg border border-border/60 px-3 py-2.5"
+                    renderItem={(item) => (
+                        <>
+                            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                                {item.option.id === 'images' ? (
+                                    <ImageIcon className="size-4 text-muted-foreground" />
+                                ) : item.option.id === 'web_search' ||
+                                  item.option.id === 'url_fetch' ? (
+                                    <GlobeIcon className="size-4 text-muted-foreground" />
+                                ) : (
+                                    <PlugIcon className="size-4 text-muted-foreground" />
+                                )}
+                                {item.option.label}
+                            </div>
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                                {item.option.description}
+                            </div>
+                            {item.inherited ? (
+                                <div className="mt-1 text-[0.7rem] uppercase tracking-wide text-muted-foreground">
+                                    App default
+                                </div>
+                            ) : null}
+                        </>
+                    )}
+                />
 
                 <div className="rounded-lg border border-border/60 p-3">
                     <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">

@@ -9,11 +9,7 @@ async function reconcileDesiredRunningRooms(): Promise<void> {
         const needsStoppedReconcile =
             room.desiredState === 'stopped' &&
             (room.status === 'running' || room.status === 'starting' || room.status === 'degraded')
-        const needsRunningReconcile =
-            room.desiredState === 'running' &&
-            (room.status === 'setup_required' ||
-                room.status === 'stopped' ||
-                room.status === 'failed')
+        const needsRunningReconcile = room.desiredState === 'running'
         if (!needsStoppedReconcile && !needsRunningReconcile) {
             continue
         }

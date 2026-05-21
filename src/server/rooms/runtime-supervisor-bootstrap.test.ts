@@ -39,7 +39,7 @@ describe('runtime supervisor bootstrap', () => {
         resetRuntimeSupervisorBoot()
     })
 
-    it('skips desired-running rooms that do not need reconciliation', async () => {
+    it('reconciles every desired-running room on boot', async () => {
         mocks.listRooms.mockResolvedValue([
             {
                 id: 'healthy-running',
@@ -60,7 +60,8 @@ describe('runtime supervisor bootstrap', () => {
 
         await ensureRuntimeSupervisorBoot()
 
-        expect(mocks.reconcileRoom).toHaveBeenCalledTimes(1)
+        expect(mocks.reconcileRoom).toHaveBeenCalledTimes(2)
+        expect(mocks.reconcileRoom).toHaveBeenCalledWith('healthy-running', null)
         expect(mocks.reconcileRoom).toHaveBeenCalledWith('blocked-running', null)
     })
 })

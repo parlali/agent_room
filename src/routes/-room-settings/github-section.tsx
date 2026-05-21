@@ -8,6 +8,8 @@ import {
     LoadingRows,
     Section,
     StateBadge,
+    ToggleSelector,
+    mergeToggleSelectorItems,
 } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
@@ -29,6 +31,12 @@ import {
 import type { OperatorConfigSnapshot } from '#/server/configuration/operator-configuration'
 import type { ConfigDraft } from './model'
 import { SaveBar } from './shared'
+
+type RepositorySelectorItem = {
+    fullName: string
+    private: boolean | null
+    defaultBranch: string | null
+}
 
 export function GitHubSection({
     draft,
@@ -89,10 +97,18 @@ export function GitHubSection({
     })
     const repositoryResult = repositoriesQuery.data
     const repositories = repositoryResult?.repositories ?? []
-    const selectedRepositoryRows = useMemo(
+    const repositoryRows = useMemo<RepositorySelectorItem[]>(
+        () =>
+            repositories.map((repository) => ({
+                fullName: repository.fullName,
+                private: repository.private,
+                defaultBranch: repository.defaultBranch,
+            })),
+        [repositories],
+    )
+    const selectedRepositoryRows = useMemo<RepositorySelectorItem[]>(
         () =>
             draft.githubRepositories.map((repository) => ({
-                id: `selected:${repository}`,
                 fullName: repository,
                 private: null,
                 defaultBranch: null,
@@ -100,13 +116,12 @@ export function GitHubSection({
         [draft.githubRepositories],
     )
     const visibleRepositories = useMemo(() => {
-        const seen = new Set<string>()
-        return [...selectedRepositoryRows, ...repositories].filter((repository) => {
-            if (seen.has(repository.fullName)) return false
-            seen.add(repository.fullName)
-            return true
+        return mergeToggleSelectorItems({
+            visibleItems: repositoryRows,
+            selectedItems: selectedRepositoryRows,
+            getValue: (repository) => repository.fullName,
         })
-    }, [repositories, selectedRepositoryRows])
+    }, [repositoryRows, selectedRepositoryRows])
     const toggleRepository = (repository: string, enabled: boolean) => {
         const next = enabled
             ? Array.from(new Set([...draft.githubRepositories, repository]))
@@ -284,46 +299,35 @@ export function GitHubSection({
                                         />
                                     ) : (
                                         <div className="rounded-md border">
-                                            <ul className="max-h-72 divide-y divide-border/60 overflow-auto">
-                                                {visibleRepositories.map((repository) => {
-                                                    const checked =
-                                                        draft.githubRepositories.includes(
-                                                            repository.fullName,
-                                                        )
-                                                    return (
-                                                        <li
-                                                            key={repository.id}
-                                                            className="flex items-center gap-3 px-4 py-3"
-                                                        >
-                                                            <div className="min-w-0 flex-1">
-                                                                <div className="truncate text-sm font-medium">
-                                                                    {repository.fullName}
-                                                                </div>
-                                                                <div className="text-xs text-muted-foreground">
-                                                                    {repository.private === null
-                                                                        ? 'Selected'
-                                                                        : repository.private
-                                                                          ? 'Private'
-                                                                          : 'Public'}
-                                                                    {repository.defaultBranch
-                                                                        ? ` · ${repository.defaultBranch}`
-                                                                        : ''}
-                                                                </div>
-                                                            </div>
-                                                            <Switch
-                                                                checked={checked}
-                                                                onCheckedChange={(enabled) =>
-                                                                    toggleRepository(
-                                                                        repository.fullName,
-                                                                        enabled,
-                                                                    )
-                                                                }
-                                                                aria-label={`Toggle ${repository.fullName}`}
-                                                            />
-                                                        </li>
-                                                    )
-                                                })}
-                                            </ul>
+                                            <ToggleSelector
+                                                items={visibleRepositories}
+                                                selectedValues={draft.githubRepositories}
+                                                getValue={(repository) => repository.fullName}
+                                                getAriaLabel={(repository) =>
+                                                    `Toggle ${repository.fullName}`
+                                                }
+                                                onCheckedChange={(repository, enabled) =>
+                                                    toggleRepository(repository, enabled)
+                                                }
+                                                className="max-h-72 overflow-auto"
+                                                renderItem={(repository) => (
+                                                    <>
+                                                        <div className="truncate text-sm font-medium">
+                                                            {repository.fullName}
+                                                        </div>
+                                                        <div className="text-xs text-muted-foreground">
+                                                            {repository.private === null
+                                                                ? 'Selected'
+                                                                : repository.private
+                                                                  ? 'Private'
+                                                                  : 'Public'}
+                                                            {repository.defaultBranch
+                                                                ? ` · ${repository.defaultBranch}`
+                                                                : ''}
+                                                        </div>
+                                                    </>
+                                                )}
+                                            />
                                             {repositoryResult?.hasMore || repositoryPage > 1 ? (
                                                 <div className="flex items-center justify-between gap-3 border-t px-4 py-2">
                                                     <span className="text-xs text-muted-foreground">

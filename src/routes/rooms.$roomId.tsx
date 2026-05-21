@@ -13,6 +13,7 @@ import {
 
 import { Button } from '#/components/ui/button'
 import { CardButton } from '#/components/ui/card'
+import { Badge } from '#/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
 import { RoomDashboardLayout } from '#/components/room-dashboard'
 import {
@@ -31,6 +32,7 @@ import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import { requireRouteUser } from './-route-auth'
 import {
     getRoomSidebarServer,
+    getRoomPersonalityServer,
     getRoomSetupReadinessServer,
     listCronJobsServer,
     listRoomFilesServer,
@@ -38,6 +40,14 @@ import {
 import { getRoomConfigServer } from './-operator-config-server'
 import { SessionRunStatus } from './-session-chat/session-run-status'
 import { useRoomEventCacheSync } from './-session-chat/room-event-cache'
+import { personalityArchetypeProfiles } from '#/server/rooms/personality/archetypes'
+import {
+    personalityChallengeStyleProfiles,
+    personalityDirectnessProfiles,
+    personalityReportStyleProfiles,
+    personalityToneProfiles,
+    type PersonalityForm,
+} from '#/server/rooms/personality/form'
 
 export const Route = createFileRoute('/rooms/$roomId')({
     beforeLoad: requireRouteUser,
@@ -80,6 +90,11 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
         queryFn: () => getRoomConfigServer({ data: { roomId } }),
         staleTime: roomQueryPolicy.coldStaleMs,
     })
+    const personalityQuery = useQuery({
+        queryKey: roomQueryKey.roomPersonality(roomId),
+        queryFn: () => getRoomPersonalityServer({ data: { roomId } }),
+        staleTime: roomQueryPolicy.warmStaleMs,
+    })
     const readinessQuery = useQuery({
         queryKey: roomQueryKey.setupReadiness,
         queryFn: () => getRoomSetupReadinessServer(),
@@ -95,6 +110,7 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
     const jobs = jobsQuery.data ?? []
     const files = filesQuery.data ?? []
     const config = configQuery.data
+    const personality = personalityQuery.data?.form ?? null
     const blockingIssues =
         readinessQuery.data?.issues.filter((i) => i.severity === 'blocking') ?? []
 
@@ -416,8 +432,12 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                     </Section>
 
                     <Section
-                        title="About this room"
-                        description="Friendly summary"
+                        title="Agent profile"
+                        description={
+                            personality
+                                ? personalityArchetypeProfiles[personality.archetype].label
+                                : 'Purpose and personality'
+                        }
                         actions={
                             <Link to="/rooms/$roomId/settings" params={{ roomId }}>
                                 <Button variant="ghost" size="xs">
@@ -426,21 +446,11 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                             </Link>
                         }
                     >
-                        {config?.config?.instructions ? (
-                            <p className="line-clamp-6 whitespace-pre-wrap text-sm text-foreground">
-                                {config.config.instructions}
-                            </p>
-                        ) : (
-                            <p className="text-sm text-muted-foreground">
-                                No instructions yet. Add a short purpose to help this room work
-                                better.
-                            </p>
-                        )}
-                        {recentActivity.length > 0 ? (
-                            <p className="mt-3 text-xs text-muted-foreground">
-                                Last activity {formatRelativeTime(recentActivity[0]!.updatedAt)}
-                            </p>
-                        ) : null}
+                        <AgentProfileSummary
+                            personality={personality}
+                            instructions={config?.config?.instructions ?? ''}
+                            lastActivityAt={recentActivity[0]?.updatedAt ?? null}
+                        />
                     </Section>
                 </div>
             </div>
@@ -492,5 +502,62 @@ function ActionTile({
             </TooltipTrigger>
             <TooltipContent>{pending ? 'Working…' : label}</TooltipContent>
         </Tooltip>
+    )
+}
+
+function AgentProfileSummary({
+    personality,
+    instructions,
+    lastActivityAt,
+}: {
+    personality: PersonalityForm | null
+    instructions: string
+    lastActivityAt: number | string | null
+}) {
+    if (!personality) {
+        return (
+            <p className="text-sm text-muted-foreground">
+                Personality is loading. The room keeps using its saved defaults while this view
+                catches up.
+            </p>
+        )
+    }
+
+    const profile = personalityArchetypeProfiles[personality.archetype]
+    return (
+        <div className="space-y-3">
+            <div>
+                <p className="text-sm font-medium text-foreground">{profile.summary}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{profile.description}</p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+                <Badge variant="outline" className="rounded-md bg-card">
+                    {personalityToneProfiles[personality.tone].label}
+                </Badge>
+                <Badge variant="outline" className="rounded-md bg-card">
+                    {personalityDirectnessProfiles[personality.directness].label}
+                </Badge>
+                <Badge variant="outline" className="rounded-md bg-card">
+                    {personalityReportStyleProfiles[personality.reportStyle].label}
+                </Badge>
+                <Badge variant="outline" className="rounded-md bg-card">
+                    {personalityChallengeStyleProfiles[personality.challengeStyle].label}
+                </Badge>
+            </div>
+            {instructions ? (
+                <p className="line-clamp-4 whitespace-pre-wrap border-t border-border/60 pt-3 text-sm text-foreground">
+                    {instructions}
+                </p>
+            ) : (
+                <p className="border-t border-border/60 pt-3 text-sm text-muted-foreground">
+                    No room purpose yet. Add one in settings so the agent can anchor its work.
+                </p>
+            )}
+            {lastActivityAt ? (
+                <p className="text-xs text-muted-foreground">
+                    Last activity {formatRelativeTime(lastActivityAt)}
+                </p>
+            ) : null}
+        </div>
     )
 }

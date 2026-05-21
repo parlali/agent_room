@@ -1,6 +1,6 @@
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { resolveArchetypeParagraph } from '../rooms/personality/archetypes'
-import { sanitizePersonalityForm } from '../rooms/personality/form'
+import { personalityInstructionLines, sanitizePersonalityForm } from '../rooms/personality/form'
 import { buildAgentHarnessPrompt } from './agent-harness'
 import { boundTextByChars } from './bounded-text'
 import { buildInternalStateSummary } from './internal-state'
@@ -231,6 +231,10 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
     const memorySnapshot = await readMemory(config)
     const personality = sanitizePersonalityForm(memorySnapshot.memory.personality)
     const archetypeParagraph = resolveArchetypeParagraph(personality.archetype)
+    const personalityControls = [
+        'Personality controls:',
+        ...personalityInstructionLines(personality).map((line) => `- ${line}`),
+    ].join('\n')
     const operatorInstructions = boundedText(
         config.instructions.trim(),
         MAX_OPERATOR_INSTRUCTIONS_CHARS,
@@ -261,6 +265,7 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
     const sections = [
         identitySection(config),
         archetypeParagraph,
+        personalityControls,
         runtimeContextSection(config, budget, now),
         behaviorSection(),
         sharedPolicySection(config),
