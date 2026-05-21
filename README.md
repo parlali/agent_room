@@ -157,6 +157,12 @@ Run checks:
 bun run check
 ```
 
+Build the static marketing site for `openagentroom.com`:
+
+```bash
+bun run site:build
+```
+
 The normal product runtime is Docker-first:
 
 ```bash

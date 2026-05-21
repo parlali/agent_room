@@ -25,6 +25,9 @@
     },
     "scripts": {
         "build": "vite build && bun run scripts/copy-runtime-assets.ts",
+        "site:build": "vite build --config site/vite.config.ts",
+        "site:dev": "vite --config site/vite.config.ts",
+        "site:preview": "vite preview --config site/vite.config.ts",
         "start": "bun run scripts/start-server.ts",
         "preview": "vite preview",
         "test": "vitest run",
