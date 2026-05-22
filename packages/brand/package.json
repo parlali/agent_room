@@ -1,0 +1,30 @@
+{
+    "name": "@agent-room/brand",
+    "private": true,
+    "version": "0.0.0",
+    "type": "module",
+    "exports": {
+        ".": "./src/index.tsx",
+        "./tokens": "./brand.tokens.json",
+        "./source/*": "./source/*",
+        "./exports/*": "./exports/*"
+    },
+    "scripts": {
+        "build": "bun run typecheck",
+        "typecheck": "tsc --noEmit",
+        "lint": "eslint .",
+        "format": "prettier --check .",
+        "format:write": "prettier --write .",
+        "export:icons": "bun run scripts/export-icons.ts",
+        "check": "bun run format && bun run lint && bun run typecheck"
+    },
+    "peerDependencies": {
+        "react": "^19.2.0"
+    },
+    "devDependencies": {
+        "@agent-room/typescript-config": "workspace:*",
+        "@types/node": "^22.10.2",
+        "@types/react": "^19.2.0",
+        "typescript": "^5.7.2"
+    }
+}

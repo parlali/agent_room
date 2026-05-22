@@ -1,0 +1,337 @@
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/fraunces';
+@import '@fontsource-variable/jetbrains-mono';
+@import 'tailwindcss';
+
+@theme {
+    --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+    --font-serif: 'Fraunces Variable', ui-serif, Georgia, serif;
+    --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+    --color-night: #0a0c0b;
+    --color-night-elev: #111614;
+    --color-ink: #f1ece0;
+    --color-ink-dim: #8c8d83;
+    --color-ink-faint: #4d5251;
+    --color-rule: #1c211e;
+    --color-rule-bright: #2a3128;
+    --color-paper: #f1e7d0;
+    --color-paper-ink: #111411;
+    --color-paper-rule: #d8c89b;
+    --color-paper-dim: #5b554a;
+    --color-accent: #7ed391;
+    --color-accent-dim: #2b4a32;
+    --color-accent-faint: #15201a;
+    --color-attention: #d4a13c;
+    --color-danger: #d65a4a;
+    --color-quote: #c9b87a;
+}
+
+:root {
+    color-scheme: dark;
+}
+
+@layer base {
+    html,
+    body {
+        margin: 0;
+        padding: 0;
+        background: var(--color-night);
+        color: var(--color-ink);
+        font-family: var(--font-sans);
+        font-feature-settings: 'cv11', 'ss01';
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
+        overflow-x: hidden;
+    }
+
+    body {
+        background-image:
+            radial-gradient(
+                ellipse 90% 60% at 50% -10%,
+                rgba(126, 211, 145, 0.05),
+                transparent 60%
+            ),
+            url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.95 0 0 0 0 0.93 0 0 0 0 0.87 0 0 0 0.035 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+        background-attachment: fixed, fixed;
+        background-size:
+            auto,
+            160px 160px;
+    }
+
+    ::selection {
+        background: var(--color-accent);
+        color: var(--color-night);
+    }
+
+    * {
+        border-color: var(--color-rule);
+    }
+
+    a {
+        color: inherit;
+        text-decoration: none;
+    }
+}
+
+.font-serif {
+    font-family: var(--font-serif);
+    font-variation-settings:
+        'opsz' 144,
+        'SOFT' 50;
+    font-feature-settings: 'liga', 'dlig', 'kern';
+    letter-spacing: -0.02em;
+}
+
+.font-serif-italic {
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-variation-settings:
+        'opsz' 144,
+        'SOFT' 100;
+}
+
+.font-mono {
+    font-family: var(--font-mono);
+    font-feature-settings: 'zero', 'cv09';
+}
+
+.label-mono {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.4;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--color-ink-dim);
+}
+
+.rule-h {
+    height: 1px;
+    background: var(--color-rule);
+}
+
+.rule-v {
+    width: 1px;
+    background: var(--color-rule);
+}
+
+.tick-mark {
+    position: relative;
+}
+.tick-mark::before,
+.tick-mark::after {
+    content: '';
+    position: absolute;
+    background: var(--color-ink-faint);
+}
+.tick-mark::before {
+    width: 8px;
+    height: 1px;
+    left: -16px;
+    top: 50%;
+}
+.tick-mark::after {
+    width: 1px;
+    height: 8px;
+    left: -12px;
+    top: calc(50% - 4px);
+}
+
+@keyframes blink {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.25;
+    }
+}
+
+@keyframes pulse-soft {
+    0%,
+    100% {
+        opacity: 0.4;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1.2);
+    }
+}
+
+@keyframes scan {
+    0% {
+        transform: translateY(-110%);
+    }
+    100% {
+        transform: translateY(110%);
+    }
+}
+
+@keyframes ticker {
+    0% {
+        transform: translateX(0);
+    }
+    100% {
+        transform: translateX(-50%);
+    }
+}
+
+@keyframes wave {
+    0%,
+    100% {
+        transform: scaleY(0.3);
+    }
+    50% {
+        transform: scaleY(1);
+    }
+}
+
+@keyframes reveal-up {
+    0% {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes reveal-mask {
+    0% {
+        clip-path: inset(0 100% 0 0);
+    }
+    100% {
+        clip-path: inset(0 0 0 0);
+    }
+}
+
+@keyframes count-tick {
+    0% {
+        transform: translateY(0);
+    }
+    20% {
+        transform: translateY(-1.2em);
+    }
+    100% {
+        transform: translateY(-1.2em);
+    }
+}
+
+.animate-blink {
+    animation: blink 1.4s ease-in-out infinite;
+}
+
+.animate-pulse-soft {
+    animation: pulse-soft 1.8s ease-in-out infinite;
+}
+
+.reveal-stagger > * {
+    opacity: 0;
+    animation: reveal-up 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.reveal-mask {
+    display: inline-block;
+    animation: reveal-mask 1.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.marquee-hover {
+    overflow: hidden;
+    position: relative;
+    display: inline-flex;
+    align-items: flex-start;
+    height: 1.25em;
+    line-height: 1.25;
+    vertical-align: top;
+}
+
+.marquee-hover .marquee-stack {
+    display: flex;
+    flex-direction: column;
+    transform: translateY(0);
+    transition: transform 380ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.marquee-hover:hover .marquee-stack,
+.marquee-hover:focus-visible .marquee-stack {
+    transform: translateY(-1.25em);
+}
+
+.marquee-hover .marquee-stack > span {
+    display: block;
+    line-height: 1.25;
+    height: 1.25em;
+    white-space: nowrap;
+}
+
+.grain-overlay {
+    pointer-events: none;
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    opacity: 0.6;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.6' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.5'/></svg>");
+}
+
+.scan-line {
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    opacity: 0.5;
+}
+.scan-line::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 30%;
+    background: linear-gradient(180deg, transparent, rgba(126, 211, 145, 0.08), transparent);
+    animation: scan 4.2s ease-in-out infinite;
+}
+
+.grid-12 {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    column-gap: 24px;
+}
+
+@media (min-width: 1024px) {
+    .grid-12 {
+        column-gap: 40px;
+    }
+}
+
+.bracket {
+    position: relative;
+}
+.bracket::before,
+.bracket::after {
+    content: '';
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border: 1px solid var(--color-ink-faint);
+}
+.bracket::before {
+    top: -1px;
+    left: -1px;
+    border-right: none;
+    border-bottom: none;
+}
+.bracket::after {
+    bottom: -1px;
+    right: -1px;
+    border-left: none;
+    border-top: none;
+}
+
+.cursor-blink::after {
+    content: '_';
+    animation: blink 1s steps(2, start) infinite;
+    color: var(--color-accent);
+}

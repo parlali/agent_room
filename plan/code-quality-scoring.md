@@ -26,7 +26,7 @@ bun run quality:score --json
 bun run typecheck
 bun run lint
 bun run test
-bunx madge --circular --extensions ts,tsx --ts-config tsconfig.json src
+bunx madge --circular --extensions ts,tsx --ts-config apps/self-hosted/tsconfig.json apps/self-hosted/src
 ```
 
 `bun run quality:score` emits two project-local heuristic scores:
@@ -52,8 +52,8 @@ Use a Bun TypeScript probe for file size, test distribution, import hotspots, an
 Use two duplication profiles:
 
 ```bash
-bunx jscpd src --pattern "**/*.{ts,tsx}" --ignore "**/*.gen.ts,**/*.test.ts,**/node_modules/**" --min-lines 8 --min-tokens 80 --reporters console
-bunx jscpd src --pattern "**/*.{ts,tsx}" --ignore "**/*.gen.ts,**/node_modules/**" --min-lines 3 --min-tokens 30 --reporters console
+bunx jscpd apps/self-hosted/src --pattern "**/*.{ts,tsx}" --ignore "**/*.gen.ts,**/*.test.ts,**/node_modules/**" --min-lines 8 --min-tokens 80 --reporters console
+bunx jscpd apps/self-hosted/src --pattern "**/*.{ts,tsx}" --ignore "**/*.gen.ts,**/node_modules/**" --min-lines 3 --min-tokens 30 --reporters console
 ```
 
 The first command is the actionable production duplication gate. The second command is a sensitive smoke alarm that includes tests and small repeated shapes; it will report noise, but it is useful for spotting drift back toward broad copy-paste.
@@ -116,11 +116,11 @@ The score cannot exceed 90 unless UI action to route or server function to servi
 
 ## Current Baseline
 
-Script quality score: 91 out of 100.
+Script quality score: 87 out of 100.
 
-Script spaghetti score: 42 out of 100.
+Script spaghetti score: 49 out of 100.
 
-Grade: above the strict automated quality target, with remaining risk concentrated in six ownership hotspots and a small number of layer violations.
+Grade: below the previous strict automated quality target after the workspace split, with remaining risk concentrated in ownership hotspots and package-aware scoring follow-up.
 
 This baseline deliberately does not treat line count as a design goal. The score script still reports files over 500 and 700 lines, but size only contributes materially when paired with stronger risk signals such as heavy branching, high fan-out, or broad orchestration responsibility. Long cohesive UI or test modules remain visible for review without automatically dominating the score.
 
@@ -132,78 +132,78 @@ Quality gates:
 
 - `bun run typecheck`: passed.
 - `bun run lint`: passed.
-- `bun run test`: passed, 75 test files and 315 passing tests with 1 skipped test.
+- `bun run test`: passed, 98 test files and 400 passing tests with 1 skipped test across the app and domain package.
 - `bun run check`: passed.
 
 Test distribution:
 
-- Production source files: 340.
-- Test-classified files: 76.
+- Production source files: 344.
+- Test-classified files: 93.
 - Generated files: 1.
-- Server area: 185 production files, 64 test files.
-- Route area: 75 production files, 5 test files.
-- Lib area: 20 production files, 6 test files.
-- Component area: 52 production files, 1 test file.
+- Server area: 200 production files, 81 test files.
+- Route area: 78 production files, 9 test files.
+- Lib area: 5 production files, 0 test files.
+- Component area: 53 production files, 3 test files.
 
 Duplication scan:
 
-- Production scan command: `bunx jscpd src --pattern "**/*.{ts,tsx}" --ignore "**/*.gen.ts,**/*.test.ts,**/node_modules/**" --min-lines 8 --min-tokens 80 --reporters console`
+- Production scan command: `bunx jscpd apps/self-hosted/src --pattern "**/*.{ts,tsx}" --ignore "**/*.gen.ts,**/*.test.ts,**/node_modules/**" --min-lines 8 --min-tokens 80 --reporters console`
 - Production result: 12 clones, 206 duplicated lines, 0.33% duplicated lines, 0.40% duplicated tokens.
 
 React/TanStack lint baseline:
 
 - `eslint.config.js` extends `@tanstack/eslint-config`.
-- `bunx eslint --print-config 'src/routes/rooms.$roomId.tsx'` showed no active React, React Hooks, TanStack Query, or TanStack Router-specific rules.
+- `bunx eslint --print-config 'apps/self-hosted/src/routes/rooms.$roomId.tsx'` showed no active React, React Hooks, TanStack Query, or TanStack Router-specific rules.
 - Current React quality gate is therefore type safety plus generic lint plus build verification, not dedicated React semantics.
 
 Local score script baseline:
 
-- `bun run scripts/code-quality-score.ts --json`: quality score 91 out of 100, spaghetti score 42 out of 100.
+- `bun run quality:score -- --json`: quality score 87 out of 100, spaghetti score 49 out of 100.
 - Script duplication scanner: production duplication 0.08%, sensitive duplication 1.18%.
 - The script duplication scanner is a local approximation; keep `jscpd` as the stricter clone audit source.
-- Scoring fixes: final trailing newlines no longer count as source lines, TanStack route server-function modules such as `src/routes/-room-runtime-server.ts` are treated as the typed client API surface rather than route UI coupling, quality has no hard cap tied to an arbitrary line count, and size scoring now counts compound ownership hotspots rather than raw long files.
+- Scoring fixes: final trailing newlines no longer count as source lines, TanStack route server-function modules such as `apps/self-hosted/src/routes/-room-runtime-server.ts` are treated as the typed client API surface rather than route UI coupling, quality has no hard cap tied to an arbitrary line count, and size scoring now counts compound ownership hotspots rather than raw long files.
 
 Large file signals:
 
-- `src/server/configuration/github-app.ts`: 1353 lines.
-- `src/server/pi-runtime/browserbase-browser.test.ts`: 1177 lines.
-- `src/routes/-session-chat/session-chat-pane.tsx`: 1177 lines.
-- `src/routes/settings/-sections.tsx`: 1127 lines.
-- `src/server/pi-runtime/browserbase-browser.ts`: 1102 lines.
-- `src/routes/-session-chat/stream-state.ts`: 1049 lines.
-- `src/server/pi-runtime/web-tools.test.ts`: 985 lines.
-- `src/server/pi-runtime/main.ts`: 808 lines.
-- `src/routes/-room-runtime-server.ts`: 804 lines.
-- `src/routes/settings.tsx`: 787 lines.
-- `src/server/pi-runtime/office-document-skill.test.ts`: 753 lines.
+- `apps/self-hosted/src/server/configuration/github-app.ts`: 1353 lines.
+- `apps/self-hosted/src/server/pi-runtime/browserbase-browser.test.ts`: 1177 lines.
+- `apps/self-hosted/src/routes/-session-chat/session-chat-pane.tsx`: 1177 lines.
+- `apps/self-hosted/src/routes/settings/-sections.tsx`: 1127 lines.
+- `apps/self-hosted/src/server/pi-runtime/browserbase-browser.ts`: 1102 lines.
+- `apps/self-hosted/src/routes/-session-chat/stream-state.ts`: 1049 lines.
+- `apps/self-hosted/src/server/pi-runtime/web-tools.test.ts`: 985 lines.
+- `apps/self-hosted/src/server/pi-runtime/main.ts`: 808 lines.
+- `apps/self-hosted/src/routes/-room-runtime-server.ts`: 804 lines.
+- `apps/self-hosted/src/routes/settings.tsx`: 787 lines.
+- `apps/self-hosted/src/server/pi-runtime/office-document-skill.test.ts`: 753 lines.
 
 Counted ownership hotspots:
 
-- `src/server/configuration/github-app.ts`: large branching module.
-- `src/server/pi-runtime/main.ts`: large broad runtime module with high fan-out.
-- `src/server/pi-runtime/browserbase-browser.ts`: large branching module.
-- `src/routes/settings.tsx`: large branching settings workflow.
-- `src/routes/-session-chat/session-chat-pane.tsx`: large broad session chat workflow.
-- `src/routes/-session-chat/stream-state.ts`: large branching stream-state reducer.
+- `apps/self-hosted/src/server/configuration/github-app.ts`: large branching module.
+- `apps/self-hosted/src/server/pi-runtime/main.ts`: large broad runtime module with high fan-out.
+- `apps/self-hosted/src/server/pi-runtime/browserbase-browser.ts`: large branching module.
+- `apps/self-hosted/src/routes/settings.tsx`: large branching settings workflow.
+- `apps/self-hosted/src/routes/-session-chat/session-chat-pane.tsx`: large broad session chat workflow.
+- `apps/self-hosted/src/routes/-session-chat/stream-state.ts`: large branching stream-state reducer.
 
 Ownership decompositions completed:
 
-- `src/server/pi-runtime/main.ts` moved run lifecycle, model state, title generation, event logging, and room-tool helpers into focused runtime modules.
-- `src/server/rooms/file-store.ts` moved preview, download, and asset resolution behavior into `src/server/rooms/file-store-preview.ts`.
-- `src/server/pi-runtime/web-tools.ts` now only wires tools; search, URL safety, and fetch/text extraction live in focused modules.
-- `src/server/configuration/connection-validation.ts` is now a facade over provider and MCP validation modules.
-- `src/server/pi-runtime/document-tools/xlsx.ts` moved OOXML chart package surgery into `src/server/pi-runtime/document-tools/xlsx-charts.ts`.
-- `src/server/configuration/operator-configuration/app-workflows.ts` is now a facade over app snapshot, provider/MCP connection, defaults, and capability workflows.
-- `src/server/configuration/operator-configuration/room-workflows.ts` is now a facade over room snapshot/readiness, secret, and save workflows.
-- `src/server/pi-runtime/memory.ts` is now a facade over memory model, store, patching, brief rendering, and maintenance modules.
-- `src/server/pi-runtime/image-tools.ts` now wires tools; image generation and artifact persistence live in focused modules.
-- `src/routes/rooms.$roomId.status.tsx` now coordinates data loading; status decisions and display components live under `src/routes/-room-status/`.
-- `src/routes/-session-chat/message-list.tsx` now owns scroll/stickiness; display grouping and row rendering live in dedicated modules.
-- `src/routes/-room-settings/config-sections.tsx` was split into focused room settings section modules.
-- `src/routes/rooms.$roomId.jobs.tsx` was split into `src/routes/-jobs/` form, detail, row action, and model modules.
-- `src/server/pi-runtime/room-tools.ts` moved shared path/search/read/write helpers into `src/server/pi-runtime/room-tools/file-helpers.ts`.
-- `src/server/configuration/github-app.ts` moved pure GitHub helper logic into `src/server/configuration/github-app-helpers.ts`.
-- `src/server/rooms/pi-execution-adapter.cron.test.ts` moved shared mocks and factories into `src/server/rooms/pi-execution-adapter.cron.test.fixtures.ts`.
+- `apps/self-hosted/src/server/pi-runtime/main.ts` moved run lifecycle, model state, title generation, event logging, and room-tool helpers into focused runtime modules.
+- `apps/self-hosted/src/server/rooms/file-store.ts` moved preview, download, and asset resolution behavior into `apps/self-hosted/src/server/rooms/file-store-preview.ts`.
+- `apps/self-hosted/src/server/pi-runtime/web-tools.ts` now only wires tools; search, URL safety, and fetch/text extraction live in focused modules.
+- `apps/self-hosted/src/server/configuration/connection-validation.ts` is now a facade over provider and MCP validation modules.
+- `apps/self-hosted/src/server/pi-runtime/document-tools/xlsx.ts` moved OOXML chart package surgery into `apps/self-hosted/src/server/pi-runtime/document-tools/xlsx-charts.ts`.
+- `apps/self-hosted/src/server/configuration/operator-configuration/app-workflows.ts` is now a facade over app snapshot, provider/MCP connection, defaults, and capability workflows.
+- `apps/self-hosted/src/server/configuration/operator-configuration/room-workflows.ts` is now a facade over room snapshot/readiness, secret, and save workflows.
+- `apps/self-hosted/src/server/pi-runtime/memory.ts` is now a facade over memory model, store, patching, brief rendering, and maintenance modules.
+- `apps/self-hosted/src/server/pi-runtime/image-tools.ts` now wires tools; image generation and artifact persistence live in focused modules.
+- `apps/self-hosted/src/routes/rooms.$roomId.status.tsx` now coordinates data loading; status decisions and display components live under `apps/self-hosted/src/routes/-room-status/`.
+- `apps/self-hosted/src/routes/-session-chat/message-list.tsx` now owns scroll/stickiness; display grouping and row rendering live in dedicated modules.
+- `apps/self-hosted/src/routes/-room-settings/config-sections.tsx` was split into focused room settings section modules.
+- `apps/self-hosted/src/routes/rooms.$roomId.jobs.tsx` was split into `apps/self-hosted/src/routes/-jobs/` form, detail, row action, and model modules.
+- `apps/self-hosted/src/server/pi-runtime/room-tools.ts` moved shared path/search/read/write helpers into `apps/self-hosted/src/server/pi-runtime/room-tools/file-helpers.ts`.
+- `apps/self-hosted/src/server/configuration/github-app.ts` moved pure GitHub helper logic into `apps/self-hosted/src/server/configuration/github-app-helpers.ts`.
+- `apps/self-hosted/src/server/rooms/pi-execution-adapter.cron.test.ts` moved shared mocks and factories into `apps/self-hosted/src/server/rooms/pi-execution-adapter.cron.test.fixtures.ts`.
 
 Duplication signals:
 
@@ -217,7 +217,7 @@ Safety-sensitive string hits:
 - `fallback` appears 52 times. Each use should be reviewed as explicit, logged, bounded, and fail-closed where it touches provider identity, credentials, runtime config, room ownership, authorization, or execution.
 - `process.env` appears 27 times. This is acceptable only when mediated by the canonical environment/security modules or tests.
 - `unknown as` appears 7 times.
-- `as any` appears only in generated `src/routeTree.gen.ts`.
+- `as any` appears only in generated `apps/self-hosted/src/routeTree.gen.ts`.
 
 ## Score Breakdown
 
@@ -231,9 +231,9 @@ Safety-sensitive string hits:
 | Test and verification depth      |  9 / 10 | Server/runtime coverage is strong; direct user-visible workflow coverage is still thin |
 | Plan hygiene                     |   5 / 5 | Active progress is recorded in canonical planning docs                                 |
 
-Total before hard caps: 91 / 100.
+Total before hard caps: 87 / 100.
 
-Strict total after hard caps: 91 / 100.
+Strict total after hard caps: 87 / 100.
 
 ## Improvement Targets
 

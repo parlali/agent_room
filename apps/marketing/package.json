@@ -1,0 +1,35 @@
+{
+    "name": "@agent-room/marketing",
+    "private": true,
+    "version": "0.1.0",
+    "type": "module",
+    "description": "Marketing site for openagentroom.com",
+    "scripts": {
+        "dev": "vite",
+        "build": "vite build",
+        "preview": "vite preview --port 4173",
+        "typecheck": "tsc --noEmit",
+        "lint": "eslint .",
+        "format": "prettier --check .",
+        "format:write": "prettier --write .",
+        "check": "bun run format && bun run lint && bun run typecheck && bun run build"
+    },
+    "dependencies": {
+        "@agent-room/brand": "workspace:*",
+        "@fontsource-variable/fraunces": "^5.2.5",
+        "@fontsource-variable/geist": "^5.2.8",
+        "@fontsource-variable/jetbrains-mono": "^5.2.5",
+        "react": "^19.2.0",
+        "react-dom": "^19.2.0"
+    },
+    "devDependencies": {
+        "@agent-room/typescript-config": "workspace:*",
+        "@tailwindcss/vite": "^4.1.18",
+        "@types/react": "^19.2.0",
+        "@types/react-dom": "^19.2.0",
+        "@vitejs/plugin-react": "^6.0.1",
+        "tailwindcss": "^4.1.18",
+        "typescript": "^5.7.2",
+        "vite": "^8.0.0"
+    }
+}

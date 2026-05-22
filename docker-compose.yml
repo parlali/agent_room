@@ -1,3 +1,5 @@
+name: agent_room
+
 services:
     postgres:
         image: postgres:17-alpine
@@ -26,7 +28,7 @@ services:
             - '8080'
         volumes:
             - searxng-config:/etc/searxng
-            - ./searxng/entrypoint.sh:/usr/local/bin/agent-room-searxng-entrypoint.sh:ro
+            - ./infra/searxng/entrypoint.sh:/usr/local/bin/agent-room-searxng-entrypoint.sh:ro
         restart: unless-stopped
 
     app:
