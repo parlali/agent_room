@@ -38,7 +38,12 @@
         "db:migrate": "bun run scripts/dbmate.ts up",
         "db:rollback": "bun run scripts/dbmate.ts down",
         "db:new": "bun run scripts/dbmate.ts new",
-        "bootstrap:root": "bun run scripts/bootstrap-root-user.ts"
+        "bootstrap:root": "bun run scripts/bootstrap-root-user.ts",
+        "site:install": "cd apps/site && bun install",
+        "site:dev": "cd apps/site && bun run dev",
+        "site:build": "cd apps/site && bun run build",
+        "site:preview": "cd apps/site && bun run preview",
+        "site:typecheck": "cd apps/site && bun run typecheck"
     },
     "dependencies": {
         "@fontsource-variable/geist": "^5.2.8",
