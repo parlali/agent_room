@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { renderPdfPageImages, type PdfPageSelection } from './pdf-ingestion'
+import { PDFDocument } from 'pdf-lib'
+import { readPdfPageCount, renderPdfPageImages, type PdfPageSelection } from './pdf-ingestion'
 import { createTestPiRuntimeConfig, ensureTestPiRuntimeDirectories } from './test-runtime-defaults'
 
 const runDocumentWorkerMock = vi.hoisted(() => vi.fn())
@@ -35,6 +36,25 @@ beforeEach(() => {
 })
 
 describe('PDF ingestion', () => {
+    it('reads page count from encrypted PDFs using ignoreEncryption', async () => {
+        const created = await PDFDocument.create()
+        created.addPage()
+        const bytes = Buffer.from(await created.save())
+        const originalLoad = PDFDocument.load.bind(PDFDocument)
+        const loadMock = vi.spyOn(PDFDocument, 'load').mockImplementation(async (data, options) => {
+            if (options?.ignoreEncryption !== true) {
+                throw new Error(
+                    'Input document to `PDFDocument.load` is encrypted. You can use `PDFDocument.load(..., { ignoreEncryption: true })` if you wish to load the document anyways.',
+                )
+            }
+            return originalLoad(data, options)
+        })
+
+        await expect(readPdfPageCount(bytes)).resolves.toBe(1)
+        expect(loadMock).toHaveBeenCalledWith(bytes, { ignoreEncryption: true })
+        loadMock.mockRestore()
+    })
+
     it('renders non-contiguous page selections one page at a time', async () => {
         await withConfig(async (root) => {
             const config = createTestPiRuntimeConfig({ root })

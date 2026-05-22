@@ -87,8 +87,12 @@ export function runtimeModelAcceptsImages(config: PiRuntimeConfig): boolean {
     return false
 }
 
+export async function loadPdfDocument(bytes: Buffer): Promise<PDFDocument> {
+    return PDFDocument.load(bytes, { ignoreEncryption: true })
+}
+
 export async function readPdfPageCount(bytes: Buffer): Promise<number> {
-    const pdf = await PDFDocument.load(bytes)
+    const pdf = await loadPdfDocument(bytes)
     return pdf.getPageCount()
 }
 

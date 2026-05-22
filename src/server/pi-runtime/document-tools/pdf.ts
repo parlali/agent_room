@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import type { PDFFont } from 'pdf-lib'
 import type { PiRuntimeConfig } from '../../rooms/pi-runtime-config'
+import { loadPdfDocument } from '../pdf-ingestion'
 import { sha256Buffer } from './artifacts'
 import { writeWorkspaceFile } from './paths'
 
@@ -43,7 +44,7 @@ export async function editPdf(
     edits: PdfEdit[],
 ): Promise<number> {
     const buffer = await readFile(path)
-    const pdf = await PDFDocument.load(buffer)
+    const pdf = await loadPdfDocument(buffer)
     const regularFont = await pdf.embedFont(StandardFonts.Helvetica)
     const boldFont = await pdf.embedFont(StandardFonts.HelveticaBold)
     let count = 0

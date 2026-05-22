@@ -23,3 +23,4 @@ db/schema.sql
 *.pid
 *.sqlite
 *.db
+.turbo
