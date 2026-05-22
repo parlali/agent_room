@@ -1,6 +1,9 @@
+import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
-import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import JSZip from 'jszip'
 import {
     DOMParser,
@@ -22,7 +25,23 @@ export interface ParsedCommand {
     options: Map<string, string>
 }
 
+export interface PackageValidation {
+    valid: boolean
+    errors: string[]
+    entries: string[]
+    xmlParts: string[]
+}
+
+export interface OfficeRenderResult {
+    outputDir: string
+    pages: string[]
+    pdfPath: string | null
+}
+
 export class SkillFailure extends Error {}
+
+const valuelessBooleanOptions = new Set(['emit-pdf', 'pdf'])
+const officeRenderCommandTimeoutMs = 120000
 
 export function fail(message: string): never {
     throw new SkillFailure(message)
@@ -39,11 +58,16 @@ export function parseCommand(argv: string[]): ParsedCommand {
         if (!key?.startsWith('--')) {
             fail(`Unexpected argument: ${key ?? ''}`)
         }
+        const name = key.slice(2)
         const value = rest[index + 1]
         if (value === undefined || value.startsWith('--')) {
+            if (valuelessBooleanOptions.has(name)) {
+                options.set(name, 'true')
+                continue
+            }
             fail(`Missing value for ${key}`)
         }
-        options.set(key.slice(2), value)
+        options.set(name, value)
         index += 1
     }
     return {
@@ -69,6 +93,24 @@ export function optionalOption(
     return value === undefined || value.length === 0 ? fallback : value
 }
 
+export function optionalAnyOption(
+    options: Map<string, string>,
+    names: string[],
+    fallback: string,
+): string {
+    for (const name of names) {
+        const value = options.get(name)
+        if (value !== undefined && value.length > 0) {
+            return value
+        }
+    }
+    return fallback
+}
+
+export function truthyOption(value: string): boolean {
+    return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase())
+}
+
 export function parseJson<T>(value: string | undefined, fallback: T): T {
     if (value === undefined || value.trim().length === 0) {
         return fallback
@@ -79,6 +121,32 @@ export function parseJson<T>(value: string | undefined, fallback: T): T {
         const message = error instanceof SyntaxError ? error.message : 'invalid JSON'
         fail(`Invalid JSON: ${message}`)
     }
+}
+
+export async function parseJsonInput<T>(input: {
+    options: Map<string, string>
+    root: string
+    jsonOption: string
+    fileOption: string
+    fallback: T
+}): Promise<T> {
+    const inlineJson = input.options.get(input.jsonOption)
+    const filePath = input.options.get(input.fileOption)
+    if (inlineJson !== undefined && filePath !== undefined) {
+        fail(`Use --${input.jsonOption} or --${input.fileOption}, not both`)
+    }
+    if (inlineJson !== undefined) {
+        return parseJson(inlineJson, input.fallback)
+    }
+    if (filePath !== undefined) {
+        const resolved = await resolveRoomPath({
+            root: input.root,
+            path: filePath,
+            mustExist: true,
+        })
+        return parseJson(await readFile(resolved, 'utf8'), input.fallback)
+    }
+    return input.fallback
 }
 
 export function normalizeReplacements(value: string | undefined): Replacement[] {
@@ -200,6 +268,38 @@ export function zipFileNames(zip: JSZip): string[] {
     return Object.keys(zip.files)
         .filter((name) => !zip.files[name]?.dir)
         .sort()
+}
+
+export async function validateOfficePackage(
+    path: string,
+    requiredParts: string[],
+): Promise<PackageValidation> {
+    const zip = await loadZip(path)
+    const entries = zipFileNames(zip)
+    const errors: string[] = []
+    for (const part of requiredParts) {
+        if (!zip.file(part)) {
+            errors.push(`Missing required part: ${part}`)
+        }
+    }
+    const xmlParts = entries.filter((entry) => entry.endsWith('.xml'))
+    for (const part of xmlParts) {
+        const file = zip.file(part)
+        if (!file) {
+            continue
+        }
+        const text = await file.async('text')
+        const document = parseXml(text)
+        if (!document.documentElement || localName(document.documentElement) === 'parsererror') {
+            errors.push(`Invalid XML: ${part}`)
+        }
+    }
+    return {
+        valid: errors.length === 0,
+        errors,
+        entries,
+        xmlParts,
+    }
 }
 
 export function parseXml(xml: string): XmlDocument {
@@ -445,6 +545,168 @@ export function countOccurrences(text: string, needle: string): number {
         }
         count += 1
         offset = next + needle.length
+    }
+}
+
+function commandFailureMessage(input: {
+    command: string
+    status: number | null
+    signal: NodeJS.Signals | null
+    stdout: string
+    stderr: string
+}): string {
+    const reason =
+        input.status === null ? `signal ${input.signal ?? 'unknown'}` : `exit code ${input.status}`
+    const output = [input.stderr.trim(), input.stdout.trim()].filter(Boolean).join('\n')
+    return `${input.command} failed with ${reason}${output ? `:\n${output}` : ''}`
+}
+
+function runRequiredCommand(command: string, args: string[], env: NodeJS.ProcessEnv): void {
+    const result = spawnSync(command, args, {
+        encoding: 'utf8',
+        env,
+        timeout: officeRenderCommandTimeoutMs,
+    })
+    if (result.error) {
+        const error = result.error as NodeJS.ErrnoException
+        if (error.code === 'ETIMEDOUT') {
+            fail(`${command} timed out after ${officeRenderCommandTimeoutMs}ms`)
+        }
+        fail(`${command} failed to start: ${result.error.message}`)
+    }
+    if (result.status !== 0) {
+        fail(
+            commandFailureMessage({
+                command,
+                status: result.status,
+                signal: result.signal,
+                stdout: result.stdout,
+                stderr: result.stderr,
+            }),
+        )
+    }
+}
+
+async function newestFileWithExtension(
+    directory: string,
+    extension: string,
+): Promise<string | null> {
+    const files = await readdir(directory)
+    const candidates = await Promise.all(
+        files
+            .filter((file) => file.toLowerCase().endsWith(extension))
+            .map(async (file) => {
+                const path = join(directory, file)
+                const fileStat = await stat(path)
+                return fileStat.isFile()
+                    ? {
+                          path,
+                          mtimeMs: fileStat.mtimeMs,
+                      }
+                    : null
+            }),
+    )
+    const sorted = candidates
+        .filter((candidate): candidate is { path: string; mtimeMs: number } => candidate !== null)
+        .sort((left, right) => right.mtimeMs - left.mtimeMs)
+    return sorted[0]?.path ?? null
+}
+
+function sortRenderedPageNames(left: string, right: string): number {
+    const leftNumber = Number(/-(\d+)\.png$/.exec(left)?.[1] ?? 0)
+    const rightNumber = Number(/-(\d+)\.png$/.exec(right)?.[1] ?? 0)
+    return leftNumber - rightNumber || left.localeCompare(right)
+}
+
+export async function clearPreviousOfficeRenderOutputs(input: {
+    outputDir: string
+    sourcePath: string
+}): Promise<void> {
+    const pdfName = `${basename(input.sourcePath, extname(input.sourcePath))}.pdf`
+    for (const file of await readdir(input.outputDir)) {
+        if (!/^page-\d+\.png$/.test(file) && file !== pdfName) {
+            continue
+        }
+        await rm(join(input.outputDir, file), {
+            force: true,
+        })
+    }
+}
+
+export async function renderOfficeDocument(input: {
+    path: string
+    outputDir: string
+    relativeOutputDir: string
+    emitPdf: boolean
+}): Promise<OfficeRenderResult> {
+    await mkdir(input.outputDir, {
+        recursive: true,
+    })
+    await clearPreviousOfficeRenderOutputs({
+        outputDir: input.outputDir,
+        sourcePath: input.path,
+    })
+    const workDir = await mkdtemp(join(tmpdir(), 'agent-room-office-render-'))
+    const profileDir = await mkdtemp(join(tmpdir(), 'agent-room-office-profile-'))
+    const homeDir = await mkdtemp(join(tmpdir(), 'agent-room-office-home-'))
+    try {
+        const env = {
+            ...process.env,
+            HOME: homeDir,
+        }
+        runRequiredCommand(
+            'soffice',
+            [
+                '--headless',
+                '--nologo',
+                '--nofirststartwizard',
+                `-env:UserInstallation=${pathToFileURL(profileDir).href}`,
+                '--convert-to',
+                'pdf',
+                '--outdir',
+                workDir,
+                input.path,
+            ],
+            env,
+        )
+        const pdfPath = await newestFileWithExtension(workDir, '.pdf')
+        if (!pdfPath) {
+            fail('LibreOffice did not produce a PDF')
+        }
+        const pagePrefix = join(input.outputDir, 'page')
+        runRequiredCommand('pdftoppm', ['-png', '-r', '150', pdfPath, pagePrefix], env)
+        const pages = (await readdir(input.outputDir))
+            .filter((file) => /^page-\d+\.png$/.test(file))
+            .sort(sortRenderedPageNames)
+            .map((file) => `${input.relativeOutputDir.replace(/\/$/, '')}/${file}`)
+        if (pages.length === 0) {
+            fail('PDF conversion did not produce page PNGs')
+        }
+        let finalPdfPath: string | null = null
+        if (input.emitPdf) {
+            const pdfName = `${basename(input.path, extname(input.path))}.pdf`
+            finalPdfPath = join(input.outputDir, pdfName)
+            await writeFile(finalPdfPath, await readFile(pdfPath))
+            finalPdfPath = `${input.relativeOutputDir.replace(/\/$/, '')}/${pdfName}`
+        }
+        return {
+            outputDir: input.relativeOutputDir,
+            pages,
+            pdfPath: finalPdfPath,
+        }
+    } finally {
+        await rm(workDir, {
+            recursive: true,
+            force: true,
+        })
+        await rm(profileDir, {
+            recursive: true,
+            force: true,
+        })
+        await rm(homeDir, {
+            recursive: true,
+            force: true,
+        })
     }
 }
 

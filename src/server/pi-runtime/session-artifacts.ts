@@ -1,4 +1,5 @@
-import { basename } from 'node:path'
+import { statSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import type { SessionEntry } from '@mariozechner/pi-coding-agent'
 import { extractTextFromRuntimeContent } from '#/lib/runtime-message'
 import { parseRoomMessageAttachments } from '#/lib/room-attachments'
@@ -54,6 +55,24 @@ const explicitArtifactToolNames = new Set([
     'agent_room_artifact_import',
 ])
 
+const officeSkillScripts = [
+    {
+        format: 'docx',
+        scriptPath: 'skills/docx/scripts/docx_document.ts',
+    },
+    {
+        format: 'xlsx',
+        scriptPath: 'skills/xlsx/scripts/xlsx_workbook.ts',
+    },
+    {
+        format: 'pptx',
+        scriptPath: 'skills/pptx/scripts/pptx_deck.ts',
+    },
+] as const
+
+const officeArtifactOperations = new Set(['create', 'edit'])
+const shellToolNames = new Set(['shell', 'agent_room_shell'])
+
 function artifactId(surface: ArtifactSurface, relativePath: string): string {
     return `${surface}:${relativePath}`
 }
@@ -87,6 +106,10 @@ function stringValue(value: unknown): string | null {
 
 function numberValue(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function booleanValue(value: unknown): boolean {
+    return value === true
 }
 
 function artifactName(relativePath: string): string {
@@ -200,6 +223,24 @@ function hasExplicitArtifactPromotion(input: {
     return input.toolName ? explicitArtifactToolNames.has(input.toolName) : false
 }
 
+function fileByteLength(input: {
+    config: PiRuntimeConfig
+    surface: ArtifactSurface
+    path: string | null
+}): number | null {
+    if (!input.path) return null
+    const relativePath = visibleRelativePath(input.config, input.surface, input.path)
+    if (!relativePath) return null
+    const root =
+        input.surface === 'store' ? input.config.paths.storeDir : input.config.paths.workspaceDir
+    try {
+        const stat = statSync(join(root, relativePath))
+        return stat.isFile() ? stat.size : null
+    } catch {
+        return null
+    }
+}
+
 function artifactFromPath(input: {
     config: PiRuntimeConfig
     surface: ArtifactSurface
@@ -231,6 +272,140 @@ function artifactFromPath(input: {
         timestamp: input.timestamp,
         messageId: input.messageId,
     }
+}
+
+function normalizeCommandPath(value: string): string {
+    return value.replace(/\\/g, '/')
+}
+
+function escapeRegex(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function officeSkillFormatForCommand(command: string | null): string | null {
+    if (!command) return null
+    const normalizedCommand = normalizeCommandPath(command)
+    if (!/(^|[\s"';&|])(?:\S*\/)?bun([\s"';&|]|$)/.test(normalizedCommand)) {
+        return null
+    }
+    const match = officeSkillScripts.find((script) =>
+        new RegExp(`${escapeRegex(script.scriptPath)}(["'\\s;&|]|$)`).test(normalizedCommand),
+    )
+    return match?.format ?? null
+}
+
+function pathMatchesOfficeFormat(path: string, format: string): boolean {
+    return path.toLowerCase().endsWith(`.${format}`)
+}
+
+function toolResultText(message: Record<string, unknown>): string {
+    return extractTextFromRuntimeContent(message.content)
+}
+
+function trailingJsonObject(text: string): Record<string, unknown> | null {
+    const trimmed = text.trim()
+    const candidates = [
+        trimmed,
+        ...trimmed
+            .split(/\n\n+/)
+            .map((part) => part.trim())
+            .filter(Boolean)
+            .reverse(),
+    ]
+    for (const candidate of candidates) {
+        if (!candidate.startsWith('{') || !candidate.endsWith('}')) continue
+        try {
+            const parsed = JSON.parse(candidate) as unknown
+            return isRecord(parsed) ? parsed : null
+        } catch {}
+    }
+    return null
+}
+
+function officeShellArtifacts(input: {
+    config: PiRuntimeConfig
+    message: Record<string, unknown>
+    call: ToolCallRecord | null
+    details: Record<string, unknown> | null
+    timestamp: number | null
+    messageId: string | null
+}): ArtifactDraft[] {
+    const toolName = stringValue(input.message.toolName) ?? input.call?.toolName ?? null
+    if (!shellToolNames.has(toolName ?? '')) return []
+    if (numberValue(input.details?.exitCode) !== 0) return []
+    if (
+        booleanValue(input.details?.truncated) ||
+        booleanValue(input.details?.modelVisibleTruncated)
+    ) {
+        return []
+    }
+
+    const format = officeSkillFormatForCommand(stringValue(input.call?.arguments.command))
+    if (!format) return []
+
+    const result = trailingJsonObject(toolResultText(input.message))
+    if (!result) return []
+    if (stringValue(result.format) !== format) return []
+
+    const operation = stringValue(result.operation)
+    if (!operation) return []
+
+    const inputRoot = stringValue(result.root)
+    const outputRoot = stringValue(result.outputRoot)
+    if (inputRoot !== 'workspace' && !(operation === 'render' && outputRoot === 'workspace')) {
+        return []
+    }
+    const surface = 'workspace'
+
+    const drafts: ArtifactDraft[] = []
+    const path = stringValue(result.path)
+    if (
+        inputRoot === 'workspace' &&
+        path &&
+        officeArtifactOperations.has(operation) &&
+        pathMatchesOfficeFormat(path, format)
+    ) {
+        const byteLength = fileByteLength({
+            config: input.config,
+            surface,
+            path,
+        })
+        const draft = artifactFromPath({
+            config: input.config,
+            surface,
+            path,
+            kind: operation === 'edit' ? 'edited' : 'created',
+            toolName: format,
+            operation,
+            artifactId: null,
+            byteLength,
+            timestamp: input.timestamp,
+            messageId: input.messageId,
+        })
+        if (draft) drafts.push(draft)
+    }
+
+    const pdfPath = stringValue(result.pdfPath)
+    if (operation === 'render' && pdfPath?.toLowerCase().endsWith('.pdf')) {
+        const draft = artifactFromPath({
+            config: input.config,
+            surface,
+            path: pdfPath,
+            kind: 'created',
+            toolName: format,
+            operation,
+            artifactId: null,
+            byteLength: fileByteLength({
+                config: input.config,
+                surface,
+                path: pdfPath,
+            }),
+            timestamp: input.timestamp,
+            messageId: input.messageId,
+        })
+        if (draft) drafts.push(draft)
+    }
+    return drafts
 }
 
 function collectToolCalls(entry: SessionEntry, calls: Map<string, ToolCallRecord>): void {
@@ -308,6 +483,17 @@ function collectToolResult(input: {
         artifactId: artifactIdValue,
         operation,
     })
+
+    for (const artifact of officeShellArtifacts({
+        config: input.config,
+        message,
+        call: call ?? null,
+        details,
+        timestamp,
+        messageId,
+    })) {
+        addArtifact(input.artifacts, artifact)
+    }
 
     if (fileChange && explicitlyPromoted) {
         addArtifact(

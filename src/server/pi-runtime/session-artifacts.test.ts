@@ -326,4 +326,409 @@ describe('session artifact extraction', () => {
             }),
         ])
     })
+
+    it('promotes bundled Office skill shell create outputs without listing arbitrary shell files', () => {
+        const artifacts = extractSessionArtifacts(config, [
+            messageEntry('assistant-office', '2026-05-11T09:00:01.000Z', {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'toolCall',
+                        id: 'call-office-create',
+                        name: 'shell',
+                        arguments: {
+                            command:
+                                'bun /app/src/server/pi-runtime/skills/docx/scripts/docx_document.ts create --path deliverables/resolution.docx --content-json "{}"',
+                        },
+                    },
+                    {
+                        type: 'toolCall',
+                        id: 'call-office-inspect',
+                        name: 'shell',
+                        arguments: {
+                            command:
+                                'bun /app/src/server/pi-runtime/skills/docx/scripts/docx_document.ts inspect --path deliverables/resolution.docx',
+                        },
+                    },
+                    {
+                        type: 'toolCall',
+                        id: 'call-arbitrary-shell',
+                        name: 'shell',
+                        arguments: {
+                            command: 'printf "%s" scratch.txt',
+                        },
+                    },
+                ],
+            }),
+            messageEntry('tool-office-create', '2026-05-11T09:00:02.000Z', {
+                role: 'toolResult',
+                toolCallId: 'call-office-create',
+                toolName: 'shell',
+                content: [
+                    {
+                        type: 'text',
+                        text: [
+                            'commandId: command-1',
+                            'status: exited',
+                            'exitCode: 0',
+                            '',
+                            JSON.stringify({
+                                operation: 'create',
+                                format: 'docx',
+                                root: 'workspace',
+                                path: 'deliverables/resolution.docx',
+                            }),
+                        ].join('\n'),
+                    },
+                ],
+                details: {
+                    path: config.paths.workspaceDir,
+                    exitCode: 0,
+                    truncated: false,
+                    modelVisibleTruncated: false,
+                },
+            }),
+            messageEntry('tool-office-inspect', '2026-05-11T09:00:03.000Z', {
+                role: 'toolResult',
+                toolCallId: 'call-office-inspect',
+                toolName: 'shell',
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            operation: 'inspect',
+                            format: 'docx',
+                            root: 'workspace',
+                            path: 'deliverables/resolution.docx',
+                            text: 'Verified document text',
+                        }),
+                    },
+                ],
+                details: {
+                    path: config.paths.workspaceDir,
+                    exitCode: 0,
+                },
+            }),
+            messageEntry('tool-arbitrary-shell', '2026-05-11T09:00:04.000Z', {
+                role: 'toolResult',
+                toolCallId: 'call-arbitrary-shell',
+                toolName: 'shell',
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            operation: 'create',
+                            format: 'docx',
+                            root: 'workspace',
+                            path: 'scratch.txt',
+                        }),
+                    },
+                ],
+                details: {
+                    path: config.paths.workspaceDir,
+                    exitCode: 0,
+                },
+            }),
+        ])
+
+        expect(artifacts).toEqual([
+            expect.objectContaining({
+                id: 'workspace:deliverables/resolution.docx',
+                kind: 'created',
+                name: 'resolution.docx',
+                relativePath: 'deliverables/resolution.docx',
+                source: 'docx create',
+                toolName: 'docx',
+                operation: 'create',
+                artifactId: null,
+            }),
+        ])
+    })
+
+    it('promotes bundled Office skill shell edit outputs as edits', () => {
+        const artifacts = extractSessionArtifacts(config, [
+            messageEntry('assistant-office', '2026-05-11T09:00:01.000Z', {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'toolCall',
+                        id: 'call-office-edit',
+                        name: 'shell',
+                        arguments: {
+                            command:
+                                'bun /app/src/server/pi-runtime/skills/xlsx/scripts/xlsx_workbook.ts edit --path model.xlsx --edits-json "[]"',
+                        },
+                    },
+                ],
+            }),
+            messageEntry('tool-office-edit', '2026-05-11T09:00:02.000Z', {
+                role: 'toolResult',
+                toolCallId: 'call-office-edit',
+                toolName: 'shell',
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            operation: 'edit',
+                            format: 'xlsx',
+                            root: 'workspace',
+                            path: 'model.xlsx',
+                        }),
+                    },
+                ],
+                details: {
+                    path: config.paths.workspaceDir,
+                    exitCode: 0,
+                },
+            }),
+        ])
+
+        expect(artifacts).toEqual([
+            expect.objectContaining({
+                id: 'workspace:model.xlsx',
+                kind: 'edited',
+                name: 'model.xlsx',
+                relativePath: 'model.xlsx',
+                source: 'xlsx edit',
+                toolName: 'xlsx',
+                operation: 'edit',
+            }),
+        ])
+    })
+
+    it('promotes emitted Office render PDFs without promoting preview pages', () => {
+        const artifacts = extractSessionArtifacts(config, [
+            messageEntry('assistant-office-render', '2026-05-11T09:00:01.000Z', {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'toolCall',
+                        id: 'call-office-render',
+                        name: 'shell',
+                        arguments: {
+                            command:
+                                'bun /app/src/server/pi-runtime/skills/docx/scripts/docx_document.ts render --path report.docx --output-dir _renders/report --emit-pdf true',
+                        },
+                    },
+                ],
+            }),
+            messageEntry('tool-office-render', '2026-05-11T09:00:02.000Z', {
+                role: 'toolResult',
+                toolCallId: 'call-office-render',
+                toolName: 'shell',
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            operation: 'render',
+                            format: 'docx',
+                            root: 'workspace',
+                            path: 'report.docx',
+                            outputDir: '_renders/report',
+                            pages: ['_renders/report/page-1.png'],
+                            pdfPath: '_renders/report/report.pdf',
+                        }),
+                    },
+                ],
+                details: {
+                    path: config.paths.workspaceDir,
+                    exitCode: 0,
+                },
+            }),
+        ])
+
+        expect(artifacts).toEqual([
+            expect.objectContaining({
+                id: 'workspace:_renders/report/report.pdf',
+                kind: 'created',
+                name: 'report.pdf',
+                relativePath: '_renders/report/report.pdf',
+                source: 'docx render',
+                toolName: 'docx',
+                operation: 'render',
+            }),
+        ])
+    })
+
+    it('promotes emitted Office render PDFs from store-backed source files', () => {
+        const artifacts = extractSessionArtifacts(config, [
+            messageEntry('assistant-office-render-store', '2026-05-11T09:00:01.000Z', {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'toolCall',
+                        id: 'call-office-render-store',
+                        name: 'shell',
+                        arguments: {
+                            command:
+                                'bun /app/src/server/pi-runtime/skills/pptx/scripts/pptx_deck.ts render --root store --path uploads/deck.pptx --output-dir _renders/deck --emit-pdf true',
+                        },
+                    },
+                ],
+            }),
+            messageEntry('tool-office-render-store', '2026-05-11T09:00:02.000Z', {
+                role: 'toolResult',
+                toolCallId: 'call-office-render-store',
+                toolName: 'shell',
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            operation: 'render',
+                            format: 'pptx',
+                            root: 'store',
+                            outputRoot: 'workspace',
+                            path: 'uploads/deck.pptx',
+                            outputDir: '_renders/deck',
+                            pages: ['_renders/deck/page-1.png'],
+                            pdfPath: '_renders/deck/deck.pdf',
+                        }),
+                    },
+                ],
+                details: {
+                    path: config.paths.workspaceDir,
+                    exitCode: 0,
+                },
+            }),
+        ])
+
+        expect(artifacts).toEqual([
+            expect.objectContaining({
+                id: 'workspace:_renders/deck/deck.pdf',
+                kind: 'created',
+                name: 'deck.pdf',
+                relativePath: '_renders/deck/deck.pdf',
+                source: 'pptx render',
+                toolName: 'pptx',
+                operation: 'render',
+            }),
+        ])
+    })
+
+    it('does not promote failed or mismatched bundled Office shell output', () => {
+        const artifacts = extractSessionArtifacts(config, [
+            messageEntry('assistant-office', '2026-05-11T09:00:01.000Z', {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'toolCall',
+                        id: 'call-office-failed',
+                        name: 'shell',
+                        arguments: {
+                            command:
+                                'bun /app/src/server/pi-runtime/skills/pptx/scripts/pptx_deck.ts create --path deck.pptx --content-json "{}"',
+                        },
+                    },
+                    {
+                        type: 'toolCall',
+                        id: 'call-office-mismatch',
+                        name: 'shell',
+                        arguments: {
+                            command:
+                                'bun /app/src/server/pi-runtime/skills/pptx/scripts/pptx_deck.ts create --path report.docx --content-json "{}"',
+                        },
+                    },
+                    {
+                        type: 'toolCall',
+                        id: 'call-office-extension-mismatch',
+                        name: 'shell',
+                        arguments: {
+                            command:
+                                'bun /app/src/server/pi-runtime/skills/docx/scripts/docx_document.ts create --path report.txt --content-json "{}"',
+                        },
+                    },
+                    {
+                        type: 'toolCall',
+                        id: 'call-office-missing-root',
+                        name: 'shell',
+                        arguments: {
+                            command:
+                                'bun /app/src/server/pi-runtime/skills/docx/scripts/docx_document.ts create --path report.docx --content-json "{}"',
+                        },
+                    },
+                ],
+            }),
+            messageEntry('tool-office-failed', '2026-05-11T09:00:02.000Z', {
+                role: 'toolResult',
+                toolCallId: 'call-office-failed',
+                toolName: 'shell',
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            operation: 'create',
+                            format: 'pptx',
+                            root: 'workspace',
+                            path: 'deck.pptx',
+                        }),
+                    },
+                ],
+                details: {
+                    path: config.paths.workspaceDir,
+                    exitCode: 1,
+                },
+            }),
+            messageEntry('tool-office-mismatch', '2026-05-11T09:00:03.000Z', {
+                role: 'toolResult',
+                toolCallId: 'call-office-mismatch',
+                toolName: 'shell',
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            operation: 'create',
+                            format: 'docx',
+                            root: 'workspace',
+                            path: 'report.docx',
+                        }),
+                    },
+                ],
+                details: {
+                    path: config.paths.workspaceDir,
+                    exitCode: 0,
+                },
+            }),
+            messageEntry('tool-office-extension-mismatch', '2026-05-11T09:00:04.000Z', {
+                role: 'toolResult',
+                toolCallId: 'call-office-extension-mismatch',
+                toolName: 'shell',
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            operation: 'create',
+                            format: 'docx',
+                            root: 'workspace',
+                            path: 'report.txt',
+                        }),
+                    },
+                ],
+                details: {
+                    path: config.paths.workspaceDir,
+                    exitCode: 0,
+                },
+            }),
+            messageEntry('tool-office-missing-root', '2026-05-11T09:00:05.000Z', {
+                role: 'toolResult',
+                toolCallId: 'call-office-missing-root',
+                toolName: 'shell',
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            operation: 'create',
+                            format: 'docx',
+                            path: 'report.docx',
+                        }),
+                    },
+                ],
+                details: {
+                    path: config.paths.workspaceDir,
+                    exitCode: 0,
+                },
+            }),
+        ])
+
+        expect(artifacts).toEqual([])
+    })
 })

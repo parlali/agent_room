@@ -115,6 +115,12 @@ function artifactRoutingSection(config: PiRuntimeConfig): string {
         config.capabilities.pdf && hasOfficeCapability
             ? 'For normal business PDF requests, create or preserve the editable Office source first, then export or convert to PDF as the delivery format.'
             : null,
+        hasOfficeCapability
+            ? 'After creating or editing DOCX, XLSX, or PPTX artifacts, run the matching bundled skill inspect, validate, and render operations; fix non-empty inspect issues and visible rendered page or slide PNG defects before delivery.'
+            : null,
+        hasOfficeCapability
+            ? 'For non-trivial Office content, write JSON input files and pass them with the skill file-input options instead of fighting shell quoting.'
+            : null,
         'Use HTML, Markdown, plain text, custom PDF generation, or other renderers only when explicitly requested or when a bounded renderer is required by the task.',
         hasOfficeCapability
             ? 'Do not deliberate across multiple artifact formats when the request clearly maps to DOCX, XLSX, or PPTX.'

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -7,6 +7,7 @@ import JSZip from 'jszip'
 import { describe, expect, it } from 'vitest'
 import { bundledSkillScriptPath } from './bundled-skills'
 import { createPiResourceLoader } from './resource-loader'
+import { clearPreviousOfficeRenderOutputs, parseCommand } from './skills/.shared/office'
 
 const docxScriptPath = fileURLToPath(
     new URL('./skills/docx/scripts/docx_document.ts', import.meta.url),
@@ -334,6 +335,38 @@ async function zipText(path: string, entry: string): Promise<string> {
 }
 
 describe('office document skills', () => {
+    it('parses render boolean aliases without weakening required options', () => {
+        const emitPdf = parseCommand(['render', '--path', 'report.docx', '--emit-pdf'])
+        expect(emitPdf.options.get('emit-pdf')).toBe('true')
+
+        const pdfAlias = parseCommand(['render', '--path', 'report.docx', '--pdf'])
+        expect(pdfAlias.options.get('pdf')).toBe('true')
+
+        expect(() => parseCommand(['render', '--path', '--emit-pdf'])).toThrow(
+            'Missing value for --path',
+        )
+    })
+
+    it('clears stale render pages and generated PDFs before rerendering', async () => {
+        await withRoom(async ({ workspace }) => {
+            const renderDir = join(workspace, '_renders', 'report')
+            await mkdir(renderDir, {
+                recursive: true,
+            })
+            await writeFile(join(renderDir, 'page-1.png'), 'old page 1')
+            await writeFile(join(renderDir, 'page-2.png'), 'old page 2')
+            await writeFile(join(renderDir, 'report.pdf'), 'old pdf')
+            await writeFile(join(renderDir, 'notes.txt'), 'keep')
+
+            await clearPreviousOfficeRenderOutputs({
+                outputDir: renderDir,
+                sourcePath: join(workspace, 'report.docx'),
+            })
+
+            expect((await readdir(renderDir)).sort()).toEqual(['notes.txt'])
+        })
+    })
+
     it('loads bundled format-specific office skills into the Pi resource loader', () => {
         const loader = createPiResourceLoader('system prompt')
         const skillNames = loader.getSkills().skills.map((skill) => skill.name)
@@ -478,6 +511,98 @@ describe('office document skills', () => {
                     }),
                 ),
             ).toContain('Final report')
+            for (const [scriptPath, path] of [
+                [docxScriptPath, 'artifact.docx'],
+                [xlsxScriptPath, 'artifact.xlsx'],
+                [pptxScriptPath, 'artifact.pptx'],
+            ]) {
+                expect(
+                    runSkillScript({
+                        scriptPath,
+                        workspace,
+                        store,
+                        args: ['validate', '--path', path],
+                    }).validation,
+                ).toMatchObject({
+                    valid: true,
+                    errors: [],
+                })
+            }
+        })
+    })
+
+    it('upgrades legacy DOCX paragraph input into styled formal document layout', async () => {
+        await withRoom(async ({ workspace, store }) => {
+            runSkillScript({
+                scriptPath: docxScriptPath,
+                workspace,
+                store,
+                args: [
+                    'create',
+                    '--path',
+                    'formal-brief.docx',
+                    '--content-json',
+                    JSON.stringify({
+                        title: 'PROJECT STATUS BRIEF',
+                        paragraphs: [
+                            'Reference: DOC-0000',
+                            'IMPLEMENTATION REVIEW',
+                            'Date: 22 May 2026',
+                            'Status: Ready for review',
+                            'SUMMARY',
+                            '1. The team completed the document generation workflow and verified rendered output.',
+                            'a) Create the editable source document;',
+                            'b) Validate the Office package; and',
+                            'c) Render page previews.',
+                            'APPROVAL',
+                            'Signed by the reviewers:',
+                            '______________________________\\nReviewer One\\nReviewer',
+                            '______________________________\\nReviewer Two\\nApprover',
+                            '______________________________\\nReviewer Three\\nObserver',
+                        ],
+                    }),
+                ],
+            })
+
+            const inspect = runSkillScript({
+                scriptPath: docxScriptPath,
+                workspace,
+                store,
+                args: ['inspect', '--path', 'formal-brief.docx'],
+            })
+            expect(inspect.literalBackslashNCount).toBe(0)
+            expect(inspect.tableCount).toBeGreaterThanOrEqual(1)
+            expect(inspect.validation).toMatchObject({
+                valid: true,
+                errors: [],
+            })
+            const text = inspectedText(inspect)
+            expect(text).toContain('PROJECT STATUS BRIEF')
+            expect(text).toContain('Reviewer One')
+            expect(text).toContain('Reviewer Two')
+
+            const documentXml = await zipText(
+                join(workspace, 'formal-brief.docx'),
+                'word/document.xml',
+            )
+            expect(documentXml).toContain('<w:pStyle w:val="Title"/>')
+            expect(documentXml).toContain('<w:jc w:val="center"/>')
+            expect(documentXml).toContain('<w:tbl>')
+            expect(documentXml).toContain('<w:cantSplit/>')
+            expect(documentXml).toContain('<w:keepNext/>')
+            expect(documentXml).toContain('<w:pBdr><w:top')
+            expect(documentXml).not.toContain('\\n')
+
+            const validate = runSkillScript({
+                scriptPath: docxScriptPath,
+                workspace,
+                store,
+                args: ['validate', '--path', 'formal-brief.docx'],
+            })
+            expect(validate.validation).toMatchObject({
+                valid: true,
+                errors: [],
+            })
         })
     })
 
@@ -748,6 +873,170 @@ describe('office document skills', () => {
             expect(text.indexOf('Slide 2#p1: Second')).toBeLessThan(
                 text.indexOf('Slide 10#p1: Tenth'),
             )
+        })
+    })
+
+    it('supports file-backed structured CRUD operations for DOCX, XLSX, and PPTX', async () => {
+        await withRoom(async ({ workspace, store }) => {
+            await writeFile(
+                join(workspace, 'docx-content.json'),
+                JSON.stringify({
+                    blocks: [
+                        { type: 'paragraph', text: 'Structured Brief', style: 'Title' },
+                        { type: 'paragraph', text: 'Keep this paragraph' },
+                        { type: 'paragraph', text: 'Remove this paragraph' },
+                    ],
+                }),
+            )
+            runSkillScript({
+                scriptPath: docxScriptPath,
+                workspace,
+                store,
+                args: ['create', '--path', 'crud.docx', '--content-file', 'docx-content.json'],
+            })
+            await writeFile(
+                join(workspace, 'docx-ops.json'),
+                JSON.stringify([
+                    {
+                        type: 'appendBlocks',
+                        blocks: [{ type: 'heading', text: 'Appendix', level: 1 }],
+                    },
+                    { type: 'deleteParagraph', contains: 'Remove this paragraph' },
+                ]),
+            )
+            runSkillScript({
+                scriptPath: docxScriptPath,
+                workspace,
+                store,
+                args: ['edit', '--path', 'crud.docx', '--operations-file', 'docx-ops.json'],
+            })
+            const docxInspect = runSkillScript({
+                scriptPath: docxScriptPath,
+                workspace,
+                store,
+                args: ['inspect', '--path', 'crud.docx'],
+            })
+            expect(inspectedText(docxInspect)).toContain('Appendix')
+            expect(inspectedText(docxInspect)).not.toContain('Remove this paragraph')
+            expect(docxInspect.issues).toEqual([])
+
+            await writeFile(
+                join(workspace, 'xlsx-content.json'),
+                JSON.stringify({
+                    sheets: [
+                        {
+                            name: 'Data',
+                            rows: [
+                                [
+                                    { value: 'Metric', style: 'header' },
+                                    { value: 'Value', style: 'header' },
+                                    { value: 'Double', style: 'header' },
+                                ],
+                                ['Revenue', { value: 50, style: 'currency' }, { formula: '=B2*2' }],
+                            ],
+                            columns: [18, 14, 14],
+                            autoFilter: true,
+                            freezePane: true,
+                        },
+                    ],
+                }),
+            )
+            runSkillScript({
+                scriptPath: xlsxScriptPath,
+                workspace,
+                store,
+                args: ['create', '--path', 'crud.xlsx', '--content-file', 'xlsx-content.json'],
+            })
+            await writeFile(
+                join(workspace, 'xlsx-ops.json'),
+                JSON.stringify([
+                    { type: 'setCell', sheet: 'Data', cell: 'B2', value: 75 },
+                    { type: 'deleteCell', sheet: 'Data', cell: 'C2' },
+                    { type: 'addSheet', name: 'Scratch', rows: [['Temp']] },
+                    { type: 'deleteSheet', sheet: 'Scratch' },
+                ]),
+            )
+            runSkillScript({
+                scriptPath: xlsxScriptPath,
+                workspace,
+                store,
+                args: ['edit', '--path', 'crud.xlsx', '--edits-file', 'xlsx-ops.json'],
+            })
+            const xlsxInspect = runSkillScript({
+                scriptPath: xlsxScriptPath,
+                workspace,
+                store,
+                args: ['inspect', '--path', 'crud.xlsx'],
+            })
+            expect(inspectedText(xlsxInspect)).toContain('B2: 75')
+            expect(inspectedText(xlsxInspect)).not.toContain('C2:')
+            expect(inspectedText(xlsxInspect)).not.toContain('Sheet Scratch')
+            expect(xlsxInspect.issues).toEqual([])
+
+            await writeFile(
+                join(workspace, 'pptx-content.json'),
+                JSON.stringify({
+                    slides: [
+                        {
+                            title: 'Structured Deck',
+                            subtitle: 'Editable source',
+                            blocks: [
+                                { type: 'metric', label: 'Quality', value: '100%', x: 0.9, y: 1.8 },
+                                {
+                                    type: 'table',
+                                    rows: [
+                                        ['Step', 'Status'],
+                                        ['Validate', 'Done'],
+                                    ],
+                                    x: 4.4,
+                                    y: 1.8,
+                                    width: 7,
+                                    height: 1.6,
+                                },
+                            ],
+                            notes: 'Speaker note',
+                        },
+                        {
+                            title: 'Remove Slide',
+                            bullets: ['This slide is temporary'],
+                        },
+                    ],
+                }),
+            )
+            runSkillScript({
+                scriptPath: pptxScriptPath,
+                workspace,
+                store,
+                args: ['create', '--path', 'crud.pptx', '--content-file', 'pptx-content.json'],
+            })
+            await writeFile(
+                join(workspace, 'pptx-ops.json'),
+                JSON.stringify([
+                    {
+                        type: 'addSlide',
+                        slide: {
+                            title: 'Added Slide',
+                            bullets: ['Created through structured operation'],
+                        },
+                    },
+                    { type: 'deleteSlide', slide: 2 },
+                ]),
+            )
+            runSkillScript({
+                scriptPath: pptxScriptPath,
+                workspace,
+                store,
+                args: ['edit', '--path', 'crud.pptx', '--operations-file', 'pptx-ops.json'],
+            })
+            const pptxInspect = runSkillScript({
+                scriptPath: pptxScriptPath,
+                workspace,
+                store,
+                args: ['inspect', '--path', 'crud.pptx'],
+            })
+            expect(inspectedText(pptxInspect)).toContain('Added Slide')
+            expect(inspectedText(pptxInspect)).not.toContain('Remove Slide')
+            expect(pptxInspect.issues).toEqual([])
         })
     })
 })
