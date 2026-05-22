@@ -1119,7 +1119,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 onStop={() => abortMutation.mutate()}
                 attachments={attachments}
                 attaching={attachmentMutation.isPending}
-                onAttachFiles={(files) => attachmentMutation.mutate(Array.from(files))}
+                onAttachFiles={(files) => attachmentMutation.mutate(files)}
                 onRemoveAttachment={(id) =>
                     setAttachments((current) =>
                         current.filter((attachment) => attachment.id !== id),

@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react'
+import type { ChangeEvent, ClipboardEvent, DragEvent, FormEvent, KeyboardEvent } from 'react'
 import { PaperclipIcon, SendIcon, SquareIcon } from 'lucide-react'
 
 import { Button } from '#/components/ui/button'
@@ -12,6 +12,23 @@ import { AttachmentCards } from './attachment-cards'
 import { ModelModeMenu, type ModelModeChange } from './model-mode-menu'
 
 export type ComposerAttachment = RoomAttachment
+
+function dataTransferHasFiles(dataTransfer: DataTransfer | null): boolean {
+    if (!dataTransfer) return false
+    return Array.from(dataTransfer.types ?? []).includes('Files')
+}
+
+function filesFromDataTransfer(dataTransfer: DataTransfer | null): File[] {
+    if (!dataTransfer || !dataTransferHasFiles(dataTransfer)) return []
+    const itemFiles = Array.from(dataTransfer.items ?? [])
+        .filter((item) => item.kind === 'file')
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file !== null)
+    if (itemFiles.length > 0) {
+        return itemFiles
+    }
+    return Array.from(dataTransfer.files ?? [])
+}
 
 export function Composer({
     roomId,
@@ -44,7 +61,7 @@ export function Composer({
     onStop: () => void
     attachments: ComposerAttachment[]
     attaching: boolean
-    onAttachFiles: (files: FileList) => void
+    onAttachFiles: (files: File[]) => void
     onRemoveAttachment: (id: string) => void
     modelState: RoomExecutionModelState | null
     modelUpdating: boolean
@@ -61,14 +78,36 @@ export function Composer({
     const onFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files
         if (files && files.length > 0) {
-            onAttachFiles(files)
+            onAttachFiles(Array.from(files))
         }
         event.target.value = ''
+    }
+    const onComposerDragOver = (event: DragEvent<HTMLFormElement>) => {
+        if (!dataTransferHasFiles(event.dataTransfer)) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'copy'
+    }
+    const onComposerDrop = (event: DragEvent<HTMLFormElement>) => {
+        if (!dataTransferHasFiles(event.dataTransfer)) return
+        event.preventDefault()
+        event.stopPropagation()
+        const files = filesFromDataTransfer(event.dataTransfer)
+        if (files.length > 0) {
+            onAttachFiles(files)
+        }
+    }
+    const onComposerPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+        const files = filesFromDataTransfer(event.clipboardData)
+        if (files.length === 0) return
+        event.preventDefault()
+        onAttachFiles(files)
     }
 
     return (
         <form
             onSubmit={onSubmit}
+            onDragOver={onComposerDragOver}
+            onDrop={onComposerDrop}
             className="sticky bottom-0 border-t border-border bg-background/95 px-3 py-3 backdrop-blur sm:px-6"
         >
             {attachments.length > 0 ? (
@@ -108,6 +147,7 @@ export function Composer({
                     value={draft}
                     onChange={(event) => onChangeDraft(event.target.value)}
                     onKeyDown={onKeyDown}
+                    onPaste={onComposerPaste}
                     placeholder={`Message ${roomDisplayName}`}
                     className="max-h-48 min-h-10 flex-1 resize-none"
                     maxLength={maxSessionComposerDraftLength}

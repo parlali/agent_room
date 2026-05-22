@@ -1,4 +1,5 @@
 import type { RoomFileEntry, RoomFileSurface } from '#/lib/room-file-types'
+import { validateRoomFileUpload } from './room-file-upload-policy'
 
 export interface UploadRoomFilesInput {
     roomId: string
@@ -13,6 +14,8 @@ export interface UploadRoomFilesResult {
 }
 
 export async function uploadRoomFiles(input: UploadRoomFilesInput): Promise<UploadRoomFilesResult> {
+    validateRoomFileUpload(input.files)
+
     const body = new FormData()
     if (input.surface) {
         body.set('surface', input.surface)

@@ -284,7 +284,7 @@ function FilesContent({ roomId }: { roomId: string }) {
                         onSearchChange={setSearch}
                         onSelectEntry={setSelectedEntry}
                         onNavigate={navigateTo}
-                        onUploadFiles={(files) => uploadMutation.mutate(Array.from(files))}
+                        onUploadFiles={(files) => uploadMutation.mutate(files)}
                         uploading={uploadMutation.isPending}
                         uploadError={uploadMutation.error}
                     />
@@ -407,7 +407,7 @@ function DirectoryPane({
     onSearchChange: (value: string) => void
     onSelectEntry: (entry: RoomFileEntry | null) => void
     onNavigate: (surface: RoomFileSurface, path: string) => void
-    onUploadFiles: (files: FileList) => void
+    onUploadFiles: (files: File[]) => void
     uploading: boolean
     uploadError: unknown
 }) {
@@ -416,7 +416,7 @@ function DirectoryPane({
     const onUploadInputChange = (event: ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files
         if (files && files.length > 0) {
-            onUploadFiles(files)
+            onUploadFiles(Array.from(files))
         }
         event.target.value = ''
     }

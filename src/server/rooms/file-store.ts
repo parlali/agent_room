@@ -7,6 +7,11 @@ import type {
     RoomFileTree,
     RoomFileTreeNode,
 } from '#/lib/room-file-types'
+import {
+    formatRoomUploadBytes,
+    roomFileUploadPolicy,
+    RoomFileUploadPolicyError,
+} from '#/lib/room-file-upload-policy'
 import { assertPathInsideRoot } from '../security/path-boundary'
 import { getRoomPaths } from './room-paths'
 import {
@@ -29,7 +34,6 @@ export type {
 const maxDirectoryEntries = 1000
 const maxTreeEntries = 500
 const maxTreeDepth = 6
-const maxUploadBytes = 50 * 1024 * 1024
 
 export function rootPath(roomId: string, surface: RoomFileSurface): string {
     const paths = getRoomPaths(roomId)
@@ -403,8 +407,11 @@ export async function writeRoomUploadedFile(input: {
     fileName: string
     content: Buffer
 }): Promise<RoomFileEntry> {
-    if (input.content.byteLength > maxUploadBytes) {
-        throw new Error(`Uploads are limited to ${maxUploadBytes} bytes per file`)
+    if (input.content.byteLength > roomFileUploadPolicy.maxBytesPerFile) {
+        throw new RoomFileUploadPolicyError(
+            'file_too_large',
+            `Uploads are limited to ${formatRoomUploadBytes(roomFileUploadPolicy.maxBytesPerFile)} per file`,
+        )
     }
 
     const directory = await resolveWritableDirectory({
