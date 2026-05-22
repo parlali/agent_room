@@ -12,11 +12,13 @@ import {
     createCommandTerminateTool,
     createShellTool,
 } from './room-tools/command-tools'
+import { createSkillTools } from './room-tools/skill-tools'
 import { audit, textResult, type RoomToolContext } from './room-tools/shared'
 import { resolveExistingToolPath, resolveWriteTargetPath } from './room-tools/file-helpers'
 
 const nativeReadOnlyWorkspaceToolNames = ['read', 'grep', 'find', 'ls'] as const
 const nativeWritableWorkspaceToolNames = ['edit', 'write'] as const
+const skillToolNames = ['skill_list', 'skill_read', 'skill_search'] as const
 
 function createArtifactImportTool(ctx: RoomToolContext): ToolDefinition {
     return defineTool({
@@ -148,9 +150,17 @@ export function nativeWorkspaceToolNamesForCapabilities(capabilities: Capability
 
 export function roomToolNamesForMode(roomMode: RoomMode): string[] {
     if (roomMode === 'programmer') {
-        return ['shell', 'command_start', 'command_poll', 'command_status', 'command_terminate']
+        return [
+            ...skillToolNames,
+            'shell',
+            'command_start',
+            'command_poll',
+            'command_status',
+            'command_terminate',
+        ]
     }
     return [
+        ...skillToolNames,
         'shell',
         'command_start',
         'command_poll',
@@ -180,6 +190,7 @@ export function roomToolNamesForCapabilities(
 
 export function createRoomTools(ctx: RoomToolContext): ToolDefinition[] {
     const tools = [
+        ...createSkillTools(ctx),
         createShellTool(ctx),
         createCommandStartTool(ctx),
         createCommandPollTool(ctx),

@@ -5,7 +5,6 @@ import type { ChangeEvent } from 'react'
 import { toast } from 'sonner'
 import {
     ChevronRightIcon,
-    DownloadIcon,
     FileIcon,
     FileImageIcon,
     FileTextIcon,
@@ -36,8 +35,9 @@ import {
     describeRoomFileSurface,
     getRoomFileExtension,
 } from '#/components/room-files/file-preview'
+import { RoomFileDownloadMenu } from '#/components/room-files/file-download-menu'
 import { formatBytes, formatRelativeTime } from '#/lib/format'
-import { roomFileEntryDownloadUrl, roomFileEntryPreviewUrl } from '#/lib/room-file-links'
+import { roomFileEntryPreviewUrl } from '#/lib/room-file-links'
 import { uploadRoomFiles } from '#/lib/room-file-upload'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import {
@@ -610,7 +610,6 @@ function PreviewPane({ roomId, entry }: { roomId: string; entry: RoomFileEntry |
     })
     const preview = previewQuery.data as RoomFilePreview | undefined
     const previewUrl = entry ? roomFileEntryPreviewUrl(roomId, entry) : ''
-    const downloadUrl = entry ? roomFileEntryDownloadUrl(roomId, entry) : ''
 
     return (
         <aside className="min-w-0 p-3 md:col-span-2 xl:col-span-1 xl:border-l">
@@ -620,12 +619,7 @@ function PreviewPane({ roomId, entry }: { roomId: string; entry: RoomFileEntry |
                 </div>
                 {entry ? (
                     <div className="flex items-center gap-1">
-                        <Button asChild variant="ghost" size="sm">
-                            <a href={downloadUrl} download={entry.name}>
-                                <DownloadIcon />
-                                Download
-                            </a>
-                        </Button>
+                        <RoomFileDownloadMenu roomId={roomId} entry={entry} preview={preview} />
                         <Button
                             type="button"
                             variant="ghost"
@@ -662,12 +656,12 @@ function PreviewPane({ roomId, entry }: { roomId: string; entry: RoomFileEntry |
                                         {entry.relativePath}
                                     </DialogDescription>
                                 </DialogHeader>
-                                <Button asChild variant="outline" size="sm">
-                                    <a href={downloadUrl} download={entry.name}>
-                                        <DownloadIcon />
-                                        Download
-                                    </a>
-                                </Button>
+                                <RoomFileDownloadMenu
+                                    roomId={roomId}
+                                    entry={entry}
+                                    preview={preview}
+                                    variant="outline"
+                                />
                             </div>
                             <div className="h-full min-h-0">
                                 <RoomFilePreviewContent

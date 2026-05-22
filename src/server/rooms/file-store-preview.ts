@@ -64,6 +64,10 @@ function isOfficePath(path: string): boolean {
     return officeExtensions.has(extname(path).toLowerCase())
 }
 
+function pdfPreviewName(path: string): string {
+    return `${basename(path, extname(path))}.pdf`
+}
+
 async function readBoundedPreviewFile(
     path: string,
     maxBytes: number,
@@ -350,7 +354,7 @@ export async function resolveRoomFilePreviewAsset(input: {
         })
         const pdfStat = await stat(pdfPath)
         return {
-            name,
+            name: pdfPreviewName(name),
             relativePath: resolved.relativePath,
             surface: input.surface,
             mediaType: 'application/pdf',

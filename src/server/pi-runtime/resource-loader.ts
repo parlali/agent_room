@@ -31,6 +31,8 @@ function agentRoomSkillPrompt(skills: Skill[]): string[] {
         [
             'Agent Room bundled skills:',
             'These skills are reviewed and shipped with Agent Room. Use them when their descriptions match; do not fetch remote, marketplace, user-installed, or third-party skills for these workflows.',
+            'Workspace read/list/search tools only access the room workspace. Use skill_list, skill_read, and skill_search to inspect bundled skill files and scripts.',
+            'Bundled Office skills are Bun/TypeScript tools. Do not switch to Python Office libraries for DOCX, XLSX, or PPTX generation.',
             sections.join('\n\n'),
         ].join('\n\n'),
     ]

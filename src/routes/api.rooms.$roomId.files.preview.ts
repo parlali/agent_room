@@ -36,13 +36,15 @@ export const Route = createFileRoute('/api/rooms/$roomId/files/preview')({
                 }
 
                 try {
-                    const download = url.searchParams.get('download') === '1'
+                    const downloadParam = url.searchParams.get('download')
+                    const downloadOriginal = downloadParam === '1'
+                    const downloadPreview = downloadParam === 'preview'
                     const assetInput = {
                         roomId: params.roomId,
                         surface,
                         relativePath,
                     }
-                    const asset = download
+                    const asset = downloadOriginal
                         ? await resolveRoomFileDownloadAsset(assetInput)
                         : await resolveRoomFilePreviewAsset(assetInput)
                     const rangeResult = resolveHttpByteRange(
@@ -77,7 +79,8 @@ export const Route = createFileRoute('/api/rooms/$roomId/files/preview')({
                             'content-length': String(contentLength),
                             'cache-control': 'no-store',
                             'content-disposition': contentDispositionHeader({
-                                disposition: download ? 'attachment' : 'inline',
+                                disposition:
+                                    downloadOriginal || downloadPreview ? 'attachment' : 'inline',
                                 filename: asset.name,
                             }),
                             ...(byteRange

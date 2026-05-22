@@ -38,6 +38,7 @@ RUN apt-get update \
         xz-utils \
         zip \
         zstd \
+    && ln -sf /usr/bin/python3 /usr/local/bin/python \
     && rm -rf /var/lib/apt/lists/*
 
 RUN case "${TARGETARCH}" in \
@@ -52,7 +53,9 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
 COPY . .
-RUN bun run build
+RUN bun run build \
+    && chmod -R go-rX src \
+    && chmod -R a+rX dist/server/assets/skills
 
 ENV NODE_ENV=production
 ENV PORT=3000

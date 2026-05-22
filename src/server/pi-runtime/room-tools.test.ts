@@ -170,6 +170,9 @@ describe('room Pi tools', () => {
         const programmerNames = roomToolNamesForCapabilities('programmer', testCapabilities)
 
         expect(coworkerNames).toEqual([
+            'skill_list',
+            'skill_read',
+            'skill_search',
             'shell',
             'command_start',
             'command_poll',
@@ -190,7 +193,7 @@ describe('room Pi tools', () => {
             shellCoding: false,
         })
 
-        expect(names).toEqual([])
+        expect(names).toEqual(['skill_list', 'skill_read', 'skill_search'])
     })
 
     it('does not register duplicate Agent Room workspace tools', async () => {
@@ -205,8 +208,49 @@ describe('room Pi tools', () => {
             expect(names).not.toContain('agent_room_workspace_tree')
             expect(names).not.toContain('agent_room_write')
             expect(names).not.toContain('agent_room_edit')
+            expect(names).toContain('skill_read')
             expect(names).toContain('shell')
             expect(names).toContain('artifact_import')
+        })
+    })
+
+    it('reads and searches bundled skills through the read-only skill tools', async () => {
+        await withRoom(async (config) => {
+            const listed = await executeRoomTool(config, 'skill_list', {
+                path: 'docx',
+            })
+            const read = await executeRoomTool(config, 'skill_read', {
+                path: 'docx/SKILL.md',
+            })
+            const searched = await executeRoomTool(config, 'skill_search', {
+                path: 'docx',
+                query: 'signatureGrid',
+            })
+
+            expect(resultText(listed.result)).toContain('file\tdocx/SKILL.md')
+            expect(resultText(read.result)).toContain('# DOCX')
+            expect(resultText(searched.result)).toContain('docx/SKILL.md')
+            expect(resultText(searched.result)).toContain('signatureGrid')
+            expect(resultDetails(read.result)).toMatchObject({
+                root: 'skills',
+                path: 'docx/SKILL.md',
+            })
+            expect(read.events.some((event) => event.event === 'tool.skill_read')).toBe(true)
+        })
+    })
+
+    it('keeps bundled skill tools inside the skill asset root', async () => {
+        await withRoom(async (config) => {
+            await expect(
+                executeRoomTool(config, 'skill_read', {
+                    path: '/app/src/server/pi-runtime/skills/docx/SKILL.md',
+                }),
+            ).rejects.toThrow(/relative/)
+            await expect(
+                executeRoomTool(config, 'skill_read', {
+                    path: '../src/server/pi-runtime/skills/docx/SKILL.md',
+                }),
+            ).rejects.toThrow(/escapes bundled skills/)
         })
     })
 

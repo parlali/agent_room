@@ -18,6 +18,7 @@ import {
     describeRoomFileSurface,
     getRoomFileExtension,
 } from '#/components/room-files/file-preview'
+import { RoomFileDownloadMenu } from '#/components/room-files/file-download-menu'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import { CardButton } from '#/components/ui/card'
@@ -188,15 +189,22 @@ export function SessionArtifactsPanel({
                                             {selectedEntry.name}
                                         </div>
                                     </div>
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => setExpanded(true)}
-                                    >
-                                        <Maximize2Icon />
-                                        Expand
-                                    </Button>
+                                    <div className="flex shrink-0 items-center gap-1">
+                                        <RoomFileDownloadMenu
+                                            roomId={roomId}
+                                            entry={selectedEntry}
+                                            preview={preview}
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => setExpanded(true)}
+                                        >
+                                            <Maximize2Icon />
+                                            Expand
+                                        </Button>
+                                    </div>
                                 </div>
                                 <div className="shrink-0">
                                     <RoomFileMetadata entry={selectedEntry} />
@@ -213,15 +221,23 @@ export function SessionArtifactsPanel({
                                 </div>
                                 <Dialog open={expanded} onOpenChange={setExpanded}>
                                     <DialogContent className="grid h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-none grid-rows-[auto_minmax(0,1fr)] gap-3 p-4">
-                                        <DialogHeader className="min-w-0 pr-8">
-                                            <DialogTitle className="truncate">
-                                                {selectedEntry.name}
-                                            </DialogTitle>
-                                            <DialogDescription className="truncate">
-                                                {describeRoomFileSurface(selectedEntry.surface)} /{' '}
-                                                {selectedEntry.relativePath}
-                                            </DialogDescription>
-                                        </DialogHeader>
+                                        <div className="flex min-w-0 items-start justify-between gap-3 pr-8">
+                                            <DialogHeader className="min-w-0">
+                                                <DialogTitle className="truncate">
+                                                    {selectedEntry.name}
+                                                </DialogTitle>
+                                                <DialogDescription className="truncate">
+                                                    {describeRoomFileSurface(selectedEntry.surface)}{' '}
+                                                    / {selectedEntry.relativePath}
+                                                </DialogDescription>
+                                            </DialogHeader>
+                                            <RoomFileDownloadMenu
+                                                roomId={roomId}
+                                                entry={selectedEntry}
+                                                preview={preview}
+                                                variant="outline"
+                                            />
+                                        </div>
                                         <div className="h-full min-h-0">
                                             <RoomFilePreviewContent
                                                 entry={selectedEntry}

@@ -1,7 +1,7 @@
 import type { PiRuntimeConfig } from '../../rooms/pi-runtime-config'
 import { clampPositiveInteger as sharedClampPositiveInteger, textToolResult } from '../tool-helpers'
 
-export type ToolRoot = 'workspace' | 'store'
+export type ToolRoot = 'workspace' | 'store' | 'skills'
 
 export interface RoomToolDetails {
     root?: ToolRoot
