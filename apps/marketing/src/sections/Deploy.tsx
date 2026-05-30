@@ -4,21 +4,12 @@ export function Deploy() {
     return (
         <section className="relative border-t border-[var(--color-rule)] bg-[var(--color-night)] py-24 sm:py-32">
             <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-10">
-                <SectionLabel index="05">DEPLOYMENT</SectionLabel>
+                <SectionLabel>Deploy</SectionLabel>
 
                 <div className="mt-12 grid-12">
                     <div className="col-span-12 lg:col-span-5">
-                        <h2
-                            className="font-serif text-[42px] leading-[1.05] tracking-[-0.025em] sm:text-[52px] lg:text-[60px]"
-                            style={{ fontVariationSettings: "'opsz' 144, 'SOFT' 50" }}
-                        >
-                            One command.{' '}
-                            <em
-                                className="font-serif-italic text-[var(--color-quote)]"
-                                style={{ fontStyle: 'italic' }}
-                            >
-                                Your hardware.
-                            </em>
+                        <h2 className="text-[36px] font-semibold leading-[1.1] sm:text-[48px] lg:text-[56px]">
+                            Run the stack on your own hardware.
                         </h2>
                         <p className="mt-8 max-w-md text-[15.5px] leading-[1.6] text-[var(--color-ink-dim)]">
                             The whole stack is one Docker Compose file. App, Postgres, internal
@@ -30,13 +21,13 @@ export function Deploy() {
                             <Step
                                 n="01"
                                 title="Clone"
-                                hint="git · MIT license · no telemetry"
+                                hint="MIT license, no telemetry"
                                 code="git clone github.com/parlali/agent_room"
                             />
                             <Step
                                 n="02"
                                 title="Boot"
-                                hint="builds the image, starts postgres + searxng + app"
+                                hint="starts app, Postgres, and SearXNG"
                                 code="docker compose up -d --build"
                             />
                             <Step
@@ -58,31 +49,25 @@ export function Deploy() {
                         <div className="border border-[var(--color-rule)] bg-[var(--color-night-elev)]">
                             <div className="flex items-center justify-between border-b border-[var(--color-rule)] px-4 py-2.5">
                                 <span className="label-mono text-[var(--color-ink)]">
-                                    STACK · COMPOSE TOPOLOGY
+                                    Compose topology
                                 </span>
-                                <span className="label-mono">FIG 05-A</span>
+                                <span className="label-mono">Local-first default</span>
                             </div>
-                            <pre className="overflow-x-auto whitespace-pre p-5 font-mono text-[10.5px] leading-[1.6] text-[var(--color-ink-dim)]">{`  ┌─ HOST ────────────────────────────────────────────────────────┐
-  │                                                               │
-  │   127.0.0.1:3000  ──→  app                                    │
-  │                         │                                     │
-  │                         ├── pi runtime (per-room)             │
-  │                         │     ├── workspace · /room/.../      │
-  │                         │     ├── memory.json                 │
-  │                         │     ├── jobs queue                  │
-  │                         │     └── mcp clients                 │
-  │                         │                                     │
-  │                         ├── postgres (private)                │
-  │                         │     ├── accounts · sessions         │
-  │                         │     ├── rooms · runs · audit        │
-  │                         │     └── encrypted secrets           │
-  │                         │                                     │
-  │                         └── searxng (private)                 │
-  │                               └── private search backend      │
-  │                                                               │
-  │  volumes:  agent-room-data · postgres-data · searxng-config   │
-  │                                                               │
-  └───────────────────────────────────────────────────────────────┘`}</pre>
+                            <pre className="overflow-x-auto whitespace-pre p-5 font-mono text-[10.5px] leading-[1.6] text-[var(--color-ink-dim)]">{`host
+  127.0.0.1:3000 -> app
+                    |-- pi runtime per room
+                    |   |-- workspace /room/...
+                    |   |-- memory.json
+                    |   |-- jobs queue
+                    |   +-- mcp clients
+                    |-- postgres private
+                    |   |-- accounts, sessions
+                    |   |-- rooms, runs, audit
+                    |   +-- encrypted secrets
+                    +-- searxng private
+                        +-- private search backend
+
+volumes: agent-room-data, postgres-data, searxng-config`}</pre>
                         </div>
 
                         <div className="mt-6 grid grid-cols-2 gap-px bg-[var(--color-rule)]">
@@ -113,7 +98,7 @@ export function Deploy() {
                             />
                             <Spec
                                 label="UPDATES"
-                                value="git pull · rebuild"
+                                value="git pull, rebuild"
                                 hint="migrations run automatically"
                             />
                         </div>
@@ -130,12 +115,7 @@ function Step({ n, title, hint, code }: { n: string; title: string; hint: string
             <span className="label-mono pt-1 text-[var(--color-ink-faint)]">{n}</span>
             <div>
                 <div className="flex items-baseline justify-between gap-3">
-                    <div
-                        className="font-serif text-[20px] tracking-tight text-[var(--color-ink)]"
-                        style={{ fontVariationSettings: "'opsz' 60, 'SOFT' 80" }}
-                    >
-                        {title}
-                    </div>
+                    <div className="text-[20px] font-semibold text-[var(--color-ink)]">{title}</div>
                     <div className="label-mono text-right text-[var(--color-ink-faint)]">
                         {hint}
                     </div>
@@ -152,12 +132,7 @@ function Spec({ label, value, hint }: { label: string; value: string; hint: stri
     return (
         <div className="bg-[var(--color-night)] p-4">
             <div className="label-mono">{label}</div>
-            <div
-                className="mt-1.5 font-serif text-[18px] tracking-tight text-[var(--color-ink)]"
-                style={{ fontVariationSettings: "'opsz' 60, 'SOFT' 60" }}
-            >
-                {value}
-            </div>
+            <div className="mt-1.5 text-[18px] font-semibold text-[var(--color-ink)]">{value}</div>
             <div className="mt-1 font-mono text-[10.5px] text-[var(--color-ink-faint)]">{hint}</div>
         </div>
     )

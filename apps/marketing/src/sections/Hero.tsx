@@ -1,5 +1,5 @@
 import { RoomConsole } from '../components/RoomConsole'
-import { MarqueeLink } from '../components/Marquee'
+import { TextLink } from '../components/TextLink'
 
 export function Hero() {
     return (
@@ -7,18 +7,11 @@ export function Hero() {
             <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-10">
                 <div className="grid-12">
                     <div className="col-span-12 lg:col-span-7">
-                        <div className="flex items-center gap-2.5">
-                            <span className="label-mono">000 · INDEX</span>
-                            <span className="h-px w-10 bg-[var(--color-rule-bright)]" />
-                            <span className="label-mono text-[var(--color-accent)]">
-                                FILE 01 OF 07
-                            </span>
+                        <div className="label-mono text-[var(--color-accent)]">
+                            Self-hosted agent orchestration
                         </div>
 
-                        <h1
-                            className="mt-10 font-serif text-[52px] leading-[1.02] tracking-[-0.025em] text-[var(--color-ink)] sm:text-[68px] lg:text-[88px]"
-                            style={{ fontVariationSettings: "'opsz' 144, 'SOFT' 50" }}
-                        >
+                        <h1 className="mt-8 max-w-[760px] text-[44px] font-semibold leading-[1.05] text-[var(--color-ink)] sm:text-[62px] lg:text-[76px]">
                             <span
                                 className="block opacity-0"
                                 style={{
@@ -29,19 +22,13 @@ export function Hero() {
                                 Self-hosted
                             </span>
                             <span
-                                className="block opacity-0"
+                                className="block opacity-0 text-[var(--color-ink)]"
                                 style={{
                                     animation:
                                         'reveal-up 1.1s cubic-bezier(0.22, 1, 0.36, 1) 0.18s forwards',
                                 }}
                             >
-                                rooms for{' '}
-                                <em
-                                    className="font-serif-italic text-[var(--color-quote)]"
-                                    style={{ fontStyle: 'italic' }}
-                                >
-                                    persistent
-                                </em>
+                                rooms for persistent
                             </span>
                             <span
                                 className="block opacity-0"
@@ -50,13 +37,7 @@ export function Hero() {
                                         'reveal-up 1.1s cubic-bezier(0.22, 1, 0.36, 1) 0.32s forwards',
                                 }}
                             >
-                                AI{' '}
-                                <em
-                                    className="font-serif-italic text-[var(--color-quote)]"
-                                    style={{ fontStyle: 'italic' }}
-                                >
-                                    coworkers.
-                                </em>
+                                AI coworkers.
                             </span>
                         </h1>
 
@@ -67,14 +48,12 @@ export function Hero() {
                                     'reveal-up 1.1s cubic-bezier(0.22, 1, 0.36, 1) 0.55s forwards',
                             }}
                         >
-                            Every other agent forgets you the second the chat closes. A room
-                            remembers.
+                            Agent Room gives each AI coworker its own workspace, memory, scheduled
+                            jobs, tools, provider binding, and audit trail.
                             <br />
                             <br />
-                            Each room is one standalone coworker with its own filesystem, structured
-                            memory, scheduled jobs, tools, MCP bindings, provider identity, and
-                            audit trail. Boot the whole thing with one Docker command on your own
-                            machine.
+                            Run the full stack on your own machine with Docker Compose. Files,
+                            credentials, runtime state, and room history stay inside your instance.
                         </p>
 
                         <div
@@ -84,20 +63,19 @@ export function Hero() {
                                     'reveal-up 1.1s cubic-bezier(0.22, 1, 0.36, 1) 0.7s forwards',
                             }}
                         >
-                            <MarqueeLink
+                            <TextLink
                                 href="https://github.com/parlali/agent_room"
                                 external
-                                marquee={false}
-                                className="cta-fill px-5 py-3 text-[13.5px] font-medium tracking-tight"
+                                className="cta-fill px-5 py-3 text-[13.5px] font-medium"
                             >
                                 Run the stack
-                            </MarqueeLink>
-                            <MarqueeLink
+                            </TextLink>
+                            <TextLink
                                 href="#anatomy"
-                                className="inline-flex items-center gap-3 px-1 text-[13.5px] tracking-tight text-[var(--color-ink)] underline decoration-[var(--color-ink-faint)] decoration-1 underline-offset-[6px] transition hover:decoration-[var(--color-accent)]"
+                                className="inline-flex items-center gap-3 px-1 text-[13.5px] text-[var(--color-ink)] underline decoration-[var(--color-ink-faint)] decoration-1 underline-offset-[6px] transition hover:decoration-[var(--color-accent)]"
                             >
-                                Walk through a room
-                            </MarqueeLink>
+                                See how rooms work
+                            </TextLink>
                             <span className="label-mono">$ docker compose up -d --build</span>
                         </div>
                     </div>
@@ -112,15 +90,13 @@ export function Hero() {
                                 }}
                             >
                                 <div className="mb-3 flex items-center justify-between">
-                                    <span className="label-mono">
-                                        LIVE ROOM · SAMPLE TRANSCRIPT
-                                    </span>
-                                    <span className="label-mono">RENDERED LOCALLY</span>
+                                    <span className="label-mono">Live room preview</span>
+                                    <span className="label-mono">Local instance</span>
                                 </div>
                                 <RoomConsole />
                                 <div className="mt-3 flex items-center justify-between">
                                     <span className="label-mono">
-                                        IDENTICAL TO WHAT YOU SEE INSIDE A SELF-HOSTED INSTANCE
+                                        Runtime, memory, jobs, provider, and audit state in one room
                                     </span>
                                 </div>
                             </div>

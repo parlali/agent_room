@@ -19,7 +19,6 @@ export default function App() {
                 id="top"
                 className="site-shell relative min-h-screen bg-[var(--color-night)] pt-14 text-[var(--color-ink)]"
             >
-                <div className="grain-overlay" />
                 <main className="relative z-10">
                     <Hero />
                     <Problem />

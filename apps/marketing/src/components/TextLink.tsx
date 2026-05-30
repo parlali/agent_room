@@ -6,27 +6,11 @@ type Props = {
     className?: string
     onClick?: () => void
     external?: boolean
-    marquee?: boolean
 }
 
-export function MarqueeLink({
-    children,
-    href,
-    className,
-    onClick,
-    external,
-    marquee = true,
-}: Props) {
-    const content = marquee ? (
-        <span className="marquee-hover">
-            <span className="marquee-stack">
-                <span>{children}</span>
-                <span>{children}</span>
-            </span>
-        </span>
-    ) : (
-        <span>{children}</span>
-    )
+export function TextLink({ children, href, className, onClick, external }: Props) {
+    const content = <span>{children}</span>
+
     if (href) {
         return (
             <a
@@ -40,6 +24,7 @@ export function MarqueeLink({
             </a>
         )
     }
+
     return (
         <button type="button" onClick={onClick} className={className}>
             {content}

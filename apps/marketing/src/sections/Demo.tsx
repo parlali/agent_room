@@ -5,10 +5,10 @@ const sidebar = ['studio-3', 'pricing-watch', 'monday-planner', 'codex-room', 's
 
 const events = [
     { who: 'OPERATOR', text: 'Pull the may pricing report and email a summary.' },
-    { who: 'STUDIO-3', text: 'memory.read · "report style: short prose + 2 tables"', mono: true },
-    { who: 'STUDIO-3', text: 'web.search · "lithium spot may 2026"', mono: true },
-    { who: 'STUDIO-3', text: 'web.fetch · reuters.com · 38KB', mono: true },
-    { who: 'STUDIO-3', text: 'docx.compose · briefing.docx · 12 pages', mono: true },
+    { who: 'STUDIO-3', text: 'memory.read - "report style: short prose + 2 tables"', mono: true },
+    { who: 'STUDIO-3', text: 'web.search - "lithium spot may 2026"', mono: true },
+    { who: 'STUDIO-3', text: 'web.fetch - reuters.com - 38KB', mono: true },
+    { who: 'STUDIO-3', text: 'docx.compose - briefing.docx - 12 pages', mono: true },
     {
         who: 'STUDIO-3',
         text: 'Wrote /out/may-2026-pricing.docx (81KB). Summary: prices held flat against April, vendor X has best Q3 terms, I kept the recommendation we agreed on last week.',
@@ -19,29 +19,26 @@ export function Demo() {
     return (
         <section className="relative border-t border-[var(--color-rule)] bg-[var(--color-night)] py-24 sm:py-32">
             <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-10">
-                <SectionLabel index="04">CONTROL ROOM</SectionLabel>
+                <SectionLabel>Dashboard</SectionLabel>
 
                 <div className="mt-12 grid-12">
                     <div className="col-span-12 lg:col-span-5">
-                        <h2
-                            className="font-serif text-[40px] leading-[1.05] tracking-[-0.025em] sm:text-[48px] lg:text-[56px]"
-                            style={{ fontVariationSettings: "'opsz' 144, 'SOFT' 50" }}
-                        >
-                            One window for every coworker on your roster.
+                        <h2 className="text-[34px] font-semibold leading-[1.1] sm:text-[44px] lg:text-[52px]">
+                            Manage rooms, sessions, files, jobs, memory, and usage from one place.
                         </h2>
                         <p className="mt-8 max-w-md text-[15.5px] leading-[1.6] text-[var(--color-ink-dim)]">
-                            The dashboard is not a chat client. It is a console: rooms on the left,
-                            the active coworker in the middle, files and memory and jobs and usage
-                            around it. Everything is inspectable.
+                            The dashboard keeps the chat surface close to the operational state.
+                            Room files, memory, scheduled jobs, provider identity, usage, and event
+                            history are visible without leaving the room.
                         </p>
-                        <ul className="mt-10 space-y-3.5 font-mono text-[12px] tracking-tight text-[var(--color-ink-dim)]">
+                        <ul className="mt-10 space-y-3.5 font-mono text-[12px] text-[var(--color-ink-dim)]">
                             <DemoBullet>
-                                tabbed surfaces — chat, files, memory, jobs, usage
+                                tabbed surfaces for chat, files, memory, jobs, usage
                             </DemoBullet>
-                            <DemoBullet>per-room sidebar tree, no global drawer of doom</DemoBullet>
+                            <DemoBullet>per-room sidebar tree</DemoBullet>
                             <DemoBullet>file preview for DOCX, XLSX, PPTX, PDF, image</DemoBullet>
                             <DemoBullet>live event stream, audit-grade timeline</DemoBullet>
-                            <DemoBullet>dark and light, both first-class</DemoBullet>
+                            <DemoBullet>dark and light themes</DemoBullet>
                         </ul>
                     </div>
 
@@ -58,7 +55,7 @@ export function Demo() {
                                 </span>
                                 <BrandMark size={14} className="text-[var(--color-ink-dim)]" />
                             </div>
-                            <div className="grid min-h-[460px] grid-cols-[160px_1fr]">
+                            <div className="grid min-h-[460px] grid-cols-1 sm:grid-cols-[160px_1fr]">
                                 <aside className="border-r border-[var(--color-rule)] p-3">
                                     <div className="label-mono mb-3 px-1">ROOMS</div>
                                     <ul className="space-y-1">
@@ -78,9 +75,7 @@ export function Demo() {
                                                             : 'bg-[var(--color-rule-bright)]'
                                                     }`}
                                                 />
-                                                <span className="font-mono tracking-tight">
-                                                    {s}
-                                                </span>
+                                                <span className="font-mono">{s}</span>
                                             </li>
                                         ))}
                                     </ul>
@@ -98,16 +93,9 @@ export function Demo() {
                                 <div className="p-5">
                                     <div className="flex items-center justify-between border-b border-[var(--color-rule)] pb-3">
                                         <div>
-                                            <div className="label-mono">
-                                                SESSION · MAY 22 · 14:02
-                                            </div>
-                                            <h3
-                                                className="mt-1 font-serif text-[22px] tracking-tight text-[var(--color-ink)]"
-                                                style={{
-                                                    fontVariationSettings: "'opsz' 96, 'SOFT' 60",
-                                                }}
-                                            >
-                                                studio-3 · coworker mode
+                                            <div className="label-mono">Session 14:02</div>
+                                            <h3 className="mt-1 text-[22px] font-semibold text-[var(--color-ink)]">
+                                                studio-3 - coworker mode
                                             </h3>
                                         </div>
                                         <div className="flex items-center gap-3">
@@ -148,7 +136,7 @@ export function Demo() {
 
                                     <div className="mt-6 flex items-center gap-2 border-t border-[var(--color-rule)] pt-4">
                                         <span className="font-mono text-[12px] text-[var(--color-ink-faint)]">
-                                            ›
+                                            $
                                         </span>
                                         <span className="cursor-blink font-mono text-[12px] text-[var(--color-ink-dim)]">
                                             Pin this report style for monthly use
@@ -156,16 +144,14 @@ export function Demo() {
                                     </div>
                                 </div>
                             </div>
-                            <div className="flex items-center justify-between border-t border-[var(--color-rule)] px-3 py-2 font-mono text-[10.5px] text-[var(--color-ink-faint)]">
-                                <span>events · streaming · 42,318 tok today · $0.47</span>
-                                <span>provider: codex/oai · model: gpt-5 · auth: oauth</span>
+                            <div className="flex items-center justify-between gap-4 border-t border-[var(--color-rule)] px-3 py-2 font-mono text-[10.5px] text-[var(--color-ink-faint)]">
+                                <span>events, streaming, 42,318 tok today, $0.47</span>
+                                <span>provider: codex/oai, model: gpt-5, auth: oauth</span>
                             </div>
                         </div>
-                        <div className="mt-3 flex items-center justify-between">
-                            <span className="label-mono">FIG 04-A · DASHBOARD · STUDIO-3</span>
-                            <span className="label-mono">
-                                EXPORT · CSV · JSON · PROVENANCE INCLUDED
-                            </span>
+                        <div className="mt-3 flex items-center justify-between gap-4">
+                            <span className="label-mono">Dashboard preview</span>
+                            <span className="label-mono">CSV, JSON, and provenance exports</span>
                         </div>
                     </div>
                 </div>

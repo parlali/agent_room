@@ -1,22 +1,19 @@
 import { BrandMark } from '@agent-room/brand'
-import { MarqueeLink } from '../components/Marquee'
+import { TextLink } from '../components/TextLink'
 
 export function Footer() {
     return (
         <footer className="relative border-t border-[var(--color-rule)] bg-[var(--color-night)]">
             <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-10">
-                <div className="grid grid-cols-12 gap-x-6 gap-y-10 py-14 lg:gap-x-10">
-                    <div className="col-span-12 lg:col-span-4">
+                <div className="grid gap-x-10 gap-y-10 py-14 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr]">
+                    <div>
                         <div className="flex items-center gap-3 text-[var(--color-ink)]">
                             <BrandMark size={26} />
-                            <span className="font-serif text-[22px] tracking-tight">
-                                Agent Room
-                            </span>
+                            <span className="text-[20px] font-semibold">Agent Room</span>
                         </div>
                         <p className="mt-5 max-w-sm text-[13.5px] leading-[1.6] text-[var(--color-ink-dim)]">
-                            A self-hosted home for persistent AI coworkers. Each room is a workspace
-                            that remembers, owns files, runs scheduled work, and stays on your
-                            hardware.
+                            Self-hosted rooms for persistent AI coworkers. Each room has its own
+                            memory, files, scheduled jobs, tools, provider binding, and audit trail.
                         </p>
                     </div>
                     <FootCol title="PROJECT">
@@ -28,12 +25,12 @@ export function Footer() {
                             security
                         </FootLink>
                         <FootLink href="https://github.com/parlali/agent_room/blob/main/LICENSE">
-                            license · MIT
+                            license
                         </FootLink>
                     </FootCol>
                     <FootCol title="DOCS">
-                        <FootLink href="#anatomy">anatomy of a room</FootLink>
-                        <FootLink href="#pricing">pricing note</FootLink>
+                        <FootLink href="#anatomy">how rooms work</FootLink>
+                        <FootLink href="#pricing">pricing</FootLink>
                         <FootLink href="https://github.com/parlali/agent_room/blob/main/CONTRIBUTING.md">
                             contributing
                         </FootLink>
@@ -55,20 +52,15 @@ export function Footer() {
                 </div>
 
                 <div className="flex flex-col gap-6 border-t border-[var(--color-rule)] py-6 sm:flex-row sm:items-end sm:justify-between">
-                    <div className="font-mono text-[10px] uppercase leading-[1.7] tracking-[0.18em] text-[var(--color-ink-faint)]">
+                    <div className="font-mono text-[10px] uppercase leading-[1.7] text-[var(--color-ink-faint)]">
                         <div>
-                            © {new Date().getFullYear()} agent room project · mit license · made
-                            with open primitives
+                            Copyright {new Date().getFullYear()} Agent Room Project - MIT license
                         </div>
-                        <div>operator-grade software · not a chat client</div>
+                        <div>Self-hosted agent orchestration</div>
                     </div>
-                    <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--color-ink-faint)]">
-                        openagentroom.com · revision A1 · printed on the web
+                    <div className="font-mono text-[10px] uppercase text-[var(--color-ink-faint)]">
+                        openagentroom.com
                     </div>
-                </div>
-
-                <div aria-hidden className="footer-display">
-                    AGENT ROOM
                 </div>
             </div>
         </footer>
@@ -77,7 +69,7 @@ export function Footer() {
 
 function FootCol({ title, children }: { title: string; children: React.ReactNode }) {
     return (
-        <div className="col-span-6 sm:col-span-4 lg:col-span-2 lg:col-start-7">
+        <div>
             <div className="label-mono mb-4">{title}</div>
             <ul className="space-y-2.5 text-[13px] text-[var(--color-ink-dim)]">{children}</ul>
         </div>
@@ -88,13 +80,13 @@ function FootLink({ href, children }: { href: string; children: React.ReactNode 
     const external = href.startsWith('http') || href.startsWith('mailto:')
     return (
         <li>
-            <MarqueeLink
+            <TextLink
                 href={href}
                 external={external && href.startsWith('http')}
                 className="inline-flex hover:text-[var(--color-ink)]"
             >
                 {children}
-            </MarqueeLink>
+            </TextLink>
         </li>
     )
 }
