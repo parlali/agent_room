@@ -67,12 +67,8 @@ export function Footer() {
                     </div>
                 </div>
 
-                <div
-                    aria-hidden
-                    className="font-serif overflow-hidden pb-6 text-[18vw] leading-none tracking-[-0.05em] text-[var(--color-rule)]"
-                    style={{ fontVariationSettings: "'opsz' 144, 'SOFT' 50" }}
-                >
-                    AGENT&nbsp;ROOM
+                <div aria-hidden className="footer-display">
+                    AGENT ROOM
                 </div>
             </div>
         </footer>

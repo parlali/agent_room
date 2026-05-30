@@ -23,7 +23,7 @@ export function Hero() {
                                 className="block opacity-0"
                                 style={{
                                     animation:
-                                        'reveal-up 1s cubic-bezier(0.16, 1, 0.3, 1) 0.05s forwards',
+                                        'reveal-up 1.1s cubic-bezier(0.22, 1, 0.36, 1) 0.05s forwards',
                                 }}
                             >
                                 Self-hosted
@@ -32,7 +32,7 @@ export function Hero() {
                                 className="block opacity-0"
                                 style={{
                                     animation:
-                                        'reveal-up 1s cubic-bezier(0.16, 1, 0.3, 1) 0.18s forwards',
+                                        'reveal-up 1.1s cubic-bezier(0.22, 1, 0.36, 1) 0.18s forwards',
                                 }}
                             >
                                 rooms for{' '}
@@ -47,7 +47,7 @@ export function Hero() {
                                 className="block opacity-0"
                                 style={{
                                     animation:
-                                        'reveal-up 1s cubic-bezier(0.16, 1, 0.3, 1) 0.32s forwards',
+                                        'reveal-up 1.1s cubic-bezier(0.22, 1, 0.36, 1) 0.32s forwards',
                                 }}
                             >
                                 AI{' '}
@@ -64,7 +64,7 @@ export function Hero() {
                             className="mt-10 max-w-[34rem] text-[16.5px] leading-[1.6] text-[var(--color-ink-dim)] opacity-0 sm:text-[17.5px]"
                             style={{
                                 animation:
-                                    'reveal-up 1s cubic-bezier(0.16, 1, 0.3, 1) 0.55s forwards',
+                                    'reveal-up 1.1s cubic-bezier(0.22, 1, 0.36, 1) 0.55s forwards',
                             }}
                         >
                             Every other agent forgets you the second the chat closes. A room
@@ -81,13 +81,14 @@ export function Hero() {
                             className="mt-12 flex flex-wrap items-center gap-x-8 gap-y-5 opacity-0"
                             style={{
                                 animation:
-                                    'reveal-up 1s cubic-bezier(0.16, 1, 0.3, 1) 0.7s forwards',
+                                    'reveal-up 1.1s cubic-bezier(0.22, 1, 0.36, 1) 0.7s forwards',
                             }}
                         >
                             <MarqueeLink
                                 href="https://github.com/parlali/agent_room"
                                 external
-                                className="group inline-flex items-center gap-3 border border-[var(--color-ink)] bg-[var(--color-ink)] px-5 py-3 text-[13.5px] font-medium tracking-tight text-[var(--color-night)] transition hover:bg-transparent hover:text-[var(--color-ink)]"
+                                marquee={false}
+                                className="cta-fill px-5 py-3 text-[13.5px] font-medium tracking-tight"
                             >
                                 Run the stack
                             </MarqueeLink>
@@ -102,12 +103,12 @@ export function Hero() {
                     </div>
 
                     <div className="col-span-12 mt-16 lg:col-span-5 lg:mt-0">
-                        <div className="lg:sticky lg:top-24">
+                        <div className="lg:sticky lg:top-[calc(var(--header-height)+1.5rem)]">
                             <div
                                 className="opacity-0"
                                 style={{
                                     animation:
-                                        'reveal-up 1.2s cubic-bezier(0.16, 1, 0.3, 1) 0.45s forwards',
+                                        'reveal-up 1.2s cubic-bezier(0.22, 1, 0.36, 1) 0.45s forwards',
                                 }}
                             >
                                 <div className="mb-3 flex items-center justify-between">

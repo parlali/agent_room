@@ -18,7 +18,7 @@ Or from this directory:
 bun run dev
 ```
 
-The site runs on [http://localhost:4321](http://localhost:4321) by default.
+The site runs on [http://localhost:3000](http://localhost:3000) by default. The dev server binds to all interfaces so it can be reached through a remote development hostname. Tailscale `.ts.net` hostnames are allowed by default; set `VITE_ALLOWED_HOSTS` to a comma-separated list for other hostnames.
 
 ## Build
 

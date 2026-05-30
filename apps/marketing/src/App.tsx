@@ -7,33 +7,35 @@ import { Footer } from './sections/Footer'
 import { Hero } from './sections/Hero'
 import { Pricing } from './sections/Pricing'
 import { Problem } from './sections/Problem'
+import { AnchorScroll } from './components/AnchorScroll'
 import { Nav } from './components/Nav'
-import { Ticker } from './components/Ticker'
 
 export default function App() {
     return (
-        <div
-            id="top"
-            className="relative isolate min-h-screen bg-[var(--color-night)] text-[var(--color-ink)]"
-        >
-            <div className="grain-overlay" />
-            <Ticker />
+        <>
+            <AnchorScroll />
             <Nav />
-            <main className="relative z-10">
-                <Hero />
-                <Problem />
-                <Anatomy />
-                <section id="capabilities">
-                    <Capabilities />
-                </section>
-                <Demo />
-                <section id="deploy">
-                    <Deploy />
-                </section>
-                <Pricing />
-                <Closing />
-            </main>
-            <Footer />
-        </div>
+            <div
+                id="top"
+                className="site-shell relative min-h-screen bg-[var(--color-night)] pt-14 text-[var(--color-ink)]"
+            >
+                <div className="grain-overlay" />
+                <main className="relative z-10">
+                    <Hero />
+                    <Problem />
+                    <Anatomy />
+                    <section id="capabilities">
+                        <Capabilities />
+                    </section>
+                    <Demo />
+                    <section id="deploy">
+                        <Deploy />
+                    </section>
+                    <Pricing />
+                    <Closing />
+                </main>
+                <Footer />
+            </div>
+        </>
     )
 }

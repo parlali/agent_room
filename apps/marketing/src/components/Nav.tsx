@@ -1,4 +1,5 @@
 import { BrandMark } from '@agent-room/brand'
+import { GitHubLink } from './GitHubLink'
 import { MarqueeLink } from './Marquee'
 
 const links = [
@@ -10,7 +11,7 @@ const links = [
 
 export function Nav() {
     return (
-        <header className="sticky top-0 z-30 border-b border-[var(--color-rule)] bg-[var(--color-night)]/85 backdrop-blur-md">
+        <header className="site-header fixed inset-x-0 top-0 z-50 border-b border-[var(--color-rule)] bg-[var(--color-night)]">
             <div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between px-4 sm:px-6 lg:px-10">
                 <a href="#top" className="group flex items-center gap-2.5 text-[var(--color-ink)]">
                     <BrandMark size={20} />
@@ -30,22 +31,7 @@ export function Nav() {
                         </MarqueeLink>
                     ))}
                 </nav>
-                <div className="flex items-center gap-5">
-                    <MarqueeLink
-                        href="https://github.com/parlali/agent_room"
-                        external
-                        className="hidden text-[13px] tracking-tight text-[var(--color-ink-dim)] transition hover:text-[var(--color-ink)] sm:inline-flex"
-                    >
-                        GitHub
-                    </MarqueeLink>
-                    <MarqueeLink
-                        href="https://github.com/parlali/agent_room"
-                        external
-                        className="inline-flex items-center gap-2 border border-[var(--color-ink)] bg-[var(--color-ink)] px-3.5 py-2 text-[12.5px] font-medium tracking-tight text-[var(--color-night)] transition hover:bg-transparent hover:text-[var(--color-ink)]"
-                    >
-                        Boot a room
-                    </MarqueeLink>
-                </div>
+                <GitHubLink />
             </div>
         </header>
     )

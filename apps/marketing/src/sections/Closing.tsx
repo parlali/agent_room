@@ -2,7 +2,9 @@ import { MarqueeLink } from '../components/Marquee'
 
 export function Closing() {
     return (
-        <section className="relative border-t border-[var(--color-rule)] bg-[var(--color-night)] py-24 sm:py-32 lg:py-40">
+        <>
+            <div className="section-fade-to-night" aria-hidden />
+            <section className="relative bg-[var(--color-night)] py-24 sm:py-32 lg:py-40">
             <div className="mx-auto max-w-[1440px] px-4 sm:px-6 lg:px-10">
                 <div className="grid-12">
                     <div className="col-span-12">
@@ -36,7 +38,8 @@ export function Closing() {
                             <MarqueeLink
                                 href="https://github.com/parlali/agent_room"
                                 external
-                                className="inline-flex items-center gap-3 border border-[var(--color-ink)] bg-[var(--color-ink)] px-6 py-3.5 text-[14px] font-medium tracking-tight text-[var(--color-night)] transition hover:bg-transparent hover:text-[var(--color-ink)]"
+                                marquee={false}
+                                className="cta-fill px-6 py-3.5 text-[14px] font-medium tracking-tight"
                             >
                                 Run the stack
                             </MarqueeLink>
@@ -57,5 +60,6 @@ export function Closing() {
                 </div>
             </div>
         </section>
+        </>
     )
 }

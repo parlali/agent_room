@@ -2,10 +2,12 @@ import { MarqueeLink } from '../components/Marquee'
 
 export function Pricing() {
     return (
-        <section
-            id="pricing"
-            className="relative border-t border-[var(--color-rule)] bg-[var(--color-paper)] text-[var(--color-paper-ink)]"
-        >
+        <>
+            <div className="section-fade-to-paper" aria-hidden />
+            <section
+                id="pricing"
+                className="pricing-surface relative bg-[var(--color-paper)] text-[var(--color-paper-ink)]"
+            >
             <div className="mx-auto max-w-[1440px] px-4 py-24 sm:px-6 sm:py-32 lg:px-10">
                 <div className="flex items-center gap-3">
                     <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--color-paper-dim)]">
@@ -131,6 +133,7 @@ export function Pricing() {
                 </div>
             </div>
         </section>
+        </>
     )
 }
 
@@ -198,10 +201,9 @@ function Plan({ tag, title, price, unit, body, bullets, cta, emphasis }: PlanPro
                 <MarqueeLink
                     href={cta.href}
                     external={cta.external}
-                    className={`inline-flex items-center gap-2 border px-4 py-2.5 text-[13px] font-medium tracking-tight transition ${
-                        emphasis
-                            ? 'border-[var(--color-paper-ink)] bg-[var(--color-paper-ink)] text-[var(--color-paper)] hover:bg-transparent hover:text-[var(--color-paper-ink)]'
-                            : 'border-[var(--color-paper-ink)] text-[var(--color-paper-ink)] hover:bg-[var(--color-paper-ink)] hover:text-[var(--color-paper)]'
+                    marquee={false}
+                    className={`px-4 py-2.5 text-[13px] font-medium tracking-tight ${
+                        emphasis ? 'cta-fill-paper' : 'cta-outline-paper'
                     }`}
                 >
                     {cta.label} →
