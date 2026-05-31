@@ -1,35 +1,9 @@
-# Agent Room Marketing Site
+# Marketing
 
-The public marketing surface for [openagentroom.com](https://openagentroom.com). Built with Vite, React, Tailwind, and TypeScript, matching the rest of the Agent Room stack.
+Placeholder Vite app for the future public site.
 
-This is a static SPA. It deliberately does not share runtime, auth, room state, or any private data with the main app. The whole point of keeping it in `apps/marketing` is to ship a marketing surface without coupling deploys.
-
-## Develop
-
-From the repo root:
+It intentionally contains no marketing content yet. It exists to keep the Turborepo workspace, Vite setup, and shared `@agent-room/brand` imports exercised.
 
 ```bash
 bun run marketing:dev
 ```
-
-Or from this directory:
-
-```bash
-bun run dev
-```
-
-The site runs on [http://localhost:3000](http://localhost:3000) by default. The dev server binds to all interfaces so it can be reached through a remote development hostname. Tailscale `.ts.net` hostnames are allowed by default; set `VITE_ALLOWED_HOSTS` to a comma-separated list for other hostnames.
-
-## Build
-
-```bash
-bun run marketing:build
-```
-
-Output lives at `apps/marketing/dist`. Drop it on any static host (Cloudflare Pages, Netlify, S3 + CloudFront, GitHub Pages).
-
-## Design notes
-
-The aesthetic direction is an "Operator's Manual": dark editorial typography (Fraunces), warm cream paper accents borrowed from the Agent Room brand, mono technical labels (JetBrains Mono), live status elements, and a single cream-paper section flip for the pricing tease.
-
-The site is intentionally honest about Agent Room being early OSS. The pricing tease names a future managed plan but commits to no dates and no fake numbers.

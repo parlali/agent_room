@@ -3,6 +3,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { deflateSync } from 'node:zlib'
 
+import { brandWebAssetCatalog, brandWebTargets, formatWebManifest } from '../src/web-assets'
+
 type Color = {
     r: number
     g: number
@@ -71,31 +73,31 @@ const exportSpecs: ExportSpec[] = [
         background: colors.transparent,
     })),
     {
-        path: 'exports/web/apple-touch-icon.png',
+        path: brandWebAssetCatalog.appleTouchIcon.sourcePath,
         size: 180,
         foreground: colors.ink,
         background: colors.paper,
     },
     {
-        path: 'exports/web/android-chrome-192x192.png',
+        path: brandWebAssetCatalog.androidChrome192.sourcePath,
         size: 192,
         foreground: colors.ink,
         background: colors.paper,
     },
     {
-        path: 'exports/web/android-chrome-512x512.png',
+        path: brandWebAssetCatalog.androidChrome512.sourcePath,
         size: 512,
         foreground: colors.ink,
         background: colors.paper,
     },
     {
-        path: 'exports/web/maskable-icon-192x192.png',
+        path: brandWebAssetCatalog.maskableIcon192.sourcePath,
         size: 192,
         foreground: colors.ink,
         background: colors.paper,
     },
     {
-        path: 'exports/web/maskable-icon-512x512.png',
+        path: brandWebAssetCatalog.maskableIcon512.sourcePath,
         size: 512,
         foreground: colors.ink,
         background: colors.paper,
@@ -152,9 +154,11 @@ for (let index = 0; index < crcTable.length; index += 1) {
 
 const generated = new Map<string, Buffer>()
 
-await mkdir(join(packageRoot, 'exports/favicon'), { recursive: true })
+await mkdir(join(packageRoot, dirname(brandWebAssetCatalog.faviconSvg.sourcePath)), {
+    recursive: true,
+})
 await writeFile(
-    join(packageRoot, 'exports/favicon/favicon.svg'),
+    join(packageRoot, brandWebAssetCatalog.faviconSvg.sourcePath),
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><path d="M315 792V356L512 232L709 356V792H575M575 792H439V479H575" fill="none" stroke="#151816" stroke-width="72" stroke-linecap="round" stroke-linejoin="round"/></svg>\n`,
 )
 
@@ -168,7 +172,7 @@ for (const spec of exportSpecs) {
 }
 
 await writeFile(
-    join(packageRoot, 'exports/favicon/favicon.ico'),
+    join(packageRoot, brandWebAssetCatalog.faviconIco.sourcePath),
     createIco([
         generated.get('exports/favicon/favicon-16x16.png')!,
         generated.get('exports/favicon/favicon-32x32.png')!,
@@ -176,8 +180,13 @@ await writeFile(
     ]),
 )
 
+await writeFile(
+    join(packageRoot, 'site.webmanifest'),
+    formatWebManifest(brandWebTargets['self-hosted'].manifest),
+)
+
 console.log(
-    `Generated ${exportSpecs.length + 2} branding assets in ${join(packageRoot, 'exports')}`,
+    `Generated ${exportSpecs.length + 3} branding assets in ${join(packageRoot, 'exports')}`,
 )
 
 function hex(value: string): Color {

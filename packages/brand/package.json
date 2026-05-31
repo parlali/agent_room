@@ -6,6 +6,7 @@
     "exports": {
         ".": "./src/index.tsx",
         "./tokens": "./brand.tokens.json",
+        "./vite": "./src/vite.ts",
         "./source/*": "./source/*",
         "./exports/*": "./exports/*"
     },

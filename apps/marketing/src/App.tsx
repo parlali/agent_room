@@ -1,40 +1,17 @@
-import { Anatomy } from './sections/Anatomy'
-import { Capabilities } from './sections/Capabilities'
-import { Closing } from './sections/Closing'
-import { Demo } from './sections/Demo'
-import { Deploy } from './sections/Deploy'
-import { Footer } from './sections/Footer'
-import { Hero } from './sections/Hero'
-import { Pricing } from './sections/Pricing'
-import { Problem } from './sections/Problem'
-import { AnchorScroll } from './components/AnchorScroll'
-import { Nav } from './components/Nav'
+import { BrandMark, BrandWordmark, brandTokens } from '@agent-room/brand'
 
 export default function App() {
     return (
-        <>
-            <AnchorScroll />
-            <Nav />
-            <div
-                id="top"
-                className="site-shell relative min-h-screen bg-[var(--color-night)] pt-14 text-[var(--color-ink)]"
-            >
-                <main className="relative z-10">
-                    <Hero />
-                    <Problem />
-                    <Anatomy />
-                    <section id="capabilities">
-                        <Capabilities />
-                    </section>
-                    <Demo />
-                    <section id="deploy">
-                        <Deploy />
-                    </section>
-                    <Pricing />
-                    <Closing />
-                </main>
-                <Footer />
-            </div>
-        </>
+        <main className="placeholder-shell">
+            <section className="placeholder-panel" aria-labelledby="placeholder-title">
+                <div className="placeholder-mark" style={{ color: brandTokens.colors.ink }}>
+                    <BrandMark size={72} title="Agent Room" />
+                </div>
+                <BrandWordmark className="placeholder-wordmark" />
+                <p id="placeholder-title" className="placeholder-copy">
+                    Marketing site placeholder
+                </p>
+            </section>
+        </main>
     )
 }

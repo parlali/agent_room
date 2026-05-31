@@ -1,31 +1,34 @@
 {
     "name": "Agent Room",
     "short_name": "Agent Room",
+    "description": "A self-hosted control room for persistent AI coworkers.",
     "icons": [
         {
-            "src": "./exports/web/android-chrome-192x192.png",
+            "src": "android-chrome-192x192.png",
             "sizes": "192x192",
             "type": "image/png"
         },
         {
-            "src": "./exports/web/android-chrome-512x512.png",
+            "src": "android-chrome-512x512.png",
             "sizes": "512x512",
             "type": "image/png"
         },
         {
-            "src": "./exports/web/maskable-icon-192x192.png",
+            "src": "maskable-icon-192x192.png",
             "sizes": "192x192",
             "type": "image/png",
             "purpose": "maskable"
         },
         {
-            "src": "./exports/web/maskable-icon-512x512.png",
+            "src": "maskable-icon-512x512.png",
             "sizes": "512x512",
             "type": "image/png",
             "purpose": "maskable"
         }
     ],
+    "start_url": "/",
+    "scope": "/",
+    "display": "standalone",
     "theme_color": "#faf9f4",
-    "background_color": "#faf9f4",
-    "display": "standalone"
+    "background_color": "#faf9f4"
 }

@@ -1,6 +1,6 @@
 # Agent Room Branding Package
 
-This package contains the Agent Room logo as a clean room-and-door mark derived from the approved reference screenshot. The source is vector-first, with generated PNG exports for web, favicon, PWA, iOS, Android, and presentation use.
+This package contains the Agent Room logo as a clean room-and-door mark derived from the approved reference screenshot. The source is vector-first, with generated PNG exports for web, favicon, PWA, iOS, Android, and presentation use. Web apps consume the package through typed build targets, so branding assets are emitted at build time instead of being copied into app `public/` folders.
 
 ## Source Files
 
@@ -8,7 +8,7 @@ This package contains the Agent Room logo as a clean room-and-door mark derived 
 - `source/agent-room-app-icon-light.svg`: light app icon source
 - `source/agent-room-app-icon-dark.svg`: dark app icon source
 - `brand.tokens.json`: brand colors and source geometry metadata
-- `site.webmanifest`: starter manifest pointing at the generated web exports
+- `site.webmanifest`: generated self-hosted app manifest
 
 ## Key Exports
 
@@ -34,4 +34,15 @@ Run this from the repository root:
 bun run brand:export
 ```
 
-The generated files are intentionally isolated from `public/` so this package can be reviewed and shared before the app assets are replaced.
+## Web App Integration
+
+Use the Vite plugin from each app:
+
+```ts
+import { agentRoomBrandAssets } from '@agent-room/brand/vite'
+
+agentRoomBrandAssets({ target: 'self-hosted' })
+agentRoomBrandAssets({ target: 'marketing' })
+```
+
+The `self-hosted` target emits favicon assets, PWA icons, `site.webmanifest`, and `robots.txt`. The `marketing` target emits favicon and touch icon assets only.

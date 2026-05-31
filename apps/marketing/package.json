@@ -3,7 +3,7 @@
     "private": true,
     "version": "0.1.0",
     "type": "module",
-    "description": "Marketing site for openagentroom.com",
+    "description": "Placeholder Vite shell for the future Agent Room public site.",
     "scripts": {
         "dev": "vite",
         "build": "vite build",
