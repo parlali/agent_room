@@ -24,4 +24,4 @@ db/schema.sql
 *.pid
 *.sqlite
 *.db
-.turbo
+plan.md
