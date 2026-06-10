@@ -7,5 +7,5 @@
         },
         "types": ["vite/client", "bun-types", "@cloudflare/workers-types"]
     },
-    "include": ["src", "server", "worker.ts", "vite.config.ts"]
+    "include": ["src", "server", "scripts", "worker.ts", "vite.config.ts"]
 }

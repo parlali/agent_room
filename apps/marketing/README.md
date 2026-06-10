@@ -43,12 +43,12 @@ For Git-connected Cloudflare builds from the repo root, use:
 | Build command  | `bun run brand:export:marketing && bun run marketing:build` |
 | Deploy command | `bun run marketing:deploy`                                  |
 
-The deploy script runs `wrangler deploy` and then applies the remote D1 migrations. Wrangler reads the static asset path, Worker entrypoint, D1 binding, and SPA fallback behavior from `wrangler.jsonc`. Forks can rename the Worker and D1 database in `wrangler.jsonc` if they want different resource names in their Cloudflare account.
+The deploy script runs `wrangler deploy`, resolves the auto-provisioned D1 database ID from Cloudflare, and applies the remote D1 migrations with a temporary Wrangler config. The generated database ID is not committed. Forks can rename the Worker and D1 database in `wrangler.jsonc` if they want different resource names in their Cloudflare account.
 
 Validate the Worker bundle locally without deploying:
 
 ```bash
-bunx wrangler deploy --dry-run
+bun run marketing:deploy -- --dry-run
 ```
 
 ## Environment variables
