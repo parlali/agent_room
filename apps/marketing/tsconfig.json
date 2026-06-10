@@ -1,0 +1,11 @@
+{
+    "extends": "@agent-room/typescript-config/vite-react",
+    "compilerOptions": {
+        "baseUrl": ".",
+        "paths": {
+            "~/*": ["./src/*"]
+        },
+        "types": ["vite/client", "bun-types"]
+    },
+    "include": ["src", "server", "vite.config.ts"]
+}

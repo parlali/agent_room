@@ -10,6 +10,15 @@ Agent Room is early self-hosted software. It is designed for local or private-ne
 
 Do not expose it directly to the public internet without a trusted reverse proxy, HTTPS, strong authentication, and backups.
 
+## Repository Layout
+
+Agent Room is a Bun and Turborepo workspace:
+
+- `apps/self-hosted`: the self-hosted product app, server runtime, database migrations, and deployment scripts
+- `apps/marketing`: the Vite shell for the future public site, currently a placeholder wired to shared brand primitives
+- `packages/brand`: canonical brand tokens, mark components, source vectors, and generated icon exports
+- `infra/searxng`: local SearXNG entrypoint used by the Docker stack
+
 ## What You Get
 
 - Room-first agent workspaces
@@ -151,10 +160,17 @@ Install dependencies:
 bun install
 ```
 
-Run checks:
+Run all workspace checks:
 
 ```bash
 bun run check
+```
+
+Run a focused app or site command:
+
+```bash
+bun run self-hosted:dev
+bun run marketing:dev
 ```
 
 The normal product runtime is Docker-first:

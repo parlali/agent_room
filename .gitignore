@@ -11,6 +11,7 @@ dist-ssr
 .wrangler
 .output
 .vinxi
+.turbo
 coverage
 *.log
 tmp
@@ -23,4 +24,5 @@ db/schema.sql
 *.pid
 *.sqlite
 *.db
-.turbo
+plan.md
+packages/brand/exports/marketing/og-share.png
