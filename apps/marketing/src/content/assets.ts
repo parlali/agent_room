@@ -1,6 +1,10 @@
 import type { MarketingAsset } from './types'
 
-const base = '/assets/marketing'
+export const marketingAssetBase = '/assets/marketing'
+
+const base = marketingAssetBase
+
+export const defaultOgImage = `${base}/og-share.png`
 
 export const assets = {
     heroDesktop: {
@@ -15,28 +19,16 @@ export const assets = {
         width: 941,
         height: 1672,
     },
-    roomIsolation: {
-        src: `${base}/room-isolation-diagram.png`,
-        alt: 'Four separate room modules, each with its own isolated memory, files, tools, schedules, and credentials.',
-        width: 1672,
-        height: 941,
-    },
-    capabilities: {
+    capabilitiesDashboard: {
         src: `${base}/capabilities-artifacts-dashboard.png`,
-        alt: 'Capability dashboard showing tools, generated artifacts, scheduled jobs, and an activity and audit feed.',
+        alt: 'Agent Room dashboard showing room capabilities and generated artifacts.',
         width: 1672,
         height: 941,
     },
-    securityRuntime: {
+    securityAudit: {
         src: `${base}/security-audit-runtime.png`,
-        alt: 'Security and audit view showing credential boundaries, provider binding, and runtime traceability.',
+        alt: 'Agent Room audit view showing per-room tool calls, run state, and usage telemetry.',
         width: 1672,
         height: 941,
-    },
-    pricingWaitlist: {
-        src: `${base}/pricing-waitlist-credits.png`,
-        alt: 'Waitlist and usage visual showing credit meters and top-up style controls.',
-        width: 1536,
-        height: 1024,
     },
 } satisfies Record<string, MarketingAsset>

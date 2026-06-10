@@ -45,4 +45,4 @@ agentRoomBrandAssets({ target: 'self-hosted' })
 agentRoomBrandAssets({ target: 'marketing' })
 ```
 
-The `self-hosted` target emits favicon assets, PWA icons, `site.webmanifest`, and `robots.txt`. The `marketing` target emits favicon and touch icon assets only.
+The `self-hosted` target emits favicon assets, PWA icons, `site.webmanifest`, and `robots.txt`. The `marketing` target emits favicon and touch icon assets plus the generated OG share image into `assets/marketing/`.

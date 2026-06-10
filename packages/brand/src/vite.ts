@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -6,6 +6,7 @@ import {
     brandWebAssetCatalog,
     brandWebTargets,
     formatWebManifest,
+    marketingAssetCatalog,
     type BrandWebTarget,
 } from './web-assets.ts'
 
@@ -34,6 +35,22 @@ type BrandAssetPlugin = {
     apply?: 'build'
     applyToEnvironment?: (environment: BrandViteEnvironment) => boolean | BrandAssetPlugin
     generateBundle?: (this: BrandAssetPluginContext) => void
+    configureServer?: (server: {
+        middlewares: {
+            use: (
+                path: string,
+                handler: (
+                    request: { url?: string; method?: string },
+                    response: {
+                        statusCode: number
+                        setHeader: (name: string, value: string) => void
+                        end: (body?: Buffer) => void
+                    },
+                    next: () => void,
+                ) => void,
+            ) => void
+        }
+    }) => void
 }
 
 export type AgentRoomBrandAssetsOptions = {
@@ -87,6 +104,43 @@ function createBrandAssetEmitter(target: BrandWebTarget): BrandAssetPlugin {
                     type: 'asset',
                     fileName: 'robots.txt',
                     source: targetConfig.robotsTxt,
+                })
+            }
+
+            for (const assetKey of targetConfig.marketingAssets ?? []) {
+                const asset = marketingAssetCatalog[assetKey]
+
+                this.emitFile({
+                    type: 'asset',
+                    fileName: asset.fileName,
+                    source: readFileSync(join(packageRoot, asset.sourcePath)),
+                })
+            }
+        },
+    }
+}
+
+export function agentRoomMarketingAssetsDev(): BrandAssetPlugin {
+    return {
+        name: 'agent-room-marketing-assets-dev',
+        configureServer(server) {
+            for (const asset of Object.values(marketingAssetCatalog)) {
+                const urlPath = `/${asset.fileName}`
+                const filePath = join(packageRoot, asset.sourcePath)
+
+                server.middlewares.use(urlPath, (request, response, next) => {
+                    if (!request.url || request.method !== 'GET') {
+                        next()
+                        return
+                    }
+
+                    if (!existsSync(filePath)) {
+                        next()
+                        return
+                    }
+
+                    response.setHeader('content-type', 'image/png')
+                    response.end(readFileSync(filePath))
                 })
             }
         },

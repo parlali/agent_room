@@ -4,7 +4,8 @@
         "baseUrl": ".",
         "paths": {
             "~/*": ["./src/*"]
-        }
+        },
+        "types": ["vite/client", "bun-types"]
     },
-    "include": ["src", "vite.config.ts"]
+    "include": ["src", "server", "vite.config.ts"]
 }

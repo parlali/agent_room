@@ -1,25 +1,19 @@
 import type { FaqItem, WaitlistField } from './types'
 
-export const waitlistEmail = 'waitlist@agent-room.dev'
-
 export const pricing = {
     eyebrow: 'Hosted waitlist',
     title: 'Join the hosted waitlist.',
     summary:
-        'Hosted Agent Room is being prepared for early access. Pricing is being finalized, so there is nothing to buy yet. Join the waitlist and we will reach out as hosted spots open.',
+        'Hosted Agent Room is being prepared for early access. There is nothing to buy yet. Join the waitlist and we will reach out as spots open.',
     philosophy: {
         title: 'How billing is expected to work',
-        note: 'This is direction, not a published price. Usage will depend on the models and provider paths you choose.',
+        note: 'This is direction, not a published price. Usage will depend on the models each room uses.',
         points: [
-            'A subscription for hosted operation and room capacity.',
-            'Model usage billed as credits or top-ups on top of the subscription.',
-            'Usage depends on the models and provider paths each room uses.',
-            'Self-hosting stays free from the open source repository.',
+            'A subscription covers hosted operation and room capacity.',
+            'Model usage is billed as credits on top.',
+            'Each room costs are visible, so you always know which job spent what.',
+            'No charges until early access pricing is published and you opt in.',
         ],
-    },
-    sourceNote: {
-        title: 'Source stays available',
-        body: 'The repository remains open source. Hosted Agent Room removes the operations work of running isolation, runtime, and credential handling yourself. You can always self-host instead.',
     },
 }
 
@@ -33,16 +27,8 @@ export const pricingFaq: FaqItem[] = [
         answer: 'Usage will depend on the models and provider paths each room uses. The expected shape is a subscription plus model credits or top-ups.',
     },
     {
-        question: 'Can I bring my own provider keys?',
-        answer: 'Provider binding is explicit per room. Whether early hosted accounts bring their own keys, use pooled credits, or both is still being decided, and is one of the things we want waitlist feedback on.',
-    },
-    {
         question: 'What is the difference between hosted and self-hosted?',
         answer: 'The source is available to self-host at no cost. Hosted Agent Room runs the isolation, runtime, and credential handling for you so your team does not operate the stack.',
-    },
-    {
-        question: 'Which models are supported?',
-        answer: 'Rooms select a provider and model explicitly. The exact hosted model lineup will be confirmed before early access opens.',
     },
 ]
 

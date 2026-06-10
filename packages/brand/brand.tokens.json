@@ -1,6 +1,15 @@
 {
     "name": "Agent Room",
     "mark": "single-line room and doorway",
+    "typography": {
+        "marketing": {
+            "body": "Geist Variable",
+            "mono": "JetBrains Mono Variable"
+        },
+        "product": {
+            "sans": "Geist Variable"
+        }
+    },
     "colors": {
         "ink": "#151816",
         "paper": "#faf9f4",

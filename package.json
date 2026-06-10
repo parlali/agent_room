@@ -49,8 +49,10 @@
         "marketing:dev": "bun run --filter @agent-room/marketing dev",
         "marketing:build": "bun run --filter @agent-room/marketing build",
         "marketing:preview": "bun run --filter @agent-room/marketing preview",
+        "marketing:start": "bun run --filter @agent-room/marketing start",
         "marketing:typecheck": "bun run --filter @agent-room/marketing typecheck",
-        "brand:export": "bun run --filter @agent-room/brand export:icons"
+        "brand:export": "bun run --filter @agent-room/brand export:icons",
+        "brand:export:marketing": "bun run --filter @agent-room/brand export:marketing"
     },
     "devDependencies": {
         "@tanstack/eslint-config": "0.4.0",

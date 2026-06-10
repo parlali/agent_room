@@ -4,20 +4,13 @@ export const terms: LegalDocument = {
     title: 'Terms of Service',
     summary:
         'These terms cover the hosted Agent Room service while it is in early access. They are written in plain English so you can understand what you are agreeing to before you rely on the product.',
-    updated: 'June 1, 2026',
+    updated: 'June 9, 2026',
     sections: [
-        {
-            heading: 'Early-access placeholder notice',
-            body: [
-                'This document is an early-access draft. Agent Room is in a waitlist and limited-access stage, and these terms will be reviewed and updated before the product becomes generally available.',
-                'Nothing here is legal advice. If you need to understand how these terms apply to your specific situation, please consult your own legal counsel. By using the hosted service during early access, you acknowledge that the terms may change and that we will publish material updates on this page.',
-            ],
-        },
         {
             heading: 'Hosted service and acceptance',
             body: [
                 'Agent Room is software for deploying isolated AI rooms, where each room behaves like a separate AI coworker with its own identity, memory, workspace filesystem, generated artifacts, tools, scheduled jobs, model binding, and credentials. The hosted service runs and maintains this infrastructure on your behalf so you do not have to operate it yourself.',
-                'These terms apply to the hosted service that we operate. By creating an account, joining the waitlist, or otherwise accessing the hosted service, you agree to these terms. If you are accepting on behalf of a company or other organization, you confirm that you are authorized to bind that organization to these terms.',
+                'These terms apply to the hosted service that we operate while it is in early access. By creating an account, joining the waitlist, or otherwise accessing the hosted service, you agree to these terms. Material updates will be published on this page. If you are accepting on behalf of a company or other organization, you confirm that you are authorized to bind that organization to these terms.',
             ],
         },
         {
@@ -105,19 +98,12 @@ export const privacy: LegalDocument = {
     title: 'Privacy Policy',
     summary:
         'This policy explains what data the hosted Agent Room service handles and how we treat it. It is written in plain English and reflects the early-access stage of the product.',
-    updated: 'June 1, 2026',
+    updated: 'June 9, 2026',
     sections: [
-        {
-            heading: 'Early-access placeholder notice',
-            body: [
-                'This policy is an early-access draft and will be reviewed and updated before the product becomes generally available. It is not legal advice.',
-                'We have written it to describe our intended practices honestly, and we will revise it as features, infrastructure, and data handling mature. Material changes will be published on this page.',
-            ],
-        },
         {
             heading: 'Scope and overview',
             body: [
-                'This policy covers the hosted Agent Room service that we operate. It describes the categories of data we handle to run the service, why we handle them, and the choices available to you.',
+                'This policy covers the hosted Agent Room service that we operate during early access. It describes the categories of data we handle to run the service, why we handle them, and the choices available to you. Material changes will be published on this page.',
                 'Agent Room runs isolated AI rooms, where each room has its own identity, memory, workspace filesystem, artifacts, tools, scheduled jobs, model binding, and credentials. Much of the data we handle exists to keep those rooms isolated and to operate them on your behalf.',
             ],
         },

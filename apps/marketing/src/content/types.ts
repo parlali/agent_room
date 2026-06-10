@@ -22,6 +22,7 @@ export type Cta = {
 export type SeoMeta = {
     title: string
     description: string
+    image?: string
 }
 
 export type MarketingAsset = {
@@ -31,29 +32,46 @@ export type MarketingAsset = {
     height: number
 }
 
-export type Capability = {
-    name: string
-    detail: string
-}
-
 export type FeatureGroup = {
     id: string
     eyebrow: string
     title: string
     summary: string
-    points: string[]
 }
 
 export type SecurityPrinciple = {
     id: string
     title: string
     summary: string
-    points: string[]
+}
+
+export type SecurityLogEntry = {
+    room: string
+    action: string
+    target: string
+    allowed: boolean
 }
 
 export type FaqItem = {
     question: string
     answer: string
+}
+
+export type ComparisonTone = 'red' | 'green' | 'amber' | 'blue'
+
+export type ComparisonColumn = {
+    label: string
+    tone: ComparisonTone
+}
+
+export type ComparisonRow = {
+    label: string
+    cells: [string, string]
+}
+
+export type Comparison = {
+    columns: [ComparisonColumn, ComparisonColumn]
+    rows: ComparisonRow[]
 }
 
 export type WaitlistField = {
@@ -64,6 +82,32 @@ export type WaitlistField = {
     placeholder?: string
     options?: string[]
 }
+
+export type WaitlistInterest = 'Hosted' | 'Self-hosted' | 'Both'
+
+export type WaitlistSubmission = {
+    name: string
+    email: string
+    company: string
+    useCase: string
+    interest: WaitlistInterest
+}
+
+export type WaitlistFieldName = keyof WaitlistSubmission
+
+export type WaitlistFieldErrors = Partial<Record<WaitlistFieldName, string>>
+
+export type WaitlistSubmitSuccess = {
+    ok: true
+}
+
+export type WaitlistSubmitError = {
+    ok: false
+    message: string
+    errors?: WaitlistFieldErrors
+}
+
+export type WaitlistSubmitResponse = WaitlistSubmitSuccess | WaitlistSubmitError
 
 export type LegalSection = {
     heading: string

@@ -1,86 +1,64 @@
 import { pricing, pricingFaq } from '~/content/pricing'
-import { githubUrl, seo } from '~/content/site'
-import { CtaBand } from '~/components/CtaBand'
-import { Faq } from '~/components/Faq'
-import { Link } from '~/components/Link'
+import { seo } from '~/content/site'
+import {
+    Accordion,
+    AccordionContent,
+    AccordionItem,
+    AccordionTrigger,
+} from '~/components/ui/accordion'
+import { PageHero } from '~/components/PageHero'
 import { PageShell } from '~/components/PageShell'
 import { WaitlistForm } from '~/components/WaitlistForm'
-import { Container, Section, SectionHeading, StatusDot } from '~/components/primitives'
+import { Section, SectionHeading } from '~/components/primitives'
 
 export function Pricing() {
     return (
         <PageShell meta={seo['/pricing']}>
-            <section className="relative overflow-hidden">
-                <Container className="pt-14 pb-16 sm:pt-20 lg:pt-24">
-                    <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-                        <div>
-                            <p className="eyebrow mb-4 flex items-center gap-2">
-                                <StatusDot tone="amber" />
-                                {pricing.eyebrow}
-                            </p>
-                            <h1 className="text-balance text-4xl font-semibold leading-[1.05] tracking-tight sm:text-5xl lg:text-[3.4rem]">
-                                {pricing.title}
-                            </h1>
-                            <p className="mt-5 max-w-xl text-base leading-relaxed text-ink-soft sm:text-lg">
-                                {pricing.summary}
-                            </p>
-                        </div>
-
-                        <WaitlistForm />
-                    </div>
-                </Container>
-            </section>
-
-            <Section className="bg-paper-sunken">
-                <SectionHeading eyebrow="Direction" title={pricing.philosophy.title} />
-                <ul className="mt-8 flex flex-col divide-y divide-line border-y border-line">
-                    {pricing.philosophy.points.map((point) => (
-                        <li
-                            key={point}
-                            className="flex items-start gap-3 py-4 text-sm leading-relaxed text-ink-soft"
-                        >
-                            <span className="mt-2">
-                                <StatusDot tone="blue" />
-                            </span>
-                            {point}
-                        </li>
-                    ))}
-                </ul>
-                <p className="mt-6 max-w-2xl text-xs leading-relaxed text-ink-faint">
-                    {pricing.philosophy.note}
+            <PageHero eyebrow={pricing.eyebrow}>
+                <h1 className="type-display rise rise-1 text-balance text-ink">{pricing.title}</h1>
+                <p className="type-body rise rise-2 mt-6 max-w-2xl text-pretty text-ink-soft sm:text-lg">
+                    {pricing.summary}
                 </p>
-            </Section>
+                <div className="rise rise-3 mt-12 w-full max-w-lg text-left">
+                    <WaitlistForm />
+                </div>
+            </PageHero>
 
             <Section>
-                <div className="grid gap-10 lg:grid-cols-2 lg:gap-16">
-                    <SectionHeading
-                        eyebrow="Self-hosted"
-                        title={pricing.sourceNote.title}
-                        summary={pricing.sourceNote.body}
-                    />
-                    <div className="flex items-start">
-                        <Link href={githubUrl} external className="btn btn-ghost">
-                            View source on GitHub →
-                        </Link>
-                    </div>
+                <SectionHeading
+                    eyebrow="Billing direction"
+                    title={pricing.philosophy.title}
+                    summary={pricing.philosophy.note}
+                />
+                <div className="mx-auto mt-12 grid max-w-4xl gap-5 sm:grid-cols-2">
+                    {pricing.philosophy.points.map((point, index) => (
+                        <div key={point} className="card card-hover p-6">
+                            <p className="step-num">{String(index + 1).padStart(2, '0')}</p>
+                            <p className="mt-3 text-sm leading-relaxed text-ink-soft">{point}</p>
+                        </div>
+                    ))}
                 </div>
             </Section>
 
-            <Section className="bg-paper-sunken">
+            <Section className="border-t border-line">
                 <SectionHeading
-                    eyebrow="Questions"
+                    eyebrow="FAQ"
                     title="Pricing and hosting questions."
                     summary="What we can answer today, and what the waitlist helps us decide."
                 />
-                <div className="mt-10">
-                    <Faq items={pricingFaq} />
+                <div className="mx-auto mt-12 max-w-2xl">
+                    <div className="surface-raised overflow-hidden">
+                        <Accordion type="single" collapsible>
+                            {pricingFaq.map((item) => (
+                                <AccordionItem key={item.question} value={item.question}>
+                                    <AccordionTrigger>{item.question}</AccordionTrigger>
+                                    <AccordionContent>{item.answer}</AccordionContent>
+                                </AccordionItem>
+                            ))}
+                        </Accordion>
+                    </div>
                 </div>
             </Section>
-
-            <CtaBand
-                title="Join the hosted waitlist."
-                body="Pricing is being finalized. Add your details and we will reach out as hosted spots open."
-            />
         </PageShell>
     )
 }

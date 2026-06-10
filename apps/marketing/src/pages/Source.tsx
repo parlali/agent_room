@@ -1,42 +1,33 @@
-import { assets } from '~/content/assets'
-import { githubCta, githubUrl, primaryCta, seo } from '~/content/site'
+import type { Comparison } from '~/content/types'
+import { githubCta, githubUrl, pageCtaBands, primaryCta, seo } from '~/content/site'
+import { ComparisonPanel } from '~/components/ComparisonPanel'
 import { CtaBand } from '~/components/CtaBand'
-import { Link } from '~/components/Link'
+import { PageHero } from '~/components/PageHero'
 import { PageShell } from '~/components/PageShell'
-import { ProductImage } from '~/components/ProductImage'
-import { CtaButton, Section, SectionHeading, StatusDot } from '~/components/primitives'
+import { ArrowLink, CtaButton, Section, SectionHeading } from '~/components/primitives'
 
 const resources = [
     {
-        id: 'repository',
-        eyebrow: 'Repository',
-        title: 'Read the full source on GitHub',
-        body: 'The orchestration runtime, room isolation, and credential handling are all in the open so you can review exactly how Agent Room works before you trust it.',
-        href: githubUrl,
-        external: true,
-        cta: 'View GitHub',
-    },
-    {
         id: 'self-hosting',
-        eyebrow: 'Self-hosting',
+        label: 'Self-hosting',
         title: 'Run the entire stack yourself, free',
-        body: 'Clone the repository and operate Agent Room on your own infrastructure. The same isolation model and runtime that power the hosted product are available to you at no license cost.',
+        body: 'Clone the repository and run Agent Room on your own machines. It is the same isolation model and runtime that power the hosted product, at no license cost.',
         href: githubUrl,
         external: true,
         cta: 'Self-host from source',
     },
     {
         id: 'disclosure',
-        eyebrow: 'Security',
+        label: 'Security',
         title: 'Responsible disclosure',
-        body: 'Found a vulnerability? Review the security model and reporting path before you dig into the code, so isolation and credential issues reach us responsibly.',
+        body: 'Found a vulnerability? Review the security model and the private reporting path so isolation and credential issues reach us before they reach anyone else.',
         href: '/security',
         external: false,
         cta: 'Read the security model',
     },
     {
         id: 'license',
-        eyebrow: 'License',
+        label: 'License',
         title: 'MIT licensed',
         body: 'Agent Room is released under the MIT License. Use, modify, and distribute the source with attribution and the standard no-warranty terms.',
         href: githubUrl,
@@ -45,114 +36,100 @@ const resources = [
     },
 ]
 
-const operations = [
-    {
-        label: 'Self-hosted',
-        tone: 'amber' as const,
-        summary: 'You own every operational concern.',
-        points: [
-            'You provision and maintain the runtime that executes agent work.',
-            'You enforce room isolation and filesystem boundaries on your own hosts.',
-            'You store and rotate provider credentials and API keys.',
-            'You ship updates, patches, and security fixes on your own schedule.',
-        ],
-    },
-    {
-        label: 'Hosted Agent Room',
-        tone: 'green' as const,
-        summary: 'We operate the platform so you do not have to.',
-        points: [
-            'We run and scale the orchestration runtime for every room.',
-            'We maintain isolation and runtime boundaries between rooms.',
-            'We handle credential storage, provider binding, and rotation.',
-            'We deliver updates and security fixes continuously.',
-        ],
-    },
-]
+const operationsComparison: Comparison = {
+    columns: [
+        { label: 'Self-hosted', tone: 'amber' },
+        { label: 'Hosted Agent Room', tone: 'green' },
+    ],
+    rows: [
+        {
+            label: 'Runtime',
+            cells: [
+                'You provision and maintain the runtime that executes agent work.',
+                'We run and scale the orchestration runtime for every room.',
+            ],
+        },
+        {
+            label: 'Isolation',
+            cells: [
+                'You enforce room isolation and filesystem boundaries on your own hosts.',
+                'We maintain isolation and runtime boundaries between rooms.',
+            ],
+        },
+        {
+            label: 'Credentials',
+            cells: [
+                'You store and rotate provider credentials and API keys.',
+                'We handle credential storage, provider binding, and rotation.',
+            ],
+        },
+        {
+            label: 'Updates',
+            cells: [
+                'You ship updates, patches, and security fixes on your own schedule.',
+                'We deliver updates and security fixes continuously.',
+            ],
+        },
+    ],
+}
 
 export function Source() {
+    const ctaBand = pageCtaBands.source
+
     return (
         <PageShell meta={seo['/source']}>
+            <PageHero eyebrow="Open source">
+                <h1 className="type-display rise rise-1 text-balance text-ink">
+                    Read the code. Skip the operations.
+                </h1>
+                <p className="type-body rise rise-2 mt-6 max-w-2xl text-pretty text-ink-soft sm:text-lg">
+                    Agent Room is open source on GitHub. Read exactly how the walls are built,
+                    self-host the whole stack for free, or let the hosted product run it for you.
+                </p>
+                <div className="rise rise-3 mt-9 flex flex-wrap justify-center gap-3">
+                    <CtaButton cta={githubCta} size="lg" />
+                    <CtaButton cta={primaryCta} variant="ghost" size="lg" />
+                </div>
+            </PageHero>
+
             <Section>
                 <SectionHeading
-                    eyebrow="Source"
-                    title="Open source you can read, hosted so you do not have to run it."
-                    summary="Agent Room is source available on GitHub. Read how isolation, runtime, and credential handling actually work, and self-host the stack if you want to. For most teams the hosted product is the recommended path: it removes the operational work of running an orchestration platform safely."
+                    eyebrow="Trust anchor"
+                    title="Software that holds your keys should show its code."
+                    summary="Read the implementation before you trust it, and keep self-hosting as your exit at all times."
                 />
-                <div className="mt-8 flex flex-wrap gap-3">
-                    <CtaButton cta={primaryCta} />
-                    <CtaButton cta={githubCta} variant="ghost" />
-                </div>
-            </Section>
-
-            <Section className="bg-paper-sunken">
-                <SectionHeading
-                    eyebrow="What is open"
-                    title="A trust anchor, not a do-it-yourself mandate."
-                    summary="The code being open is a reason to trust the hosted product, not a requirement to operate it yourself."
-                />
-                <div className="mt-10 grid gap-px overflow-hidden rounded-[10px] border border-line bg-line sm:grid-cols-2">
+                <div className="mt-12 grid gap-5 md:grid-cols-3">
                     {resources.map((resource) => (
-                        <div key={resource.id} className="flex flex-col bg-panel p-5">
-                            <p className="eyebrow mb-2">{resource.eyebrow}</p>
-                            <p className="text-sm font-medium text-ink">{resource.title}</p>
-                            <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+                        <article key={resource.id} className="card card-hover flex flex-col p-7">
+                            <p className="eyebrow mb-3">{resource.label}</p>
+                            <h3 className="text-base font-medium text-ink">{resource.title}</h3>
+                            <p className="mt-2 flex-1 text-sm leading-relaxed text-ink-soft">
                                 {resource.body}
                             </p>
-                            <Link
+                            <ArrowLink
                                 href={resource.href}
                                 external={resource.external}
-                                className="mt-4 inline-flex text-sm font-medium text-accent-blue hover:underline"
+                                className="mt-5"
                             >
-                                {resource.cta} →
-                            </Link>
-                        </div>
+                                {resource.cta}
+                            </ArrowLink>
+                        </article>
                     ))}
                 </div>
             </Section>
 
-            <Section>
-                <div className="grid items-start gap-10 lg:grid-cols-2 lg:gap-16">
-                    <div>
-                        <SectionHeading
-                            eyebrow="Hosted vs self-hosted"
-                            title="The code is the same. The operations are not."
-                            summary="Self-hosting means you operate isolation, runtime, credentials, and updates. Hosted means Agent Room operates them for you, with the same source running underneath."
-                        />
-                        <div className="mt-8 grid gap-4 sm:grid-cols-2">
-                            {operations.map((operation) => (
-                                <div
-                                    key={operation.label}
-                                    className={`panel p-5 ${
-                                        operation.tone === 'green' ? 'border-line-strong' : ''
-                                    }`}
-                                >
-                                    <p className="eyebrow mb-2 flex items-center gap-2">
-                                        <StatusDot tone={operation.tone} />
-                                        {operation.label}
-                                    </p>
-                                    <p className="mb-3 text-sm font-medium text-ink">
-                                        {operation.summary}
-                                    </p>
-                                    <ul className="flex flex-col gap-2.5">
-                                        {operation.points.map((point) => (
-                                            <li
-                                                key={point}
-                                                className="text-sm leading-relaxed text-ink-soft"
-                                            >
-                                                {point}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                    <ProductImage asset={assets.roomIsolation} label="room isolation" />
+            <Section className="border-t border-line bg-paper-sunken">
+                <SectionHeading
+                    eyebrow="Hosted vs self-hosted"
+                    title="The code is the same. The operations are not."
+                    summary="Self-hosting means you operate isolation, runtime, credentials, and updates. Hosted means Agent Room operates them for you."
+                />
+                <div className="mx-auto mt-12 max-w-5xl">
+                    <ComparisonPanel comparison={operationsComparison} />
                 </div>
             </Section>
 
-            <CtaBand />
+            <CtaBand title={ctaBand.title} body={ctaBand.body} primary={ctaBand.primary} />
         </PageShell>
     )
 }

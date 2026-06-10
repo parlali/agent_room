@@ -1,16 +1,16 @@
 import type { Cta, NavLink, RoutePath, SeoMeta } from './types'
 
-export const githubUrl = 'https://github.com/agent-room/agent-room'
+export const githubUrl = 'https://github.com/parlali/agent_room'
 
 export const brand = {
     name: 'Agent Room',
-    tagline: 'Isolated AI coworkers for real work.',
+    tagline: 'A room for every job. An assistant in every room.',
     description:
-        'Deploy separate agent rooms for correspondence, research, code, operations, and recurring work. Each room gets its own workspace, memory, tools, schedules, credentials, and audit trail.',
+        'Give every job a persistent AI coworker in its own room, with separate memory, files, tools, and keys. Nothing leaks between rooms.',
 }
 
 export const primaryCta: Cta = {
-    label: 'Join Waitlist',
+    label: 'Join the waitlist',
     href: '/pricing',
 }
 
@@ -20,39 +20,54 @@ export const githubCta: Cta = {
     external: true,
 }
 
+export const readSourceCta: Cta = {
+    label: 'Read the source on GitHub',
+    href: githubUrl,
+    external: true,
+}
+
+export const disclosureCta: Cta = {
+    label: 'Open the disclosure process',
+    href: githubUrl,
+    external: true,
+}
+
+export const pageCtaBands = {
+    features: {
+        title: 'Ready to hand off your first job?',
+        body: 'Join the waitlist for hosted Agent Room and we will reach out as early access opens.',
+        primary: primaryCta,
+    },
+    security: {
+        title: 'Trust walls, not promises.',
+        body: 'Join the waitlist for hosted Agent Room and we will reach out as early access opens.',
+        primary: primaryCta,
+    },
+    source: {
+        title: 'Prefer not to run it yourself?',
+        body: 'Join the hosted waitlist and let us operate the walls, runtime, and keys for you.',
+        primary: primaryCta,
+    },
+} as const
+
 export const navLinks: NavLink[] = [
     { label: 'Product', href: '/' },
     { label: 'Features', href: '/features' },
     { label: 'Pricing', href: '/pricing' },
     { label: 'Security', href: '/security' },
-    { label: 'GitHub', href: githubUrl, external: true },
 ]
 
-export const footerGroups: { heading: string; links: NavLink[] }[] = [
-    {
-        heading: 'Product',
-        links: [
-            { label: 'Overview', href: '/' },
-            { label: 'Features', href: '/features' },
-            { label: 'Pricing', href: '/pricing' },
-            { label: 'Security', href: '/security' },
-        ],
-    },
-    {
-        heading: 'Source',
-        links: [
-            { label: 'GitHub', href: githubUrl, external: true },
-            { label: 'Source & self-hosting', href: '/source' },
-            { label: 'Security disclosure', href: '/security' },
-        ],
-    },
-    {
-        heading: 'Legal',
-        links: [
-            { label: 'Terms', href: '/terms' },
-            { label: 'Privacy', href: '/privacy' },
-        ],
-    },
+export const footerNavLinks: NavLink[] = [
+    { label: 'Overview', href: '/' },
+    { label: 'Features', href: '/features' },
+    { label: 'Pricing', href: '/pricing' },
+    { label: 'Security', href: '/security' },
+    { label: 'Source', href: '/source' },
+]
+
+export const footerLegalLinks: NavLink[] = [
+    { label: 'Terms', href: '/terms' },
+    { label: 'Privacy', href: '/privacy' },
 ]
 
 export const seo: Record<RoutePath, SeoMeta> = {
@@ -64,7 +79,7 @@ export const seo: Record<RoutePath, SeoMeta> = {
     '/features': {
         title: 'Features - Agent Room',
         description:
-            'Rooms, workspaces, tools, document work, scheduled jobs, provider binding, room-local memory, and full audit and usage telemetry.',
+            'What a room can do: persistent memory, real files, scoped tools, finished documents, scheduled work, pinned models, and receipts for everything.',
     },
     '/pricing': {
         title: 'Pricing - Agent Room',
@@ -74,7 +89,7 @@ export const seo: Record<RoutePath, SeoMeta> = {
     '/security': {
         title: 'Security - Agent Room',
         description:
-            'Room isolation, credential and provider binding, runtime and filesystem boundaries, and auditable usage reporting.',
+            'Hard walls between rooms: isolated memory and files, room-bound credentials, pinned providers, and a full audit trail.',
     },
     '/source': {
         title: 'Source - Agent Room',

@@ -1,5 +1,6 @@
 export * from './types'
 export * from './site'
+export * from './home'
 export * from './assets'
 export * from './features'
 export * from './security'

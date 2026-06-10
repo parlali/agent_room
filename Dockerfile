@@ -56,7 +56,9 @@ COPY packages/typescript-config/package.json packages/typescript-config/package.
 RUN bun install --frozen-lockfile
 
 COPY . .
-RUN bun run self-hosted:build
+RUN bun run brand:export:marketing \
+    && bun run marketing:build \
+    && bun run self-hosted:build
 
 ENV NODE_ENV=production
 ENV PORT=3000

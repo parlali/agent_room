@@ -1,114 +1,139 @@
 import { assets } from '~/content/assets'
-import { securityContact, securityIntro, securityPrinciples } from '~/content/security'
-import { githubCta, githubUrl, primaryCta, seo } from '~/content/site'
+import {
+    securityContact,
+    securityHosted,
+    securityIntro,
+    securityLog,
+    securityWalls,
+} from '~/content/security'
+import { disclosureCta, pageCtaBands, seo } from '~/content/site'
 import { CtaBand } from '~/components/CtaBand'
-import { Link } from '~/components/Link'
+import { PageHero } from '~/components/PageHero'
 import { PageShell } from '~/components/PageShell'
 import { ProductImage } from '~/components/ProductImage'
-import { Container, CtaButton, Section, SectionHeading, StatusDot } from '~/components/primitives'
+import { CtaButton, Section, SectionHeading, StatusDot } from '~/components/primitives'
+
+function AccessLog() {
+    return (
+        <div className="surface-raised overflow-hidden">
+            <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+                <p className="font-mono text-[0.625rem] font-medium uppercase tracking-[0.12em] text-ink-faint">
+                    Access log
+                </p>
+                <span className="flex items-center gap-1.5 font-mono text-[0.625rem] font-medium uppercase tracking-[0.08em] text-accent-green">
+                    <StatusDot tone="green" />
+                    live
+                </span>
+            </div>
+            <div className="flex flex-col gap-0.5 bg-paper-sunken/50 p-2.5">
+                {securityLog.map((entry) => (
+                    <div
+                        key={`${entry.room}-${entry.action}-${entry.target}`}
+                        className="flex items-center gap-3 rounded-md bg-panel px-3.5 py-2.5 font-mono text-xs"
+                    >
+                        <StatusDot tone={entry.allowed ? 'green' : 'red'} />
+                        <span className="text-ink">{entry.room}</span>
+                        <span className="text-ink-faint">{entry.action}</span>
+                        <span className="flex-1 truncate text-ink-soft">{entry.target}</span>
+                        <span
+                            className={`font-medium uppercase tracking-[0.08em] ${
+                                entry.allowed ? 'text-accent-green' : 'text-accent-red'
+                            }`}
+                        >
+                            {entry.allowed ? 'ok' : 'denied'}
+                        </span>
+                    </div>
+                ))}
+            </div>
+            <p className="border-t border-line px-5 py-3 text-center font-mono text-[0.625rem] font-medium uppercase tracking-[0.12em] text-ink-faint">
+                Cross-room access fails closed
+            </p>
+        </div>
+    )
+}
 
 export function Security() {
+    const ctaBand = pageCtaBands.security
+
     return (
         <PageShell meta={seo['/security']}>
-            <section className="relative overflow-hidden">
-                <Container className="pt-14 pb-16 sm:pt-20 lg:pt-24">
-                    <div className="grid items-center gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
-                        <div>
-                            <p className="eyebrow mb-4 flex items-center gap-2">
-                                <StatusDot tone="blue" />
-                                {securityIntro.eyebrow}
-                            </p>
-                            <h1 className="text-balance text-4xl font-semibold leading-[1.05] tracking-tight sm:text-5xl lg:text-[3.4rem]">
-                                {securityIntro.title}
-                            </h1>
-                            <p className="mt-5 max-w-xl text-base leading-relaxed text-ink-soft sm:text-lg">
-                                {securityIntro.summary}
-                            </p>
-                            <div className="mt-8 flex flex-wrap gap-3">
-                                <CtaButton cta={primaryCta} />
-                                <CtaButton cta={githubCta} variant="ghost" />
-                            </div>
-                        </div>
-
-                        <ProductImage
-                            asset={assets.securityRuntime}
-                            label="security / audit"
-                            priority
-                        />
-                    </div>
-                </Container>
-            </section>
+            <PageHero eyebrow={securityIntro.eyebrow}>
+                <h1 className="type-display rise rise-1 text-balance text-ink">
+                    {securityIntro.title}
+                </h1>
+                <p className="type-body rise rise-2 mt-6 max-w-2xl text-pretty text-ink-soft sm:text-lg">
+                    {securityIntro.summary}
+                </p>
+            </PageHero>
 
             <Section>
-                <SectionHeading
-                    eyebrow="Designed boundaries"
-                    title="Five boundaries every room runs inside."
-                    summary="Isolation, credential safety, and auditability are the product surface, not optional add-ons. Each boundary below describes how a room is designed to behave."
-                />
-                <div className="mt-10 grid gap-px overflow-hidden rounded-[10px] border border-line bg-line lg:grid-cols-2">
-                    {securityPrinciples.map((principle, index) => {
-                        const lastOdd =
-                            index === securityPrinciples.length - 1 &&
-                            securityPrinciples.length % 2 === 1
-                        return (
-                            <div
-                                key={principle.id}
-                                className={`flex flex-col bg-panel p-6 ${lastOdd ? 'lg:col-span-2' : ''}`}
-                            >
-                                <p className="eyebrow mb-3 flex items-center gap-2">
-                                    <StatusDot tone="green" />
-                                    {principle.id}
-                                </p>
-                                <p className="text-base font-medium text-ink">{principle.title}</p>
-                                <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-                                    {principle.summary}
-                                </p>
-                                <ul className="mt-4 flex flex-col gap-2 border-t border-line pt-4">
-                                    {principle.points.map((point) => (
-                                        <li
-                                            key={point}
-                                            className="flex items-start gap-2 text-sm leading-snug text-ink-soft"
-                                        >
-                                            <span
-                                                className="mt-1.5 inline-block h-1 w-1 flex-none rounded-full bg-line-strong"
-                                                aria-hidden
-                                            />
-                                            {point}
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-                        )
-                    })}
+                <div className="grid items-center gap-12 lg:grid-cols-2">
+                    <div>
+                        <SectionHeading
+                            eyebrow="The walls"
+                            title="The walls are the product."
+                            summary="Three boundaries decide what a room can reach. Everything else follows from them."
+                            align="left"
+                        />
+                        <ol className="mt-10 flex flex-col gap-8">
+                            {securityWalls.map((wall, index) => (
+                                <li key={wall.id}>
+                                    <p className="step-num">
+                                        {String(index + 1).padStart(2, '0')}
+                                    </p>
+                                    <h3 className="mt-2 text-base font-medium text-ink">
+                                        {wall.title}
+                                    </h3>
+                                    <p className="mt-1.5 text-sm leading-relaxed text-ink-soft">
+                                        {wall.summary}
+                                    </p>
+                                </li>
+                            ))}
+                        </ol>
+                    </div>
+                    <AccessLog />
                 </div>
             </Section>
 
-            <Section className="bg-paper-sunken">
-                <div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
-                    <ProductImage
-                        asset={assets.roomIsolation}
-                        label="room isolation"
-                        className="order-2 lg:order-1"
-                    />
-                    <div className="order-1 lg:order-2">
-                        <SectionHeading
-                            eyebrow={securityContact.title}
-                            title="How to report a vulnerability."
-                            summary={securityContact.body}
-                        />
-                        <div className="mt-8 flex flex-wrap gap-3">
-                            <Link href={githubUrl} external className="btn btn-primary">
-                                Open the disclosure process
-                            </Link>
-                        </div>
-                        <p className="mt-8 max-w-xl rounded-[10px] border border-line bg-panel px-4 py-3 text-xs leading-relaxed text-ink-faint">
-                            {securityContact.note}
+            <Section className="border-t border-line bg-paper-sunken">
+                <SectionHeading
+                    eyebrow="Audit"
+                    title="Every room keeps receipts."
+                    summary="Tool calls, runs, and spend are recorded per room. What it did while you were gone always has an exact answer."
+                />
+                <div className="mx-auto mt-12 max-w-4xl">
+                    <ProductImage asset={assets.securityAudit} className="shadow-panel" />
+                </div>
+            </Section>
+
+            <Section className="border-t border-line">
+                <div className="mx-auto grid max-w-4xl gap-12 md:grid-cols-2">
+                    <div>
+                        <p className="eyebrow mb-3">Hosted</p>
+                        <h2 className="text-lg font-medium tracking-tight text-ink">
+                            {securityHosted.title}
+                        </h2>
+                        <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+                            {securityHosted.body}
                         </p>
                     </div>
+                    <div>
+                        <p className="eyebrow mb-3">Disclosure</p>
+                        <h2 className="text-lg font-medium tracking-tight text-ink">
+                            {securityContact.title}
+                        </h2>
+                        <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+                            {securityContact.body}
+                        </p>
+                        <CtaButton cta={disclosureCta} className="mt-6" />
+                    </div>
                 </div>
+                <p className="mx-auto mt-14 max-w-2xl text-center text-xs leading-relaxed text-ink-faint">
+                    {securityContact.note}
+                </p>
             </Section>
 
-            <CtaBand />
+            <CtaBand title={ctaBand.title} body={ctaBand.body} primary={ctaBand.primary} />
         </PageShell>
     )
 }

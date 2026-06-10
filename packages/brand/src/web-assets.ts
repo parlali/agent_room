@@ -54,6 +54,7 @@ export type BrandWebAssetKey = keyof typeof brandWebAssetCatalog
 
 type BrandWebTargetConfig = {
     assets: readonly BrandWebAssetKey[]
+    marketingAssets?: readonly MarketingAssetKey[]
     manifest: BrandWebManifest | null
     robotsTxt: string | null
 }
@@ -93,11 +94,21 @@ const selfHostedWebManifest: BrandWebManifest = {
     background_color: '#faf9f4',
 }
 
+export const marketingAssetCatalog = {
+    ogShare: {
+        sourcePath: 'exports/marketing/og-share.png',
+        fileName: 'assets/marketing/og-share.png',
+    },
+} as const
+
+export type MarketingAssetKey = keyof typeof marketingAssetCatalog
+
 export const brandWebTargets = {
     marketing: {
         assets: ['faviconSvg', 'faviconIco', 'appleTouchIcon'],
+        marketingAssets: Object.keys(marketingAssetCatalog) as MarketingAssetKey[],
         manifest: null,
-        robotsTxt: null,
+        robotsTxt: 'User-agent: *\nAllow: /\n',
     },
     'self-hosted': {
         assets: [
@@ -109,6 +120,7 @@ export const brandWebTargets = {
             'maskableIcon192',
             'maskableIcon512',
         ],
+        marketingAssets: [],
         manifest: selfHostedWebManifest,
         robotsTxt: 'User-agent: *\nDisallow:\n',
     },

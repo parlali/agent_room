@@ -1,69 +1,46 @@
-import type { SecurityPrinciple } from './types'
+import type { SecurityLogEntry, SecurityPrinciple } from './types'
 
 export const securityIntro = {
     eyebrow: 'Security model',
-    title: 'Isolation is the product, not a setting.',
+    title: 'What a room cannot do.',
     summary:
-        'Agent Room is built so that correctness, isolation, auditability, and credential safety come before convenience. The boundaries below are how the product is designed to behave.',
+        'Read another room\'s memory. Spend another room\'s keys. Touch another room\'s files. Not because it promised to behave, but because the walls make it impossible.',
 }
 
-export const securityPrinciples: SecurityPrinciple[] = [
+export const securityWalls: SecurityPrinciple[] = [
     {
         id: 'isolation',
         title: 'Room isolation',
         summary:
-            'Each room is a separate unit of work. Memory, files, runtime state, and sessions do not cross room boundaries by default.',
-        points: [
-            'Room-scoped memory, files, and runtime state',
-            'No implicit sharing between rooms',
-            'Cross-room access is explicit when it exists at all',
-        ],
+            'Memory, files, sessions, and running state stop at the wall. Nothing is shared between rooms by default.',
     },
     {
         id: 'credentials',
-        title: 'Credential and provider binding',
+        title: 'Credential binding',
         summary:
-            'Provider keys and customer-provided secrets are bound to a single room. A room cannot reach for another room credentials.',
-        points: [
-            'Secrets scoped to one room',
-            'Explicit provider identity per room',
-            'No silent fallback to a different provider or key',
-        ],
+            'Keys live inside the room that uses them and never fall back to another. A compromised room cannot spend anyone else\'s credentials.',
     },
     {
         id: 'runtime',
-        title: 'Runtime and filesystem boundaries',
+        title: 'Runtime boundaries',
         summary:
-            'Each room runs against its own workspace filesystem and runtime. Execution stays inside the room that started it.',
-        points: [
-            'Dedicated workspace filesystem per room',
-            'Isolated runtime configuration and lifecycle',
-            'Execution scoped to the owning room',
-        ],
-    },
-    {
-        id: 'audit',
-        title: 'Audit and usage reporting',
-        summary:
-            'Every room keeps an inspectable record of what it did. Tool calls, run state, and usage are recorded so behavior can be traced.',
-        points: [
-            'Tool-call and run history per room',
-            'Traceable runtime state',
-            'Token and cost telemetry for usage review',
-        ],
-    },
-    {
-        id: 'hosted',
-        title: 'Hosted responsibilities',
-        summary:
-            'On the hosted product, Agent Room operates the runtime, isolation, and credential handling so teams do not run the stack themselves.',
-        points: [
-            'Operated isolation and runtime lifecycle',
-            'Managed credential storage and handling',
-            'Source remains available for review and self-hosting',
-        ],
+            'Each room executes against its own filesystem and runtime. Work started in a room ends in that room.',
     },
 ]
+
+export const securityLog: SecurityLogEntry[] = [
+    { room: 'room/billing', action: 'read', target: 'billing/invoices.xlsx', allowed: true },
+    { room: 'room/billing', action: 'read', target: 'research/memory', allowed: false },
+    { room: 'room/support', action: 'use', target: 'billing/api-key', allowed: false },
+    { room: 'room/research', action: 'fetch', target: 'web/market-data', allowed: true },
+    { room: 'room/research', action: 'write', target: 'support/drafts', allowed: false },
+    { room: 'room/support', action: 'write', target: 'support/reply.md', allowed: true },
+]
+
+export const securityHosted = {
+    title: 'On hosted, we operate the walls',
+    body: 'Runtime, isolation, and credential storage are run for you on the hosted product. The source stays open, so what we operate is exactly what you can read.',
+}
 
 export const securityContact = {
     title: 'Reporting a vulnerability',

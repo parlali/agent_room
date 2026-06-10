@@ -17,6 +17,7 @@
         "format": "prettier --check .",
         "format:write": "prettier --write .",
         "export:icons": "bun run scripts/export-icons.ts",
+        "export:marketing": "bun run scripts/export-marketing-assets.ts",
         "check": "bun run format && bun run lint && bun run typecheck"
     },
     "peerDependencies": {
