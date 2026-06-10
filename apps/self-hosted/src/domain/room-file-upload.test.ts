@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { roomFileUploadPolicy } from './room-file-upload-policy'
-import { uploadRoomFiles } from './room-file-upload'
+import { uploadRoomFiles } from '#/lib/room-file-upload'
 
 function uploadFile(size: number, name = 'upload.txt'): File {
     return {

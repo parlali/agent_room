@@ -35,14 +35,13 @@ export const homeSteps = {
 export const homeIsolation = {
     eyebrow: 'Isolation',
     title: 'Hard walls, not house rules.',
-    summary:
-        'Boundaries are enforced by the runtime, not by a system prompt asking nicely.',
+    summary: 'Boundaries are enforced by the runtime, not by a system prompt asking nicely.',
 }
 
 export const homeIsolationClaims = [
-    'A room cannot read another room\'s memory.',
-    'A room cannot open another room\'s files.',
-    'A room cannot spend another room\'s keys.',
+    "A room cannot read another room's memory.",
+    "A room cannot open another room's files.",
+    "A room cannot spend another room's keys.",
 ]
 
 export const homeIsolationRooms = [

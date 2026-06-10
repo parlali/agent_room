@@ -4,7 +4,7 @@ export const securityIntro = {
     eyebrow: 'Security model',
     title: 'What a room cannot do.',
     summary:
-        'Read another room\'s memory. Spend another room\'s keys. Touch another room\'s files. Not because it promised to behave, but because the walls make it impossible.',
+        "Read another room's memory. Spend another room's keys. Touch another room's files. Not because it promised to behave, but because the walls make it impossible.",
 }
 
 export const securityWalls: SecurityPrinciple[] = [
@@ -18,7 +18,7 @@ export const securityWalls: SecurityPrinciple[] = [
         id: 'credentials',
         title: 'Credential binding',
         summary:
-            'Keys live inside the room that uses them and never fall back to another. A compromised room cannot spend anyone else\'s credentials.',
+            "Keys live inside the room that uses them and never fall back to another. A compromised room cannot spend anyone else's credentials.",
     },
     {
         id: 'runtime',

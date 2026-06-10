@@ -78,9 +78,7 @@ export function Security() {
                         <ol className="mt-10 flex flex-col gap-8">
                             {securityWalls.map((wall, index) => (
                                 <li key={wall.id}>
-                                    <p className="step-num">
-                                        {String(index + 1).padStart(2, '0')}
-                                    </p>
+                                    <p className="step-num">{String(index + 1).padStart(2, '0')}</p>
                                     <h3 className="mt-2 text-base font-medium text-ink">
                                         {wall.title}
                                     </h3>

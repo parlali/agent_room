@@ -85,7 +85,9 @@ export function Header() {
             <div
                 id="mobile-nav"
                 className={`fixed inset-x-0 top-16 bottom-0 z-40 bg-paper transition-all duration-300 ease-out md:hidden ${
-                    open ? 'visible translate-y-0 opacity-100' : 'invisible -translate-y-3 opacity-0'
+                    open
+                        ? 'visible translate-y-0 opacity-100'
+                        : 'invisible -translate-y-3 opacity-0'
                 }`}
             >
                 <Container className="flex h-full flex-col overflow-y-auto pt-4 pb-6">
