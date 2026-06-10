@@ -1,0 +1,4 @@
+{
+    "extends": "@agent-room/typescript-config/react",
+    "include": ["src", "scripts", "brand.tokens.json"]
+}
