@@ -1,0 +1,21 @@
+{
+    "$schema": "node_modules/wrangler/config-schema.json",
+    "name": "agent-room-marketing",
+    "main": "apps/marketing/worker.ts",
+    "compatibility_date": "2026-06-10",
+    "assets": {
+        "directory": "./apps/marketing/dist",
+        "binding": "ASSETS",
+        "not_found_handling": "single-page-application",
+    },
+    "vars": {
+        "MARKETING_WAITLIST_RATE_LIMIT": "8",
+    },
+    "d1_databases": [
+        {
+            "binding": "WAITLIST_DB",
+            "database_name": "agent-room-marketing-waitlist",
+            "migrations_dir": "apps/marketing/db/migrations",
+        },
+    ],
+}

@@ -7,22 +7,33 @@ import {
     waitlistError,
     waitlistSuccess,
 } from './waitlist-contract'
-import { clientIp, createRateLimiter } from './rate-limit'
-import { createWaitlistStore } from './waitlist-store'
+import { clientIp, createRateLimiter, type RateLimitResult } from './rate-limit'
+import type { WaitlistSubmission } from '../src/content/types'
+
+export type WaitlistStore = {
+    save: (submission: WaitlistSubmission, sourceIp: string) => unknown | Promise<unknown>
+    close?: () => void | Promise<void>
+}
+
+export type WaitlistRateLimiter = {
+    check: (key: string, now?: number) => RateLimitResult | Promise<RateLimitResult>
+}
 
 export type WaitlistHandlerOptions = {
-    databasePath: string
+    store: WaitlistStore
     rateLimitPerHour?: number
+    rateLimiter?: WaitlistRateLimiter
 }
 
 const defaultRateLimitPerHour = 8
 
 export function createWaitlistHandler(options: WaitlistHandlerOptions) {
-    const store = createWaitlistStore({ databasePath: options.databasePath })
-    const rateLimiter = createRateLimiter({
-        limit: options.rateLimitPerHour ?? defaultRateLimitPerHour,
-        windowMs: 60 * 60 * 1000,
-    })
+    const rateLimiter =
+        options.rateLimiter ??
+        createRateLimiter({
+            limit: options.rateLimitPerHour ?? defaultRateLimitPerHour,
+            windowMs: 60 * 60 * 1000,
+        })
 
     return {
         async handle(request: Request): Promise<Response | null> {
@@ -46,7 +57,8 @@ export function createWaitlistHandler(options: WaitlistHandlerOptions) {
                 return jsonResponse(waitlistError('Method not allowed.'), 405)
             }
 
-            const rateLimit = rateLimiter.check(clientIp(request))
+            const sourceIp = clientIp(request)
+            const rateLimit = await rateLimiter.check(sourceIp)
 
             if (!rateLimit.allowed) {
                 return new Response(
@@ -93,12 +105,12 @@ export function createWaitlistHandler(options: WaitlistHandlerOptions) {
                 )
             }
 
-            store.save(toWaitlistSubmission(body), clientIp(request))
+            await options.store.save(toWaitlistSubmission(body), sourceIp)
 
             return jsonResponse(waitlistSuccess())
         },
-        close() {
-            store.close()
+        async close() {
+            await options.store.close?.()
         },
     }
 }

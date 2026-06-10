@@ -51,13 +51,18 @@
         "marketing:preview": "bun run --filter @agent-room/marketing preview",
         "marketing:start": "bun run --filter @agent-room/marketing start",
         "marketing:typecheck": "bun run --filter @agent-room/marketing typecheck",
+        "marketing:deploy": "wrangler deploy && wrangler d1 migrations apply agent-room-marketing-waitlist --remote",
+        "marketing:d1:migrate": "wrangler d1 migrations apply agent-room-marketing-waitlist --remote",
+        "marketing:d1:migrate:local": "wrangler d1 migrations apply agent-room-marketing-waitlist --local",
         "brand:export": "bun run --filter @agent-room/brand export:icons",
         "brand:export:marketing": "bun run --filter @agent-room/brand export:marketing"
     },
     "devDependencies": {
+        "@cloudflare/workers-types": "^4.20260610.1",
         "@tanstack/eslint-config": "0.4.0",
         "eslint": "^10.4.0",
         "prettier": "^3.8.1",
-        "turbo": "^2.9.14"
+        "turbo": "^2.9.14",
+        "wrangler": "^4.99.0"
     }
 }

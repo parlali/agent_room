@@ -25,6 +25,32 @@ bun run marketing:preview
 
 `marketing:preview` serves `dist/` with the waitlist API on port `4173` by default.
 
+## Cloudflare Workers
+
+This repo includes a Wrangler config for deploying the marketing site as a Cloudflare Worker with Static Assets and D1. It is useful for maintainers and forks that want a single Cloudflare deployment for the static site and waitlist API.
+
+The root `wrangler.jsonc` defines:
+
+- `apps/marketing/worker.ts` as the Worker entrypoint
+- `apps/marketing/dist` as the static assets directory
+- `WAITLIST_DB` as the D1 binding
+- `apps/marketing/db/migrations` as the D1 migrations directory
+
+For Git-connected Cloudflare builds from the repo root, use:
+
+| Setting        | Value                                                       |
+| -------------- | ----------------------------------------------------------- |
+| Build command  | `bun run brand:export:marketing && bun run marketing:build` |
+| Deploy command | `bun run marketing:deploy`                                  |
+
+The deploy script runs `wrangler deploy` and then applies the remote D1 migrations. Wrangler reads the static asset path, Worker entrypoint, D1 binding, and SPA fallback behavior from `wrangler.jsonc`. Forks can rename the Worker and D1 database in `wrangler.jsonc` if they want different resource names in their Cloudflare account.
+
+Validate the Worker bundle locally without deploying:
+
+```bash
+bunx wrangler deploy --dry-run
+```
+
 ## Environment variables
 
 | Variable                        | Default                                | Purpose                                          |
@@ -60,11 +86,13 @@ Writes `packages/brand/exports/marketing/og-share.png`. The marketing Vite build
 
 ## Waitlist storage
 
-Submissions are stored in SQLite, not email. Inspect records with:
+Local development and preview store submissions in SQLite, not email. Inspect local records with:
 
 ```bash
 sqlite3 apps/marketing/.data/waitlist.sqlite "select id, created_at, email, company, interest from waitlist_submissions order by id desc limit 20;"
 ```
+
+Cloudflare deployments store submissions in D1 through the `WAITLIST_DB` binding.
 
 The form includes a honeypot field and server-side rate limiting. Bots that fill the honeypot receive a success response without persisting data.
 

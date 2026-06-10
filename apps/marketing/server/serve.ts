@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { createWaitlistHandler } from './waitlist-handler'
+import { createWaitlistStore } from './waitlist-store'
 
 const packageRoot = join(fileURLToPath(new URL('.', import.meta.url)), '..')
 const distRoot = join(packageRoot, 'dist')
@@ -20,8 +21,9 @@ if (!existsSync(distRoot)) {
     throw new Error('Marketing dist/ is missing. Run `bun run marketing:build` first.')
 }
 
+const waitlistStore = createWaitlistStore({ databasePath })
 const waitlist = createWaitlistHandler({
-    databasePath,
+    store: waitlistStore,
     rateLimitPerHour: Number.isFinite(rateLimitPerHour) ? rateLimitPerHour : undefined,
 })
 

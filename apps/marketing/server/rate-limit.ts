@@ -34,6 +34,12 @@ export function createRateLimiter(options: { limit: number; windowMs: number }) 
 }
 
 export function clientIp(request: Request): string {
+    const cloudflare = request.headers.get('cf-connecting-ip')
+
+    if (cloudflare) {
+        return cloudflare
+    }
+
     const forwarded = request.headers.get('x-forwarded-for')
 
     if (forwarded) {

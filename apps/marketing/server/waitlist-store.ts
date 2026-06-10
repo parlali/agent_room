@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import type { WaitlistSubmission } from '../src/content/types'
 
@@ -14,29 +15,17 @@ type WaitlistStoreOptions = {
     databasePath: string
 }
 
+const waitlistSchemaSql = readFileSync(
+    fileURLToPath(new URL('../db/migrations/0001_waitlist.sql', import.meta.url)),
+    'utf8',
+)
+
 export function createWaitlistStore(options: WaitlistStoreOptions) {
     mkdirSync(dirname(options.databasePath), { recursive: true })
 
     const database = new Database(options.databasePath)
 
-    database.exec(`
-        CREATE TABLE IF NOT EXISTS waitlist_submissions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at TEXT NOT NULL,
-            source_ip TEXT NOT NULL,
-            name TEXT NOT NULL,
-            email TEXT NOT NULL,
-            company TEXT NOT NULL,
-            use_case TEXT NOT NULL,
-            interest TEXT NOT NULL
-        );
-
-        CREATE INDEX IF NOT EXISTS waitlist_submissions_email_idx
-            ON waitlist_submissions (email);
-
-        CREATE INDEX IF NOT EXISTS waitlist_submissions_created_at_idx
-            ON waitlist_submissions (created_at);
-    `)
+    database.exec(waitlistSchemaSql)
 
     const insertStatement = database.prepare(`
         INSERT INTO waitlist_submissions (

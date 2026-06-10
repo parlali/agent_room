@@ -25,7 +25,11 @@ export function marketingWaitlistApi(options: MarketingWaitlistApiOptions) {
         name: 'agent-room-marketing-waitlist-api',
         async configureServer(server: { middlewares: Connect.Server }) {
             const { createWaitlistHandler } = await import('../../server/waitlist-handler')
-            const handler = createWaitlistHandler(options)
+            const { createWaitlistStore } = await import('../../server/waitlist-store')
+            const handler = createWaitlistHandler({
+                store: createWaitlistStore({ databasePath: options.databasePath }),
+                rateLimitPerHour: options.rateLimitPerHour,
+            })
 
             server.middlewares.use(
                 async (
