@@ -6,6 +6,11 @@ import { describe, expect, it } from 'vitest'
 import type { RoomSecretRecord, SecretRecord } from '#/domain/domain-types'
 import { encryptSecret } from '../security/encryption'
 import { __testing } from './operator-configuration'
+import {
+    providerSaveSchema,
+    roomConfigSaveSchema,
+    roomSecretSaveSchema,
+} from './operator-configuration/contracts'
 
 function buildSecret(input: {
     id: string
@@ -71,7 +76,7 @@ describe('operator configuration materialization', () => {
             runtimeSecretsDir: tempDir,
             secretById: new Map([[secret.id, secret]]),
             encryptionKey,
-            reservedEnvKeys: new Set(['ANTHROPIC_API_KEY']),
+            reservedEnvKeys: new Set(['AGENT_ROOM_IMAGE_OPENAI_API_KEY']),
         })
 
         expect(result.env).toEqual({
@@ -95,7 +100,7 @@ describe('operator configuration materialization', () => {
         const encryptionKey = randomBytes(32)
         const secret = buildSecret({
             id: 'secret-1',
-            keyName: 'room:room-1:secret:ANTHROPIC_API_KEY',
+            keyName: 'room:room-1:secret:AGENT_ROOM_IMAGE_OPENAI_API_KEY',
             plainText: 'local-test-secret',
             encryptionKey,
         })
@@ -103,7 +108,7 @@ describe('operator configuration materialization', () => {
             id: 'room-secret-1',
             roomId: 'room-1',
             secretId: secret.id,
-            envKey: 'anthropic_api_key',
+            envKey: 'agent_room_image_openai_api_key',
         })
 
         await expect(
@@ -112,10 +117,10 @@ describe('operator configuration materialization', () => {
                 runtimeSecretsDir: tempDir,
                 secretById: new Map([[secret.id, secret]]),
                 encryptionKey,
-                reservedEnvKeys: new Set(['ANTHROPIC_API_KEY']),
+                reservedEnvKeys: new Set(['AGENT_ROOM_IMAGE_OPENAI_API_KEY']),
             }),
         ).rejects.toThrow(
-            'Room secret env key ANTHROPIC_API_KEY conflicts with materialized config',
+            'Room secret env key AGENT_ROOM_IMAGE_OPENAI_API_KEY conflicts with materialized config',
         )
     })
 
@@ -146,12 +151,12 @@ describe('operator configuration materialization', () => {
         ).rejects.toThrow(/reserved keys: DATABASE_URL/)
     })
 
-    it('does not materialize provider API key records as generic room secrets', async () => {
+    it('does not materialize image API key records as generic room secrets', async () => {
         const tempDir = await mkdtemp(join(tmpdir(), 'agent-room-room-secret-'))
         const encryptionKey = randomBytes(32)
         const secret = buildSecret({
             id: 'secret-1',
-            keyName: 'room:room-1:secret:OPENAI_API_KEY',
+            keyName: 'room:room-1:image:openai:api_key',
             plainText: 'local-test-secret',
             encryptionKey,
         })
@@ -159,8 +164,8 @@ describe('operator configuration materialization', () => {
             id: 'room-secret-1',
             roomId: 'room-1',
             secretId: secret.id,
-            envKey: 'openai_api_key',
-            purpose: 'provider_api_key',
+            envKey: 'agent_room_image_openai_api_key',
+            purpose: 'image_api_key',
         })
 
         const result = await __testing.materializeRoomSecrets({
@@ -173,5 +178,90 @@ describe('operator configuration materialization', () => {
 
         expect(result.env).toEqual({})
         expect(result.secretRefs).toEqual([])
+    })
+
+    it('materializes supported provider endpoints from canonical provider config', async () => {
+        const tempDir = await mkdtemp(join(tmpdir(), 'agent-room-provider-'))
+        const result = await __testing.materializeProvider({
+            providerAuthPath: join(tempDir, 'provider-auth.json'),
+            provider: 'openrouter',
+            authMode: 'api_key',
+            api: 'openai-completions',
+            baseUrl: 'https://example.invalid/v1',
+            model: 'openrouter/auto',
+            fallbackModels: [],
+            secret: null,
+            authPath: null,
+            encryptionKey: randomBytes(32),
+        })
+
+        expect(result.provider.baseUrl).toBe('https://openrouter.ai/api/v1')
+    })
+})
+
+describe('operator configuration write contracts', () => {
+    it('strips provider protocol and endpoint fields from app provider saves', () => {
+        const parsed = providerSaveSchema.parse({
+            label: 'OpenRouter',
+            provider: 'openrouter',
+            api: 'openai-codex-responses',
+            authMode: 'oauth',
+            baseUrl: 'https://example.invalid',
+            defaultModel: 'openrouter/auto',
+            fallbackModels: [],
+            apiKey: 'secret',
+            makeDefault: true,
+        })
+
+        expect(parsed).not.toHaveProperty('api')
+        expect(parsed).not.toHaveProperty('authMode')
+        expect(parsed).not.toHaveProperty('baseUrl')
+    })
+
+    it('rejects legacy room-scoped model provider mode and strips provider credential fields', () => {
+        const parsed = roomConfigSaveSchema.parse({
+            roomId: '00000000-0000-4000-8000-000000000001',
+            instructions: '',
+            providerMode: 'app_default',
+            providerConnectionId: null,
+            roomMode: 'coworker',
+            provider: 'openrouter',
+            providerApi: 'openai-completions',
+            providerBaseUrl: 'https://openrouter.ai/api/v1',
+            providerModel: 'openrouter/auto',
+            providerApiKey: 'secret',
+            capabilityOverrides: {},
+            cronTimezone: 'UTC',
+            browserActionBudget: 50,
+            mcpConnectionIds: [],
+            githubEnabled: false,
+            githubRepositories: [],
+        })
+
+        expect(parsed).not.toHaveProperty('provider')
+        expect(parsed).not.toHaveProperty('providerApi')
+        expect(parsed).not.toHaveProperty('providerBaseUrl')
+        expect(parsed).not.toHaveProperty('providerModel')
+        expect(parsed).not.toHaveProperty('providerApiKey')
+
+        expect(
+            roomConfigSaveSchema.safeParse({
+                roomId: '00000000-0000-4000-8000-000000000001',
+                providerMode: 'room_secret',
+            }).success,
+        ).toBe(false)
+    })
+
+    it('rejects user-created room secrets with provider credential purpose', () => {
+        expect(
+            roomSecretSaveSchema.safeParse({
+                roomId: '00000000-0000-4000-8000-000000000001',
+                label: 'Provider key',
+                envKey: 'LEGACY_PROVIDER_KEY',
+                purpose: 'provider_api_key',
+                provider: 'openrouter',
+                value: 'secret',
+            }).success,
+        ).toBe(false)
     })
 })

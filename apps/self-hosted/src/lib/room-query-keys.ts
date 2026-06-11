@@ -9,7 +9,7 @@ export const roomQueryKey = {
     roomExecution: (roomId: string) => ['rooms', roomId, 'execution'] as const,
     roomSidebar: (roomId: string) => ['rooms', roomId, 'sidebar'] as const,
     roomConfig: (roomId: string) => ['rooms', roomId, 'config'] as const,
-    roomCodexOAuthSession: (roomId: string) => ['rooms', roomId, 'codex-oauth-session'] as const,
+    codexDeviceAuthSession: ['operator-config', 'codex-device-auth-session'] as const,
     roomCronJobs: (roomId: string) => ['rooms', roomId, 'cron-jobs'] as const,
     roomFiles: (roomId: string) => ['rooms', roomId, 'files'] as const,
     roomFileTree: (roomId: string) => ['rooms', roomId, 'file-tree'] as const,

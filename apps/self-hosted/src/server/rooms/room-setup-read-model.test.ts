@@ -74,7 +74,7 @@ describe('room setup read model', () => {
         const setup = buildRoomSetupSnapshot({
             room: room({ status: 'setup_required' }),
             runtimeMetadata: runtime({
-                lastError: 'Room configuration is blocked: OpenAI Codex OAuth profile is missing',
+                lastError: 'Room configuration is blocked: Codex app server login is missing',
             }),
             onboarding: onboarding(),
         })

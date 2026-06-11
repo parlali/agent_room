@@ -28,14 +28,8 @@ function boundedText(
 }
 
 export function contextBudgetForProvider(config: PiRuntimeConfig): ContextBudget {
-    const provider = config.provider.sourceProvider.toLowerCase()
-    const api = config.provider.api
-    const maxInputTokens =
-        provider === 'ollama' || provider === 'lmstudio'
-            ? 32768
-            : api === 'google-generative-ai'
-              ? 100000
-              : 128000
+    void config
+    const maxInputTokens = 128000
     const reservedOutputTokens = Math.min(16384, Math.max(4096, Math.floor(maxInputTokens * 0.15)))
     return {
         maxInputTokens,

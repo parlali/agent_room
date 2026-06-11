@@ -140,7 +140,7 @@ const TAB_GROUPS: TabGroup[] = [
             {
                 id: 'settings',
                 label: 'Settings',
-                description: 'Model, OAuth, capabilities, and room configuration',
+                description: 'Provider binding, capabilities, and room configuration',
                 icon: SettingsIcon,
                 to: '/rooms/$roomId/settings',
             },

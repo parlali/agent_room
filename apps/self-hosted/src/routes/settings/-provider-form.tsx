@@ -6,13 +6,9 @@ import { Switch } from '#/components/ui/switch'
 import { providerModelOptionsForProvider } from '#/domain/model-options'
 import type { OperatorConfigSnapshot } from '#/server/configuration/operator-configuration'
 
+import { type ProviderFormState, resolveProviderFormProtocol } from './-form-model'
 import {
-    PROVIDER_API_OPTIONS,
-    type ProviderAuthMode,
-    type ProviderFormState,
-    resolveProviderFormProtocol,
-} from './-form-model'
-import {
+    FieldGroup,
     FormShell,
     MaskedSecretField,
     ModelSelectField,
@@ -41,9 +37,6 @@ export function ProviderForm({
         value: entry.provider,
         label: entry.label,
     }))
-    const providerApiOptions = protocol.selectedProvider
-        ? PROVIDER_API_OPTIONS.filter((option) => option.value === protocol.selectedProvider?.api)
-        : PROVIDER_API_OPTIONS
     const providerModelOptions = providerModelOptionsForProvider({
         provider: form.provider,
         currentModel: form.defaultModel,
@@ -64,55 +57,24 @@ export function ProviderForm({
                 onChange={(label) => setForm({ label })}
                 placeholder="OpenRouter"
             />
-            <div className="grid gap-3 sm:grid-cols-2">
-                <SelectField
-                    id="provider-key"
-                    label="Provider"
-                    value={form.provider}
-                    onChange={(provider) => {
-                        const selected = providerCatalog.find(
-                            (entry) => entry.provider === provider,
-                        )
-                        setForm({
-                            provider,
-                            api: selected?.api ?? form.api,
-                            authMode:
-                                selected?.api === 'openai-codex-responses'
-                                    ? 'oauth'
-                                    : form.authMode === 'oauth'
-                                      ? 'api_key'
-                                      : form.authMode,
-                            defaultModel: selected?.model ?? form.defaultModel,
-                        })
-                    }}
-                    options={providerOptions}
-                />
-                <SelectField
-                    id="provider-api"
-                    label="API"
-                    value={protocol.api}
-                    onChange={(api) => setForm({ api })}
-                    options={providerApiOptions}
-                />
-            </div>
-            <SelectField<ProviderAuthMode>
-                id="provider-auth"
-                label="Auth mode"
-                value={protocol.authMode}
-                onChange={(authMode) => setForm({ authMode })}
-                options={[
-                    { value: 'api_key', label: 'API key' },
-                    { value: 'oauth', label: 'OAuth (browser)' },
-                ]}
+            <SelectField
+                id="provider-key"
+                label="Provider"
+                value={form.provider}
+                onChange={(provider) => {
+                    const selected = providerCatalog.find((entry) => entry.provider === provider)
+                    setForm({
+                        provider,
+                        defaultModel: selected?.model ?? form.defaultModel,
+                    })
+                }}
+                options={providerOptions}
             />
-            <TextField
-                id="provider-base-url"
-                label="Base URL"
-                value={form.baseUrl}
-                onChange={(baseUrl) => setForm({ baseUrl })}
-                placeholder="https://"
-                hint="Optional override for OpenRouter, Ollama, or LM Studio endpoints."
-            />
+            <FieldGroup label="Auth mode">
+                <div className="flex min-h-10 items-center rounded-md border border-border bg-muted/30 px-3 text-sm">
+                    {usesOAuth ? 'OpenAI token verification' : 'OpenRouter API key'}
+                </div>
+            </FieldGroup>
             <ModelSelectField
                 id="provider-default-model"
                 label="Default model"
@@ -131,8 +93,8 @@ export function ProviderForm({
             {usesOAuth ? (
                 <AttentionBanner
                     tone="info"
-                    title="Browser login"
-                    description="OAuth providers complete sign-in per room. No API key is stored."
+                    title="OpenAI token verification"
+                    description="Use the Codex app server authorization section in app settings to generate and verify the OpenAI code."
                 />
             ) : (
                 <MaskedSecretField

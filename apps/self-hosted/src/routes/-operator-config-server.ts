@@ -4,11 +4,9 @@ import { z } from 'zod'
 import {
     mcpAuthModes,
     mcpTransports,
-    providerApis,
-    providerAuthModes,
     roomModes,
     roomProviderModes,
-    roomSecretPurposes,
+    userRoomSecretPurposes,
     capabilityIds,
     searchSafeSearchValues,
 } from '#/domain/domain-types'
@@ -17,9 +15,6 @@ const providerConnectionInputSchema = z.object({
     id: z.string().uuid().optional(),
     label: z.string().min(1),
     provider: z.string().min(1),
-    api: z.enum(providerApis),
-    authMode: z.enum(providerAuthModes).optional(),
-    baseUrl: z.string().nullable().optional(),
     defaultModel: z.string().min(1),
     fallbackModels: z.array(z.string().min(1)).default([]),
     apiKey: z.string().optional(),
@@ -105,11 +100,6 @@ const roomConfigInputSchema = z.object({
     instructions: z.string(),
     providerMode: z.enum(roomProviderModes),
     providerConnectionId: z.string().uuid().nullable().optional(),
-    provider: z.string().nullable().optional(),
-    providerApi: z.enum(providerApis).nullable().optional(),
-    providerBaseUrl: z.string().nullable().optional(),
-    providerModel: z.string().nullable().optional(),
-    providerApiKey: z.string().optional(),
     roomMode: z.enum(roomModes),
     capabilityOverrides: z.record(z.string(), z.boolean()).default({}),
     imageProvider: z.enum(['openai', 'gemini']).nullable().optional(),
@@ -126,22 +116,13 @@ const roomSecretInputSchema = z.object({
     roomId: z.string().uuid(),
     label: z.string().min(1),
     envKey: z.string().min(1),
-    purpose: z.enum(roomSecretPurposes),
+    purpose: z.enum(userRoomSecretPurposes),
     provider: z.string().nullable().optional(),
     value: z.string().min(1),
 })
 
 const roomConfigQuerySchema = z.object({
     roomId: z.string().uuid(),
-})
-
-const codexOAuthRoomInputSchema = z.object({
-    roomId: z.string().uuid(),
-})
-
-const codexOAuthRedirectInputSchema = z.object({
-    roomId: z.string().uuid(),
-    redirectUrl: z.string().min(1),
 })
 
 async function requireAuthenticatedActor() {
@@ -358,45 +339,34 @@ export const saveRoomSecretServer = createServerFn({ method: 'POST' })
         return saveRoomSecret(data, actor.userId)
     })
 
-export const getCodexOAuthSessionServer = createServerFn({ method: 'GET' })
-    .inputValidator((input: unknown) => codexOAuthRoomInputSchema.parse(input))
-    .handler(async ({ data }) => {
+export const getCodexDeviceAuthSessionServer = createServerFn({ method: 'GET' }).handler(
+    async () => {
         await requireAuthenticatedActor()
         setResponseHeaders({
             'cache-control': 'no-store',
         })
-        const { getCodexOAuthSessionSnapshot } =
-            await import('#/server/configuration/codex-oauth-flow')
-        return getCodexOAuthSessionSnapshot(data.roomId)
-    })
+        const { getCodexDeviceAuthSessionSnapshot } =
+            await import('#/server/configuration/operator-configuration')
+        return getCodexDeviceAuthSessionSnapshot()
+    },
+)
 
-export const startCodexOAuthSessionServer = createServerFn({ method: 'POST' })
-    .inputValidator((input: unknown) => codexOAuthRoomInputSchema.parse(input))
-    .handler(async ({ data }) => {
+export const startCodexDeviceAuthSessionServer = createServerFn({ method: 'POST' }).handler(
+    async () => {
         const actor = await requireMutationActor()
-        const { startCodexOAuthSession } = await import('#/server/configuration/codex-oauth-flow')
-        return startCodexOAuthSession(data.roomId, actor.userId)
-    })
+        const { startCodexDeviceAuthSession } =
+            await import('#/server/configuration/operator-configuration')
+        return startCodexDeviceAuthSession(actor.userId)
+    },
+)
 
-export const submitCodexOAuthRedirectServer = createServerFn({ method: 'POST' })
-    .inputValidator((input: unknown) => codexOAuthRedirectInputSchema.parse(input))
-    .handler(async ({ data }) => {
+export const cancelCodexDeviceAuthSessionServer = createServerFn({ method: 'POST' }).handler(
+    async () => {
         const actor = await requireMutationActor()
-        const { submitCodexOAuthRedirect } = await import('#/server/configuration/codex-oauth-flow')
-        return submitCodexOAuthRedirect({
-            roomId: data.roomId,
-            redirectUrl: data.redirectUrl,
+        const { cancelCodexDeviceAuthSession } =
+            await import('#/server/configuration/operator-configuration')
+        return cancelCodexDeviceAuthSession({
             actorUserId: actor.userId,
         })
-    })
-
-export const cancelCodexOAuthSessionServer = createServerFn({ method: 'POST' })
-    .inputValidator((input: unknown) => codexOAuthRoomInputSchema.parse(input))
-    .handler(async ({ data }) => {
-        const actor = await requireMutationActor()
-        const { cancelCodexOAuthSession } = await import('#/server/configuration/codex-oauth-flow')
-        return cancelCodexOAuthSession({
-            roomId: data.roomId,
-            actorUserId: actor.userId,
-        })
-    })
+    },
+)

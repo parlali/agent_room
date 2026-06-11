@@ -3,33 +3,15 @@ import type { ProviderApi } from '#/domain/domain-types'
 export const providerCatalog = [
     {
         provider: 'openai-codex',
-        label: 'OpenAI Codex OAuth',
+        label: 'Codex app server',
         api: 'openai-codex-responses' as const,
-        model: 'openai-codex/gpt-5.4',
+        model: 'openai-codex/gpt-5.5',
     },
     {
         provider: 'openrouter',
         label: 'OpenRouter',
         api: 'openai-completions' as const,
         model: 'openrouter/auto',
-    },
-    {
-        provider: 'google',
-        label: 'Google Gemini',
-        api: 'google-generative-ai' as const,
-        model: 'google/gemini-2.5-flash',
-    },
-    {
-        provider: 'ollama',
-        label: 'Ollama',
-        api: 'openai-completions' as const,
-        model: 'ollama/llama3.2',
-    },
-    {
-        provider: 'lmstudio',
-        label: 'LM Studio',
-        api: 'openai-completions' as const,
-        model: 'lmstudio/local-model',
     },
 ] satisfies Array<{
     provider: string
@@ -42,9 +24,6 @@ const supportedProviderIds = new Set(providerCatalog.map((entry) => entry.provid
 
 export function normalizeProviderId(provider: string): string {
     const normalized = provider.trim().toLowerCase()
-    if (normalized === 'lm-studio') {
-        return 'lmstudio'
-    }
     return normalized
 }
 
@@ -84,8 +63,8 @@ export function isOpenAICodexProvider(input: {
 }
 
 export function isLocalProvider(provider: string): boolean {
-    const normalized = normalizeProviderId(provider)
-    return normalized === 'ollama' || normalized === 'lmstudio'
+    void provider
+    return false
 }
 
 export function providerRequiresStoredCredential(input: {
@@ -93,21 +72,6 @@ export function providerRequiresStoredCredential(input: {
     authMode: 'api_key' | 'oauth'
 }): boolean {
     return input.authMode === 'api_key' && !isLocalProvider(input.provider)
-}
-
-export function providerEnvKey(provider: string): string {
-    const normalized = normalizeProviderId(provider)
-    const known: Record<string, string> = {
-        anthropic: 'ANTHROPIC_API_KEY',
-        openai: 'OPENAI_API_KEY',
-        openrouter: 'OPENROUTER_API_KEY',
-        google: 'GOOGLE_API_KEY',
-        groq: 'GROQ_API_KEY',
-        xai: 'XAI_API_KEY',
-        cerebras: 'CEREBRAS_API_KEY',
-    }
-
-    return known[normalized] ?? `${upperSnake(normalized)}_API_KEY`
 }
 
 export function upperSnake(value: string): string {
@@ -135,12 +99,6 @@ export function resolveProviderBaseUrl(input: {
     }
     if (provider === 'openrouter') {
         return input.baseUrl ?? 'https://openrouter.ai/api/v1'
-    }
-    if (provider === 'ollama') {
-        return input.baseUrl ?? 'http://host.docker.internal:11434/v1'
-    }
-    if (provider === 'lmstudio') {
-        return input.baseUrl ?? 'http://host.docker.internal:1234/v1'
     }
     return input.baseUrl
 }

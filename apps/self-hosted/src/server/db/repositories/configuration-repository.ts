@@ -47,6 +47,20 @@ export const appProviderConnectionRepository = {
         return mapAppProviderConnection(rows[0] as Record<string, unknown>)
     },
 
+    async findByProvider(provider: string): Promise<AppProviderConnectionRecord | null> {
+        const rows = await sql`
+            SELECT *
+            FROM app_provider_connections
+            WHERE provider = ${provider}
+            ORDER BY updated_at DESC
+            LIMIT 1
+        `
+        if (rows.length === 0) {
+            return null
+        }
+        return mapAppProviderConnection(rows[0] as Record<string, unknown>)
+    },
+
     async countRoomReferences(id: string): Promise<number> {
         const rows = await sql`
             SELECT count(*)::int AS count
@@ -149,6 +163,28 @@ export const appProviderConnectionRepository = {
                 updated_at = now()
             RETURNING *
         `
+        return mapAppProviderConnection(rows[0] as Record<string, unknown>)
+    },
+
+    async updateValidation(input: {
+        id: string
+        status: ConnectionStatus
+        validationMessage: string | null
+        lastValidatedAt: Date
+    }): Promise<AppProviderConnectionRecord> {
+        const rows = await sql`
+            UPDATE app_provider_connections
+            SET
+                status = ${input.status},
+                validation_message = ${input.validationMessage},
+                last_validated_at = ${input.lastValidatedAt},
+                updated_at = now()
+            WHERE id = ${input.id}
+            RETURNING *
+        `
+        if (rows.length === 0) {
+            throw new Error('Provider connection does not exist')
+        }
         return mapAppProviderConnection(rows[0] as Record<string, unknown>)
     },
 }
@@ -342,11 +378,6 @@ export const roomConfigRepository = {
         instructions: string
         providerMode: RoomProviderMode
         providerConnectionId: string | null
-        provider: string | null
-        providerApi: ProviderApi | null
-        providerBaseUrl: string | null
-        providerModel: string | null
-        providerSecretId: string | null
         roomMode: string
         capabilityOverrides: JsonValue
         imageProvider: string | null
@@ -361,11 +392,6 @@ export const roomConfigRepository = {
                 instructions,
                 provider_mode,
                 provider_connection_id,
-                provider,
-                provider_api,
-                provider_base_url,
-                provider_model,
-                provider_secret_id,
                 room_mode,
                 capability_overrides,
                 image_provider,
@@ -381,11 +407,6 @@ export const roomConfigRepository = {
                 ${input.instructions},
                 ${input.providerMode},
                 ${input.providerConnectionId},
-                ${input.provider},
-                ${input.providerApi},
-                ${input.providerBaseUrl},
-                ${input.providerModel},
-                ${input.providerSecretId},
                 ${input.roomMode},
                 ${sql.json(input.capabilityOverrides)},
                 ${input.imageProvider},
@@ -401,11 +422,6 @@ export const roomConfigRepository = {
                 instructions = excluded.instructions,
                 provider_mode = excluded.provider_mode,
                 provider_connection_id = excluded.provider_connection_id,
-                provider = excluded.provider,
-                provider_api = excluded.provider_api,
-                provider_base_url = excluded.provider_base_url,
-                provider_model = excluded.provider_model,
-                provider_secret_id = excluded.provider_secret_id,
                 room_mode = excluded.room_mode,
                 capability_overrides = excluded.capability_overrides,
                 image_provider = excluded.image_provider,

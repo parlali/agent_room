@@ -5,8 +5,6 @@ import type {
     ProviderConnectionSummary,
 } from '#/server/configuration/operator-configuration'
 
-export type ProviderApi = ProviderConnectionSummary['api']
-export type ProviderAuthMode = ProviderConnectionSummary['authMode']
 export type McpTransport = McpConnectionSummary['transport']
 export type McpAuthMode = McpConnectionSummary['authMode']
 export type AppCapabilityDefaults = OperatorConfigSnapshot['settings']['capabilityDefaults']
@@ -23,14 +21,6 @@ export function capabilityDefaultsEqual(
     return CAPABILITY_OPTIONS.every((option) => left[option.id] === right[option.id])
 }
 
-export const PROVIDER_API_OPTIONS: { value: ProviderApi; label: string }[] = [
-    { value: 'openai-completions', label: 'OpenAI compatible' },
-    { value: 'openai-responses', label: 'OpenAI Responses' },
-    { value: 'openai-codex-responses', label: 'OpenAI Codex (OAuth)' },
-    { value: 'anthropic-messages', label: 'Anthropic' },
-    { value: 'google-generative-ai', label: 'Google Gemini' },
-]
-
 export const TRANSPORT_OPTIONS: { value: McpTransport; label: string }[] = [
     { value: 'stdio', label: 'Local command (stdio)' },
     { value: 'http', label: 'HTTP endpoint' },
@@ -41,9 +31,6 @@ export interface ProviderFormState {
     id?: string
     label: string
     provider: string
-    api: ProviderApi
-    authMode: ProviderAuthMode
-    baseUrl: string
     defaultModel: string
     fallbackModels: string
     apiKey: string
@@ -57,13 +44,13 @@ export function resolveProviderFormProtocol(
     providerCatalog: OperatorConfigSnapshot['providerCatalog'],
 ): {
     selectedProvider: OperatorConfigSnapshot['providerCatalog'][number] | null
-    api: ProviderApi
-    authMode: ProviderAuthMode
+    api: ProviderConnectionSummary['api']
+    authMode: ProviderConnectionSummary['authMode']
 } {
     const selectedProvider =
         providerCatalog.find((entry) => entry.provider === form.provider.trim()) ?? null
-    const api = selectedProvider?.api ?? form.api
-    const authMode = api === 'openai-codex-responses' ? 'oauth' : form.authMode
+    const api = selectedProvider?.api ?? 'openai-completions'
+    const authMode = api === 'openai-codex-responses' ? 'oauth' : 'api_key'
 
     return {
         selectedProvider,
@@ -75,9 +62,6 @@ export function resolveProviderFormProtocol(
 export const EMPTY_PROVIDER_FORM: ProviderFormState = {
     label: '',
     provider: 'openrouter',
-    api: 'openai-completions',
-    authMode: 'api_key',
-    baseUrl: '',
     defaultModel: 'openrouter/auto',
     fallbackModels: '',
     apiKey: '',

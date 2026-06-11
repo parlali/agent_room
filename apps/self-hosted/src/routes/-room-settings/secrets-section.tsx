@@ -216,15 +216,12 @@ export function SecretsSection({
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="generic">Generic</SelectItem>
-                                        <SelectItem value="provider_api_key">
-                                            Provider API key
-                                        </SelectItem>
                                         <SelectItem value="webhook">Webhook</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
                             <div className="space-y-1.5">
-                                <Label htmlFor="secret-provider">Provider (optional)</Label>
+                                <Label htmlFor="secret-provider">Namespace (optional)</Label>
                                 <Input
                                     id="secret-provider"
                                     value={draft.provider}
@@ -234,7 +231,7 @@ export function SecretsSection({
                                             provider: e.target.value,
                                         }))
                                     }
-                                    placeholder="anthropic"
+                                    placeholder="external-service"
                                     disabled={editingExisting !== null}
                                 />
                             </div>

@@ -15,22 +15,17 @@ import type {
 import {
     mcpAuthModes,
     mcpTransports,
-    providerApis,
-    providerAuthModes,
     roomModes,
     roomProviderModes,
-    roomSecretPurposes,
+    userRoomSecretPurposes,
 } from '#/domain/domain-types'
 import type { providerCatalog } from '../provider-config'
-import type { CodexAuthStatus } from '../codex-auth'
+import type { CodexAppAuthStatus } from '../codex-auth'
 
 export const providerSaveSchema = z.object({
     id: z.string().uuid().optional(),
     label: z.string().trim().min(1),
     provider: z.string().trim().min(1),
-    api: z.enum(providerApis),
-    authMode: z.enum(providerAuthModes).optional(),
-    baseUrl: z.string().trim().nullable().optional(),
     defaultModel: z.string().trim().min(1),
     fallbackModels: z.array(z.string().trim().min(1)).default([]),
     apiKey: z.string().optional(),
@@ -56,11 +51,6 @@ export const roomConfigSaveSchema = z.object({
     instructions: z.string().default(''),
     providerMode: z.enum(roomProviderModes),
     providerConnectionId: z.string().uuid().nullable().optional(),
-    provider: z.string().trim().nullable().optional(),
-    providerApi: z.enum(providerApis).nullable().optional(),
-    providerBaseUrl: z.string().trim().nullable().optional(),
-    providerModel: z.string().trim().nullable().optional(),
-    providerApiKey: z.string().optional(),
     roomMode: z.enum(roomModes).default('coworker'),
     capabilityOverrides: z.record(z.string(), z.boolean()).default({}),
     imageProvider: z.enum(['openai', 'gemini']).nullable().optional(),
@@ -78,7 +68,7 @@ export const roomSecretSaveSchema = z.object({
     roomId: z.string().uuid(),
     label: z.string().trim().min(1),
     envKey: z.string().trim().min(1),
-    purpose: z.enum(roomSecretPurposes),
+    purpose: z.enum(userRoomSecretPurposes),
     provider: z.string().trim().nullable().optional(),
     value: z.string().min(1),
 })
@@ -241,6 +231,7 @@ export interface GitHubRepositorySearchResult {
 
 export interface OperatorConfigSnapshot {
     settings: AppSettingsSummary
+    codexAuth: CodexAppAuthStatus
     providerCatalog: typeof providerCatalog
     providers: ProviderConnectionSummary[]
     mcpConnections: McpConnectionSummary[]
@@ -267,11 +258,6 @@ export interface RoomConfigSnapshot {
         instructions: string
         providerMode: RoomProviderMode
         providerConnectionId: string | null
-        provider: string | null
-        providerApi: ProviderApi | null
-        providerBaseUrl: string | null
-        providerModel: string | null
-        hasRoomProviderSecret: boolean
         roomMode: RoomMode
         capabilities: CapabilityConfig
         capabilityOverrides: Record<string, boolean>
@@ -286,7 +272,7 @@ export interface RoomConfigSnapshot {
     effective: {
         ready: boolean
         blockedReasons: string[]
-        providerSource: 'app_default' | 'app_connection' | 'room_secret' | 'missing'
+        providerSource: 'app_default' | 'app_connection' | 'missing'
         providerLabel: string | null
         provider: string | null
         model: string | null
@@ -294,7 +280,7 @@ export interface RoomConfigSnapshot {
         capabilities: CapabilityConfig
         searchReady: boolean
         imageReady: boolean
-        codexAuth: CodexAuthStatus | null
+        codexAuth: CodexAppAuthStatus | null
         github: {
             ready: boolean
             enabled: boolean

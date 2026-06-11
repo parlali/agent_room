@@ -131,9 +131,9 @@ function createReadPdfTool(ctx: DocumentToolContext): ToolDefinition {
         name: 'read_pdf',
         label: 'Read PDF',
         description:
-            'Read a PDF through the highest-fidelity configured provider path. Anthropic models receive native PDF document input; other vision-capable models receive rendered page images.',
+            'Read a PDF through rendered page images when the configured model supports image input.',
         promptSnippet:
-            'read_pdf is the default PDF reading path. Use pages like "1", "1-3", or "1,4-5" to bound rendered pages. It reports whether the model received a native PDF document or rendered page images.',
+            'read_pdf is the default PDF reading path. Use pages like "1", "1-3", or "1,4-5" to bound rendered pages.',
         parameters: Type.Object({
             path: Type.String(),
             root: rootParameter,
@@ -167,7 +167,7 @@ function createReadPdfTool(ctx: DocumentToolContext): ToolDefinition {
             await ctx.audit('tool.pdf', details)
             const message =
                 pdf.mode === 'native_document'
-                    ? `PDF read prepared as Anthropic native document input (${pdf.selectedPages.label}; ${pdf.pageCount} total pages).${pdf.requestedPages ? ` Requested ${pdf.requestedPages}; native document input sends the full PDF.` : ''}`
+                    ? `PDF read prepared as native document input (${pdf.selectedPages.label}; ${pdf.pageCount} total pages).${pdf.requestedPages ? ` Requested ${pdf.requestedPages}; native document input sends the full PDF.` : ''}`
                     : pdf.mode === 'image_render'
                       ? `PDF read prepared as rendered page images (${pdf.selectedPages.label}; ${pdf.pageCount} total pages).`
                       : `PDF read is unsupported for the configured provider/model (${pdf.selectedPages.label}; ${pdf.pageCount} total pages).`

@@ -57,7 +57,7 @@ export function buildOverall(input: {
             tone: 'attention',
             label: 'Needs setup',
             description:
-                blockedReason ?? 'Add room-scoped provider configuration to start this room.',
+                blockedReason ?? 'Configure an app-level model provider to start this room.',
         }
     }
 
@@ -212,8 +212,8 @@ function modelConnectionRow(config: RoomConfigSnapshot | null): CheckRow {
         detail:
             reason ??
             (isMissing
-                ? 'No model is connected to this room.'
-                : 'Model needs a key or finishing setup.'),
+                ? 'No app model provider is configured.'
+                : 'Model provider needs a key or finishing setup.'),
         fixTo: '/rooms/$roomId/settings',
         fixLabel: isMissing ? 'Connect' : 'Fix',
     }

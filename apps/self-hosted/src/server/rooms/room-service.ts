@@ -12,7 +12,6 @@ import {
 } from '../db/repositories/configuration-repository'
 import { saveRoomConfig } from '../configuration/operator-configuration'
 import type {
-    ProviderApi,
     RoomDesiredState,
     RoomMode,
     RoomProviderMode,
@@ -57,11 +56,6 @@ export async function createRoom(input: {
     instructions?: string
     providerMode?: RoomProviderMode
     providerConnectionId?: string | null
-    provider?: string | null
-    providerApi?: ProviderApi | null
-    providerBaseUrl?: string | null
-    providerModel?: string | null
-    providerApiKey?: string
     roomMode?: RoomMode
     cronTimezone?: string
     mcpConnectionIds?: string[]
@@ -112,11 +106,6 @@ export async function createRoom(input: {
                 instructions: input.instructions ?? '',
                 providerMode: input.providerMode ?? 'app_default',
                 providerConnectionId: input.providerConnectionId ?? null,
-                provider: input.provider ?? null,
-                providerApi: input.providerApi ?? null,
-                providerBaseUrl: input.providerBaseUrl ?? null,
-                providerModel: input.providerModel ?? null,
-                providerApiKey: input.providerApiKey,
                 roomMode: input.roomMode ?? 'coworker',
                 cronTimezone: input.cronTimezone ?? 'UTC',
                 mcpConnectionIds: input.mcpConnectionIds ?? [],

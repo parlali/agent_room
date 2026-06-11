@@ -1,5 +1,5 @@
-import { chmod, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { chmod, mkdir, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import type {
     AppSettingsRecord,
     ImageProviderId,
@@ -30,7 +30,7 @@ import {
     assertNoReservedRoomRuntimeEnvKeys,
     reservedRoomRuntimeEnvKeys,
 } from '../../security/process-env'
-import { inspectCodexAuthStatus } from '../codex-auth'
+import { inspectCodexAppAuthStatusSync, resolveCodexPiAuthPath } from '../codex-auth'
 import {
     mergeCapabilities,
     normalizeBudgets,
@@ -45,11 +45,12 @@ import { materializeRoomGitHubBinding } from '../github-app'
 import {
     assertSupportedProvider,
     assertSupportedProviderApi,
-    providerEnvKey,
+    isOpenAICodexProvider,
     providerRequiresStoredCredential,
     resolveProviderBaseUrl,
     upperSnake,
 } from '../provider-config'
+import { resolveEffectiveProvider } from './provider-resolution'
 import {
     imageConfigRecord,
     imageConfigSecretId,
@@ -61,11 +62,10 @@ import {
 import { decryptSecretRecord, resolveSecret } from './secrets'
 
 async function resolveProviderForMaterialization(input: {
-    roomId: string
     config: RoomConfigRecord
     settings: AppSettingsRecord
 }): Promise<{
-    source: RoomProviderMode
+    source: RoomProviderMode | 'missing'
     provider: string
     authMode: ProviderAuthMode
     api: ProviderApi
@@ -73,74 +73,35 @@ async function resolveProviderForMaterialization(input: {
     model: string
     fallbackModels: string[]
     secret: SecretRecord | null
+    authPath: string | null
 }> {
-    if (input.config.providerMode === 'room_secret') {
-        const secret = await resolveSecret(input.config.providerSecretId)
-        const requiresCredential = providerRequiresStoredCredential({
-            provider: input.config.provider ?? '',
-            authMode: 'api_key',
-        })
-        if (
-            !input.config.provider ||
-            !input.config.providerApi ||
-            !input.config.providerModel ||
-            (requiresCredential && !secret)
-        ) {
-            throw new Error('Room provider configuration is incomplete')
-        }
-        return {
-            source: 'room_secret',
-            provider: input.config.provider,
-            authMode: 'api_key',
-            api: input.config.providerApi,
-            baseUrl: input.config.providerBaseUrl,
-            model: input.config.providerModel,
-            fallbackModels: [],
-            secret: requiresCredential ? secret : null,
-        }
+    const providers = await appProviderConnectionRepository.list()
+    const codexAuth = inspectCodexAppAuthStatusSync()
+    const resolution = resolveEffectiveProvider({
+        config: input.config,
+        settings: input.settings,
+        providers,
+        codexAuth,
+    })
+    if (!resolution.provider) {
+        throw new Error(resolution.blockedReasons.join('; ') || 'Room has no effective provider')
+    }
+    if (resolution.blockedReasons.length > 0) {
+        throw new Error(resolution.blockedReasons.join('; '))
     }
 
-    const providerConnectionId =
-        input.config.providerMode === 'app_connection'
-            ? input.config.providerConnectionId
-            : input.settings.defaultProviderConnectionId
-
-    if (!providerConnectionId) {
-        throw new Error('Room has no effective provider connection')
-    }
-
-    const providerConnection = await appProviderConnectionRepository.findById(providerConnectionId)
-    if (!providerConnection) {
-        throw new Error('Room effective provider connection was not found')
-    }
-
-    const secret = await resolveSecret(providerConnection.credentialSecretId)
+    const providerConnection = resolution.provider
     const requiresCredential = providerRequiresStoredCredential({
         provider: providerConnection.provider,
         authMode: providerConnection.authMode,
     })
+    const secret = await resolveSecret(providerConnection.credentialSecretId)
     if (requiresCredential && !secret) {
         throw new Error('Room effective provider credential is missing')
     }
-    if (providerConnection.status !== 'ready') {
-        throw new Error(
-            providerConnection.validationMessage ??
-                `Room effective provider connection ${providerConnection.label} is not ready`,
-        )
-    }
-    if (
-        providerConnection.authMode === 'oauth' &&
-        (providerConnection.provider === 'openai-codex' ||
-            providerConnection.api === 'openai-codex-responses')
-    ) {
-        const authStatus = await inspectCodexAuthStatus(input.roomId)
-        if (!authStatus.ready) {
-            throw new Error(authStatus.message)
-        }
-    }
 
     return {
-        source: input.config.providerMode,
+        source: resolution.source,
         provider: providerConnection.provider,
         authMode: providerConnection.authMode,
         api: providerConnection.api,
@@ -148,11 +109,17 @@ async function resolveProviderForMaterialization(input: {
         model: providerConnection.defaultModel,
         fallbackModels: toStringArray(providerConnection.fallbackModels),
         secret: requiresCredential ? secret : null,
+        authPath: isOpenAICodexProvider({
+            provider: providerConnection.provider,
+            api: providerConnection.api,
+        })
+            ? resolveCodexPiAuthPath()
+            : null,
     }
 }
 
 async function materializeProvider(input: {
-    runtimeSecretsDir: string
+    providerAuthPath: string
     provider: string
     authMode: ProviderAuthMode
     api: ProviderApi
@@ -160,6 +127,7 @@ async function materializeProvider(input: {
     model: string
     fallbackModels: string[]
     secret: SecretRecord | null
+    authPath: string | null
     encryptionKey: Buffer
 }): Promise<{
     provider: MaterializedProviderConfig
@@ -167,28 +135,43 @@ async function materializeProvider(input: {
 }> {
     assertSupportedProvider(input.provider)
     assertSupportedProviderApi(input.provider, input.api)
-    const envKey = providerRequiresStoredCredential({
+    const requiresCredential = providerRequiresStoredCredential({
         provider: input.provider,
         authMode: input.authMode,
     })
-        ? providerEnvKey(input.provider)
-        : null
     const env: Record<string, string> = {}
     const secretRefs: MaterializedEntitlements['secretRefs'] = []
-    if (envKey && input.secret) {
+    let authPath = input.authPath
+    if (!authPath && requiresCredential && input.secret) {
         const plainText = decryptSecretRecord(input.secret, input.encryptionKey)
-        const secretFilePath = join(input.runtimeSecretsDir, `${envKey.toLowerCase()}.secret`)
-        await writeFile(secretFilePath, plainText, {
-            encoding: 'utf8',
-            mode: 0o600,
+        authPath = input.providerAuthPath
+        await mkdir(dirname(authPath), {
+            recursive: true,
+            mode: 0o700,
         })
-        await chmod(secretFilePath, 0o600)
-        env[envKey] = plainText
+        await writeFile(
+            authPath,
+            `${JSON.stringify(
+                {
+                    [input.provider]: {
+                        type: 'api_key',
+                        key: plainText,
+                    },
+                },
+                null,
+                4,
+            )}\n`,
+            {
+                encoding: 'utf8',
+                mode: 0o600,
+            },
+        )
+        await chmod(authPath, 0o600)
         secretRefs.push({
             entitlementId: 'provider',
             secretId: input.secret.id,
-            filePath: secretFilePath,
-            envKey,
+            filePath: authPath,
+            envKey: null,
         })
     }
 
@@ -202,9 +185,9 @@ async function materializeProvider(input: {
             baseUrl: resolveProviderBaseUrl({
                 provider: input.provider,
                 api: input.api,
-                baseUrl: input.baseUrl,
+                baseUrl: null,
             }),
-            envKey,
+            authPath,
         },
         entitlements: {
             env,
@@ -225,7 +208,7 @@ async function materializeRoomSecrets(input: {
     const usedEnvKeys = new Set(input.reservedEnvKeys)
 
     for (const roomSecret of input.roomSecrets) {
-        if (roomSecret.purpose === 'provider_api_key') {
+        if (roomSecret.purpose === 'image_api_key') {
             continue
         }
         const envKey = upperSnake(roomSecret.envKey)
@@ -422,6 +405,7 @@ async function materializeMcpBindings(input: {
 export async function materializeRoomConfiguration(input: {
     roomId: string
     runtimeSecretsDir: string
+    providerAuthPath?: string
 }): Promise<MaterializedRoomConfiguration> {
     const env = getAppEnv()
     const [config, settings, bindings, roomSecrets, githubBinding] = await Promise.all([
@@ -432,12 +416,12 @@ export async function materializeRoomConfiguration(input: {
         roomGitHubBindingRepository.findByRoomId(input.roomId),
     ])
     const providerSelection = await resolveProviderForMaterialization({
-        roomId: input.roomId,
         config,
         settings,
     })
     const providerMaterialization = await materializeProvider({
-        runtimeSecretsDir: input.runtimeSecretsDir,
+        providerAuthPath:
+            input.providerAuthPath ?? join(input.runtimeSecretsDir, 'provider-auth.json'),
         provider: providerSelection.provider,
         authMode: providerSelection.authMode,
         api: providerSelection.api,
@@ -445,6 +429,7 @@ export async function materializeRoomConfiguration(input: {
         model: providerSelection.model,
         fallbackModels: providerSelection.fallbackModels,
         secret: providerSelection.secret,
+        authPath: providerSelection.authPath,
         encryptionKey: env.encryptionKey,
     })
     const appImageProvider = normalizeImageProvider(
@@ -477,7 +462,7 @@ export async function materializeRoomConfiguration(input: {
     })
     const materializedRoomSecrets = roomSecrets.filter(
         (roomSecret) =>
-            roomSecret.purpose !== 'provider_api_key' &&
+            roomSecret.purpose !== 'image_api_key' &&
             roomSecret.secretId !== providerSelection.secret?.id &&
             roomSecret.secretId !== imageRoomSecret?.secretId &&
             !isImageProviderEnvKey(roomSecret.envKey),
@@ -558,6 +543,7 @@ export async function materializeRoomConfiguration(input: {
 }
 
 export const __testing = {
+    materializeProvider,
     materializeRoomSecrets,
     reservedRoomRuntimeEnvKeys,
 }

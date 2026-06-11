@@ -7,14 +7,17 @@ import { imageModelOptionsForProvider } from '#/domain/model-options'
 import { roomQueryKey } from '#/lib/room-query-keys'
 import { requireRouteUser } from './-route-auth'
 import {
+    cancelCodexDeviceAuthSessionServer,
     deleteMcpConnectionServer,
     deleteProviderConnectionServer,
     disconnectGitHubUserAuthorizationServer,
     getOperatorConfigServer,
+    getCodexDeviceAuthSessionServer,
     refreshGitHubInstallationsServer,
     resetGitHubAppConfigurationServer,
     saveMcpConnectionServer,
     saveProviderConnectionServer,
+    startCodexDeviceAuthSessionServer,
     startGitHubAppManifestServer,
     startGitHubUserAuthorizationServer,
     updateAppCapabilitySettingsServer,
@@ -40,6 +43,7 @@ import {
 import {
     AppDefaultsSection,
     CapabilitiesSection,
+    CodexAppServerSection,
     DeleteConnectionDialog,
     GitHubAppSection,
     McpConnectionsSection,
@@ -126,6 +130,14 @@ function SettingsPage() {
         queryKey: roomQueryKey.operatorConfig,
         queryFn: () => getOperatorConfigServer(),
     })
+    const codexAuthQuery = useQuery({
+        queryKey: roomQueryKey.codexDeviceAuthSession,
+        queryFn: () => getCodexDeviceAuthSessionServer(),
+        refetchInterval: (query) => {
+            const status = query.state.data?.status
+            return status === 'starting' || status === 'awaiting_verification' ? 1000 : false
+        },
+    })
     const config = configQuery.data
     const providers = config?.providers ?? []
     const mcpConnections = config?.mcpConnections ?? []
@@ -185,9 +197,6 @@ function SettingsPage() {
             id: entry.id,
             label: entry.label,
             provider: entry.provider,
-            api: entry.api,
-            authMode: entry.authMode,
-            baseUrl: entry.baseUrl ?? '',
             defaultModel: entry.defaultModel,
             fallbackModels: entry.fallbackModels.join(', '),
             apiKey: '',
@@ -239,14 +248,11 @@ function SettingsPage() {
                     id: providerForm.id,
                     label: providerForm.label.trim(),
                     provider: providerForm.provider.trim(),
-                    api: protocol.api,
-                    authMode: usesOAuth ? 'oauth' : 'api_key',
-                    baseUrl: providerForm.baseUrl.trim() ? providerForm.baseUrl.trim() : null,
                     defaultModel: providerForm.defaultModel.trim(),
                     fallbackModels,
                     apiKey:
-                        providerForm.replaceApiKey && providerForm.apiKey
-                            ? providerForm.apiKey
+                        !usesOAuth && providerForm.replaceApiKey && providerForm.apiKey.trim()
+                            ? providerForm.apiKey.trim()
                             : undefined,
                     makeDefault: providerForm.makeDefault,
                 },
@@ -290,6 +296,31 @@ function SettingsPage() {
         },
         onError: (error) =>
             toast.error(error instanceof Error ? error.message : 'Tool save failed'),
+    })
+
+    const startCodexAuthMutation = useMutation({
+        mutationFn: async () => startCodexDeviceAuthSessionServer(),
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({
+                queryKey: roomQueryKey.codexDeviceAuthSession,
+                exact: false,
+            })
+            await invalidateConfig()
+        },
+        onError: (error) =>
+            toast.error(error instanceof Error ? error.message : 'Codex authorization failed'),
+    })
+
+    const cancelCodexAuthMutation = useMutation({
+        mutationFn: async () => cancelCodexDeviceAuthSessionServer(),
+        onSuccess: async () => {
+            await queryClient.invalidateQueries({
+                queryKey: roomQueryKey.codexDeviceAuthSession,
+                exact: false,
+            })
+        },
+        onError: (error) =>
+            toast.error(error instanceof Error ? error.message : 'Codex cancellation failed'),
     })
 
     const deleteProviderMutation = useMutation({
@@ -506,6 +537,11 @@ function SettingsPage() {
         search.setupAction,
     ])
 
+    useEffect(() => {
+        if (codexAuthQuery.data?.status !== 'complete') return
+        void invalidateConfig()
+    }, [codexAuthQuery.data?.status])
+
     const onSubmitProvider = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
         if (!providerForm.label.trim()) return toast.error('Connection name is required')
@@ -676,6 +712,16 @@ function SettingsPage() {
                         onAdd={openNewProvider}
                         onEdit={openEditProvider}
                         onDelete={onDeleteProvider}
+                    />
+
+                    <CodexAppServerSection
+                        config={config}
+                        session={codexAuthQuery.data}
+                        loading={codexAuthQuery.isLoading}
+                        startPending={startCodexAuthMutation.isPending}
+                        cancelPending={cancelCodexAuthMutation.isPending}
+                        onStart={() => startCodexAuthMutation.mutate()}
+                        onCancel={() => cancelCodexAuthMutation.mutate()}
                     />
 
                     <McpConnectionsSection

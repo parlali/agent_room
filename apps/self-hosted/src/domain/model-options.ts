@@ -21,13 +21,6 @@ const PROVIDER_MODEL_OPTIONS: Record<string, ModelOption[]> = {
         { value: 'openai-codex/gpt-5.3-codex-spark', label: 'GPT-5.3 Codex Spark' },
     ],
     openrouter: [{ value: 'openrouter/auto', label: 'Automatic' }],
-    google: [
-        { value: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-        { value: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-        { value: 'google/gemini-3-pro-preview', label: 'Gemini 3 Pro Preview' },
-    ],
-    ollama: [{ value: 'ollama/llama3.2', label: 'Llama 3.2' }],
-    lmstudio: [{ value: 'lmstudio/local-model', label: 'Local model' }],
 }
 
 export const IMAGE_MODEL_OPTIONS: Record<ImageProviderId, ModelOption[]> = {

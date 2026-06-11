@@ -17,6 +17,8 @@ import { getAppEnv } from '../../config/env'
 import type { AppSettingsSummary } from './contracts'
 import { imageConfigRecord, imageConfigSecretId, nullableText, summarizeSettings } from './helpers'
 import { decryptSecretRecord, resolveSecret, upsertEncryptedSecret } from './secrets'
+import { inspectCodexAppAuthStatusSync } from '../codex-auth'
+import { listReadyProviders } from './provider-resolution'
 
 export async function updateAppDefaults(input: {
     defaultProviderConnectionId: string | null
@@ -24,18 +26,24 @@ export async function updateAppDefaults(input: {
     onboardingCompleted: boolean
     actorUserId: string
 }): Promise<AppSettingsSummary> {
+    const providers = await appProviderConnectionRepository.list()
+    const readyProviders = listReadyProviders(providers, inspectCodexAppAuthStatusSync())
+
+    if (readyProviders.length === 0) {
+        throw new Error('Configure at least one ready provider before saving app defaults')
+    }
+    if (!input.defaultProviderConnectionId && readyProviders.length > 1) {
+        throw new Error('Choose an app default provider when multiple providers are ready')
+    }
+
     if (input.defaultProviderConnectionId) {
-        const provider = await appProviderConnectionRepository.findById(
-            input.defaultProviderConnectionId,
-        )
+        const provider =
+            providers.find((entry) => entry.id === input.defaultProviderConnectionId) ?? null
         if (!provider) {
             throw new Error('Default provider connection does not exist')
         }
-        if (provider.status !== 'ready') {
-            throw new Error(
-                provider.validationMessage ??
-                    `Default provider connection ${provider.label} is not ready`,
-            )
+        if (!readyProviders.some((entry) => entry.id === provider.id)) {
+            throw new Error(`Default provider connection ${provider.label} is not ready`)
         }
     }
 

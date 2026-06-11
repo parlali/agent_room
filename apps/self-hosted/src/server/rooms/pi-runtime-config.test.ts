@@ -46,13 +46,13 @@ function roomConfiguration(): MaterializedRoomConfiguration {
         image: testImage,
         budgets: testBudgets,
         provider: {
-            provider: 'lmstudio',
+            provider: 'openrouter',
             authMode: 'api_key',
             api: 'openai-completions',
-            model: 'lmstudio/local-model',
+            model: 'openrouter/auto',
             fallbackModels: [],
-            baseUrl: null,
-            envKey: null,
+            baseUrl: 'https://openrouter.ai/api/v1',
+            authPath: null,
         },
         entitlements: {
             env: {},
@@ -85,7 +85,7 @@ function sandbox(): RuntimeSandboxIdentity {
 }
 
 describe('Pi runtime config materialization', () => {
-    it('keeps paths, auth, temp, and local model config under the room root', () => {
+    it('keeps paths, auth, temp, and model config under the room root', () => {
         const root = '/tmp/agent-room-test/room-1'
         const config = buildPiRuntimeConfig({
             roomId: 'room-1',
@@ -115,20 +115,17 @@ describe('Pi runtime config materialization', () => {
             keepRecentTokens: 20000,
         })
         expect(config.provider).toMatchObject({
-            sourceProvider: 'lmstudio',
-            piProvider: 'lmstudio',
-            piModel: 'local-model',
-            baseUrl: 'http://host.docker.internal:1234/v1',
-            kind: 'local',
+            sourceProvider: 'openrouter',
+            piProvider: 'openrouter',
+            piModel: 'auto',
+            baseUrl: 'https://openrouter.ai/api/v1',
+            kind: 'builtin',
         })
-        expect(config.models.providers.lmstudio).toMatchObject({
-            baseUrl: 'http://host.docker.internal:1234/v1',
-            apiKey: 'agent-room-local',
-            compat: {
-                supportsDeveloperRole: false,
-                supportsReasoningEffort: false,
-            },
+        expect(config.models.providers.openrouter).toMatchObject({
+            baseUrl: 'https://openrouter.ai/api/v1',
+            api: 'openai-completions',
         })
+        expect(config.models.providers.openrouter).not.toHaveProperty('apiKey')
         expect(Object.keys(config.paths)).not.toContain('cronJobsPath')
     })
 
@@ -142,7 +139,7 @@ describe('Pi runtime config materialization', () => {
             model: 'openai-codex/gpt-5.5',
             fallbackModels: [],
             baseUrl: null,
-            envKey: null,
+            authPath: join(root, 'shared-codex-auth.json'),
         }
 
         const config = buildPiRuntimeConfig({
@@ -162,6 +159,44 @@ describe('Pi runtime config materialization', () => {
             },
         })
         expect(config.models.providers['openai-codex'].models).toBeUndefined()
+        expect(config.paths.authPath).toBe(join(root, 'shared-codex-auth.json'))
+    })
+
+    it('fails closed for runtime provider configs outside the app provider catalog', () => {
+        const root = '/tmp/agent-room-test/room-1'
+        const unsupported = roomConfiguration()
+        unsupported.provider = {
+            ...unsupported.provider,
+            provider: 'custom-openai-compatible',
+        }
+        const mismatched = roomConfiguration()
+        mismatched.provider = {
+            ...mismatched.provider,
+            api: 'openai-codex-responses',
+        }
+
+        expect(() =>
+            buildPiRuntimeConfig({
+                roomId: 'room-1',
+                displayName: 'Room One',
+                port: 31234,
+                token: 'token-token-token-token-token',
+                paths: roomPaths(root),
+                sandbox: sandbox(),
+                roomConfiguration: unsupported,
+            }),
+        ).toThrow('Provider custom-openai-compatible is not supported')
+        expect(() =>
+            buildPiRuntimeConfig({
+                roomId: 'room-1',
+                displayName: 'Room One',
+                port: 31234,
+                token: 'token-token-token-token-token',
+                paths: roomPaths(root),
+                sandbox: sandbox(),
+                roomConfiguration: mismatched,
+            }),
+        ).toThrow('Provider openrouter must use openai-completions')
     })
 
     it('keeps GitHub credential paths under the room-local home directory', () => {

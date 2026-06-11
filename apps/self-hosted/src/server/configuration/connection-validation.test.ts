@@ -123,7 +123,7 @@ async function withHttpServer<T>(
 }
 
 describe('connection validation', () => {
-    it('marks OAuth provider config ready without requiring an API key probe', async () => {
+    it('fails closed for Codex app server until token verification is complete', async () => {
         await expect(
             validateProviderConnection({
                 provider: 'openai-codex',
@@ -134,9 +134,8 @@ describe('connection validation', () => {
                 apiKey: null,
             }),
         ).resolves.toEqual({
-            status: 'ready',
-            message:
-                'OAuth provider config saved; each room must complete provider auth in its own runtime',
+            status: 'invalid',
+            message: 'Codex app server login is missing',
         })
     })
 
@@ -274,12 +273,12 @@ describe('connection validation', () => {
         await withFakeOpenAiProvider('ok', async (baseUrl) => {
             await expect(
                 validateProviderConnection({
-                    provider: 'ollama',
+                    provider: 'openrouter',
                     authMode: 'api_key',
                     api: 'openai-completions',
                     baseUrl,
-                    model: 'ollama/test-model',
-                    apiKey: null,
+                    model: 'openrouter/test-model',
+                    apiKey: 'openrouter-test-key',
                     timeoutMs: 5000,
                 }),
             ).resolves.toEqual({
@@ -294,16 +293,6 @@ describe('connection validation', () => {
             provider: 'openrouter',
             model: 'openrouter/auto',
             apiKey: 'openrouter-test-key',
-        },
-        {
-            provider: 'ollama',
-            model: 'ollama/test-model',
-            apiKey: null,
-        },
-        {
-            provider: 'lmstudio',
-            model: 'lmstudio/test-model',
-            apiKey: null,
         },
     ] as const)(
         'smokes the supported provider matrix entry $provider through Pi',
@@ -335,12 +324,12 @@ describe('connection validation', () => {
     ] as const)('surfaces %s provider failures from the Pi probe', async (mode, expected) => {
         await withFakeOpenAiProvider(mode, async (baseUrl) => {
             const result = await validateProviderConnection({
-                provider: 'ollama',
+                provider: 'openrouter',
                 authMode: 'api_key',
                 api: 'openai-completions',
                 baseUrl,
-                model: mode === 'bad-model' ? 'ollama/missing-model' : 'ollama/test-model',
-                apiKey: null,
+                model: mode === 'bad-model' ? 'openrouter/missing-model' : 'openrouter/test-model',
+                apiKey: 'openrouter-test-key',
                 timeoutMs: 5000,
             })
 
@@ -352,12 +341,12 @@ describe('connection validation', () => {
     it('bounds provider probe timeouts', async () => {
         await withFakeOpenAiProvider('timeout', async (baseUrl) => {
             const result = await validateProviderConnection({
-                provider: 'ollama',
+                provider: 'openrouter',
                 authMode: 'api_key',
                 api: 'openai-completions',
                 baseUrl,
-                model: 'ollama/test-model',
-                apiKey: null,
+                model: 'openrouter/test-model',
+                apiKey: 'openrouter-test-key',
                 timeoutMs: 30,
             })
 
@@ -366,14 +355,14 @@ describe('connection validation', () => {
         })
     })
 
-    it('fails closed for unreachable local endpoints and provider/model mismatch', async () => {
+    it('fails closed for unreachable endpoints and provider/model mismatch', async () => {
         const unreachable = await validateProviderConnection({
-            provider: 'ollama',
+            provider: 'openrouter',
             authMode: 'api_key',
             api: 'openai-completions',
             baseUrl: 'http://127.0.0.1:9/v1',
-            model: 'ollama/test-model',
-            apiKey: null,
+            model: 'openrouter/test-model',
+            apiKey: 'openrouter-test-key',
             timeoutMs: 500,
         })
 
@@ -381,15 +370,31 @@ describe('connection validation', () => {
         expect(unreachable.message.toLowerCase()).toMatch(/fetch|connect|refused|failed/)
 
         const mismatch = await validateProviderConnection({
-            provider: 'ollama',
+            provider: 'openrouter',
             authMode: 'api_key',
             api: 'openai-completions',
             baseUrl: 'http://127.0.0.1:1/v1',
-            model: 'openrouter/auto',
-            apiKey: null,
+            model: 'openai-codex/gpt-5.5',
+            apiKey: 'openrouter-test-key',
         })
 
         expect(mismatch.status).toBe('invalid')
-        expect(mismatch.message).toContain('does not belong to provider ollama')
+        expect(mismatch.message).toContain('does not belong to provider openrouter')
+    })
+
+    it('fails closed for removed local providers', async () => {
+        await expect(
+            validateProviderConnection({
+                provider: 'ollama',
+                authMode: 'api_key',
+                api: 'openai-completions',
+                baseUrl: 'http://127.0.0.1:11434/v1',
+                model: 'ollama/test-model',
+                apiKey: null,
+            }),
+        ).resolves.toEqual({
+            status: 'invalid',
+            message: 'Provider ollama is not supported by this Agent Room build',
+        })
     })
 })
