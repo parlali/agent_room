@@ -141,13 +141,24 @@ export function convertCodexCliAuthToPiCredential(
         throw new Error('Codex device login auth data is incomplete')
     }
 
+    const accessTokenExpiry = accessTokenExpiryMs(access)
+    const expires = accessTokenExpiry ?? codexAccessTokenFallbackExpiryMs(nowMs, accountId)
+
     return {
         type: 'oauth',
         access,
         refresh,
-        expires: accessTokenExpiryMs(access) ?? nowMs + 50 * 60 * 1000,
+        expires,
         accountId,
     }
+}
+
+function codexAccessTokenFallbackExpiryMs(nowMs: number, accountId: string): number {
+    const expires = nowMs + 5 * 60 * 1000
+    console.warn(
+        `Codex device login access token for account ${accountId} did not include a parseable exp claim; using bounded fallback expiry ${new Date(expires).toISOString()}`,
+    )
+    return expires
 }
 
 function readCodexCredentialFromPiAuth(value: unknown): CodexPiOAuthCredential | null {

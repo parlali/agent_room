@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { __testing } from './codex-device-auth'
 
 describe('Codex device auth helpers', () => {
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
     it('extracts OpenAI verification URL and code from CLI output', () => {
         expect(
             __testing.extractDeviceAuthFields(
@@ -78,5 +82,20 @@ describe('Codex device auth helpers', () => {
                 process.env.OPENAI_API_KEY = previousOpenAiKey
             }
         }
+    })
+
+    it('logs async device auth lifecycle failures', () => {
+        const error = new Error('audit write failed')
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+        __testing.logDeviceAuthAsyncError(
+            'Failed to finalize expired Codex device auth session',
+            error,
+        )
+
+        expect(consoleError).toHaveBeenCalledWith(
+            'Failed to finalize expired Codex device auth session',
+            'audit write failed',
+        )
     })
 })

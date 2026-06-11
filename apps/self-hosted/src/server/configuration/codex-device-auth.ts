@@ -256,6 +256,10 @@ async function finalizeSession(input: {
     })
 }
 
+function logDeviceAuthAsyncError(message: string, error: unknown) {
+    console.error(message, error instanceof Error ? error.message : error)
+}
+
 async function tryCompleteFromCliAuth(session: CodexDeviceAuthSessionState) {
     if (!isActiveSession(session)) {
         return
@@ -295,11 +299,16 @@ function handleOutput(session: CodexDeviceAuthSessionState, chunk: Buffer | stri
     }
     session.output = `${session.output}${chunk.toString()}`
     if (localhostCallbackPattern.test(session.output)) {
-        void finalizeSession({
+        finalizeSession({
             session,
             status: 'failed',
             message: 'Codex CLI attempted localhost redirect auth instead of device auth',
             action: 'codex_device_auth.failed',
+        }).catch((error) => {
+            logDeviceAuthAsyncError(
+                'Failed to finalize localhost callback Codex device auth session',
+                error,
+            )
         })
         return
     }
@@ -355,15 +364,22 @@ export async function startCodexDeviceAuthSession(
     sessions.set(sessionKey, session)
 
     session.timeout = setTimeout(() => {
-        void finalizeSession({
+        finalizeSession({
             session,
             status: 'expired',
             message: 'OpenAI verification code expired',
             action: 'codex_device_auth.expired',
+        }).catch((error) => {
+            logDeviceAuthAsyncError('Failed to finalize expired Codex device auth session', error)
         })
     }, codexDeviceAuthTimeoutMs)
     session.poll = setInterval(() => {
-        void tryCompleteFromCliAuth(session)
+        tryCompleteFromCliAuth(session).catch((error) => {
+            logDeviceAuthAsyncError(
+                'Failed to complete Codex device auth session from CLI auth',
+                error,
+            )
+        })
     }, 1000)
 
     const child = spawn(
@@ -379,28 +395,40 @@ export async function startCodexDeviceAuthSession(
     child.stdout.on('data', (chunk) => handleOutput(session, chunk))
     child.stderr.on('data', (chunk) => handleOutput(session, chunk))
     child.on('error', (error) => {
-        void finalizeSession({
+        finalizeSession({
             session,
             status: 'failed',
             message: error.message,
             action: 'codex_device_auth.failed',
+        }).catch((finalizeError) => {
+            logDeviceAuthAsyncError(
+                'Failed to finalize errored Codex device auth session',
+                finalizeError,
+            )
         })
     })
     child.on('exit', (code) => {
         if (!isActiveSession(session)) {
             return
         }
-        void tryCompleteFromCliAuth(session).then(() => {
-            if (session.status === 'complete') {
-                return
-            }
-            void finalizeSession({
-                session,
-                status: 'failed',
-                message: `Codex device login exited before authorization completed${code === null ? '' : ` with code ${code}`}`,
-                action: 'codex_device_auth.failed',
+        tryCompleteFromCliAuth(session)
+            .then(() => {
+                if (session.status === 'complete') {
+                    return
+                }
+                return finalizeSession({
+                    session,
+                    status: 'failed',
+                    message: `Codex device login exited before authorization completed${code === null ? '' : ` with code ${code}`}`,
+                    action: 'codex_device_auth.failed',
+                })
             })
-        })
+            .catch((error) => {
+                logDeviceAuthAsyncError(
+                    'Failed to finalize exited Codex device auth session',
+                    error,
+                )
+            })
     })
 
     await appendAudit({
@@ -432,4 +460,5 @@ export async function cancelCodexDeviceAuthSession(_input: {
 export const __testing = {
     extractDeviceAuthFields,
     childEnv,
+    logDeviceAuthAsyncError,
 }

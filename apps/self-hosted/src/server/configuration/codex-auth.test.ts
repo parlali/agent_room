@@ -1,7 +1,7 @@
 import { readFile, rm, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
     convertCodexCliAuthToPiCredential,
     inspectCodexAppAuthStatusSync,
@@ -15,6 +15,10 @@ function jwt(payload: Record<string, unknown>): string {
 }
 
 describe('Codex app auth helpers', () => {
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
     it('converts official Codex CLI auth into Pi OAuth credentials', () => {
         const access = jwt({
             exp: 1990000000,
@@ -101,5 +105,28 @@ describe('Codex app auth helpers', () => {
                 force: true,
             })
         }
+    })
+
+    it('uses a logged bounded fallback expiry when access token expiry is not parseable', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+        const credential = convertCodexCliAuthToPiCredential(
+            {
+                auth_mode: 'chatgpt',
+                tokens: {
+                    access_token: jwt({
+                        'https://api.openai.com/auth': {
+                            chatgpt_account_id: 'account-without-exp',
+                        },
+                    }),
+                    refresh_token: 'refresh-token',
+                },
+            },
+            1000,
+        )
+
+        expect(credential.expires).toBe(301000)
+        expect(warn).toHaveBeenCalledWith(
+            'Codex device login access token for account account-without-exp did not include a parseable exp claim; using bounded fallback expiry 1970-01-01T00:05:01.000Z',
+        )
     })
 })
