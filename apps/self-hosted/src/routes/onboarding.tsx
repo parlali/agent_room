@@ -1,59 +1,37 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, Link, redirect, useNavigate } from '@tanstack/react-router'
 import {
     ArrowRightIcon,
     CheckCircle2Icon,
     CircleIcon,
     KeyRoundIcon,
-    LoaderIcon,
     SparklesIcon,
 } from 'lucide-react'
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 
 import { AttentionBanner, BrandMark } from '#/components/agent-room'
 import { Alert, AlertDescription } from '#/components/ui/alert'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '#/components/ui/select'
 import { Textarea } from '#/components/ui/textarea'
 import { cn } from '#/lib/utils'
-import type { ProviderApi } from '#/domain/domain-types'
 import { roomQueryKey } from '#/lib/room-query-keys'
 import { markChatSelection } from '#/lib/browser-performance'
 
 import { currentUserServer } from './-auth-server'
 import { friendlyNotice } from './-notice-copy'
-import {
-    getOperatorConfigServer,
-    saveProviderConnectionServer,
-    updateAppDefaultsServer,
-} from './-operator-config-server'
+import { getOperatorConfigServer, updateAppDefaultsServer } from './-operator-config-server'
 import {
     createRoomServer,
     createThreadServer,
     getRoomSetupReadinessServer,
 } from './-room-runtime-server'
 
-interface CatalogEntry {
-    provider: string
-    label: string
-    api: ProviderApi
-    model: string
-}
-
-interface SavedProvider {
+interface ConfiguredProvider {
     id: string
     label: string
     defaultModel: string
-    status: 'unchecked' | 'ready' | 'invalid'
-    validationMessage: string | null
 }
 
 type StepId = 'portal' | 'provider' | 'room' | 'done'
@@ -68,10 +46,6 @@ export const Route = createFileRoute('/onboarding')({
     },
     component: OnboardingPage,
 })
-
-function makeCatalogKey(entry: CatalogEntry): string {
-    return `${entry.provider}::${entry.api}`
-}
 
 function messageFromError(error: unknown, fallback: string): string {
     if (error instanceof Error && error.message) return error.message
@@ -92,76 +66,41 @@ function OnboardingPage() {
         queryFn: () => getRoomSetupReadinessServer(),
     })
 
-    const catalog = (configQuery.data?.providerCatalog ?? []) as CatalogEntry[]
     const blockingIssues =
         readinessQuery.data?.issues.filter((issue) => issue.severity === 'blocking') ?? []
 
     const [activeStep, setActiveStep] = useState<StepId>('provider')
-    const [savedProvider, setSavedProvider] = useState<SavedProvider | null>(null)
     const [createdRoomId, setCreatedRoomId] = useState<string | null>(null)
     const [createdSessionKey, setCreatedSessionKey] = useState<string | null>(null)
     const [firstRoomBlockedReason, setFirstRoomBlockedReason] = useState<string | null>(null)
-
-    const [providerKey, setProviderKey] = useState<string>('')
-    const [providerLabel, setProviderLabel] = useState('')
-    const [defaultModel, setDefaultModel] = useState('')
-    const [baseUrl, setBaseUrl] = useState('')
-    const [apiKey, setApiKey] = useState('')
-    const [providerError, setProviderError] = useState<string | null>(null)
 
     const [roomName, setRoomName] = useState('')
     const [roomInstructions, setRoomInstructions] = useState('')
     const [roomError, setRoomError] = useState<string | null>(null)
 
-    const fallbackEntry = catalog[0] ?? null
-    const selectedEntry =
-        catalog.find((entry) => makeCatalogKey(entry) === providerKey) ?? fallbackEntry
-    const effectiveLabel = providerLabel || selectedEntry?.label || ''
-    const effectiveModel = defaultModel || selectedEntry?.model || ''
-    const providerUsesOAuth = selectedEntry?.api === 'openai-codex-responses'
+    const readyProviders = (configQuery.data?.providers ?? []).filter(
+        (provider) => provider.status === 'ready',
+    )
+    const defaultProvider =
+        readyProviders.find(
+            (provider) => provider.id === configQuery.data?.settings.defaultProviderConnectionId,
+        ) ?? null
+    const configuredProvider =
+        defaultProvider ?? (readyProviders.length === 1 ? readyProviders[0] : null)
+    const configuredProviderSummary: ConfiguredProvider | null = configuredProvider
+        ? {
+              id: configuredProvider.id,
+              label: configuredProvider.label,
+              defaultModel: configuredProvider.defaultModel,
+          }
+        : null
+    const providerReady = configuredProviderSummary !== null
 
-    const saveProvider = useMutation({
-        mutationFn: async () => {
-            if (!selectedEntry) throw new Error('Choose a provider to continue.')
-            if (!effectiveLabel.trim()) throw new Error('Give the connection a label.')
-            if (!effectiveModel.trim()) throw new Error('A default model is required.')
-            const summary = await saveProviderConnectionServer({
-                data: {
-                    label: effectiveLabel.trim(),
-                    provider: selectedEntry.provider,
-                    api: selectedEntry.api,
-                    baseUrl: baseUrl.trim() ? baseUrl.trim() : null,
-                    defaultModel: effectiveModel.trim(),
-                    fallbackModels: [],
-                    apiKey: apiKey ? apiKey : undefined,
-                    makeDefault: true,
-                },
-            })
-            await updateAppDefaultsServer({
-                data: {
-                    defaultProviderConnectionId: summary.id,
-                    defaultModel: summary.defaultModel,
-                    onboardingCompleted: false,
-                },
-            })
-            return summary
-        },
-        onSuccess: async (summary) => {
-            setProviderError(null)
-            setSavedProvider({
-                id: summary.id,
-                label: summary.label,
-                defaultModel: summary.defaultModel,
-                status: summary.status,
-                validationMessage: summary.validationMessage,
-            })
-            await queryClient.invalidateQueries({ queryKey: roomQueryKey.operatorConfig })
+    useEffect(() => {
+        if (providerReady && activeStep === 'provider') {
             setActiveStep('room')
-        },
-        onError: (error: unknown) => {
-            setProviderError(messageFromError(error, 'Could not save provider.'))
-        },
-    })
+        }
+    }, [activeStep, providerReady])
 
     const createRoom = useMutation({
         mutationFn: async () => {
@@ -207,12 +146,12 @@ function OnboardingPage() {
 
     const finish = useMutation({
         mutationFn: async () => {
-            if (!savedProvider) throw new Error('Provider not configured.')
+            if (!configuredProviderSummary) throw new Error('Provider not configured.')
             if (!createdRoomId) throw new Error('Room not created.')
             await updateAppDefaultsServer({
                 data: {
-                    defaultProviderConnectionId: savedProvider.id,
-                    defaultModel: savedProvider.defaultModel,
+                    defaultProviderConnectionId: configuredProviderSummary.id,
+                    defaultModel: configuredProviderSummary.defaultModel,
                     onboardingCompleted: true,
                 },
             })
@@ -236,14 +175,14 @@ function OnboardingPage() {
     })
 
     const portalState: StepState = 'complete'
-    const providerState: StepState = savedProvider
+    const providerState: StepState = providerReady
         ? 'complete'
         : activeStep === 'provider'
           ? 'active'
           : 'pending'
     const roomState: StepState = createdRoomId
         ? 'complete'
-        : activeStep === 'room'
+        : activeStep === 'room' && providerReady
           ? 'active'
           : 'pending'
     const doneState: StepState = activeStep === 'done' ? 'active' : 'pending'
@@ -294,53 +233,17 @@ function OnboardingPage() {
                         index={2}
                         state={providerState}
                         title="Add a model provider"
-                        description="Connect the provider rooms will use for chat and jobs."
+                        description="Configure the app-level provider rooms will use for chat and jobs."
                         summary={
-                            savedProvider
-                                ? `${savedProvider.label} - default model ${savedProvider.defaultModel}`
+                            configuredProviderSummary
+                                ? `${configuredProviderSummary.label} - default model ${configuredProviderSummary.defaultModel}`
                                 : null
                         }
                     >
-                        {activeStep === 'provider' && !savedProvider ? (
-                            <ProviderForm
-                                catalog={catalog}
-                                providerKey={
-                                    providerKey ||
-                                    (fallbackEntry ? makeCatalogKey(fallbackEntry) : '')
-                                }
-                                onProviderKey={(value) => {
-                                    setProviderKey(value)
-                                    const entry = catalog.find(
-                                        (item) => makeCatalogKey(item) === value,
-                                    )
-                                    if (entry) {
-                                        setProviderLabel((current) => current || entry.label)
-                                        setDefaultModel(entry.model)
-                                    }
-                                }}
-                                providerLabel={providerLabel}
-                                onProviderLabel={setProviderLabel}
-                                defaultModel={defaultModel}
-                                onDefaultModel={setDefaultModel}
-                                baseUrl={baseUrl}
-                                onBaseUrl={setBaseUrl}
-                                apiKey={apiKey}
-                                onApiKey={setApiKey}
-                                usesOAuth={providerUsesOAuth}
-                                placeholderLabel={selectedEntry?.label ?? 'OpenAI'}
-                                placeholderModel={selectedEntry?.model ?? ''}
-                                error={providerError}
-                                pending={saveProvider.isPending}
-                                onSubmit={(event) => {
-                                    event.preventDefault()
-                                    saveProvider.mutate()
-                                }}
-                            />
-                        ) : null}
-                        {savedProvider ? (
-                            <ProviderResult
-                                status={savedProvider.status}
-                                message={savedProvider.validationMessage}
+                        {activeStep === 'provider' && !providerReady ? (
+                            <ProviderSettingsPrompt
+                                readyCount={readyProviders.length}
+                                hasDefault={defaultProvider !== null}
                             />
                         ) : null}
                     </Step>
@@ -468,104 +371,37 @@ function StepIndicator({ index, state }: { index: number; state: StepState }) {
     )
 }
 
-function ProviderForm(props: {
-    catalog: CatalogEntry[]
-    providerKey: string
-    onProviderKey: (value: string) => void
-    providerLabel: string
-    onProviderLabel: (value: string) => void
-    defaultModel: string
-    onDefaultModel: (value: string) => void
-    baseUrl: string
-    onBaseUrl: (value: string) => void
-    apiKey: string
-    onApiKey: (value: string) => void
-    usesOAuth: boolean
-    placeholderLabel: string
-    placeholderModel: string
-    error: string | null
-    pending: boolean
-    onSubmit: (event: FormEvent<HTMLFormElement>) => void
+function ProviderSettingsPrompt({
+    readyCount,
+    hasDefault,
+}: {
+    readyCount: number
+    hasDefault: boolean
 }) {
+    const description =
+        readyCount > 1 && !hasDefault
+            ? 'Choose an app default provider in Settings before creating rooms.'
+            : 'Add an OpenRouter key or authorize Codex app server in Settings before creating rooms.'
+
     return (
-        <form className="space-y-4" onSubmit={props.onSubmit} noValidate>
-            {props.error ? (
-                <Alert variant="destructive">
-                    <AlertDescription>{props.error}</AlertDescription>
-                </Alert>
-            ) : null}
-
-            <div className="space-y-1.5">
-                <Label htmlFor="provider-choice">Provider</Label>
-                <Select value={props.providerKey} onValueChange={props.onProviderKey}>
-                    <SelectTrigger id="provider-choice" className="w-full">
-                        <SelectValue placeholder="Choose a provider" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {props.catalog.map((entry) => (
-                            <SelectItem key={makeCatalogKey(entry)} value={makeCatalogKey(entry)}>
-                                {entry.label}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                    <Label htmlFor="provider-label">Label</Label>
-                    <Input
-                        id="provider-label"
-                        value={props.providerLabel}
-                        onChange={(event) => props.onProviderLabel(event.target.value)}
-                        placeholder={props.placeholderLabel}
-                    />
-                </div>
-                <div className="space-y-1.5">
-                    <Label htmlFor="provider-model">Default model</Label>
-                    <Input
-                        id="provider-model"
-                        value={props.defaultModel}
-                        onChange={(event) => props.onDefaultModel(event.target.value)}
-                        placeholder={props.placeholderModel}
-                    />
-                </div>
-            </div>
-
-            <div className="space-y-1.5">
-                <Label htmlFor="provider-base-url">
-                    Base URL <span className="text-muted-foreground">(optional)</span>
-                </Label>
-                <Input
-                    id="provider-base-url"
-                    value={props.baseUrl}
-                    onChange={(event) => props.onBaseUrl(event.target.value)}
-                    placeholder="Optional endpoint override"
-                />
-            </div>
-
-            {props.usesOAuth ? null : (
-                <div className="space-y-1.5">
-                    <Label htmlFor="provider-api-key">API key</Label>
-                    <Input
-                        id="provider-api-key"
-                        type="password"
-                        value={props.apiKey}
-                        onChange={(event) => props.onApiKey(event.target.value)}
-                        autoComplete="new-password"
-                        placeholder="sk-..."
-                    />
-                    <p className="text-xs text-muted-foreground">
-                        Stored encrypted on this server. Never sent to the browser.
-                    </p>
-                </div>
-            )}
-
-            <Button type="submit" disabled={props.pending}>
-                <KeyRoundIcon />
-                {props.pending ? 'Testing connection...' : 'Save and test connection'}
+        <div className="space-y-3">
+            <Alert>
+                <AlertDescription>{description}</AlertDescription>
+            </Alert>
+            <Button asChild>
+                <Link
+                    to="/settings"
+                    search={{
+                        installationId: '',
+                        setupAction: '',
+                        githubState: '',
+                    }}
+                >
+                    <KeyRoundIcon />
+                    Open settings
+                </Link>
             </Button>
-        </form>
+        </div>
     )
 }
 
@@ -613,40 +449,5 @@ function RoomForm(props: {
                 {props.pending ? 'Creating room...' : 'Create room'}
             </Button>
         </form>
-    )
-}
-
-function ProviderResult({
-    status,
-    message,
-}: {
-    status: 'unchecked' | 'ready' | 'invalid'
-    message: string | null
-}) {
-    if (status === 'ready') {
-        return (
-            <Alert>
-                <AlertDescription>
-                    Connection looks good. Continue to create your first room.
-                </AlertDescription>
-            </Alert>
-        )
-    }
-    if (status === 'invalid') {
-        return (
-            <Alert variant="destructive">
-                <AlertDescription>
-                    {message ?? 'The provider rejected the credentials. Update and try again.'}
-                </AlertDescription>
-            </Alert>
-        )
-    }
-    return (
-        <Alert>
-            <AlertDescription className="flex items-center gap-2">
-                <LoaderIcon className="size-4" />
-                Provider saved. Continue when ready.
-            </AlertDescription>
-        </Alert>
     )
 }

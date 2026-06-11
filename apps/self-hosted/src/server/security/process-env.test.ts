@@ -12,12 +12,12 @@ describe('bounded process environment', () => {
         try {
             const env = buildBoundedProcessEnv({
                 HOME: '/room/home',
-                OPENROUTER_API_KEY: 'room-secret',
+                ROOM_TEST_SECRET: 'room-secret',
             })
 
             expect(env.PATH).toBeTruthy()
             expect(env.HOME).toBe('/room/home')
-            expect(env.OPENROUTER_API_KEY).toBe('room-secret')
+            expect(env.ROOM_TEST_SECRET).toBe('room-secret')
             expect(env.DATABASE_URL).toBeUndefined()
         } finally {
             if (previousDatabaseUrl === undefined) {

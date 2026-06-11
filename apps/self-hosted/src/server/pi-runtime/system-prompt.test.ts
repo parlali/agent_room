@@ -14,8 +14,8 @@ function testConfig(root: string): PiRuntimeConfig {
             port: 3001,
         },
         provider: {
-            sourceModel: 'ollama/llama3.2',
-            piModel: 'llama3.2',
+            sourceModel: 'openrouter/auto',
+            piModel: 'auto',
         },
         instructions: 'Operator-owned instruction',
         mcpServers: [
@@ -63,8 +63,8 @@ describe('Agent Room Pi system prompt', () => {
             expect(prompt).toContain('Read the request, investigate what matters')
             expect(prompt).toContain('come back with useful work done')
             expect(prompt).toContain('Mode: coworker')
-            expect(prompt).toContain('Provider: ollama')
-            expect(prompt).toContain('Model: ollama/llama3.2')
+            expect(prompt).toContain('Provider: openrouter')
+            expect(prompt).toContain('Model: openrouter/auto')
             expect(prompt).toContain('Enabled tools: read, grep, find, ls')
             expect(prompt).toContain('memory_read')
             expect(prompt).toContain('web_search')

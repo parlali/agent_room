@@ -1,7 +1,6 @@
 export {
     EMPTY_MCP_FORM,
     EMPTY_PROVIDER_FORM,
-    PROVIDER_API_OPTIONS,
     TRANSPORT_OPTIONS,
     capabilityDefaultsEqual,
     resolveProviderFormProtocol,
@@ -12,8 +11,6 @@ export type {
     McpAuthMode,
     McpFormState,
     McpTransport,
-    ProviderApi,
-    ProviderAuthMode,
     ProviderFormState,
 } from './-form-model'
 export {

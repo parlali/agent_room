@@ -21,8 +21,8 @@ function model(input: Array<'text' | 'image'>): Model<Api> {
     return {
         id: 'model',
         name: 'Model',
-        provider: 'provider',
-        api: 'openai-responses',
+        provider: 'openrouter',
+        api: 'openai-completions',
         baseUrl: 'https://example.test',
         reasoning: false,
         input,
@@ -34,15 +34,6 @@ function model(input: Array<'text' | 'image'>): Model<Api> {
         },
         contextWindow: 128000,
         maxTokens: 4096,
-    }
-}
-
-function anthropicModel(input: Array<'text' | 'image'>): Model<Api> {
-    return {
-        ...model(input),
-        provider: 'anthropic',
-        api: 'anthropic-messages',
-        id: 'claude-sonnet-4-20250514',
     }
 }
 
@@ -126,7 +117,7 @@ describe('prompt attachments', () => {
         })
     })
 
-    it('materializes PDFs as rendered page images for non-Anthropic vision models', async () => {
+    it('materializes PDFs as rendered page images for vision models', async () => {
         await withConfig(async (root) => {
             const config = createTestPiRuntimeConfig({ root })
             await ensureTestPiRuntimeDirectories(config)
@@ -159,41 +150,6 @@ describe('prompt attachments', () => {
             expect(prepared.text).toContain('provided as rendered PDF page images')
             expect(prepared.metadata?.ingestions[0]).toMatchObject({
                 ingestionMode: 'image_render',
-                pages: 'all pages',
-                inputBlocks: 1,
-            })
-        })
-    })
-
-    it('materializes PDFs as native documents for Anthropic rooms', async () => {
-        await withConfig(async (root) => {
-            const config = createTestPiRuntimeConfig({ root })
-            config.provider.sourceProvider = 'anthropic'
-            config.provider.api = 'anthropic-messages'
-            await ensureTestPiRuntimeDirectories(config)
-            const relativePath = 'attachments/session/spec.pdf'
-            const bytes = await pdfBytes()
-            await mkdir(join(config.paths.storeDir, 'attachments/session'), {
-                recursive: true,
-            })
-            await writeFile(join(config.paths.storeDir, relativePath), bytes)
-
-            const prepared = await preparePromptWithAttachments({
-                config,
-                model: anthropicModel(['text', 'image']),
-                message: formatMessageWithAttachments('Read this', [
-                    {
-                        ...attachment(relativePath, 'spec.pdf'),
-                        byteLength: bytes.byteLength,
-                    },
-                ]),
-            })
-
-            expect(prepared.images).toHaveLength(1)
-            expect(prepared.images?.[0]?.mimeType).toBe('application/pdf')
-            expect(prepared.text).toContain('provided as native PDF document input')
-            expect(prepared.metadata?.ingestions[0]).toMatchObject({
-                ingestionMode: 'native_document',
                 pages: 'all pages',
                 inputBlocks: 1,
             })

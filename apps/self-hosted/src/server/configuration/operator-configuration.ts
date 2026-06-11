@@ -16,6 +16,7 @@ export type {
     RoomSecretSaveInput,
     RoomSecretSummary,
 } from './operator-configuration/contracts'
+export type { CodexDeviceAuthSessionSnapshot } from './codex-device-auth'
 export {
     completeGitHubCallback,
     completeGitHubAppManifest,
@@ -36,6 +37,11 @@ export {
     updateAppCapabilitySettings,
     updateAppDefaults,
 } from './operator-configuration/app-workflows'
+export {
+    cancelCodexDeviceAuthSession,
+    getCodexDeviceAuthSessionSnapshot,
+    startCodexDeviceAuthSession,
+} from './codex-device-auth'
 export {
     assertRoomConfigurationStartable,
     getRoomConfigSnapshot,

@@ -4,16 +4,10 @@ import {
     assertSupportedProviderApi,
     inferProviderAuthMode,
     normalizeProviderModel,
-    providerEnvKey,
     resolveProviderBaseUrl,
 } from './provider-config'
 
 describe('provider config helpers', () => {
-    it('uses canonical environment keys for provider credentials', () => {
-        expect(providerEnvKey('openrouter')).toBe('OPENROUTER_API_KEY')
-        expect(providerEnvKey('custom-provider')).toBe('CUSTOM_PROVIDER_API_KEY')
-    })
-
     it('treats OpenAI Codex responses as OAuth-backed', () => {
         expect(
             inferProviderAuthMode({
@@ -29,7 +23,7 @@ describe('provider config helpers', () => {
         ).toBe('api_key')
     })
 
-    it('pins Codex and OpenRouter to their runtime provider URLs', () => {
+    it('pins Codex to its runtime provider URL and defaults OpenRouter to OpenRouter', () => {
         expect(
             resolveProviderBaseUrl({
                 provider: 'openai-codex',
@@ -46,7 +40,7 @@ describe('provider config helpers', () => {
         ).toBe('https://openrouter.ai/api/v1')
     })
 
-    it('normalizes Codex OAuth models onto the Pi Codex provider route', () => {
+    it('normalizes Codex app server models onto the Pi Codex provider route', () => {
         expect(normalizeProviderModel('openai-codex', 'gpt-5.4')).toBe('openai-codex/gpt-5.4')
         expect(normalizeProviderModel('openai-codex', 'openai/gpt-5.4')).toBe(
             'openai-codex/gpt-5.4',
@@ -56,11 +50,11 @@ describe('provider config helpers', () => {
 
     it('fails closed for providers outside the supported v0 catalog', () => {
         expect(() => assertSupportedProvider('custom-openai-compatible')).toThrow('not supported')
-        expect(() => assertSupportedProvider('lm-studio')).not.toThrow()
+        expect(() => assertSupportedProvider('lm-studio')).toThrow('not supported')
     })
 
     it('fails closed for provider API paths outside the supported catalog mapping', () => {
-        expect(() => assertSupportedProviderApi('openrouter', 'openai-responses')).toThrow(
+        expect(() => assertSupportedProviderApi('openrouter', 'openai-codex-responses')).toThrow(
             'must use openai-completions',
         )
         expect(() => assertSupportedProviderApi('openrouter', 'openai-completions')).not.toThrow()

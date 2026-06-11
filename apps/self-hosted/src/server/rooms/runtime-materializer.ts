@@ -102,6 +102,7 @@ export async function materializeRuntime(input: {
     const roomConfiguration = await materializeRoomConfiguration({
         roomId: input.room.id,
         runtimeSecretsDir: paths.runtimeSecretsDir,
+        providerAuthPath: join(paths.engineStateDir, 'auth.json'),
     })
     await ensureBackendOnlyTree(paths.runtimeSecretsDir)
 

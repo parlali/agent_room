@@ -24,7 +24,7 @@ export interface PdfReadMaterialization {
     requestedPages: string | null
     degraded: boolean
     degradedReason: string | null
-    backend: 'anthropic_native_document' | 'rendered_page_images' | 'unsupported'
+    backend: 'native_document' | 'rendered_page_images' | 'unsupported'
 }
 
 export interface PdfIngestionRecord {
@@ -41,26 +41,10 @@ export interface PdfIngestionRecord {
     degradedReason: string | null
 }
 
-export const anthropicNativePdfMaxBytes = 32 * 1024 * 1024
-export const anthropicNativePdfMaxPages = 100
 export const defaultPdfRenderMaxPages = 20
 
 export function isPdfMediaType(mediaType: string): boolean {
     return mediaType === 'application/pdf'
-}
-
-export function isNativePdfProvider(
-    config: PiRuntimeConfig,
-    model: Model<Api> | undefined,
-): boolean {
-    if (model) {
-        return model.provider === 'anthropic' && model.api === 'anthropic-messages'
-    }
-    return (
-        config.provider.sourceProvider === 'anthropic' &&
-        config.provider.api === 'anthropic-messages' &&
-        config.provider.piProvider === 'anthropic'
-    )
 }
 
 export function modelAcceptsImages(model: Model<Api> | undefined): boolean {
@@ -94,14 +78,6 @@ export async function loadPdfDocument(bytes: Buffer): Promise<PDFDocument> {
 export async function readPdfPageCount(bytes: Buffer): Promise<number> {
     const pdf = await loadPdfDocument(bytes)
     return pdf.getPageCount()
-}
-
-export function nativePdfImageContent(bytes: Buffer): ImageContent {
-    return {
-        type: 'image',
-        data: bytes.toString('base64'),
-        mimeType: 'application/pdf',
-    }
 }
 
 export function normalizePdfPageSelection(input: {
@@ -228,45 +204,7 @@ export async function materializePdfRead(input: {
 }): Promise<PdfReadMaterialization> {
     const bytes = input.bytes ?? (await readFile(input.path))
     const pageCount = await readPdfPageCount(bytes)
-    const nativeProvider = isNativePdfProvider(input.config, input.model)
-    const nativeEligible =
-        nativeProvider &&
-        bytes.byteLength <= anthropicNativePdfMaxBytes &&
-        pageCount <= anthropicNativePdfMaxPages
-    const degradedReason = nativeProvider
-        ? bytes.byteLength > anthropicNativePdfMaxBytes
-            ? `PDF exceeds Anthropic native document request size limit of ${anthropicNativePdfMaxBytes} bytes`
-            : pageCount > anthropicNativePdfMaxPages
-              ? `PDF exceeds Anthropic native document page limit of ${anthropicNativePdfMaxPages}`
-              : null
-        : null
-
-    if (nativeEligible) {
-        const requestedSelection = input.pages
-            ? normalizePdfPageSelection({
-                  pages: input.pages,
-                  pageCount,
-                  maxPages: anthropicNativePdfMaxPages,
-              })
-            : null
-        return {
-            mode: 'native_document',
-            content: [nativePdfImageContent(bytes)],
-            pageCount,
-            selectedPages: normalizePdfPageSelection({
-                pages: null,
-                pageCount,
-                maxPages: anthropicNativePdfMaxPages,
-            }),
-            requestedPages: requestedSelection?.label ?? null,
-            degraded: Boolean(requestedSelection),
-            degradedReason: requestedSelection
-                ? `Native PDF document input sends the full PDF; requested ${requestedSelection.label} was not used to crop the bytes sent to the model.`
-                : null,
-            backend: 'anthropic_native_document',
-        }
-    }
-
+    const degradedReason: string | null = null
     const imageCapable = input.model
         ? modelAcceptsImages(input.model)
         : runtimeModelAcceptsImages(input.config)
@@ -284,8 +222,7 @@ export async function materializePdfRead(input: {
             requestedPages: input.pages ? selectedPages.label : null,
             degraded: true,
             degradedReason:
-                degradedReason ??
-                'PDF reading requires Anthropic native PDF input or a vision-capable model for rendered pages.',
+                degradedReason ?? 'PDF reading requires a vision-capable model for rendered pages.',
             backend: 'unsupported',
         }
     }

@@ -15,7 +15,7 @@ import {
     roomMcpBindingRepository,
     roomSecretRepository,
 } from '../../db/repositories'
-import { inspectCodexAuthStatus, type CodexAuthStatus } from '../codex-auth'
+import { inspectCodexAppAuthStatusSync, type CodexAppAuthStatus } from '../codex-auth'
 import {
     mergeCapabilities,
     normalizeImageConfig,
@@ -27,8 +27,8 @@ import {
     resolveRoomGitHubStatus,
     summarizeRoomGitHubBinding,
 } from '../github-app'
-import { providerRequiresStoredCredential } from '../provider-config'
 import type { RoomConfigSnapshot } from './contracts'
+import { resolveEffectiveProvider } from './provider-resolution'
 import {
     imageConfigRecord,
     imageConfigSecretId,
@@ -59,11 +59,6 @@ function summarizeRoomConfig(input: {
         instructions: input.config.instructions,
         providerMode: input.config.providerMode,
         providerConnectionId: input.config.providerConnectionId,
-        provider: input.config.provider,
-        providerApi: input.config.providerApi,
-        providerBaseUrl: input.config.providerBaseUrl,
-        providerModel: input.config.providerModel,
-        hasRoomProviderSecret: input.config.providerSecretId !== null,
         roomMode: input.config.roomMode,
         capabilities,
         capabilityOverrides,
@@ -80,7 +75,6 @@ function summarizeRoomConfig(input: {
 }
 
 async function resolveEffectiveRoomSummary(input: {
-    roomId: string
     config: RoomConfigRecord
     settings: AppSettingsRecord
     providers: AppProviderConnectionRecord[]
@@ -93,7 +87,7 @@ async function resolveEffectiveRoomSummary(input: {
     let providerLabel: string | null = null
     let provider: string | null = null
     let model: string | null = null
-    let codexAuth: CodexAuthStatus | null = null
+    let codexAuth: CodexAppAuthStatus | null = null
     const capabilities = mergeCapabilities({
         defaults: input.settings.capabilityDefaults,
         overrides: input.config.capabilityOverrides,
@@ -121,67 +115,21 @@ async function resolveEffectiveRoomSummary(input: {
         binding: input.githubBinding,
     })
 
-    if (input.config.providerMode === 'room_secret') {
-        providerSource = 'room_secret'
-        provider = input.config.provider
-        model = input.config.providerModel
-        providerLabel = input.config.provider ? `${input.config.provider} room key` : null
-        if (!input.config.provider || !input.config.providerApi || !input.config.providerModel) {
-            blockedReasons.push('Room-scoped provider details are incomplete')
-        }
-        if (
-            input.config.provider &&
-            !input.config.providerSecretId &&
-            providerRequiresStoredCredential({
-                provider: input.config.provider,
-                authMode: 'api_key',
-            })
-        ) {
-            blockedReasons.push('Room-scoped provider key is missing')
-        }
+    const providerResolution = resolveEffectiveProvider({
+        config: input.config,
+        settings: input.settings,
+        providers: input.providers,
+        codexAuth: inspectCodexAppAuthStatusSync(),
+    })
+    providerSource = providerResolution.source
+    codexAuth = providerResolution.codexAuth
+    if (!providerResolution.provider) {
+        blockedReasons.push(...providerResolution.blockedReasons)
     } else {
-        const providerId =
-            input.config.providerMode === 'app_connection'
-                ? input.config.providerConnectionId
-                : input.settings.defaultProviderConnectionId
-        const providerConnection = providerId
-            ? input.providers.find((entry) => entry.id === providerId)
-            : null
-        providerSource = input.config.providerMode
-        if (!providerConnection) {
-            blockedReasons.push(
-                input.config.providerMode === 'app_connection'
-                    ? 'Selected provider connection does not exist'
-                    : 'App default provider connection is not configured',
-            )
-        } else {
-            providerLabel = providerConnection.label
-            provider = providerConnection.provider
-            model = providerConnection.defaultModel
-            if (providerConnection.authMode === 'oauth') {
-                codexAuth =
-                    providerConnection.provider === 'openai-codex' ||
-                    providerConnection.api === 'openai-codex-responses'
-                        ? await inspectCodexAuthStatus(input.roomId)
-                        : null
-                if (codexAuth && !codexAuth.ready) {
-                    blockedReasons.push(codexAuth.message)
-                }
-            } else if (
-                providerRequiresStoredCredential({
-                    provider: providerConnection.provider,
-                    authMode: providerConnection.authMode,
-                }) &&
-                !providerConnection.credentialSecretId
-            ) {
-                blockedReasons.push('Provider connection has no saved credential')
-            } else if (providerConnection.status !== 'ready') {
-                blockedReasons.push(
-                    providerConnection.validationMessage ??
-                        `Provider connection ${providerConnection.label} is ${providerConnection.status}`,
-                )
-            }
-        }
+        providerLabel = providerResolution.provider.label
+        provider = providerResolution.provider.provider
+        model = providerResolution.provider.defaultModel
+        blockedReasons.push(...providerResolution.blockedReasons)
     }
 
     for (const binding of input.bindings.filter((entry) => entry.enabled)) {
@@ -261,7 +209,6 @@ export async function getRoomConfigSnapshot(roomId: string): Promise<RoomConfigS
             settings,
         }),
         effective: await resolveEffectiveRoomSummary({
-            roomId,
             config,
             settings,
             providers,

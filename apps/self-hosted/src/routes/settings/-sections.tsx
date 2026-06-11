@@ -475,7 +475,7 @@ export function ProviderConnectionsSection({
             addLabel="Add provider"
             emptyIcon={PlugIcon}
             emptyTitle="No provider connections"
-            emptyDescription="Add an OpenAI, Anthropic, or compatible provider to enable rooms."
+            emptyDescription="Add OpenRouter or authorize Codex app server to enable rooms."
             loading={loading}
             items={providers}
             onAdd={onAdd}

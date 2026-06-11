@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { rewriteNativePdfPayload } from './pdf-document-payload'
 
 describe('native PDF payload rewriting', () => {
-    it('rewrites PDF image placeholders into Anthropic document blocks without logging data', () => {
+    it('rewrites PDF image placeholders into native document blocks without logging data', () => {
         const payload = {
             messages: [
                 {

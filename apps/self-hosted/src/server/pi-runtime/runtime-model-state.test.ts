@@ -63,7 +63,6 @@ describe('runtime model state', () => {
                 api: 'openai-codex-responses',
                 authMode: 'oauth',
                 baseUrl: null,
-                envKey: null,
                 kind: 'builtin',
                 fallbackModels: [],
             },

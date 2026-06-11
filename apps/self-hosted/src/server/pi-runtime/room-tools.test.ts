@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os'
 import { createGrepTool } from '@mariozechner/pi-coding-agent'
 import { describe, expect, it } from 'vitest'
 import { PDFDocument } from 'pdf-lib'
-import type { Api, Model } from '@mariozechner/pi-ai'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import {
     createRoomTools,
@@ -97,45 +96,6 @@ async function executeDocumentTool(
         result,
         events,
     }
-}
-
-function model(input: Array<'text' | 'image'>, overrides: Partial<Model<Api>> = {}): Model<Api> {
-    return {
-        id: 'test-model',
-        name: 'Test Model',
-        provider: 'openai',
-        api: 'openai-responses',
-        baseUrl: 'https://example.test',
-        reasoning: false,
-        input,
-        cost: {
-            input: 0,
-            output: 0,
-            cacheRead: 0,
-            cacheWrite: 0,
-        },
-        contextWindow: 128000,
-        maxTokens: 4096,
-        ...overrides,
-    }
-}
-
-function anthropicModel(): Model<Api> {
-    return model(['text', 'image'], {
-        id: 'claude-sonnet-4-20250514',
-        provider: 'anthropic',
-        api: 'anthropic-messages',
-    })
-}
-
-async function writePdfFixture(path: string, pageCount: number): Promise<Buffer> {
-    const pdf = await PDFDocument.create()
-    for (let page = 0; page < pageCount; page += 1) {
-        pdf.addPage([200, 200])
-    }
-    const bytes = Buffer.from(await pdf.save())
-    await writeFile(path, bytes)
-    return bytes
 }
 
 function resultText(result: Awaited<ReturnType<typeof executeRoomTool>>['result']): string {
@@ -298,12 +258,12 @@ describe('room Pi tools', () => {
 
     it('runs shell commands with workspace cwd, bounded environment, and audit details', async () => {
         await withRoom(async (config) => {
-            const previousSecret = process.env.OPENAI_API_KEY
-            process.env.OPENAI_API_KEY = 'agent-room-secret'
+            const previousSecret = process.env.ROOM_HOST_SECRET
+            process.env.ROOM_HOST_SECRET = 'agent-room-secret'
             try {
                 const shell = await executeRoomTool(config, 'shell', {
                     command:
-                        'printf "pwd=%s\\nhome=%s\\nworkspace=%s\\nstore=%s\\nold_workspace=%s\\nold_store=%s\\nsecret=%s\\n" "$PWD" "$HOME" "$WORKSPACE_DIR" "$STORE_DIR" "$AGENT_ROOM_WORKSPACE_DIR" "$AGENT_ROOM_STORE_DIR" "$OPENAI_API_KEY"',
+                        'printf "pwd=%s\\nhome=%s\\nworkspace=%s\\nstore=%s\\nold_workspace=%s\\nold_store=%s\\nsecret=%s\\n" "$PWD" "$HOME" "$WORKSPACE_DIR" "$STORE_DIR" "$AGENT_ROOM_WORKSPACE_DIR" "$AGENT_ROOM_STORE_DIR" "$ROOM_HOST_SECRET"',
                     timeoutMs: 1000,
                 })
 
@@ -323,9 +283,9 @@ describe('room Pi tools', () => {
                 expect(shell.events.some((event) => event.event === 'tool.shell')).toBe(true)
             } finally {
                 if (previousSecret === undefined) {
-                    delete process.env.OPENAI_API_KEY
+                    delete process.env.ROOM_HOST_SECRET
                 } else {
-                    process.env.OPENAI_API_KEY = previousSecret
+                    process.env.ROOM_HOST_SECRET = previousSecret
                 }
             }
         })
@@ -485,109 +445,6 @@ describe('room Pi tools', () => {
             expect(names).not.toContain('xlsx')
             expect(names).not.toContain('pptx')
             expect(names).not.toContain('pdf_extract_text')
-        })
-    })
-
-    it('reads PDFs through native document mode and keeps text extraction explicit', async () => {
-        await withRoom(async (config) => {
-            await executeDocumentTool(config, 'pdf', {
-                operation: 'create',
-                path: 'source.pdf',
-                paragraphs: ['Native PDF path text'],
-            })
-
-            const readPdf = await executeDocumentTool(
-                config,
-                'read_pdf',
-                {
-                    path: 'source.pdf',
-                },
-                undefined,
-                {
-                    model: anthropicModel(),
-                },
-            )
-
-            expect(resultText(readPdf.result)).toContain('native document input')
-            expect(readPdf.result.content[1]).toMatchObject({
-                type: 'image',
-                mimeType: 'application/pdf',
-            })
-            expect(resultDetails(readPdf.result)).toMatchObject({
-                ingestionMode: 'native_document',
-                backend: 'anthropic_native_document',
-            })
-        })
-    })
-
-    it('does not route PDFs through stale Anthropic config after the active model changes', async () => {
-        await withRoom(async (config) => {
-            config.provider.sourceProvider = 'anthropic'
-            config.provider.api = 'anthropic-messages'
-            config.provider.piProvider = 'anthropic'
-            await executeDocumentTool(config, 'pdf', {
-                operation: 'create',
-                path: 'source.pdf',
-                paragraphs: ['Stale provider text'],
-            })
-
-            const readPdf = await executeDocumentTool(
-                config,
-                'read_pdf',
-                {
-                    path: 'source.pdf',
-                },
-                undefined,
-                {
-                    model: model(['text'], {
-                        id: 'gpt-text-only',
-                        provider: 'openai',
-                        api: 'openai-responses',
-                    }),
-                },
-            )
-
-            expect(resultText(readPdf.result)).toContain('unsupported')
-            expect(readPdf.result.content).toHaveLength(1)
-            expect(resultDetails(readPdf.result)).toMatchObject({
-                ingestionMode: 'unsupported',
-                backend: 'unsupported',
-                inputBlocks: 0,
-                degraded: true,
-            })
-        })
-    })
-
-    it('discloses that native PDF page selections do not crop document bytes', async () => {
-        await withRoom(async (config) => {
-            await writePdfFixture(join(config.paths.workspaceDir, 'multi.pdf'), 2)
-
-            const readPdf = await executeDocumentTool(
-                config,
-                'read_pdf',
-                {
-                    path: 'multi.pdf',
-                    pages: '1',
-                },
-                undefined,
-                {
-                    model: anthropicModel(),
-                },
-            )
-
-            expect(resultText(readPdf.result)).toContain('native document input')
-            expect(resultText(readPdf.result)).toContain('native document input sends the full PDF')
-            expect(readPdf.result.content[1]).toMatchObject({
-                type: 'image',
-                mimeType: 'application/pdf',
-            })
-            expect(resultDetails(readPdf.result)).toMatchObject({
-                ingestionMode: 'native_document',
-                backend: 'anthropic_native_document',
-                pages: 'all pages',
-                requestedPages: 'pages 1',
-                degraded: true,
-            })
         })
     })
 

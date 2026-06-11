@@ -1,170 +1,233 @@
-import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { Buffer } from 'node:buffer'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import type { JsonValue } from '#/domain/domain-types'
-import { getRoomPaths } from '../rooms/room-paths'
+import { getAppEnv } from '../config/env'
 
-export interface CodexAuthStatus {
-    required: boolean
+export type CodexAppAuthState = 'missing' | 'ready' | 'invalid'
+
+export interface CodexAppAuthStatus {
     ready: boolean
-    profilePath: string
-    setupCommand: string
+    status: CodexAppAuthState
+    accountId: string | null
+    expiresAt: string | null
     message: string
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value)
+export interface CodexPiOAuthCredential {
+    type: 'oauth'
+    access: string
+    refresh: string
+    expires: number
+    accountId: string
 }
 
-function collectProfileCandidates(
-    value: unknown,
-): Array<{ profileId: string | null; value: JsonValue }> {
-    const candidates: Array<{ profileId: string | null; value: JsonValue }> = []
-
-    const visit = (entry: unknown, key: string | null) => {
-        if (Array.isArray(entry)) {
-            for (const item of entry) {
-                visit(item, null)
-            }
-            return
-        }
-
-        if (!isRecord(entry)) {
-            return
-        }
-
-        const provider = entry.provider
-        const profileId = typeof entry.id === 'string' ? entry.id : key
-        if (
-            provider === 'openai-codex' ||
-            profileId?.startsWith('openai-codex:') ||
-            profileId === 'openai-codex'
-        ) {
-            candidates.push({
-                profileId,
-                value: entry as JsonValue,
-            })
-        }
-
-        for (const [childKey, child] of Object.entries(entry)) {
-            if (childKey === 'access' || childKey === 'refresh') {
-                continue
-            }
-            visit(child, childKey)
-        }
-    }
-
-    visit(value, null)
-    return candidates
+export function resolveCodexProviderAuthDir(dataDir = getAppEnv().dataDir): string {
+    return join(dataDir, 'system', 'providers', 'openai-codex')
 }
 
-function profileHasToken(value: JsonValue): boolean {
-    if (!isRecord(value)) {
-        return false
-    }
-
-    if (typeof value.access === 'string' || typeof value.refresh === 'string') {
-        return true
-    }
-
-    if (isRecord(value.credentials)) {
-        return (
-            typeof value.credentials.access === 'string' ||
-            typeof value.credentials.refresh === 'string'
-        )
-    }
-
-    if (isRecord(value.oauth)) {
-        return typeof value.oauth.access === 'string' || typeof value.oauth.refresh === 'string'
-    }
-
-    return false
+export function resolveCodexPiAuthPath(dataDir = getAppEnv().dataDir): string {
+    return join(resolveCodexProviderAuthDir(dataDir), 'auth.json')
 }
 
-function profileIsExpired(value: JsonValue, nowMs: number): boolean {
-    if (!isRecord(value)) {
-        return false
-    }
+export function inspectCodexAppAuthStatusSync(input?: { authPath?: string }): CodexAppAuthStatus {
+    const authPath = input?.authPath ?? resolveCodexPiAuthPath()
 
-    const expires = value.expires
-    if (typeof expires === 'number') {
-        const expiresMs = expires < 100_000_000_000 ? expires * 1000 : expires
-        return expiresMs < nowMs
-    }
-    if (typeof expires === 'string') {
-        const parsed = Date.parse(expires)
-        return Number.isFinite(parsed) && parsed < nowMs
-    }
-
-    return false
-}
-
-function buildSetupCommand(roomId: string): string {
-    const paths = getRoomPaths(roomId)
-    return `Use the room dashboard to generate a Codex OAuth link for ${paths.engineStateDir}`
-}
-
-export function getCodexAuthProfilePath(roomId: string): string {
-    const paths = getRoomPaths(roomId)
-    return join(paths.engineStateDir, 'auth.json')
-}
-
-export async function inspectCodexAuthStatus(roomId: string): Promise<CodexAuthStatus> {
-    const profilePath = getCodexAuthProfilePath(roomId)
-    const setupCommand = buildSetupCommand(roomId)
-
-    let raw: string
-    try {
-        raw = await readFile(profilePath, 'utf8')
-    } catch {
-        return {
-            required: true,
-            ready: false,
-            profilePath,
-            setupCommand,
-            message:
-                'OpenAI Codex OAuth profile is missing. Use this room dashboard to generate a login link.',
-        }
+    if (!existsSync(authPath)) {
+        return invalidStatus('missing', 'Codex app server login is missing')
     }
 
     let parsed: unknown
     try {
-        parsed = JSON.parse(raw)
+        parsed = JSON.parse(readFileSync(authPath, 'utf8'))
     } catch {
-        return {
-            required: true,
-            ready: false,
-            profilePath,
-            setupCommand,
-            message: `OpenAI Codex OAuth profile at ${profilePath} is not valid JSON`,
-        }
+        return invalidStatus('invalid', 'Codex app server login could not be parsed')
     }
 
-    const candidates = collectProfileCandidates(parsed)
-    const usable = candidates.find(
-        (candidate) =>
-            profileHasToken(candidate.value) && !profileIsExpired(candidate.value, Date.now()),
-    )
-
-    if (!usable) {
-        return {
-            required: true,
-            ready: false,
-            profilePath,
-            setupCommand,
-            message:
-                'OpenAI Codex OAuth profile is not usable for this room. Generate a new room login link.',
-        }
+    const credential = readCodexCredentialFromPiAuth(parsed)
+    if (!credential) {
+        return invalidStatus('invalid', 'Codex app server login is incomplete')
+    }
+    if (credential.expires <= Date.now()) {
+        return invalidStatus('invalid', 'Codex app server login is expired')
     }
 
     return {
-        required: true,
         ready: true,
-        profilePath,
-        setupCommand,
-        message: `OpenAI Codex OAuth profile ${usable.profileId ?? 'default'} is available for this room`,
+        status: 'ready',
+        accountId: credential.accountId,
+        expiresAt: new Date(credential.expires).toISOString(),
+        message: 'Codex app server login is active',
     }
 }
 
-export const __testing = {
-    profileIsExpired,
+export function readCodexPiAuthCredentialSync(input?: {
+    authPath?: string
+}): CodexPiOAuthCredential | null {
+    const authPath = input?.authPath ?? resolveCodexPiAuthPath()
+    if (!existsSync(authPath)) {
+        return null
+    }
+
+    try {
+        return readCodexCredentialFromPiAuth(JSON.parse(readFileSync(authPath, 'utf8')))
+    } catch {
+        return null
+    }
+}
+
+export function writeCodexPiAuthCredentialSync(input: {
+    authPath?: string
+    credential: CodexPiOAuthCredential
+}): CodexAppAuthStatus {
+    const authPath = input.authPath ?? resolveCodexPiAuthPath()
+    mkdirSync(dirname(authPath), {
+        recursive: true,
+        mode: 0o700,
+    })
+    writeFileSync(
+        authPath,
+        `${JSON.stringify(
+            {
+                'openai-codex': input.credential,
+            },
+            null,
+            4,
+        )}\n`,
+        {
+            encoding: 'utf8',
+            mode: 0o600,
+        },
+    )
+    chmodSync(dirname(authPath), 0o700)
+    chmodSync(authPath, 0o600)
+    return inspectCodexAppAuthStatusSync({ authPath })
+}
+
+export function writeCodexPiAuthFromCliAuthSync(input: {
+    authPath?: string
+    cliAuthJson: string
+    nowMs?: number
+}): CodexAppAuthStatus {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(input.cliAuthJson)
+    } catch {
+        throw new Error('Codex device login wrote invalid auth data')
+    }
+
+    const credential = convertCodexCliAuthToPiCredential(parsed, input.nowMs ?? Date.now())
+    return writeCodexPiAuthCredentialSync({
+        authPath: input.authPath,
+        credential,
+    })
+}
+
+export function convertCodexCliAuthToPiCredential(
+    parsed: unknown,
+    nowMs = Date.now(),
+): CodexPiOAuthCredential {
+    const auth = readRecord(parsed)
+    const tokens = readRecord(auth.tokens)
+    const authMode = readString(auth.auth_mode)
+    const access = readString(tokens.access_token)
+    const refresh = readString(tokens.refresh_token)
+    const accountId = readString(tokens.account_id) ?? accountIdFromAccessToken(access)
+
+    if (authMode !== 'chatgpt') {
+        throw new Error('Codex device login did not produce a ChatGPT auth file')
+    }
+    if (!access || !refresh || !accountId) {
+        throw new Error('Codex device login auth data is incomplete')
+    }
+
+    const accessTokenExpiry = accessTokenExpiryMs(access)
+    const expires = accessTokenExpiry ?? codexAccessTokenFallbackExpiryMs(nowMs, accountId)
+
+    return {
+        type: 'oauth',
+        access,
+        refresh,
+        expires,
+        accountId,
+    }
+}
+
+function codexAccessTokenFallbackExpiryMs(nowMs: number, accountId: string): number {
+    const expires = nowMs + 5 * 60 * 1000
+    console.warn(
+        `Codex device login access token for account ${accountId} did not include a parseable exp claim; using bounded fallback expiry ${new Date(expires).toISOString()}`,
+    )
+    return expires
+}
+
+function readCodexCredentialFromPiAuth(value: unknown): CodexPiOAuthCredential | null {
+    const root = readRecord(value)
+    const credential = readRecord(root['openai-codex'])
+    const type = readString(credential.type)
+    const access = readString(credential.access)
+    const refresh = readString(credential.refresh)
+    const accountId = readString(credential.accountId)
+    const expires = typeof credential.expires === 'number' ? credential.expires : null
+
+    if (type !== 'oauth' || !access || !refresh || !accountId || !expires) {
+        return null
+    }
+
+    return {
+        type: 'oauth',
+        access,
+        refresh,
+        expires,
+        accountId,
+    }
+}
+
+function invalidStatus(status: Exclude<CodexAppAuthState, 'ready'>, message: string) {
+    return {
+        ready: false,
+        status,
+        accountId: null,
+        expiresAt: null,
+        message,
+    }
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {}
+}
+
+function readString(value: unknown): string | null {
+    return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function accessTokenExpiryMs(accessToken: string): number | null {
+    const payload = decodeJwtPayload(accessToken)
+    const exp = payload && typeof payload.exp === 'number' ? payload.exp : null
+    return exp ? exp * 1000 : null
+}
+
+function accountIdFromAccessToken(accessToken: string | null): string | null {
+    if (!accessToken) {
+        return null
+    }
+    const payload = decodeJwtPayload(accessToken)
+    const auth = readRecord(payload?.['https://api.openai.com/auth'])
+    return readString(auth.chatgpt_account_id)
+}
+
+function decodeJwtPayload(token: string): Record<string, JsonValue> | null {
+    const payload = token.split('.')[1]
+    if (!payload) {
+        return null
+    }
+
+    try {
+        const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
+        return readRecord(decoded) as Record<string, JsonValue>
+    } catch {
+        return null
+    }
 }

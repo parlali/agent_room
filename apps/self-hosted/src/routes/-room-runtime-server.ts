@@ -1,12 +1,7 @@
 import { createServerFn } from '@tanstack/react-start'
 import { setResponseHeaders, setResponseStatus } from '@tanstack/react-start/server'
 import { z } from 'zod'
-import {
-    providerApis,
-    roomModes,
-    roomDesiredStates,
-    roomProviderModes,
-} from '#/domain/domain-types'
+import { roomModes, roomDesiredStates, roomProviderModes } from '#/domain/domain-types'
 import { maxSessionComposerDraftLength } from '#/domain/session-composer-draft'
 
 const roomIdSchema = z.string().uuid()
@@ -227,11 +222,6 @@ const createRoomInputSchema = z.object({
     instructions: z.string().optional(),
     providerMode: z.enum(roomProviderModes).optional(),
     providerConnectionId: z.string().uuid().nullable().optional(),
-    provider: z.string().nullable().optional(),
-    providerApi: z.enum(providerApis).nullable().optional(),
-    providerBaseUrl: z.string().nullable().optional(),
-    providerModel: z.string().nullable().optional(),
-    providerApiKey: z.string().optional(),
     roomMode: z.enum(roomModes).optional(),
     cronTimezone: z.string().min(1).optional(),
     mcpConnectionIds: z.array(z.string().uuid()).optional(),
@@ -325,11 +315,6 @@ export const createRoomServer = createServerFn({ method: 'POST' })
             instructions: data.instructions,
             providerMode: data.providerMode,
             providerConnectionId: data.providerConnectionId,
-            provider: data.provider,
-            providerApi: data.providerApi,
-            providerBaseUrl: data.providerBaseUrl,
-            providerModel: data.providerModel,
-            providerApiKey: data.providerApiKey,
             roomMode: data.roomMode,
             cronTimezone: data.cronTimezone,
             mcpConnectionIds: data.mcpConnectionIds,

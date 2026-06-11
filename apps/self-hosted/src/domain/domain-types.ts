@@ -12,18 +12,13 @@ export const userRoles = ['root', 'operator'] as const
 export const healthStatuses = ['unknown', 'healthy', 'unhealthy'] as const
 export const artifactKinds = ['attachment', 'artifact'] as const
 export const connectionStatuses = ['unchecked', 'ready', 'invalid'] as const
-export const providerApis = [
-    'openai-responses',
-    'openai-completions',
-    'openai-codex-responses',
-    'anthropic-messages',
-    'google-generative-ai',
-] as const
+export const providerApis = ['openai-completions', 'openai-codex-responses'] as const
 export const providerAuthModes = ['api_key', 'oauth'] as const
 export const mcpTransports = ['stdio', 'http', 'streamable_http'] as const
 export const mcpAuthModes = ['none', 'bearer'] as const
-export const roomProviderModes = ['app_default', 'app_connection', 'room_secret'] as const
-export const roomSecretPurposes = ['provider_api_key', 'generic', 'webhook'] as const
+export const roomProviderModes = ['app_default', 'app_connection'] as const
+export const roomSecretPurposes = ['generic', 'webhook', 'image_api_key'] as const
+export const userRoomSecretPurposes = ['generic', 'webhook'] as const
 export const roomModes = ['programmer', 'coworker'] as const
 export const cronRunStatuses = ['running', 'complete', 'failed', 'skipped'] as const
 export const capabilityIds = [
@@ -73,6 +68,7 @@ export type McpTransport = (typeof mcpTransports)[number]
 export type McpAuthMode = (typeof mcpAuthModes)[number]
 export type RoomProviderMode = (typeof roomProviderModes)[number]
 export type RoomSecretPurpose = (typeof roomSecretPurposes)[number]
+export type UserRoomSecretPurpose = (typeof userRoomSecretPurposes)[number]
 export type RoomMode = (typeof roomModes)[number]
 export type CronRunStatus = (typeof cronRunStatuses)[number]
 export type CapabilityId = (typeof capabilityIds)[number]
@@ -292,11 +288,6 @@ export interface RoomConfigRecord {
     instructions: string
     providerMode: RoomProviderMode
     providerConnectionId: string | null
-    provider: string | null
-    providerApi: ProviderApi | null
-    providerBaseUrl: string | null
-    providerModel: string | null
-    providerSecretId: string | null
     roomMode: RoomMode
     capabilityOverrides: JsonValue
     imageProvider: ImageProviderId | null
@@ -561,7 +552,7 @@ export interface MaterializedSecretRef {
     entitlementId: string
     secretId: string
     filePath: string
-    envKey: string
+    envKey: string | null
 }
 
 export interface MaterializedMcpServer {
@@ -603,7 +594,7 @@ export interface MaterializedProviderConfig {
     model: string
     fallbackModels: string[]
     baseUrl: string | null
-    envKey: string | null
+    authPath: string | null
 }
 
 export interface MaterializedRoomConfiguration {

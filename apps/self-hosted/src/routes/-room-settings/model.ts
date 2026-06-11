@@ -1,10 +1,5 @@
 import type { RoomConfigSnapshot } from '#/server/configuration/operator-configuration'
-import type {
-    ProviderApi,
-    RoomMode,
-    RoomProviderMode,
-    RoomSecretPurpose,
-} from '#/domain/domain-types'
+import type { RoomMode, RoomProviderMode, RoomSecretPurpose } from '#/domain/domain-types'
 import { ROOM_MODE_OPTIONS } from '#/domain/room-modes'
 
 export type ProviderMode = RoomProviderMode
@@ -38,11 +33,6 @@ export interface ConfigDraft {
     instructions: string
     providerMode: ProviderMode
     providerConnectionId: string
-    provider: string
-    providerApi: ProviderApi
-    providerBaseUrl: string
-    providerModel: string
-    providerApiKey: string
     roomMode: RoomMode
     capabilityOverrides: Record<string, boolean>
     imageProvider: 'inherit' | 'openai' | 'gemini'
@@ -79,11 +69,6 @@ export function configFromSnapshot(snapshot: RoomConfigSnapshot): ConfigDraft {
         instructions: snapshot.config.instructions ?? '',
         providerMode: snapshot.config.providerMode,
         providerConnectionId: snapshot.config.providerConnectionId ?? '',
-        provider: snapshot.config.provider ?? '',
-        providerApi: (snapshot.config.providerApi ?? 'openai-completions') as ProviderApi,
-        providerBaseUrl: snapshot.config.providerBaseUrl ?? '',
-        providerModel: snapshot.config.providerModel ?? '',
-        providerApiKey: '',
         roomMode: snapshot.config.roomMode || 'coworker',
         capabilityOverrides: { ...snapshot.config.capabilityOverrides },
         imageProvider: snapshot.config.imageProvider ?? 'inherit',
@@ -115,11 +100,6 @@ export function configsEqual(a: ConfigDraft, b: ConfigDraft): boolean {
         a.instructions === b.instructions &&
         a.providerMode === b.providerMode &&
         a.providerConnectionId === b.providerConnectionId &&
-        a.provider === b.provider &&
-        a.providerApi === b.providerApi &&
-        a.providerBaseUrl === b.providerBaseUrl &&
-        a.providerModel === b.providerModel &&
-        a.providerApiKey === b.providerApiKey &&
         a.roomMode === b.roomMode &&
         recordsEqual(a.capabilityOverrides, b.capabilityOverrides) &&
         a.imageProvider === b.imageProvider &&

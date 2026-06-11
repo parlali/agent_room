@@ -15,12 +15,11 @@ import { buildPiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { defaultCapabilities, normalizeBudgets, normalizeSearchConfig } from './capabilities'
 import {
     assertSupportedProviderApi,
-    isLocalProvider,
     isSupportedProvider,
-    providerEnvKey,
     providerRequiresStoredCredential,
     resolveProviderBaseUrl,
 } from './provider-config'
+import { inspectCodexAppAuthStatusSync } from './codex-auth'
 import {
     boundedMessage,
     sanitizeOutput,
@@ -84,12 +83,7 @@ function buildValidationRoomConfiguration(
                 api: input.api,
                 baseUrl: input.baseUrl,
             }),
-            envKey: providerRequiresStoredCredential({
-                provider: input.provider,
-                authMode: input.authMode,
-            })
-                ? providerEnvKey(input.provider)
-                : null,
+            authPath: null,
         },
         entitlements: {
             env: {},
@@ -169,9 +163,6 @@ function assertProviderModelBelongsToProvider(input: ProviderValidationInput): s
     if (!modelProvider || modelProvider === provider) {
         return null
     }
-    if (provider === 'lmstudio' && modelProvider === 'lm-studio') {
-        return null
-    }
     return `Model ${input.model} does not belong to provider ${input.provider}`
 }
 
@@ -218,18 +209,31 @@ async function runPiProviderProbe(
             },
             roomConfiguration: buildValidationRoomConfiguration(input),
         })
-        if (input.apiKey) {
-            const providerConfig = config.models.providers[config.provider.piProvider]
-            if (providerConfig) {
-                providerConfig.apiKey = input.apiKey
-            }
-        }
         await Promise.all([
             mkdir(config.paths.stateDir, { recursive: true, mode: 0o700 }),
             mkdir(config.paths.sessionsDir, { recursive: true, mode: 0o700 }),
             mkdir(config.paths.workspaceDir, { recursive: true, mode: 0o700 }),
             mkdir(config.paths.storeDir, { recursive: true, mode: 0o700 }),
         ])
+        if (input.apiKey) {
+            await writeFile(
+                config.paths.authPath,
+                `${JSON.stringify(
+                    {
+                        [config.provider.piProvider]: {
+                            type: 'api_key',
+                            key: input.apiKey,
+                        },
+                    },
+                    null,
+                    4,
+                )}\n`,
+                {
+                    encoding: 'utf8',
+                    mode: 0o600,
+                },
+            )
+        }
         await writeFile(config.paths.modelsPath, JSON.stringify(config.models, null, 4), {
             encoding: 'utf8',
             mode: 0o600,
@@ -356,10 +360,10 @@ export async function validateProviderConnection(
     }
 
     if (input.authMode === 'oauth') {
+        const status = inspectCodexAppAuthStatusSync()
         return {
-            status: 'ready',
-            message:
-                'OAuth provider config saved; each room must complete provider auth in its own runtime',
+            status: status.ready ? 'ready' : 'invalid',
+            message: status.message,
         }
     }
 
@@ -372,13 +376,6 @@ export async function validateProviderConnection(
         return {
             status: 'invalid',
             message: 'Provider API key is required',
-        }
-    }
-
-    if (isLocalProvider(input.provider) && !resolveProviderBaseUrl(input)) {
-        return {
-            status: 'invalid',
-            message: 'Local provider base URL is required',
         }
     }
 

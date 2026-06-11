@@ -135,7 +135,7 @@ export function CapabilitiesSection({
                                 Image provider
                             </div>
                             <div className="text-xs text-muted-foreground">
-                                App default: {inheritedImage}. Room keys are write-only.
+                                App default: {inheritedImage}. Room image keys are write-only.
                             </div>
                         </div>
                         <div className="flex flex-wrap gap-2">

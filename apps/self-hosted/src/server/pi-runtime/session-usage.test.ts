@@ -19,8 +19,8 @@ function assistantEntry(input: {
         message: {
             role: 'assistant',
             content: [],
-            api: 'openai-responses',
-            provider: 'openai',
+            api: 'openai-completions',
+            provider: 'openrouter',
             model: 'gpt-5',
             timestamp: Date.now(),
             stopReason: 'stop',

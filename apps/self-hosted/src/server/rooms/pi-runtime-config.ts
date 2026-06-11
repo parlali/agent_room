@@ -15,17 +15,16 @@ import type {
     SearchRuntimeConfig,
 } from '#/domain/domain-types'
 import {
-    isLocalProvider,
+    assertSupportedProvider,
+    assertSupportedProviderApi,
     normalizeProviderId,
-    resolveProviderBaseUrl,
 } from '../configuration/provider-config'
 
-export type PiProviderKind = 'builtin' | 'local' | 'custom'
+export type PiProviderKind = 'builtin'
 
 export interface PiModelProviderConfig {
     baseUrl?: string
     api?: ProviderApi
-    apiKey?: string
     authHeader?: boolean
     compat?: {
         supportsDeveloperRole?: boolean
@@ -92,7 +91,6 @@ export interface PiRuntimeConfig {
         api: ProviderApi
         authMode: MaterializedProviderConfig['authMode']
         baseUrl: string | null
-        envKey: string | null
         kind: PiProviderKind
         fallbackModels: string[]
     }
@@ -113,10 +111,6 @@ export interface PiRuntimeConfig {
     }
 }
 
-export function isLocalPiProvider(provider: string): boolean {
-    return isLocalProvider(provider)
-}
-
 function toPiProvider(provider: string): string {
     return normalizeProviderId(provider)
 }
@@ -128,9 +122,7 @@ function stripProviderPrefix(provider: string, model: string): string {
     if (trimmed.toLowerCase().startsWith(prefix)) {
         return trimmed.slice(prefix.length)
     }
-    return trimmed.includes('/') && normalized === 'lmstudio'
-        ? trimmed.replace(/^lm-studio\//i, '')
-        : trimmed
+    return trimmed
 }
 
 function builtInPiModel(provider: string, model: string) {
@@ -153,36 +145,13 @@ function buildProviderModels(input: {
     kind: PiProviderKind
 }): Record<string, PiModelProviderConfig> {
     const provider = input.provider
-    const baseUrl =
-        provider.baseUrl ??
-        (input.kind === 'local'
-            ? resolveProviderBaseUrl({
-                  provider: provider.provider,
-                  api: provider.api,
-                  baseUrl: provider.baseUrl,
-              })
-            : null)
-    const apiKey =
-        provider.authMode === 'oauth'
-            ? undefined
-            : input.kind === 'local'
-              ? 'agent-room-local'
-              : (provider.envKey ?? undefined)
+    const baseUrl = provider.baseUrl
     const config: PiModelProviderConfig = {
         ...(baseUrl ? { baseUrl } : {}),
         api: provider.api,
-        ...(apiKey ? { apiKey } : {}),
-        ...(input.kind === 'local'
-            ? {
-                  compat: {
-                      supportsDeveloperRole: false,
-                      supportsReasoningEffort: false,
-                  },
-              }
-            : {}),
     }
 
-    if (input.kind === 'builtin' && builtInPiModel(input.piProvider, input.piModel)) {
+    if (builtInPiModel(input.piProvider, input.piModel)) {
         return {
             [input.piProvider]: {
                 ...config,
@@ -220,17 +189,11 @@ export function buildPiRuntimeConfig(input: {
     roomConfiguration: MaterializedRoomConfiguration
 }): PiRuntimeConfig {
     const provider = input.roomConfiguration.provider
+    assertSupportedProvider(provider.provider)
+    assertSupportedProviderApi(provider.provider, provider.api)
     const piProvider = toPiProvider(provider.provider)
     const piModel = stripProviderPrefix(provider.provider, provider.model)
-    const kind: PiProviderKind = isLocalPiProvider(provider.provider)
-        ? 'local'
-        : provider.provider === 'openai-codex' ||
-            provider.provider === 'openrouter' ||
-            provider.provider === 'google' ||
-            provider.provider === 'openai' ||
-            provider.provider === 'anthropic'
-          ? 'builtin'
-          : 'custom'
+    const kind: PiProviderKind = 'builtin'
     const homeDir = join(input.paths.engineStateDir, 'home')
     const github = input.roomConfiguration.entitlements.github.enabled
         ? {
@@ -257,7 +220,7 @@ export function buildPiRuntimeConfig(input: {
             storeDir: input.paths.storeDir,
             sessionsDir: join(input.paths.engineStateDir, 'sessions'),
             internalStateDir: join(input.paths.engineStateDir, 'internal-state'),
-            authPath: join(input.paths.engineStateDir, 'auth.json'),
+            authPath: provider.authPath ?? join(input.paths.engineStateDir, 'auth.json'),
             modelsPath: join(input.paths.engineStateDir, 'models.json'),
             threadIndexPath: join(input.paths.engineStateDir, 'threads.json'),
             runtimeEventsPath: join(input.paths.engineStateDir, 'runtime-events.jsonl'),
@@ -271,16 +234,7 @@ export function buildPiRuntimeConfig(input: {
             piModel,
             api: provider.api,
             authMode: provider.authMode,
-            baseUrl:
-                provider.baseUrl ??
-                (isLocalPiProvider(provider.provider)
-                    ? resolveProviderBaseUrl({
-                          provider: provider.provider,
-                          api: provider.api,
-                          baseUrl: provider.baseUrl,
-                      })
-                    : null),
-            envKey: provider.envKey,
+            baseUrl: provider.baseUrl,
             kind,
             fallbackModels: provider.fallbackModels,
         },

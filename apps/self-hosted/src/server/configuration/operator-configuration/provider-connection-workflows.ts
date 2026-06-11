@@ -12,27 +12,41 @@ import {
     assertSupportedProvider,
     assertSupportedProviderApi,
     inferProviderAuthMode,
+    isOpenAICodexProvider,
     normalizeProviderId,
     normalizeProviderModel,
     providerRequiresStoredCredential,
     resolveProviderBaseUrl,
+    supportedProviderCatalogEntry,
 } from '../provider-config'
 import type { ProviderConnectionSummary, ProviderSaveInput } from './contracts'
 import { providerSaveSchema } from './contracts'
-import { nullableText, summarizeProvider, validateBaseUrl } from './helpers'
+import { summarizeProvider } from './helpers'
 import { decryptSecretRecord, resolveSecret, upsertEncryptedSecret } from './secrets'
+import { inspectCodexAppAuthStatusSync } from '../codex-auth'
+import { listReadyProviders } from './provider-resolution'
 
 export async function saveProviderConnection(
     rawInput: ProviderSaveInput,
     actorUserId: string,
 ): Promise<ProviderConnectionSummary> {
     const input = providerSaveSchema.parse(rawInput)
-    const id = input.id ?? randomUUID()
-    const existing = input.id ? await appProviderConnectionRepository.findById(input.id) : null
     const provider = normalizeProviderId(input.provider)
     assertSupportedProvider(provider)
-    assertSupportedProviderApi(provider, input.api)
-    const authMode = input.authMode ?? inferProviderAuthMode({ provider, api: input.api })
+    const catalogEntry = supportedProviderCatalogEntry(provider)
+    if (!catalogEntry) {
+        throw new Error(`Provider ${provider} is not supported by this Agent Room build`)
+    }
+    const api = catalogEntry.api
+    assertSupportedProviderApi(provider, api)
+    const existingById = input.id ? await appProviderConnectionRepository.findById(input.id) : null
+    if (existingById && existingById.provider !== provider) {
+        throw new Error('Provider type cannot be changed for an existing connection')
+    }
+    const existing =
+        existingById ?? (await appProviderConnectionRepository.findByProvider(provider))
+    const id = existing?.id ?? randomUUID()
+    const authMode = inferProviderAuthMode({ provider, api })
     const apiKey = input.apiKey?.trim() ?? ''
     let credentialSecretId = existing?.credentialSecretId ?? null
     let secretAction: string | null = null
@@ -58,8 +72,8 @@ export async function saveProviderConnection(
 
     const baseUrl = resolveProviderBaseUrl({
         provider,
-        api: input.api,
-        baseUrl: validateBaseUrl(nullableText(input.baseUrl)),
+        api,
+        baseUrl: null,
     })
     const defaultModel = normalizeProviderModel(provider, input.defaultModel)
     let validationApiKey = requiresCredential ? apiKey || null : null
@@ -70,21 +84,30 @@ export async function saveProviderConnection(
         }
     }
     const validationStartedAt = new Date()
-    const validation = await validateProviderConnection({
+    const codexAuth = inspectCodexAppAuthStatusSync()
+    const validation = isOpenAICodexProvider({
         provider,
-        authMode,
-        api: input.api,
-        baseUrl,
-        model: defaultModel,
-        apiKey: validationApiKey,
+        api,
     })
+        ? {
+              status: codexAuth.ready ? ('ready' as const) : ('invalid' as const),
+              message: codexAuth.message,
+          }
+        : await validateProviderConnection({
+              provider,
+              authMode,
+              api,
+              baseUrl,
+              model: defaultModel,
+              apiKey: validationApiKey,
+          })
     const validationCompletedAt = new Date()
     const saved = await appProviderConnectionRepository.upsert({
         id,
         label: input.label,
         provider,
         authMode,
-        api: input.api,
+        api,
         baseUrl,
         defaultModel,
         fallbackModels: input.fallbackModels.map((model) =>
@@ -101,7 +124,7 @@ export async function saveProviderConnection(
         roomId: null,
         provider,
         authMode,
-        api: input.api,
+        api,
         baseUrl,
         model: defaultModel,
         status: validation.status,
@@ -127,6 +150,16 @@ export async function saveProviderConnection(
             defaultModel: null,
             onboardingCompletedAt: settings.onboardingCompletedAt,
         })
+    } else if (!settings.defaultProviderConnectionId && saved.status === 'ready') {
+        const providers = await appProviderConnectionRepository.list()
+        const readyProviders = listReadyProviders(providers, codexAuth)
+        if (readyProviders.length >= 1) {
+            await appSettingsRepository.update({
+                defaultProviderConnectionId: readyProviders[0]?.id ?? saved.id,
+                defaultModel: null,
+                onboardingCompletedAt: settings.onboardingCompletedAt ?? new Date(),
+            })
+        }
     }
 
     if (secretAction) {

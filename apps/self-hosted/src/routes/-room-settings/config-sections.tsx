@@ -22,15 +22,10 @@ import {
 import { describeProviderStatus } from '#/domain/state'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import { getOperatorConfigServer, saveRoomConfigServer } from '#/routes/-operator-config-server'
-import type {
-    ProviderConnectionSummary,
-    RoomConfigSnapshot,
-} from '#/server/configuration/operator-configuration'
-import type { ProviderApi } from '#/domain/domain-types'
-import type { ConfigDraft, ProviderMode } from './model'
+import type { RoomConfigSnapshot } from '#/server/configuration/operator-configuration'
+import type { ConfigDraft } from './model'
 import { COMMON_TIMEZONES, configFromSnapshot, configsEqual } from './model'
 import { CapabilitiesSection } from './capabilities-section'
-import { CodexOAuthSection } from './codex-oauth-section'
 import { GitHubSection } from './github-section'
 import { ModelSection } from './model-section'
 import { RoomModeSection } from './room-mode-section'
@@ -75,21 +70,6 @@ export function ConfigSections({
                         input.providerMode === 'app_connection'
                             ? input.providerConnectionId || null
                             : null,
-                    provider:
-                        input.providerMode === 'room_secret' ? input.provider.trim() || null : null,
-                    providerApi: input.providerMode === 'room_secret' ? input.providerApi : null,
-                    providerBaseUrl:
-                        input.providerMode === 'room_secret'
-                            ? input.providerBaseUrl.trim() || null
-                            : null,
-                    providerModel:
-                        input.providerMode === 'room_secret'
-                            ? input.providerModel.trim() || null
-                            : null,
-                    providerApiKey:
-                        input.providerMode === 'room_secret' && input.providerApiKey
-                            ? input.providerApiKey
-                            : undefined,
                     roomMode: input.roomMode,
                     capabilityOverrides: input.capabilityOverrides,
                     imageProvider: input.imageProvider === 'inherit' ? null : input.imageProvider,
@@ -130,19 +110,6 @@ export function ConfigSections({
         )
     }
 
-    const effectiveProvider = resolveEffectiveProvider({
-        providerMode: draft.providerMode,
-        providerConnectionId: draft.providerConnectionId,
-        providers,
-        operatorDefaultId: operatorQuery.data?.settings.defaultProviderConnectionId ?? null,
-    })
-    const effectiveApi: ProviderApi | null =
-        draft.providerMode === 'room_secret' ? draft.providerApi : (effectiveProvider?.api ?? null)
-    const effectiveAuthMode: 'api_key' | 'oauth' | null =
-        draft.providerMode === 'room_secret' ? 'api_key' : (effectiveProvider?.authMode ?? null)
-    const showCodexSection =
-        effectiveApi === 'openai-codex-responses' && effectiveAuthMode === 'oauth'
-
     return (
         <>
             <Section
@@ -165,14 +132,11 @@ export function ConfigSections({
             <ModelSection
                 draft={draft}
                 providers={providers}
-                providerCatalog={operatorQuery.data?.providerCatalog ?? []}
                 onChange={(patch) => setDraft((prev) => (prev ? { ...prev, ...patch } : prev))}
                 onSave={handleSave}
                 dirty={dirty}
                 pending={mutation.isPending}
             />
-
-            {showCodexSection ? <CodexOAuthSection roomId={roomId} /> : null}
 
             <RoomModeSection
                 draft={draft}
@@ -298,19 +262,4 @@ export function ConfigSections({
             </Section>
         </>
     )
-}
-
-function resolveEffectiveProvider(input: {
-    providerMode: ProviderMode
-    providerConnectionId: string
-    providers: ProviderConnectionSummary[]
-    operatorDefaultId: string | null
-}): ProviderConnectionSummary | null {
-    if (input.providerMode === 'room_secret') return null
-    const id =
-        input.providerMode === 'app_connection'
-            ? input.providerConnectionId
-            : input.operatorDefaultId
-    if (!id) return null
-    return input.providers.find((provider) => provider.id === id) ?? null
 }

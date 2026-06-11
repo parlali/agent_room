@@ -2,58 +2,20 @@ import type { ImageProviderId, JsonValue, SecretRecord } from '#/domain/domain-t
 import {
     appProviderConnectionRepository,
     auditRepository,
-    providerValidationRepository,
     roomConfigRepository,
     roomMcpBindingRepository,
     roomRepository,
     roomSecretRepository,
     secretRepository,
 } from '../../db/repositories'
-import { getAppEnv } from '../../config/env'
-import { validateProviderConnection } from '../connection-validation'
 import { normalizeImageProvider } from '../capabilities'
 import { saveRoomGitHubBinding } from '../github-app'
-import {
-    assertSupportedProvider,
-    assertSupportedProviderApi,
-    inferProviderAuthMode,
-    normalizeProviderId,
-    normalizeProviderModel,
-    providerEnvKey,
-    providerRequiresStoredCredential,
-} from '../provider-config'
 import type { RoomConfigSaveInput, RoomConfigSnapshot } from './contracts'
 import { roomConfigSaveSchema } from './contracts'
-import { imageProviderEnvKey, nullableText, validateBaseUrl } from './helpers'
+import { imageProviderEnvKey, nullableText } from './helpers'
 import { reconcileRoomAutostart } from '../../rooms/room-autostart'
 import { getRoomConfigSnapshot } from './room-config-snapshot'
-import { decryptSecretRecord, resolveSecret, upsertEncryptedSecret } from './secrets'
-
-async function upsertRoomProviderSecret(input: {
-    roomId: string
-    actorUserId: string
-    provider: string
-    apiKey: string
-}): Promise<SecretRecord> {
-    const provider = input.provider.trim().toLowerCase()
-    const envKey = providerEnvKey(provider)
-    const secret = await upsertEncryptedSecret({
-        keyName: `room:${input.roomId}:provider:${provider}:api_key`,
-        plainText: input.apiKey,
-    })
-
-    await roomSecretRepository.upsert({
-        roomId: input.roomId,
-        secretId: secret.id,
-        label: `${provider} provider key`,
-        envKey,
-        purpose: 'provider_api_key',
-        provider,
-        createdByUserId: input.actorUserId,
-    })
-
-    return secret
-}
+import { upsertEncryptedSecret } from './secrets'
 
 async function upsertRoomImageSecret(input: {
     roomId: string
@@ -72,7 +34,7 @@ async function upsertRoomImageSecret(input: {
         secretId: secret.id,
         label: `${input.provider} image key`,
         envKey,
-        purpose: 'provider_api_key',
+        purpose: 'image_api_key',
         provider: input.provider,
         createdByUserId: input.actorUserId,
     })
@@ -112,23 +74,8 @@ export async function saveRoomConfig(
     }
 
     const existing = await roomConfigRepository.getOrCreate(input.roomId)
-    const previousProviderSecretId = existing.providerSecretId
     const previousImageSecretId = existing.imageSecretId
-    let providerSecretId = existing.providerSecretId
     let imageSecretId = existing.imageSecretId
-    const provider = nullableText(input.provider)
-        ? normalizeProviderId(nullableText(input.provider) ?? '')
-        : null
-    const providerApi = input.providerApi ?? null
-    const providerModel = nullableText(input.providerModel)
-    const roomProviderBaseUrl =
-        input.providerMode === 'room_secret'
-            ? validateBaseUrl(nullableText(input.providerBaseUrl))
-            : null
-    const normalizedProviderModel =
-        input.providerMode === 'room_secret' && provider && providerModel
-            ? normalizeProviderModel(provider, providerModel)
-            : null
 
     if (input.providerMode === 'app_connection') {
         if (!input.providerConnectionId) {
@@ -139,79 +86,6 @@ export async function saveRoomConfig(
         )
         if (!providerConnection) {
             throw new Error('Room provider connection does not exist')
-        }
-        providerSecretId = null
-    }
-
-    if (input.providerMode === 'room_secret') {
-        if (!provider || !providerApi || !normalizedProviderModel) {
-            throw new Error('Room-scoped provider configuration requires provider, API, and model')
-        }
-        assertSupportedProvider(provider)
-        assertSupportedProviderApi(provider, providerApi)
-        if (inferProviderAuthMode({ provider, api: providerApi }) === 'oauth') {
-            throw new Error('OpenAI Codex OAuth must be configured as an app provider connection')
-        }
-
-        const apiKey = input.providerApiKey?.trim() ?? ''
-        const requiresCredential = providerRequiresStoredCredential({
-            provider,
-            authMode: 'api_key',
-        })
-        let validationApiKey = requiresCredential ? apiKey || null : null
-        if (requiresCredential && !validationApiKey && providerSecretId) {
-            const existingSecret = await resolveSecret(providerSecretId)
-            if (existingSecret) {
-                validationApiKey = decryptSecretRecord(existingSecret, getAppEnv().encryptionKey)
-            }
-        }
-        const validationStartedAt = new Date()
-        const validation = await validateProviderConnection({
-            provider,
-            authMode: 'api_key',
-            api: providerApi,
-            baseUrl: roomProviderBaseUrl,
-            model: normalizedProviderModel,
-            apiKey: validationApiKey,
-        })
-        await providerValidationRepository.appendAttempt({
-            providerConnectionId: null,
-            roomId: input.roomId,
-            provider,
-            authMode: 'api_key',
-            api: providerApi,
-            baseUrl: roomProviderBaseUrl,
-            model: normalizedProviderModel,
-            status: validation.status,
-            message: validation.message,
-            startedAt: validationStartedAt,
-            completedAt: new Date(),
-        })
-        if (validation.status !== 'ready') {
-            throw new Error(`Room-scoped provider validation failed: ${validation.message}`)
-        }
-
-        if (requiresCredential && apiKey) {
-            const secret = await upsertRoomProviderSecret({
-                roomId: input.roomId,
-                actorUserId,
-                provider,
-                apiKey,
-            })
-            providerSecretId = secret.id
-            await auditRepository.appendEvent({
-                actorUserId,
-                roomId: input.roomId,
-                action: 'room_secret.rotated',
-                payload: {
-                    purpose: 'provider_api_key',
-                    provider,
-                },
-            })
-        } else if (requiresCredential && !providerSecretId) {
-            throw new Error('Room-scoped provider API key is required')
-        } else if (!requiresCredential) {
-            providerSecretId = null
         }
     }
 
@@ -250,11 +124,6 @@ export async function saveRoomConfig(
         providerMode: input.providerMode,
         providerConnectionId:
             input.providerMode === 'app_connection' ? (input.providerConnectionId ?? null) : null,
-        provider: input.providerMode === 'room_secret' ? provider : null,
-        providerApi: input.providerMode === 'room_secret' ? providerApi : null,
-        providerBaseUrl: input.providerMode === 'room_secret' ? roomProviderBaseUrl : null,
-        providerModel: input.providerMode === 'room_secret' ? normalizedProviderModel : null,
-        providerSecretId: input.providerMode === 'room_secret' ? providerSecretId : null,
         roomMode: input.roomMode,
         capabilityOverrides: input.capabilityOverrides as JsonValue,
         imageProvider,
@@ -307,11 +176,11 @@ export async function saveRoomConfig(
     })
 
     const retainedSecretIds = new Set(
-        [config.providerSecretId, config.imageSecretId].filter(
+        [config.imageSecretId].filter(
             (secretId): secretId is string => typeof secretId === 'string',
         ),
     )
-    const staleSecretIds = [previousProviderSecretId, previousImageSecretId].filter(
+    const staleSecretIds = [previousImageSecretId].filter(
         (secretId): secretId is string =>
             typeof secretId === 'string' && !retainedSecretIds.has(secretId),
     )
