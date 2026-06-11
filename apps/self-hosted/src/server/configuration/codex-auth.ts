@@ -48,6 +48,9 @@ export function inspectCodexAppAuthStatusSync(input?: { authPath?: string }): Co
     if (!credential) {
         return invalidStatus('invalid', 'Codex app server login is incomplete')
     }
+    if (credential.expires <= Date.now()) {
+        return invalidStatus('invalid', 'Codex app server login is expired')
+    }
 
     return {
         ready: true,

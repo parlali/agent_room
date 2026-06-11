@@ -17,7 +17,7 @@ function jwt(payload: Record<string, unknown>): string {
 describe('Codex app auth helpers', () => {
     it('converts official Codex CLI auth into Pi OAuth credentials', () => {
         const access = jwt({
-            exp: 1770000000,
+            exp: 1990000000,
             'https://api.openai.com/auth': {
                 chatgpt_account_id: 'account-from-token',
             },
@@ -35,7 +35,7 @@ describe('Codex app auth helpers', () => {
             type: 'oauth',
             access,
             refresh: 'refresh-token',
-            expires: 1770000000 * 1000,
+            expires: 1990000000 * 1000,
             accountId: 'account-from-token',
         })
     })
@@ -44,7 +44,7 @@ describe('Codex app auth helpers', () => {
         const root = await mkdtemp(join(tmpdir(), 'agent-room-codex-auth-'))
         try {
             const authPath = join(root, 'auth.json')
-            const access = jwt({ exp: 1770000000 })
+            const access = jwt({ exp: 1990000000 })
             const status = writeCodexPiAuthFromCliAuthSync({
                 authPath,
                 cliAuthJson: JSON.stringify({
@@ -65,6 +65,36 @@ describe('Codex app auth helpers', () => {
                 accountId: 'account-from-file',
             })
             await expect(readFile(authPath, 'utf8')).resolves.toContain('"openai-codex"')
+        } finally {
+            await rm(root, {
+                recursive: true,
+                force: true,
+            })
+        }
+    })
+
+    it('rejects expired app-level Pi auth credentials', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'agent-room-codex-auth-'))
+        try {
+            const authPath = join(root, 'auth.json')
+            writeCodexPiAuthFromCliAuthSync({
+                authPath,
+                cliAuthJson: JSON.stringify({
+                    auth_mode: 'chatgpt',
+                    tokens: {
+                        access_token: jwt({ exp: 1000000000 }),
+                        refresh_token: 'refresh-token',
+                        account_id: 'account-from-file',
+                    },
+                }),
+                nowMs: 1000000000 * 1000,
+            })
+
+            expect(inspectCodexAppAuthStatusSync({ authPath })).toMatchObject({
+                ready: false,
+                status: 'invalid',
+                message: 'Codex app server login is expired',
+            })
         } finally {
             await rm(root, {
                 recursive: true,

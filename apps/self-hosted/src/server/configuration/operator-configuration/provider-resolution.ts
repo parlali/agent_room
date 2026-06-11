@@ -157,29 +157,10 @@ export function resolveEffectiveProvider(input: {
         }
     }
 
-    const provider = (() => {
-        const readyProviders = listReadyProviders(input.providers, codexAuth)
-        return readyProviders.length === 1 ? readyProviders[0] : null
-    })()
-
-    if (!provider) {
-        const readyProviders = listReadyProviders(input.providers, codexAuth)
-        return {
-            source: 'app_default',
-            provider: null,
-            blockedReasons:
-                readyProviders.length > 1
-                    ? ['Select an app default provider']
-                    : ['Configure at least one app provider'],
-            codexAuth: null,
-        }
-    }
-
-    const readiness = inspectProviderReadiness(provider, codexAuth)
     return {
         source: 'app_default',
-        provider,
-        blockedReasons: readiness.ready ? [] : [readiness.message ?? 'Provider is not ready'],
-        codexAuth: readiness.codexAuth,
+        provider: null,
+        blockedReasons: ['Select an app default provider'],
+        codexAuth: null,
     }
 }

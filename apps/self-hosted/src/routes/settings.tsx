@@ -43,7 +43,6 @@ import {
 import {
     AppDefaultsSection,
     CapabilitiesSection,
-    CodexAppServerSection,
     DeleteConnectionDialog,
     GitHubAppSection,
     McpConnectionsSection,
@@ -54,6 +53,7 @@ import {
     type AppImageProvider,
     type AppSearchDraft,
 } from './settings/-sections'
+import { CodexAppServerSection } from './settings/-codex-app-server-section'
 
 export const Route = createFileRoute('/settings')({
     beforeLoad: requireRouteUser,

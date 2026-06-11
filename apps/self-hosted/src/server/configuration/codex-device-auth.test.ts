@@ -52,12 +52,31 @@ describe('Codex device auth helpers', () => {
         })
     })
 
-    it('removes model provider keys from the Codex login process environment', () => {
-        const env = __testing.childEnv('/tmp/codex-home')
+    it('builds a bounded Codex login process environment', () => {
+        const previousDatabaseUrl = process.env.DATABASE_URL
+        const previousOpenAiKey = process.env.OPENAI_API_KEY
+        process.env.DATABASE_URL = 'postgres://secret'
+        process.env.OPENAI_API_KEY = 'provider-secret'
+        try {
+            const env = __testing.childEnv('/tmp/codex-home')
 
-        expect(env.CODEX_HOME).toBe('/tmp/codex-home')
-        expect(env.HOME).toBe('/tmp/codex-home')
-        expect(env.OPENAI_API_KEY).toBeUndefined()
-        expect(env.OPENROUTER_API_KEY).toBeUndefined()
+            expect(env.CODEX_HOME).toBe('/tmp/codex-home')
+            expect(env.HOME).toBe('/tmp/codex-home')
+            expect(env.PATH).toBeTruthy()
+            expect(env.DATABASE_URL).toBeUndefined()
+            expect(env.OPENAI_API_KEY).toBeUndefined()
+            expect(env.OPENROUTER_API_KEY).toBeUndefined()
+        } finally {
+            if (previousDatabaseUrl === undefined) {
+                delete process.env.DATABASE_URL
+            } else {
+                process.env.DATABASE_URL = previousDatabaseUrl
+            }
+            if (previousOpenAiKey === undefined) {
+                delete process.env.OPENAI_API_KEY
+            } else {
+                process.env.OPENAI_API_KEY = previousOpenAiKey
+            }
+        }
     })
 })

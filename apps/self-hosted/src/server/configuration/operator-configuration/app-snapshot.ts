@@ -30,8 +30,7 @@ export async function getOperatorConfigSnapshot(): Promise<OperatorConfigSnapsho
         onboarding: {
             completed: settings.onboardingCompletedAt !== null,
             hasProvider: readyProviders.length > 0,
-            hasDefaultProvider:
-                readyProviders.length === 1 || settings.defaultProviderConnectionId !== null,
+            hasDefaultProvider: settings.defaultProviderConnectionId !== null,
         },
     }
 }

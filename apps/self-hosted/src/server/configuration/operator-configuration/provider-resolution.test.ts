@@ -112,7 +112,7 @@ describe('provider resolution', () => {
         expect(resolution.codexAuth?.ready).toBe(true)
     })
 
-    it('uses the only ready app provider when no app default is configured', () => {
+    it('fails closed when no app default is configured', () => {
         const openRouter = buildProvider({ id: 'openrouter' })
         const codex = buildProvider({
             id: 'codex',
@@ -132,11 +132,11 @@ describe('provider resolution', () => {
             codexAuth: codexMissingAuth,
         })
 
-        expect(resolution.provider?.id).toBe('openrouter')
-        expect(resolution.blockedReasons).toEqual([])
+        expect(resolution.provider).toBeNull()
+        expect(resolution.blockedReasons).toEqual(['Select an app default provider'])
     })
 
-    it('requires an app default when multiple app providers are ready', () => {
+    it('requires an app default even when multiple app providers are ready', () => {
         const resolution = resolveEffectiveProvider({
             config: buildRoomConfig(),
             settings: buildSettings(),

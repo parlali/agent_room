@@ -62,16 +62,11 @@ export function isOpenAICodexProvider(input: {
     )
 }
 
-export function isLocalProvider(provider: string): boolean {
-    void provider
-    return false
-}
-
 export function providerRequiresStoredCredential(input: {
     provider: string
     authMode: 'api_key' | 'oauth'
 }): boolean {
-    return input.authMode === 'api_key' && !isLocalProvider(input.provider)
+    return input.authMode === 'api_key'
 }
 
 export function upperSnake(value: string): string {

@@ -7,6 +7,54 @@ CREATE TEMP TABLE removed_model_provider_secret_ids (
     id UUID PRIMARY KEY
 ) ON COMMIT DROP;
 
+DROP TABLE IF EXISTS migration_202606110001_room_configs_backup;
+DROP TABLE IF EXISTS migration_202606110001_room_secrets_backup;
+DROP TABLE IF EXISTS migration_202606110001_app_provider_connections_backup;
+DROP TABLE IF EXISTS migration_202606110001_app_settings_backup;
+DROP TABLE IF EXISTS migration_202606110001_secrets_backup;
+
+CREATE TABLE migration_202606110001_room_configs_backup AS
+SELECT
+    room_id,
+    provider_mode,
+    provider_connection_id,
+    provider,
+    provider_api,
+    provider_base_url,
+    provider_model,
+    provider_secret_id,
+    updated_at
+FROM room_configs;
+
+CREATE TABLE migration_202606110001_room_secrets_backup AS
+SELECT *
+FROM room_secrets;
+
+CREATE TABLE migration_202606110001_app_provider_connections_backup AS
+SELECT *
+FROM app_provider_connections;
+
+CREATE TABLE migration_202606110001_app_settings_backup AS
+SELECT *
+FROM app_settings;
+
+CREATE TABLE migration_202606110001_secrets_backup AS
+SELECT *
+FROM secrets
+WHERE id IN (
+    SELECT provider_secret_id
+    FROM room_configs
+    WHERE provider_secret_id IS NOT NULL
+    UNION
+    SELECT secret_id
+    FROM room_secrets
+    WHERE purpose = 'provider_api_key'
+    UNION
+    SELECT credential_secret_id
+    FROM app_provider_connections
+    WHERE credential_secret_id IS NOT NULL
+);
+
 DO $$
 BEGIN
     IF EXISTS (
@@ -274,30 +322,200 @@ DROP CONSTRAINT IF EXISTS app_provider_connections_auth_secret_check;
 ALTER TABLE app_provider_connections
 DROP CONSTRAINT IF EXISTS app_provider_connections_provider_check;
 
-ALTER TABLE app_provider_connections
-ADD CONSTRAINT app_provider_connections_auth_secret_check
-CHECK (
-    (
-        provider = 'openrouter'
-        AND auth_mode = 'api_key'
-        AND api = 'openai-completions'
-        AND credential_secret_id IS NOT NULL
-    )
-    OR (
-        provider = 'openai-codex'
-        AND auth_mode = 'oauth'
-        AND api = 'openai-codex-responses'
-        AND credential_secret_id IS NULL
-    )
-);
+ALTER TABLE room_configs
+ADD COLUMN IF NOT EXISTS provider TEXT,
+ADD COLUMN IF NOT EXISTS provider_api TEXT,
+ADD COLUMN IF NOT EXISTS provider_base_url TEXT,
+ADD COLUMN IF NOT EXISTS provider_model TEXT,
+ADD COLUMN IF NOT EXISTS provider_secret_id UUID REFERENCES secrets(id) ON DELETE SET NULL;
 
-ALTER TABLE app_provider_connections
-ADD CONSTRAINT app_provider_connections_provider_check
-CHECK (provider IN ('openrouter', 'openai-codex'));
+ALTER TABLE room_secrets
+DROP CONSTRAINT IF EXISTS room_secrets_purpose_check;
+
+ALTER TABLE room_secrets
+ADD CONSTRAINT room_secrets_purpose_check
+CHECK (purpose IN ('provider_api_key', 'generic', 'webhook'));
 
 ALTER TABLE room_configs
 DROP CONSTRAINT IF EXISTS room_configs_provider_mode_check;
 
 ALTER TABLE room_configs
 ADD CONSTRAINT room_configs_provider_mode_check
-CHECK (provider_mode IN ('app_default', 'app_connection'));
+CHECK (provider_mode IN ('app_default', 'app_connection', 'room_secret'));
+
+INSERT INTO secrets (
+    id,
+    key_name,
+    cipher_text,
+    nonce,
+    auth_tag,
+    key_version,
+    created_at,
+    updated_at
+)
+SELECT
+    id,
+    key_name,
+    cipher_text,
+    nonce,
+    auth_tag,
+    key_version,
+    created_at,
+    updated_at
+FROM migration_202606110001_secrets_backup
+ON CONFLICT (id) DO UPDATE
+SET
+    key_name = excluded.key_name,
+    cipher_text = excluded.cipher_text,
+    nonce = excluded.nonce,
+    auth_tag = excluded.auth_tag,
+    key_version = excluded.key_version,
+    created_at = excluded.created_at,
+    updated_at = excluded.updated_at;
+
+INSERT INTO app_provider_connections (
+    id,
+    label,
+    provider,
+    api,
+    base_url,
+    default_model,
+    fallback_models,
+    credential_secret_id,
+    status,
+    validation_message,
+    last_validated_at,
+    created_by_user_id,
+    created_at,
+    updated_at,
+    auth_mode
+)
+SELECT
+    id,
+    label,
+    provider,
+    api,
+    base_url,
+    default_model,
+    fallback_models,
+    credential_secret_id,
+    status,
+    validation_message,
+    last_validated_at,
+    created_by_user_id,
+    created_at,
+    updated_at,
+    auth_mode
+FROM migration_202606110001_app_provider_connections_backup
+ON CONFLICT (id) DO UPDATE
+SET
+    label = excluded.label,
+    provider = excluded.provider,
+    api = excluded.api,
+    base_url = excluded.base_url,
+    default_model = excluded.default_model,
+    fallback_models = excluded.fallback_models,
+    credential_secret_id = excluded.credential_secret_id,
+    status = excluded.status,
+    validation_message = excluded.validation_message,
+    last_validated_at = excluded.last_validated_at,
+    created_by_user_id = excluded.created_by_user_id,
+    created_at = excluded.created_at,
+    updated_at = excluded.updated_at,
+    auth_mode = excluded.auth_mode;
+
+INSERT INTO app_settings (
+    id,
+    default_provider_connection_id,
+    default_model,
+    capability_defaults,
+    search_config,
+    image_config,
+    onboarding_completed_at,
+    created_at,
+    updated_at
+)
+SELECT
+    id,
+    default_provider_connection_id,
+    default_model,
+    capability_defaults,
+    search_config,
+    image_config,
+    onboarding_completed_at,
+    created_at,
+    updated_at
+FROM migration_202606110001_app_settings_backup
+ON CONFLICT (id) DO UPDATE
+SET
+    default_provider_connection_id = excluded.default_provider_connection_id,
+    default_model = excluded.default_model,
+    capability_defaults = excluded.capability_defaults,
+    search_config = excluded.search_config,
+    image_config = excluded.image_config,
+    onboarding_completed_at = excluded.onboarding_completed_at,
+    created_at = excluded.created_at,
+    updated_at = excluded.updated_at;
+
+UPDATE room_configs
+SET
+    provider_mode = backup.provider_mode,
+    provider_connection_id = backup.provider_connection_id,
+    provider = backup.provider,
+    provider_api = backup.provider_api,
+    provider_base_url = backup.provider_base_url,
+    provider_model = backup.provider_model,
+    provider_secret_id = backup.provider_secret_id,
+    updated_at = backup.updated_at
+FROM migration_202606110001_room_configs_backup AS backup
+WHERE room_configs.room_id = backup.room_id;
+
+INSERT INTO room_secrets (
+    id,
+    room_id,
+    secret_id,
+    label,
+    env_key,
+    purpose,
+    provider,
+    created_by_user_id,
+    created_at,
+    updated_at
+)
+SELECT
+    id,
+    room_id,
+    secret_id,
+    label,
+    env_key,
+    purpose,
+    provider,
+    created_by_user_id,
+    created_at,
+    updated_at
+FROM migration_202606110001_room_secrets_backup
+ON CONFLICT (id) DO UPDATE
+SET
+    room_id = excluded.room_id,
+    secret_id = excluded.secret_id,
+    label = excluded.label,
+    env_key = excluded.env_key,
+    purpose = excluded.purpose,
+    provider = excluded.provider,
+    created_by_user_id = excluded.created_by_user_id,
+    created_at = excluded.created_at,
+    updated_at = excluded.updated_at;
+
+ALTER TABLE app_provider_connections
+ADD CONSTRAINT app_provider_connections_auth_secret_check
+CHECK (
+    auth_mode = 'oauth'
+    OR credential_secret_id IS NOT NULL
+    OR provider IN ('ollama', 'lmstudio')
+);
+
+DROP TABLE IF EXISTS migration_202606110001_room_configs_backup;
+DROP TABLE IF EXISTS migration_202606110001_room_secrets_backup;
+DROP TABLE IF EXISTS migration_202606110001_app_provider_connections_backup;
+DROP TABLE IF EXISTS migration_202606110001_app_settings_backup;
+DROP TABLE IF EXISTS migration_202606110001_secrets_backup;

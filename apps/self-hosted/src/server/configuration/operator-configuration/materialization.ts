@@ -185,7 +185,7 @@ async function materializeProvider(input: {
             baseUrl: resolveProviderBaseUrl({
                 provider: input.provider,
                 api: input.api,
-                baseUrl: null,
+                baseUrl: input.baseUrl,
             }),
             authPath,
         },

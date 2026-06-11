@@ -180,7 +180,7 @@ describe('operator configuration materialization', () => {
         expect(result.secretRefs).toEqual([])
     })
 
-    it('materializes supported provider endpoints from canonical provider config', async () => {
+    it('materializes the persisted provider endpoint', async () => {
         const tempDir = await mkdtemp(join(tmpdir(), 'agent-room-provider-'))
         const result = await __testing.materializeProvider({
             providerAuthPath: join(tempDir, 'provider-auth.json'),
@@ -195,7 +195,7 @@ describe('operator configuration materialization', () => {
             encryptionKey: randomBytes(32),
         })
 
-        expect(result.provider.baseUrl).toBe('https://openrouter.ai/api/v1')
+        expect(result.provider.baseUrl).toBe('https://example.invalid/v1')
     })
 })
 

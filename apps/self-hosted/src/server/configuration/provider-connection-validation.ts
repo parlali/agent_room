@@ -15,7 +15,6 @@ import { buildPiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { defaultCapabilities, normalizeBudgets, normalizeSearchConfig } from './capabilities'
 import {
     assertSupportedProviderApi,
-    isLocalProvider,
     isSupportedProvider,
     providerRequiresStoredCredential,
     resolveProviderBaseUrl,
@@ -377,13 +376,6 @@ export async function validateProviderConnection(
         return {
             status: 'invalid',
             message: 'Provider API key is required',
-        }
-    }
-
-    if (isLocalProvider(input.provider) && !resolveProviderBaseUrl(input)) {
-        return {
-            status: 'invalid',
-            message: 'Local provider base URL is required',
         }
     }
 

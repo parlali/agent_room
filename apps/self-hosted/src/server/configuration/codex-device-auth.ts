@@ -10,12 +10,12 @@ import {
     providerValidationRepository,
 } from '../db/repositories'
 import { providerCatalog, resolveProviderBaseUrl } from './provider-config'
+import { buildBoundedProcessEnv } from '../security/process-env'
 import {
     inspectCodexAppAuthStatusSync,
     writeCodexPiAuthFromCliAuthSync,
     type CodexAppAuthStatus,
 } from './codex-auth'
-import { listReadyProviders } from './operator-configuration/provider-resolution'
 
 export const codexDeviceAuthSessionStatuses = [
     'idle',
@@ -111,7 +111,12 @@ function cleanupSessionProcess(session: CodexDeviceAuthSessionState) {
             recursive: true,
             force: true,
         })
-    } catch {}
+    } catch (error) {
+        console.warn(
+            `Failed to clean up temporary Codex auth home ${session.codexHome}`,
+            error instanceof Error ? error.message : error,
+        )
+    }
 }
 
 async function appendAudit(input: {
@@ -192,15 +197,11 @@ async function markCodexProviderValidated(input: {
     if (saved.status === 'ready') {
         const settings = await appSettingsRepository.getOrCreate()
         if (!settings.defaultProviderConnectionId) {
-            const providers = await appProviderConnectionRepository.list()
-            const readyProviders = listReadyProviders(providers, input.status)
-            if (readyProviders.length >= 1) {
-                await appSettingsRepository.update({
-                    defaultProviderConnectionId: readyProviders[0]?.id ?? saved.id,
-                    defaultModel: null,
-                    onboardingCompletedAt: settings.onboardingCompletedAt ?? new Date(),
-                })
-            }
+            await appSettingsRepository.update({
+                defaultProviderConnectionId: saved.id,
+                defaultModel: null,
+                onboardingCompletedAt: settings.onboardingCompletedAt ?? new Date(),
+            })
         }
     }
 }
@@ -227,16 +228,10 @@ function extractDeviceAuthFields(output: string): {
 }
 
 function childEnv(codexHome: string): NodeJS.ProcessEnv {
-    const env: NodeJS.ProcessEnv = {
-        ...process.env,
+    return buildBoundedProcessEnv({
         CODEX_HOME: codexHome,
         HOME: codexHome,
-    }
-    delete env.OPENAI_API_KEY
-    delete env.OPENROUTER_API_KEY
-    delete env.ANTHROPIC_API_KEY
-    delete env.GOOGLE_API_KEY
-    return env
+    })
 }
 
 async function finalizeSession(input: {

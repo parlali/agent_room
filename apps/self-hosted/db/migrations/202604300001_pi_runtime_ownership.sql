@@ -20,18 +20,9 @@ CHECK (tools_profile IN ('coding', 'minimal', 'read-only'));
 ALTER TABLE app_provider_connections
 ADD CONSTRAINT app_provider_connections_auth_secret_check
 CHECK (
-    (
-        provider = 'openrouter'
-        AND auth_mode = 'api_key'
-        AND api = 'openai-completions'
-        AND credential_secret_id IS NOT NULL
-    )
-    OR (
-        provider = 'openai-codex'
-        AND auth_mode = 'oauth'
-        AND api = 'openai-codex-responses'
-        AND credential_secret_id IS NULL
-    )
+    auth_mode = 'oauth'
+    OR credential_secret_id IS NOT NULL
+    OR provider IN ('ollama', 'lmstudio')
 );
 
 CREATE TABLE provider_validation_attempts (
