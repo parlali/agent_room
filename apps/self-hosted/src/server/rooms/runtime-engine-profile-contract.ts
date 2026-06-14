@@ -17,7 +17,7 @@ export interface RuntimeEngineProfileBuildInput {
     token: string
     paths: RoomPaths
     sandbox: RuntimeSandboxIdentity
-    sandboxHardening?: RuntimeSandboxHardening
+    sandboxHardening: RuntimeSandboxHardening
     roomConfiguration: MaterializedRoomConfiguration
 }
 

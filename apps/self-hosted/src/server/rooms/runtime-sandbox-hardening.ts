@@ -3,7 +3,7 @@ import type { RuntimeSandboxHardening, RuntimeSandboxResourceLimits } from '#/do
 export const sandboxDefaultMaxProcesses = 8192
 
 function toLimit(value: number | undefined): number | null {
-    if (value === undefined || value <= 0) {
+    if (value === undefined || !Number.isFinite(value) || value <= 0) {
         return null
     }
     return value

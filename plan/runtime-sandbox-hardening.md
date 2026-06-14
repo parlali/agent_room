@@ -65,11 +65,15 @@ symlinks, so it is not a gap.
   backend-side, from deployment env (`config/env.ts`,
   `rooms/runtime-sandbox-hardening.ts`). The runtime reads policy from its config
   only; it cannot set or raise its own limits.
-- Enforced OS resource limits via `prlimit` wrapping `setpriv` for per-room
-  commands (`rooms/runtime-sandbox-command.ts`). Core dumps are always disabled;
-  process count, open files, file size, CPU seconds, and address space are
-  configurable. `prlimit` ships with `setpriv` in `util-linux`, already required
-  by the runtime image.
+- Enforced OS resource limits via `prlimit` wrapping `setpriv` on the per-room
+  privilege-drop path (`rooms/runtime-sandbox-command.ts`). Whenever a per-room
+  command drops privileges (the production root path) core dumps are disabled
+  unconditionally, even when no numeric limits are configured; process count,
+  open files, file size, CPU seconds, and address space are configurable.
+  `prlimit` ships with `setpriv` in `util-linux`, already required by the runtime
+  image. Limits are applied from root while dropping privileges, so the
+  not-yet-supported non-root runtime path (see residuals) would need limits set
+  at process launch instead.
 - Blocked private-network HTTP MCP egress when restricted egress is enabled
   (`pi-runtime/mcp-bridge.ts`), reusing the existing `assertSafeUrl` SSRF guard
   and failing closed.

@@ -251,6 +251,7 @@ describe('Pi runtime config materialization', () => {
                 token: 'token-token-token-token-token',
                 paths,
                 sandbox: sandbox(),
+                sandboxHardening: defaultRuntimeSandboxHardening(),
                 roomConfiguration: roomConfiguration(),
             })
 
@@ -300,6 +301,7 @@ describe('Pi runtime config materialization', () => {
                 token: 'token-token-token-token-token',
                 paths: roomPaths(root),
                 sandbox: sandbox(),
+                sandboxHardening: defaultRuntimeSandboxHardening(),
                 roomConfiguration: config,
             })
             const runtimeConfig = profile.config as ReturnType<typeof buildPiRuntimeConfig>
@@ -344,6 +346,7 @@ describe('Pi runtime config materialization', () => {
                 token: 'token-token-token-token-token',
                 paths: roomPaths(root),
                 sandbox: sandbox(),
+                sandboxHardening: defaultRuntimeSandboxHardening(),
                 roomConfiguration: config,
             })
 
@@ -381,6 +384,7 @@ describe('Pi runtime config materialization', () => {
                     token: 'token-token-token-token-token',
                     paths: roomPaths(root),
                     sandbox: sandbox(),
+                    sandboxHardening: defaultRuntimeSandboxHardening(),
                     roomConfiguration: config,
                 }),
             ).toThrow(/reserved keys: HOME/)
