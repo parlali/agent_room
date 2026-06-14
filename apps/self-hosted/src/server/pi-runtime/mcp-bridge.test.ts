@@ -331,6 +331,22 @@ describe('Agent Room MCP bridge', () => {
         ).rejects.toThrow(/private network|local/i)
     })
 
+    it('blocks streamable HTTP servers targeting private addresses when egress is restricted', async () => {
+        await expect(
+            createMcpTools({
+                cwd: process.cwd(),
+                restrictPrivateNetwork: true,
+                servers: [
+                    baseServer({
+                        id: 'streamable-loopback',
+                        transport: 'streamable_http',
+                        url: 'http://127.0.0.1:9/mcp',
+                    }),
+                ],
+            }),
+        ).rejects.toThrow(/private network|local/i)
+    })
+
     it('connects streamable HTTP with explicit auth headers', async () => {
         await withHttpMcp(async (url) => {
             const tools = await createMcpTools({

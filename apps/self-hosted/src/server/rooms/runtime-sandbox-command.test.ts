@@ -81,10 +81,13 @@ describe('runtimeSandboxSpawnCommand', () => {
         })
     })
 
-    it('drops privileges without prlimit when no limits are provided', () => {
+    it('still disables core dumps via prlimit when no limits are provided', () => {
         expect(runtimeSandboxSpawnCommand('id', [], perRoomIdentity)).toEqual({
-            command: 'setpriv',
+            command: 'prlimit',
             args: [
+                '--core=0',
+                '--',
+                'setpriv',
                 '--reuid',
                 '424242',
                 '--regid',

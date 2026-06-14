@@ -1,6 +1,7 @@
 import type {
     MaterializedRoomConfiguration,
     RoomPaths,
+    RuntimeSandboxHardening,
     RuntimeSandboxIdentity,
 } from '#/domain/domain-types'
 
@@ -16,6 +17,7 @@ export interface RuntimeEngineProfileBuildInput {
     token: string
     paths: RoomPaths
     sandbox: RuntimeSandboxIdentity
+    sandboxHardening?: RuntimeSandboxHardening
     roomConfiguration: MaterializedRoomConfiguration
 }
 

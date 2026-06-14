@@ -34,7 +34,7 @@ export function resolveRuntimeSandboxHardening(input: {
         cpuSeconds: toLimit(input.cpuSeconds),
         addressSpaceBytes: toLimit(input.addressSpaceBytes),
         fileSizeBytes: toLimit(input.fileSizeBytes),
-        processCount: toLimit(input.processCount),
+        processCount: toLimit(input.processCount ?? sandboxDefaultMaxProcesses),
         openFiles: toLimit(input.openFiles),
     }
     return {

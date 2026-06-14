@@ -22,6 +22,7 @@ import {
     ensureBackendOnlyTree,
 } from './runtime-file-ownership'
 import { runtimeWritableToolsEnabled } from './runtime-sandbox-policy'
+import { getAppEnv } from '../config/env'
 
 function renderEnvFile(input: Record<string, string>): string {
     const lines: string[] = []
@@ -125,6 +126,7 @@ export async function materializeRuntime(input: {
         token,
         paths,
         sandbox,
+        sandboxHardening: getAppEnv().sandbox,
         roomConfiguration,
     })
     await writeGitHubRuntimeCredentials({
