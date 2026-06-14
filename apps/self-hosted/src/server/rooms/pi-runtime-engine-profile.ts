@@ -11,6 +11,7 @@ import {
     shellVisibleStoreDirEnvKey,
     shellVisibleWorkspaceDirEnvKey,
 } from '../security/process-env'
+import { getAppEnv } from '../config/env'
 
 function resolvePiRuntimeCommand(): RuntimeEngineCommand {
     return {
@@ -27,6 +28,7 @@ function buildPiRuntimeProfile(input: RuntimeEngineProfileBuildInput) {
         token: input.token,
         paths: input.paths,
         sandbox: input.sandbox,
+        sandboxHardening: getAppEnv().sandbox,
         roomConfiguration: input.roomConfiguration,
     })
 

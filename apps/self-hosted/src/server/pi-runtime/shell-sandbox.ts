@@ -46,7 +46,7 @@ export function shellSandboxSpawnCommand(
     args: string[]
 } {
     const identity = currentShellSandboxIdentity(config)
-    return runtimeSandboxSpawnCommand(command, args, identity)
+    return runtimeSandboxSpawnCommand(command, args, identity, config.sandboxHardening.limits)
 }
 
 export function shellSandboxShellCommand(
@@ -57,7 +57,7 @@ export function shellSandboxShellCommand(
     args: string[]
 } {
     const identity = currentShellSandboxIdentity(config)
-    return runtimeSandboxShellCommand(command, identity)
+    return runtimeSandboxShellCommand(command, identity, config.sandboxHardening.limits)
 }
 
 function shellWritableRoots(config: PiRuntimeConfig): string[] {

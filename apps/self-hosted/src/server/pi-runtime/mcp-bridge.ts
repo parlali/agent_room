@@ -7,6 +7,7 @@ import type { MaterializedMcpServer } from '#/domain/domain-types'
 import { buildBoundedProcessEnv, disableImplicitEnvFileForCommand } from '../security/process-env'
 import { boundTextByUtf8Bytes } from './bounded-text'
 import { combineAbortSignals, currentToolRunSignal } from './tool-run-context'
+import { assertSafeUrl } from './web-url-safety'
 
 interface ConnectedMcpServer {
     server: MaterializedMcpServer
@@ -93,9 +94,21 @@ function stdioEnvironment(env: Record<string, string>): Record<string, string> {
     )
 }
 
+async function resolveHttpServerUrl(input: {
+    server: MaterializedMcpServer
+    restrictPrivateNetwork: boolean
+}): Promise<URL> {
+    const url = new URL(input.server.url ?? '')
+    if (input.restrictPrivateNetwork) {
+        await assertSafeUrl(url)
+    }
+    return url
+}
+
 async function connectServer(input: {
     server: MaterializedMcpServer
     cwd: string
+    restrictPrivateNetwork: boolean
 }): Promise<ConnectedMcpServer> {
     const client = new Client(
         {
@@ -118,11 +131,17 @@ async function connectServer(input: {
                   env: stdioEnvironment(input.server.env),
                   stderr: 'pipe',
               })
-            : new StreamableHTTPClientTransport(new URL(input.server.url ?? ''), {
-                  requestInit: {
-                      headers: input.server.headers,
+            : new StreamableHTTPClientTransport(
+                  await resolveHttpServerUrl({
+                      server: input.server,
+                      restrictPrivateNetwork: input.restrictPrivateNetwork,
+                  }),
+                  {
+                      requestInit: {
+                          headers: input.server.headers,
+                      },
                   },
-              })
+              )
 
     try {
         await client.connect(transport, {
@@ -216,6 +235,7 @@ function createMcpTool(input: {
 export async function createMcpTools(input: {
     servers: MaterializedMcpServer[]
     cwd: string
+    restrictPrivateNetwork?: boolean
 }): Promise<ToolDefinition[]> {
     const tools: ToolDefinition[] = []
     const exposedNames = new Set<string>()
@@ -223,6 +243,7 @@ export async function createMcpTools(input: {
         const connected = await connectServer({
             server,
             cwd: input.cwd,
+            restrictPrivateNetwork: input.restrictPrivateNetwork ?? false,
         })
         try {
             const listed = await connected.client.listTools(

@@ -9,6 +9,7 @@ import type {
 } from '#/domain/domain-types'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { roomFilesystemId } from '../rooms/room-filesystem-id'
+import { defaultRuntimeSandboxHardening } from '../rooms/runtime-sandbox-hardening'
 
 export const testCapabilities: CapabilityConfig = {
     webSearch: true,
@@ -80,6 +81,7 @@ export interface TestPiRuntimeConfigOptions {
     image?: Partial<ImageRuntimeConfig>
     github?: Partial<PiRuntimeConfig['github']>
     budgets?: Partial<RunBudgetConfig>
+    sandboxHardening?: PiRuntimeConfig['sandboxHardening']
     instructions?: string
     mcpServers?: MaterializedMcpServer[]
     models?: PiRuntimeConfig['models']
@@ -145,6 +147,7 @@ export function createTestPiRuntimeConfig(
             userName: null,
             groupName: null,
         },
+        sandboxHardening: options.sandboxHardening ?? defaultRuntimeSandboxHardening(),
         capabilities: {
             ...testCapabilities,
             ...options.capabilities,

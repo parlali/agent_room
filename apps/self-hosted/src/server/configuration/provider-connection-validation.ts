@@ -12,6 +12,7 @@ import {
 import type { MaterializedRoomConfiguration, RoomPaths } from '#/domain/domain-types'
 import { createPiResourceLoader } from '../pi-runtime/resource-loader'
 import { buildPiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { getAppEnv } from '../config/env'
 import { defaultCapabilities, normalizeBudgets, normalizeSearchConfig } from './capabilities'
 import {
     assertSupportedProviderApi,
@@ -207,6 +208,7 @@ async function runPiProviderProbe(
                 userName: null,
                 groupName: null,
             },
+            sandboxHardening: getAppEnv().sandbox,
             roomConfiguration: buildValidationRoomConfiguration(input),
         })
         await Promise.all([

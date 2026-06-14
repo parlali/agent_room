@@ -11,6 +11,7 @@ import type {
     RunBudgetConfig,
     RoomMode,
     RoomPaths,
+    RuntimeSandboxHardening,
     RuntimeSandboxIdentity,
     SearchRuntimeConfig,
 } from '#/domain/domain-types'
@@ -96,6 +97,7 @@ export interface PiRuntimeConfig {
     }
     roomMode: RoomMode
     sandbox: RuntimeSandboxIdentity
+    sandboxHardening: RuntimeSandboxHardening
     capabilities: CapabilityConfig
     search: SearchRuntimeConfig
     image: ImageRuntimeConfig
@@ -186,6 +188,7 @@ export function buildPiRuntimeConfig(input: {
     token: string
     paths: RoomPaths
     sandbox: RuntimeSandboxIdentity
+    sandboxHardening: RuntimeSandboxHardening
     roomConfiguration: MaterializedRoomConfiguration
 }): PiRuntimeConfig {
     const provider = input.roomConfiguration.provider
@@ -240,6 +243,7 @@ export function buildPiRuntimeConfig(input: {
         },
         roomMode: input.roomConfiguration.roomMode,
         sandbox: input.sandbox,
+        sandboxHardening: input.sandboxHardening,
         capabilities: input.roomConfiguration.capabilities,
         search: input.roomConfiguration.search,
         image: input.roomConfiguration.image,

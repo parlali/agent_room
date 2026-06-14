@@ -532,6 +532,19 @@ export type RuntimeSandboxIdentity =
           groupName: null
       }
 
+export interface RuntimeSandboxResourceLimits {
+    cpuSeconds: number | null
+    addressSpaceBytes: number | null
+    fileSizeBytes: number | null
+    processCount: number | null
+    openFiles: number | null
+}
+
+export interface RuntimeSandboxHardening {
+    limits: RuntimeSandboxResourceLimits
+    restrictPrivateNetwork: boolean
+}
+
 export interface RuntimeHealthSnapshot {
     roomId: string
     port: number | null

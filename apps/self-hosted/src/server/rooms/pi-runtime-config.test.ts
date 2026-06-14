@@ -15,6 +15,7 @@ import {
 } from '../pi-runtime/test-runtime-defaults'
 import { buildPiRuntimeConfig } from './pi-runtime-config'
 import { piRuntimeEngineProfile } from './pi-runtime-engine-profile'
+import { defaultRuntimeSandboxHardening } from './runtime-sandbox-hardening'
 
 function roomPaths(root: string): RoomPaths {
     return {
@@ -94,6 +95,7 @@ describe('Pi runtime config materialization', () => {
             token: 'token-token-token-token-token',
             paths: roomPaths(root),
             sandbox: sandbox(),
+            sandboxHardening: defaultRuntimeSandboxHardening(),
             roomConfiguration: roomConfiguration(),
         })
 
@@ -149,6 +151,7 @@ describe('Pi runtime config materialization', () => {
             token: 'token-token-token-token-token',
             paths: roomPaths(root),
             sandbox: sandbox(),
+            sandboxHardening: defaultRuntimeSandboxHardening(),
             roomConfiguration: roomConfig,
         })
 
@@ -183,6 +186,7 @@ describe('Pi runtime config materialization', () => {
                 token: 'token-token-token-token-token',
                 paths: roomPaths(root),
                 sandbox: sandbox(),
+                sandboxHardening: defaultRuntimeSandboxHardening(),
                 roomConfiguration: unsupported,
             }),
         ).toThrow('Provider custom-openai-compatible is not supported')
@@ -194,6 +198,7 @@ describe('Pi runtime config materialization', () => {
                 token: 'token-token-token-token-token',
                 paths: roomPaths(root),
                 sandbox: sandbox(),
+                sandboxHardening: defaultRuntimeSandboxHardening(),
                 roomConfiguration: mismatched,
             }),
         ).toThrow('Provider openrouter must use openai-completions')
@@ -221,6 +226,7 @@ describe('Pi runtime config materialization', () => {
             token: 'token-token-token-token-token',
             paths: roomPaths(root),
             sandbox: sandbox(),
+            sandboxHardening: defaultRuntimeSandboxHardening(),
             roomConfiguration: roomConfig,
         })
 
