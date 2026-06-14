@@ -36,7 +36,13 @@ export function runtimeSandboxSpawnCommand(
     identity: RuntimeSandboxIdentity,
     limits?: RuntimeSandboxResourceLimits,
 ): SandboxCommand {
-    if (!shouldWrapSandboxCommand(identity) || identity.mode !== 'per-room') {
+    if (identity.mode !== 'per-room') {
+        return {
+            command,
+            args,
+        }
+    }
+    if (!shouldWrapSandboxCommand(identity)) {
         return {
             command,
             args,
