@@ -47,3 +47,9 @@ The default Docker Compose stack is local-first. Do not expose Agent Room direct
 - A plan for rotating provider credentials
 
 Never commit `.env`, `.agent-room`, generated bootstrap credentials, provider keys, OAuth tokens, logs, databases, or Docker volumes.
+
+Multi-tenant or shared deployments should tighten the runtime sandbox hardening
+controls (`AGENT_ROOM_RUNTIME_MAX_*` and `AGENT_ROOM_RUNTIME_RESTRICT_PRIVATE_NETWORK`,
+see `.env.example`) and run the runtime image as root so per-room OS sandboxing is
+active. See `plan/runtime-sandbox-hardening.md` for the per-room isolation model and
+its current limits.

@@ -3,6 +3,13 @@ import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { z } from 'zod'
+import type { RuntimeSandboxHardening } from '#/domain/domain-types'
+import { resolveRuntimeSandboxHardening } from '../rooms/runtime-sandbox-hardening'
+
+const optionalRuntimeLimit = z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.coerce.number().int().nonnegative().optional(),
+)
 
 const rawEnvSchema = z.object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -83,6 +90,15 @@ const rawEnvSchema = z.object({
         .default(2 * 60 * 1000),
     AGENT_ROOM_SHORT_COMMAND_WAIT_MS: z.coerce.number().int().positive().default(5000),
     AGENT_ROOM_BROWSER_ACTIONS_PER_TURN: z.coerce.number().int().positive().max(200).default(50),
+    AGENT_ROOM_RUNTIME_MAX_PROCESSES: optionalRuntimeLimit,
+    AGENT_ROOM_RUNTIME_MAX_OPEN_FILES: optionalRuntimeLimit,
+    AGENT_ROOM_RUNTIME_MAX_FILE_SIZE_BYTES: optionalRuntimeLimit,
+    AGENT_ROOM_RUNTIME_MAX_CPU_SECONDS: optionalRuntimeLimit,
+    AGENT_ROOM_RUNTIME_MAX_ADDRESS_SPACE_BYTES: optionalRuntimeLimit,
+    AGENT_ROOM_RUNTIME_RESTRICT_PRIVATE_NETWORK: z
+        .string()
+        .default('false')
+        .transform((value) => value === '1' || value.toLowerCase() === 'true'),
 })
 
 const generatedBootstrapSchema = z.object({
@@ -129,6 +145,7 @@ export interface AppEnv {
         shortCommandWaitMs: number
         browserActionsPerTurn: number
     }
+    sandbox: RuntimeSandboxHardening
 }
 
 let cachedEnv: AppEnv | null = null
@@ -292,6 +309,14 @@ export function getAppEnv(): AppEnv {
             shortCommandWaitMs: data.AGENT_ROOM_SHORT_COMMAND_WAIT_MS,
             browserActionsPerTurn: data.AGENT_ROOM_BROWSER_ACTIONS_PER_TURN,
         },
+        sandbox: resolveRuntimeSandboxHardening({
+            cpuSeconds: data.AGENT_ROOM_RUNTIME_MAX_CPU_SECONDS,
+            addressSpaceBytes: data.AGENT_ROOM_RUNTIME_MAX_ADDRESS_SPACE_BYTES,
+            fileSizeBytes: data.AGENT_ROOM_RUNTIME_MAX_FILE_SIZE_BYTES,
+            processCount: data.AGENT_ROOM_RUNTIME_MAX_PROCESSES,
+            openFiles: data.AGENT_ROOM_RUNTIME_MAX_OPEN_FILES,
+            restrictPrivateNetwork: data.AGENT_ROOM_RUNTIME_RESTRICT_PRIVATE_NETWORK,
+        }),
     }
 
     return cachedEnv

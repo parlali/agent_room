@@ -259,8 +259,11 @@ describe('runtime sandbox identity', () => {
                 )
 
                 expect(runtimeSandboxShellCommand('id', identityA)).toEqual({
-                    command: 'setpriv',
+                    command: 'prlimit',
                     args: [
+                        '--core=0',
+                        '--',
+                        'setpriv',
                         '--reuid',
                         String(identityA.uid),
                         '--regid',

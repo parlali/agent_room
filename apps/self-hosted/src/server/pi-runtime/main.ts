@@ -92,6 +92,7 @@ await writeJsonFile(config.paths.modelsPath, config.models)
 const mcpTools = await createMcpTools({
     servers: config.mcpServers,
     cwd: config.paths.workspaceDir,
+    restrictPrivateNetwork: config.sandboxHardening.restrictPrivateNetwork,
 })
 let systemPrompt = await buildAgentRoomSystemPrompt(config)
 const { broadcast, createEventStream, createRoomEventStream } = createRuntimeEventBus({

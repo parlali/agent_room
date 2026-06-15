@@ -1,4 +1,17 @@
-import type { RuntimeSandboxIdentity } from '#/domain/domain-types'
+import type { RuntimeSandboxIdentity, RuntimeSandboxResourceLimits } from '#/domain/domain-types'
+
+interface SandboxCommand {
+    command: string
+    args: string[]
+}
+
+const unlimitedResourceLimits: RuntimeSandboxResourceLimits = {
+    cpuSeconds: null,
+    addressSpaceBytes: null,
+    fileSizeBytes: null,
+    processCount: null,
+    openFiles: null,
+}
 
 function shouldWrapSandboxCommand(identity: RuntimeSandboxIdentity): boolean {
     if (identity.mode !== 'per-room') return false
@@ -7,27 +20,35 @@ function shouldWrapSandboxCommand(identity: RuntimeSandboxIdentity): boolean {
     return currentUid !== identity.uid || currentGid !== identity.gid
 }
 
+export function buildResourceLimitArgs(limits: RuntimeSandboxResourceLimits): string[] {
+    const args = ['--core=0']
+    if (limits.cpuSeconds !== null) args.push(`--cpu=${limits.cpuSeconds}`)
+    if (limits.fileSizeBytes !== null) args.push(`--fsize=${limits.fileSizeBytes}`)
+    if (limits.addressSpaceBytes !== null) args.push(`--as=${limits.addressSpaceBytes}`)
+    if (limits.processCount !== null) args.push(`--nproc=${limits.processCount}`)
+    if (limits.openFiles !== null) args.push(`--nofile=${limits.openFiles}`)
+    return args
+}
+
 export function runtimeSandboxSpawnCommand(
     command: string,
     args: string[],
     identity: RuntimeSandboxIdentity,
-): {
-    command: string
-    args: string[]
-} {
-    if (!shouldWrapSandboxCommand(identity)) {
-        return {
-            command,
-            args,
-        }
-    }
+    limits?: RuntimeSandboxResourceLimits,
+): SandboxCommand {
     if (identity.mode !== 'per-room') {
         return {
             command,
             args,
         }
     }
-    return {
+    if (!shouldWrapSandboxCommand(identity)) {
+        return {
+            command,
+            args,
+        }
+    }
+    const dropped: SandboxCommand = {
         command: 'setpriv',
         args: [
             '--reuid',
@@ -40,14 +61,21 @@ export function runtimeSandboxSpawnCommand(
             ...args,
         ],
     }
+    return {
+        command: 'prlimit',
+        args: [
+            ...buildResourceLimitArgs(limits ?? unlimitedResourceLimits),
+            '--',
+            dropped.command,
+            ...dropped.args,
+        ],
+    }
 }
 
 export function runtimeSandboxShellCommand(
     command: string,
     identity: RuntimeSandboxIdentity,
-): {
-    command: string
-    args: string[]
-} {
-    return runtimeSandboxSpawnCommand('/bin/sh', ['-c', command], identity)
+    limits?: RuntimeSandboxResourceLimits,
+): SandboxCommand {
+    return runtimeSandboxSpawnCommand('/bin/sh', ['-c', command], identity, limits)
 }

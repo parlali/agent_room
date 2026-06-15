@@ -28,6 +28,37 @@ describe('bounded process environment', () => {
         }
     })
 
+    it('never forwards operator secrets that are added to the parent environment later', () => {
+        const operatorSecrets = {
+            SUPABASE_SERVICE_ROLE_KEY: 'supabase-service-role',
+            SUPABASE_DB_URL: 'postgres://supabase-secret',
+            STRIPE_SECRET_KEY: 'sk_live_secret',
+            AGENT_ROOM_ENCRYPTION_KEY_B64: 'encryption-key',
+            OPENAI_API_KEY: 'operator-openai-key',
+        }
+        const previous = new Map<string, string | undefined>()
+        for (const [key, value] of Object.entries(operatorSecrets)) {
+            previous.set(key, process.env[key])
+            process.env[key] = value
+        }
+        try {
+            const env = buildBoundedProcessEnv({
+                HOME: '/room/home',
+            })
+            for (const key of Object.keys(operatorSecrets)) {
+                expect(env[key]).toBeUndefined()
+            }
+        } finally {
+            for (const [key, value] of previous) {
+                if (value === undefined) {
+                    delete process.env[key]
+                } else {
+                    process.env[key] = value
+                }
+            }
+        }
+    })
+
     it('rejects materialized runtime env keys that would shadow app or wrapper state', () => {
         expect(() =>
             assertNoReservedRoomRuntimeEnvKeys({

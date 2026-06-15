@@ -299,6 +299,54 @@ describe('Agent Room MCP bridge', () => {
         })
     })
 
+    it('blocks private-network HTTP servers when egress is restricted', async () => {
+        await expect(
+            createMcpTools({
+                cwd: process.cwd(),
+                restrictPrivateNetwork: true,
+                servers: [
+                    baseServer({
+                        id: 'loopback',
+                        transport: 'http',
+                        url: 'http://127.0.0.1:9/mcp',
+                    }),
+                ],
+            }),
+        ).rejects.toThrow(/private network|local/i)
+    })
+
+    it('blocks the cloud metadata endpoint for HTTP servers when egress is restricted', async () => {
+        await expect(
+            createMcpTools({
+                cwd: process.cwd(),
+                restrictPrivateNetwork: true,
+                servers: [
+                    baseServer({
+                        id: 'metadata',
+                        transport: 'http',
+                        url: 'http://169.254.169.254/latest/meta-data/',
+                    }),
+                ],
+            }),
+        ).rejects.toThrow(/private network|local/i)
+    })
+
+    it('blocks streamable HTTP servers targeting private addresses when egress is restricted', async () => {
+        await expect(
+            createMcpTools({
+                cwd: process.cwd(),
+                restrictPrivateNetwork: true,
+                servers: [
+                    baseServer({
+                        id: 'streamable-loopback',
+                        transport: 'streamable_http',
+                        url: 'http://127.0.0.1:9/mcp',
+                    }),
+                ],
+            }),
+        ).rejects.toThrow(/private network|local/i)
+    })
+
     it('connects streamable HTTP with explicit auth headers', async () => {
         await withHttpMcp(async (url) => {
             const tools = await createMcpTools({
