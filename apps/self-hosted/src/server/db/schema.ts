@@ -19,6 +19,7 @@ import {
     imageProviderIds,
     mcpAuthModes,
     mcpTransports,
+    modelProviderIds,
     providerApis,
     providerAuthModes,
     roomDesiredStates,
@@ -30,8 +31,6 @@ import {
     usageEventKinds,
     userRoles,
 } from '../../domain/domain-types'
-
-const providerIds = ['openrouter', 'openai-codex'] as const
 
 function sqlString(value: string): string {
     return `'${value.replaceAll("'", "''")}'`
@@ -214,7 +213,7 @@ export const appProviderConnections = sqliteTable(
     {
         id: text('id').primaryKey(),
         label: text('label').notNull(),
-        provider: text('provider', { enum: providerIds }).notNull(),
+        provider: text('provider', { enum: modelProviderIds }).notNull(),
         authMode: text('auth_mode', { enum: providerAuthModes }).notNull(),
         api: text('api', { enum: providerApis }).notNull(),
         baseUrl: text('base_url'),
@@ -234,7 +233,7 @@ export const appProviderConnections = sqliteTable(
     },
     (table) => [
         uniqueIndex('app_provider_connections_provider_unique_idx').on(table.provider),
-        enumCheck('app_provider_connections_provider_check', table.provider, providerIds),
+        enumCheck('app_provider_connections_provider_check', table.provider, modelProviderIds),
         enumCheck('app_provider_connections_auth_mode_check', table.authMode, providerAuthModes),
         enumCheck('app_provider_connections_api_check', table.api, providerApis),
         enumCheck('app_provider_connections_status_check', table.status, connectionStatuses),

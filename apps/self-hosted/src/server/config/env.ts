@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { z } from 'zod'
 import type { RuntimeSandboxHardening } from '#/domain/domain-types'
-import { resolveDefaultDatabaseUrl } from '../db/database-url'
+import { resolveDefaultDatabaseUrl, resolveSqliteDatabasePath } from '../db/database-url'
 import { resolveRuntimeSandboxHardening } from '../rooms/runtime-sandbox-hardening'
 
 const optionalRuntimeLimit = z.preprocess(
@@ -15,8 +15,11 @@ const optionalRuntimeLimit = z.preprocess(
 const rawEnvSchema = z.object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     PORT: z.coerce.number().int().positive().default(3000),
-    AGENT_ROOM_DATABASE_DRIVER: z.enum(['sqlite', 'd1']).default('sqlite'),
     AGENT_ROOM_DATABASE_URL: z.string().min(1).optional(),
+    AGENT_ROOM_ALLOW_DATABASE_RESET: z
+        .string()
+        .default('false')
+        .transform((value) => value === '1' || value.toLowerCase() === 'true'),
     AGENT_ROOM_DATA_DIR: z.string().min(1).default('.agent-room'),
     AGENT_ROOM_ENCRYPTION_KEY_B64: z.string().min(1).optional(),
     AGENT_ROOM_ROOT_EMAIL: z.email().optional(),
@@ -114,7 +117,6 @@ type GeneratedBootstrap = z.infer<typeof generatedBootstrapSchema>
 export interface AppEnv {
     nodeEnv: 'development' | 'test' | 'production'
     port: number
-    databaseDriver: 'sqlite' | 'd1'
     databaseUrl: string
     dataDir: string
     encryptionKey: Buffer
@@ -238,6 +240,30 @@ function resolveBootstrapPayload(input: {
     }
 }
 
+function assertExistingBootstrapHasDatabase(input: {
+    databaseUrl: string
+    generatedNewBootstrap: boolean
+    allowDatabaseReset: boolean
+}) {
+    const databasePath = resolveSqliteDatabasePath(input.databaseUrl)
+    if (input.generatedNewBootstrap || existsSync(databasePath)) {
+        return
+    }
+    if (input.allowDatabaseReset) {
+        console.warn(
+            `Existing bootstrap found without ${databasePath}; AGENT_ROOM_ALLOW_DATABASE_RESET is set, so a fresh SQLite database will be initialized`,
+        )
+        return
+    }
+    throw new Error(
+        [
+            `Existing Agent Room bootstrap found but SQLite database is missing at ${databasePath}.`,
+            'This build does not migrate old Postgres data.',
+            'Back up or remove the existing data directory before starting fresh, or set AGENT_ROOM_ALLOW_DATABASE_RESET=1 to intentionally initialize an empty SQLite database with the existing bootstrap credentials.',
+        ].join(' '),
+    )
+}
+
 export function getAppEnv(): AppEnv {
     if (cachedEnv) {
         return cachedEnv
@@ -251,6 +277,8 @@ export function getAppEnv(): AppEnv {
     const data = parsed.data
     const dataDir = resolve(data.AGENT_ROOM_DATA_DIR)
     mkdirSync(dataDir, { recursive: true })
+    const databaseUrl = data.AGENT_ROOM_DATABASE_URL ?? resolveDefaultDatabaseUrl(dataDir)
+    resolveSqliteDatabasePath(databaseUrl)
 
     const bootstrap = resolveBootstrapPayload({
         dataDir,
@@ -259,6 +287,14 @@ export function getAppEnv(): AppEnv {
         providedRootPassword: data.AGENT_ROOM_ROOT_PASSWORD,
         providedSessionTtlHours: data.AGENT_ROOM_SESSION_TTL_HOURS,
     })
+
+    if (data.NODE_ENV !== 'test') {
+        assertExistingBootstrapHasDatabase({
+            databaseUrl,
+            generatedNewBootstrap: bootstrap.generatedNewPayload,
+            allowDatabaseReset: data.AGENT_ROOM_ALLOW_DATABASE_RESET,
+        })
+    }
 
     const encryptionKey = parseEncryptionKey(bootstrap.payload.encryptionKeyB64)
 
@@ -277,8 +313,7 @@ export function getAppEnv(): AppEnv {
     cachedEnv = {
         nodeEnv: data.NODE_ENV,
         port: data.PORT,
-        databaseDriver: data.AGENT_ROOM_DATABASE_DRIVER,
-        databaseUrl: data.AGENT_ROOM_DATABASE_URL ?? resolveDefaultDatabaseUrl(dataDir),
+        databaseUrl,
         dataDir,
         encryptionKey,
         rootEmail: bootstrap.payload.rootEmail,
@@ -324,7 +359,9 @@ export function getAppEnv(): AppEnv {
 }
 
 export const __testing = {
+    assertExistingBootstrapHasDatabase,
     readGeneratedBootstrap,
     resolveDefaultDatabaseUrl,
+    resolveSqliteDatabasePath,
     resolveBootstrapPayload,
 }

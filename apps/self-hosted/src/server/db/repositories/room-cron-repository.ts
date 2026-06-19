@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
 import type { JsonValue, RoomCronJobRecord, RoomCronRunRecord } from '#/domain/domain-types'
 import { roomCronJobs, roomCronRuns } from '../schema'
 import { mapRoomCronJob, mapRoomCronRun } from './row-mappers'
@@ -33,6 +33,27 @@ function recoveryReasonFor(job: typeof roomCronJobs.$inferSelect, now: Date): st
         return 'expired_lease'
     }
     return null
+}
+
+function claimDueLeaseUntil(input: { now: Date; runBudgetMs: number; maxStaleLockMs: number }) {
+    return sql<Date>`(
+        ${input.now.getTime()} + min(
+            ${input.maxStaleLockMs},
+            max(
+                300000,
+                min(max(0, ${roomCronJobs.everyMinutes}) * 60000, ${input.runBudgetMs + 60_000})
+            )
+        )
+    )`
+}
+
+function claimDueRecoveryReason(now: Date) {
+    return sql<string | null>`CASE
+        WHEN ${roomCronJobs.runningAt} IS NOT NULL
+            AND (${roomCronJobs.lockedUntil} IS NULL OR ${roomCronJobs.lockedUntil} <= ${now.getTime()})
+            THEN 'expired_lease'
+        ELSE NULL
+    END`
 }
 
 export const roomCronRepository = {
@@ -211,8 +232,8 @@ export const roomCronRepository = {
 
         const db = await repositoryDatabase()
         const now = nowDate()
-        const dueJobs = await db
-            .select()
+        const dueJobIds = db
+            .select({ id: roomCronJobs.id })
             .from(roomCronJobs)
             .where(
                 and(
@@ -225,48 +246,29 @@ export const roomCronRepository = {
             .orderBy(asc(roomCronJobs.nextRunAt))
             .limit(input.limit)
 
-        if (dueJobs.length === 0) {
-            return []
-        }
+        const rows = await db
+            .update(roomCronJobs)
+            .set({
+                runningAt: now,
+                heartbeatAt: now,
+                lockedUntil: claimDueLeaseUntil({
+                    now,
+                    runBudgetMs: input.runBudgetMs,
+                    maxStaleLockMs: input.maxStaleLockMs,
+                }),
+                lockToken: input.lockToken,
+                lastRenewedAt: now,
+                runBudgetMs: input.runBudgetMs,
+                recoveryReason: claimDueRecoveryReason(now),
+                lastRunAt: now,
+                lastRunStatus: 'running',
+                lastError: null,
+                updatedAt: now,
+            })
+            .where(inArray(roomCronJobs.id, dueJobIds))
+            .returning()
 
-        const results = await repositoryBatch(
-            dueJobs.map((job) =>
-                db
-                    .update(roomCronJobs)
-                    .set({
-                        runningAt: now,
-                        heartbeatAt: now,
-                        lockedUntil: computeLeaseUntil({
-                            now,
-                            everyMinutes: job.everyMinutes,
-                            runBudgetMs: input.runBudgetMs,
-                            maxStaleLockMs: input.maxStaleLockMs,
-                        }),
-                        lockToken: input.lockToken,
-                        lastRenewedAt: now,
-                        runBudgetMs: input.runBudgetMs,
-                        recoveryReason: recoveryReasonFor(job, now),
-                        lastRunAt: now,
-                        lastRunStatus: 'running',
-                        lastError: null,
-                        updatedAt: now,
-                    })
-                    .where(
-                        and(
-                            eq(roomCronJobs.id, job.id),
-                            eq(roomCronJobs.enabled, true),
-                            isNotNull(roomCronJobs.nextRunAt),
-                            lte(roomCronJobs.nextRunAt, now),
-                            claimableAt(now),
-                        ),
-                    )
-                    .returning(),
-            ),
-        )
-
-        return results
-            .flatMap((result) => result as Array<typeof roomCronJobs.$inferSelect>)
-            .map(mapRoomCronJob)
+        return rows.map(mapRoomCronJob)
     },
 
     async renewJobLease(input: {

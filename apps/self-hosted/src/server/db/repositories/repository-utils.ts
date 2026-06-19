@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm'
 import { getDatabase, runDatabaseBatch, type LocalDatabase } from '../client'
 
 export async function repositoryDatabase(): Promise<LocalDatabase> {
-    return (await getDatabase()) as LocalDatabase
+    return getDatabase()
 }
 
 export async function repositoryBatch(statements: unknown[]): Promise<unknown[]> {

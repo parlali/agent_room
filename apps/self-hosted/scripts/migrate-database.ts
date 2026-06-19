@@ -1,10 +1,10 @@
 import { resolve } from 'node:path'
 import { migrate } from 'drizzle-orm/libsql/migrator'
-import { closeDatabase, getDatabaseHandle, type LocalDatabase } from '../src/server/db/client'
+import { closeDatabase, getDatabaseHandle } from '../src/server/db/client'
 
 async function main() {
     const handle = await getDatabaseHandle()
-    await migrate(handle.db as LocalDatabase, {
+    await migrate(handle.db, {
         migrationsFolder: resolve('db/migrations'),
     })
     await closeDatabase()

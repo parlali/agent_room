@@ -123,6 +123,8 @@ docker compose up -d --build
 
 Database migrations run automatically when the app container starts.
 
+Pre-SQLite development builds used a separate Postgres volume. This unreleased migration does not import that data. If an existing app data volume has bootstrap credentials but no SQLite database, startup fails instead of silently creating an empty database. To intentionally discard the old database and keep the existing bootstrap credentials, set `AGENT_ROOM_ALLOW_DATABASE_RESET=1` for that startup.
+
 ## Backups
 
 Back up the Docker volumes:
@@ -138,16 +140,17 @@ Before restoring to a new machine, make sure you also restore any deployment-own
 
 The Docker path works without required environment variables. These values are commonly customized:
 
-| Variable                        | Purpose                                          | Default                 |
-| ------------------------------- | ------------------------------------------------ | ----------------------- |
-| `AGENT_ROOM_PORT`               | Host port for the web app                        | `3000`                  |
-| `AGENT_ROOM_ENCRYPTION_KEY_B64` | Base64 32-byte encryption key for stored secrets | Generated on first boot |
-| `AGENT_ROOM_ROOT_EMAIL`         | Initial root email                               | Generated on first boot |
-| `AGENT_ROOM_ROOT_PASSWORD`      | Initial root password                            | Generated on first boot |
-| `AGENT_ROOM_SESSION_TTL_HOURS`  | Login session lifetime                           | `24`                    |
-| `AGENT_ROOM_DATA_DIR`           | App data directory inside the container          | `/app/.agent-room`      |
-| `AGENT_ROOM_DATABASE_URL`       | SQLite database URL                              | Data dir system SQLite  |
-| `AGENT_ROOM_SEARXNG_TAG`        | SearXNG Docker image tag                         | `2026.5.2-aefc3c316`    |
+| Variable                          | Purpose                                          | Default                 |
+| --------------------------------- | ------------------------------------------------ | ----------------------- |
+| `AGENT_ROOM_PORT`                 | Host port for the web app                        | `3000`                  |
+| `AGENT_ROOM_ENCRYPTION_KEY_B64`   | Base64 32-byte encryption key for stored secrets | Generated on first boot |
+| `AGENT_ROOM_ROOT_EMAIL`           | Initial root email                               | Generated on first boot |
+| `AGENT_ROOM_ROOT_PASSWORD`        | Initial root password                            | Generated on first boot |
+| `AGENT_ROOM_SESSION_TTL_HOURS`    | Login session lifetime                           | `24`                    |
+| `AGENT_ROOM_DATA_DIR`             | App data directory inside the container          | `/app/.agent-room`      |
+| `AGENT_ROOM_DATABASE_URL`         | Absolute `file:` SQLite database URL             | Data dir system SQLite  |
+| `AGENT_ROOM_ALLOW_DATABASE_RESET` | Allow empty SQLite init with existing bootstrap  | `false`                 |
+| `AGENT_ROOM_SEARXNG_TAG`          | SearXNG Docker image tag                         | `2026.5.2-aefc3c316`    |
 
 ## Development
 
