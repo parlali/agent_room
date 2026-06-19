@@ -15,8 +15,11 @@ async function putSecret(name: (typeof hostedSecretNames)[number], value: string
     subprocess.stdin.write(value)
     subprocess.stdin.end()
 
-    const exitCode = await new Promise<number | null>((resolve) => {
-        subprocess.once('exit', resolve)
+    const exitCode = await new Promise<number>((resolve, reject) => {
+        subprocess.once('error', reject)
+        subprocess.once('close', (code) => {
+            resolve(code ?? 1)
+        })
     })
     if (exitCode !== 0) {
         throw new Error(`Failed to put Cloudflare secret ${name}`)

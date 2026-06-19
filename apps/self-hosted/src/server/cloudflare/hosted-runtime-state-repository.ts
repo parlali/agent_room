@@ -17,9 +17,30 @@ interface HostedRuntimeStateTransitionInput {
     now?: string
 }
 
+interface RuntimeStateBatchResult {
+    meta?: {
+        changes?: number
+    }
+}
+
 function truncateRuntimeError(error: unknown): string {
     const message = error instanceof Error ? error.message : String(error)
     return message.slice(0, 2000)
+}
+
+function assertRuntimeStateBatchChanged(input: {
+    results: RuntimeStateBatchResult[]
+    workspaceId: string
+    roomId: string
+}): void {
+    const failedIndex = input.results.findIndex(
+        (result) => typeof result.meta?.changes !== 'number' || result.meta.changes < 1,
+    )
+    if (failedIndex !== -1) {
+        throw new Error(
+            `Hosted runtime state transition did not update statement ${failedIndex + 1} for workspace ${input.workspaceId} room ${input.roomId}`,
+        )
+    }
 }
 
 async function batchRuntimeState(input: {
@@ -65,7 +86,7 @@ async function batchRuntimeState(input: {
               input.workspaceId,
           )
 
-    await input.env.AGENT_ROOM_DB.batch([
+    const results = await input.env.AGENT_ROOM_DB.batch([
         runtimeStatement,
         input.env.AGENT_ROOM_DB.prepare(
             `
@@ -77,6 +98,11 @@ async function batchRuntimeState(input: {
             `,
         ).bind(input.roomStatus, input.now, input.roomId, input.workspaceId),
     ])
+    assertRuntimeStateBatchChanged({
+        results,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+    })
 }
 
 export async function writeHostedRuntimeStateTransition(

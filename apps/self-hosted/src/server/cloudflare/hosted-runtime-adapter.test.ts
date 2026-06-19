@@ -46,6 +46,10 @@ function hostedEnv(input: {
                 updates.push(...batch)
                 return batch.map(() => ({
                     success: true,
+                    meta: {
+                        changes: 1,
+                    },
+                    results: [],
                 }))
             },
         } as unknown as D1Database,
@@ -142,7 +146,9 @@ describe('hosted runtime reconciliation', () => {
     })
 
     it('fails closed when persisted container name does not match canonical identity', async () => {
+        const updates: RuntimeUpdate[] = []
         const env = hostedEnv({
+            updates,
             objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],
             runtimeRow: {
                 roomId: 'room_1',
@@ -157,6 +163,7 @@ describe('hosted runtime reconciliation', () => {
         await expect(reconcileHostedRuntimeJob(env, runtimeMessage())).rejects.toThrow(
             /container name/,
         )
+        expect(updates.some((update) => update.args.includes('failed'))).toBe(true)
     })
 
     it('fails closed when the runtime config object is missing from R2', async () => {

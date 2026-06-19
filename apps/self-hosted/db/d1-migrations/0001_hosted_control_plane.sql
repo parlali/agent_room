@@ -97,17 +97,20 @@ CREATE TABLE hosted_room (
     display_name TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('starting', 'running', 'stopped', 'degraded', 'failed', 'setup_required')),
     desired_state TEXT NOT NULL CHECK (desired_state IN ('running', 'stopped')),
-    created_by_user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE RESTRICT,
+    created_by_user_id TEXT NOT NULL,
     created_at DATE NOT NULL,
     updated_at DATE NOT NULL,
-    UNIQUE(workspace_id, slug)
+    UNIQUE(workspace_id, slug),
+    UNIQUE(workspace_id, id),
+    FOREIGN KEY (workspace_id, created_by_user_id)
+        REFERENCES member(organizationId, userId)
 );
 
 CREATE INDEX hosted_room_workspace_id_idx ON hosted_room(workspace_id);
 CREATE INDEX hosted_room_created_by_user_id_idx ON hosted_room(created_by_user_id);
 
 CREATE TABLE hosted_room_runtime_state (
-    room_id TEXT PRIMARY KEY NOT NULL REFERENCES hosted_room(id) ON DELETE CASCADE,
+    room_id TEXT PRIMARY KEY NOT NULL,
     workspace_id TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
     container_name TEXT NOT NULL,
     config_object_key TEXT,
@@ -119,7 +122,10 @@ CREATE TABLE hosted_room_runtime_state (
     last_health_at DATE,
     last_error TEXT,
     updated_at DATE NOT NULL,
-    UNIQUE(workspace_id, container_name)
+    UNIQUE(workspace_id, container_name),
+    FOREIGN KEY (workspace_id, room_id)
+        REFERENCES hosted_room(workspace_id, id)
+        ON DELETE CASCADE
 );
 
 CREATE INDEX hosted_room_runtime_state_workspace_id_idx ON hosted_room_runtime_state(workspace_id);
@@ -173,10 +179,10 @@ CREATE INDEX hosted_mcp_connection_workspace_id_idx ON hosted_mcp_connection(wor
 CREATE TABLE hosted_room_job (
     id TEXT PRIMARY KEY NOT NULL,
     workspace_id TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
-    room_id TEXT NOT NULL REFERENCES hosted_room(id) ON DELETE CASCADE,
+    room_id TEXT NOT NULL,
     name TEXT NOT NULL,
     message TEXT NOT NULL,
-    enabled INTEGER NOT NULL,
+    enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
     schedule TEXT NOT NULL,
     timezone TEXT NOT NULL,
     next_run_at DATE,
@@ -187,7 +193,10 @@ CREATE TABLE hosted_room_job (
     last_run_status TEXT,
     last_error TEXT,
     created_at DATE NOT NULL,
-    updated_at DATE NOT NULL
+    updated_at DATE NOT NULL,
+    FOREIGN KEY (workspace_id, room_id)
+        REFERENCES hosted_room(workspace_id, id)
+        ON DELETE CASCADE
 );
 
 CREATE INDEX hosted_room_job_workspace_id_idx ON hosted_room_job(workspace_id);
@@ -197,7 +206,7 @@ CREATE INDEX hosted_room_job_next_run_at_idx ON hosted_room_job(next_run_at);
 CREATE TABLE hosted_usage_event (
     id TEXT PRIMARY KEY NOT NULL,
     workspace_id TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
-    room_id TEXT REFERENCES hosted_room(id) ON DELETE SET NULL,
+    room_id TEXT,
     session_key TEXT,
     run_id TEXT,
     job_id TEXT REFERENCES hosted_room_job(id) ON DELETE SET NULL,
@@ -209,7 +218,10 @@ CREATE TABLE hosted_usage_event (
     output_tokens INTEGER,
     cached_tokens INTEGER,
     cost_micros INTEGER,
-    created_at DATE NOT NULL
+    created_at DATE NOT NULL,
+    FOREIGN KEY (workspace_id, room_id)
+        REFERENCES hosted_room(workspace_id, id)
+        ON DELETE CASCADE
 );
 
 CREATE INDEX hosted_usage_event_workspace_id_idx ON hosted_usage_event(workspace_id);

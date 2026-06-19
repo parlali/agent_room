@@ -11,7 +11,7 @@ export interface HostedWorkspaceSnapshotKeyInput extends HostedWorkspaceRoomIden
     snapshotId: string
 }
 
-function assertStorageId(value: string, label: string): void {
+export function assertStorageId(value: string, label: string): void {
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(value)) {
         throw new Error(`${label} must contain only letters, numbers, underscores, or hyphens`)
     }

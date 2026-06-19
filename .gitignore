@@ -14,7 +14,7 @@ dist-ssr
 .turbo
 coverage
 *.log
-worker-configuration.d.ts
+**/worker-configuration.d.ts
 tmp
 .tmp_bootstrap
 .agent-room

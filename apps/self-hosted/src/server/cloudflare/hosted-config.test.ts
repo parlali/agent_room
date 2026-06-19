@@ -93,6 +93,23 @@ describe('hosted Cloudflare configuration', () => {
         ).toThrow(/AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN/)
     })
 
+    it('requires HTTPS URLs for auth and email delivery endpoints', () => {
+        expect(() =>
+            resolveHostedConfig(
+                hostedEnv({
+                    BETTER_AUTH_URL: 'http://rooms.example.test',
+                }),
+            ),
+        ).toThrow(/BETTER_AUTH_URL/)
+        expect(() =>
+            resolveHostedConfig(
+                hostedEnv({
+                    AGENT_ROOM_EMAIL_WEBHOOK_URL: 'http://mail.example.test/send',
+                }),
+            ),
+        ).toThrow(/AGENT_ROOM_EMAIL_WEBHOOK_URL/)
+    })
+
     it('keeps Wrangler and workflow secret inventories aligned with the hosted config contract', () => {
         const wranglerConfig = readText(new URL('../../../wrangler.hosted.jsonc', import.meta.url))
         const workflowConfig = readText(

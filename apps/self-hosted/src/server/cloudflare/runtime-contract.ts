@@ -3,6 +3,7 @@ import {
     piRuntimeConfigPathEnvKey,
     piRuntimeTokenEnvKey,
 } from '../rooms/pi-runtime-contract'
+import { assertStorageId } from './workspace-storage'
 
 export const hostedRuntimeContainerPort = 3000
 export const hostedRuntimeSleepAfter = '10m'
@@ -46,15 +47,9 @@ export interface HostedRuntimeContainerNamespace {
     getByName: (name: string) => HostedRuntimeContainerStub
 }
 
-function assertHostedRuntimeId(value: string, label: string): void {
-    if (!/^[A-Za-z0-9_-]{1,128}$/.test(value)) {
-        throw new Error(`${label} must contain only letters, numbers, underscores, or hyphens`)
-    }
-}
-
 export function hostedRuntimeContainerName(input: HostedRuntimeIdentity): string {
-    assertHostedRuntimeId(input.workspaceId, 'workspaceId')
-    assertHostedRuntimeId(input.roomId, 'roomId')
+    assertStorageId(input.workspaceId, 'workspaceId')
+    assertStorageId(input.roomId, 'roomId')
     return `workspace:${input.workspaceId}:room:${input.roomId}`
 }
 

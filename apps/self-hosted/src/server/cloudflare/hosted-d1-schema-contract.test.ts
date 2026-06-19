@@ -48,6 +48,20 @@ function extractCheckValues(input: {
     return Array.from(match[1].matchAll(/'([^']+)'/g)).map((value) => value[1])
 }
 
+function normalizeSqlFragment(sql: string): string {
+    return sql.replace(/\s+/g, ' ').trim()
+}
+
+function expectTableConstraint(input: {
+    sql: string
+    tableName: string
+    constraint: string
+}): void {
+    expect(normalizeSqlFragment(extractTableDefinition(input.sql, input.tableName))).toContain(
+        normalizeSqlFragment(input.constraint),
+    )
+}
+
 describe('hosted D1 schema contract', () => {
     it('keeps hosted CHECK constraints aligned with canonical domain values', () => {
         const sql = readHostedMigration()
@@ -122,5 +136,48 @@ describe('hosted D1 schema contract', () => {
                 columnName: 'kind',
             }),
         ).toEqual([...usageEventKinds])
+    })
+
+    it('enforces workspace ownership for hosted room state, jobs, and usage rows', () => {
+        const sql = readHostedMigration()
+
+        expectTableConstraint({
+            sql,
+            tableName: 'hosted_room',
+            constraint: 'UNIQUE(workspace_id, id)',
+        })
+        expectTableConstraint({
+            sql,
+            tableName: 'hosted_room',
+            constraint: `
+                FOREIGN KEY (workspace_id, created_by_user_id)
+                    REFERENCES member(organizationId, userId)
+            `,
+        })
+        for (const tableName of [
+            'hosted_room_runtime_state',
+            'hosted_room_job',
+            'hosted_usage_event',
+        ]) {
+            expectTableConstraint({
+                sql,
+                tableName,
+                constraint: `
+                    FOREIGN KEY (workspace_id, room_id)
+                        REFERENCES hosted_room(workspace_id, id)
+                        ON DELETE CASCADE
+                `,
+            })
+        }
+    })
+
+    it('constrains scheduled job enabled flags to boolean integers', () => {
+        const sql = readHostedMigration()
+
+        expectTableConstraint({
+            sql,
+            tableName: 'hosted_room_job',
+            constraint: 'enabled INTEGER NOT NULL CHECK (enabled IN (0, 1))',
+        })
     })
 })

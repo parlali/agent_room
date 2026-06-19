@@ -58,7 +58,7 @@
         "marketing:typecheck": "bun run --filter @agent-room/marketing typecheck",
         "marketing:deploy": "bun run apps/marketing/scripts/deploy-cloudflare.ts",
         "marketing:d1:migrate": "bun run apps/marketing/scripts/deploy-cloudflare.ts --migrate-only",
-        "marketing:d1:migrate:local": "wrangler d1 migrations apply agent-room-marketing-waitlist --local",
+        "marketing:d1:migrate:local": "bun x wrangler d1 migrations apply agent-room-marketing-waitlist --local",
         "brand:export": "bun run --filter @agent-room/brand export:icons",
         "brand:export:marketing": "bun run --filter @agent-room/brand export:marketing"
     },
