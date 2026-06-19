@@ -7,15 +7,27 @@ import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import viteReact from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-const config = defineConfig({
-    resolve: { tsconfigPaths: true },
-    plugins: [
-        devtools(),
-        tailwindcss(),
-        agentRoomBrandAssets({ target: 'self-hosted' }),
-        tanstackStart(),
-        viteReact(),
-    ],
+const cloudflareTarget = process.env.AGENT_ROOM_DEPLOY_TARGET === 'cloudflare'
+
+const config = defineConfig(async () => {
+    const cloudflarePlugins = cloudflareTarget
+        ? (await import('@cloudflare/vite-plugin')).cloudflare({
+              configPath: 'wrangler.hosted.jsonc',
+              viteEnvironment: { name: 'ssr' },
+          })
+        : []
+
+    return {
+        resolve: { tsconfigPaths: true },
+        plugins: [
+            ...cloudflarePlugins,
+            devtools(),
+            tailwindcss(),
+            agentRoomBrandAssets({ target: 'self-hosted' }),
+            tanstackStart(),
+            viteReact(),
+        ],
+    }
 })
 
 export default config

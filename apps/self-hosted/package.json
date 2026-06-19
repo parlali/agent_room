@@ -11,8 +11,13 @@
     "scripts": {
         "dev": "vite",
         "build": "vite build && bun run scripts/copy-runtime-assets.ts",
+        "build:cloudflare": "AGENT_ROOM_DEPLOY_TARGET=cloudflare vite build && bun run scripts/copy-runtime-assets.ts",
         "start": "bun run scripts/start-server.ts",
         "preview": "vite preview",
+        "preview:cloudflare": "AGENT_ROOM_DEPLOY_TARGET=cloudflare vite preview",
+        "deploy:cloudflare": "bun run build:cloudflare && wrangler deploy --config dist/server/wrangler.json",
+        "secrets:cloudflare": "bun run scripts/cloudflare-put-secrets.ts",
+        "types:cloudflare": "wrangler types --config wrangler.hosted.jsonc --include-runtime false",
         "test": "vitest run",
         "typecheck": "tsc --noEmit",
         "lint": "eslint .",
@@ -24,10 +29,12 @@
         "db:migrate": "bun run scripts/dbmate.ts up",
         "db:rollback": "bun run scripts/dbmate.ts down",
         "db:new": "bun run scripts/dbmate.ts new",
+        "d1:migrate:cloudflare": "wrangler d1 migrations apply agent-room-hosted --remote --config wrangler.hosted.jsonc",
         "bootstrap:root": "bun run scripts/bootstrap-root-user.ts"
     },
     "dependencies": {
         "@agent-room/brand": "workspace:*",
+        "@cloudflare/containers": "^0.3.7",
         "@fontsource-variable/geist": "^5.2.8",
         "@mariozechner/pi-ai": "0.70.6",
         "@mariozechner/pi-coding-agent": "0.70.6",
@@ -41,6 +48,7 @@
         "@tanstack/react-virtual": "^3.13.24",
         "@tanstack/router-plugin": "1.167.22",
         "@xmldom/xmldom": "^0.9.10",
+        "better-auth": "^1.6.19",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "cmdk": "^1.1.1",
@@ -65,6 +73,7 @@
     },
     "devDependencies": {
         "@agent-room/typescript-config": "workspace:*",
+        "@cloudflare/vite-plugin": "^1.42.1",
         "@tanstack/devtools-vite": "0.6.0",
         "@tanstack/eslint-config": "0.4.0",
         "@types/node": "^22.10.2",

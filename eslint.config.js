@@ -19,6 +19,8 @@ export default [
         ignores: [
             'eslint.config.js',
             'prettier.config.js',
+            'worker-configuration.d.ts',
+            'apps/self-hosted/worker-configuration.d.ts',
             'apps/self-hosted/db/migrations/*.sql',
             'apps/self-hosted/src/routeTree.gen.ts',
             'packages/brand/exports/**',
