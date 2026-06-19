@@ -1,6 +1,10 @@
 import { Container } from '@cloudflare/containers'
 import type { AgentRoomHostedEnv } from './bindings'
-import { hostedRuntimeContainerPort, hostedRuntimeSleepAfter } from './runtime-contract'
+import {
+    hostedRuntimeContainerPort,
+    hostedRuntimeEntrypoint,
+    hostedRuntimeSleepAfter,
+} from './runtime-contract'
 
 export { buildHostedRuntimeStartOptions, hostedRuntimeContainerName } from './runtime-contract'
 
@@ -8,6 +12,8 @@ export class AgentRoomRuntimeContainer extends Container<AgentRoomHostedEnv> {
     defaultPort = hostedRuntimeContainerPort
     requiredPorts = [hostedRuntimeContainerPort]
     sleepAfter = hostedRuntimeSleepAfter
+    entrypoint = [...hostedRuntimeEntrypoint]
+    envVars = {}
     enableInternet = false
     interceptHttps = true
     deniedHosts = ['169.254.169.254', 'metadata.google.internal']

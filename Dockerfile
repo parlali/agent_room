@@ -49,6 +49,13 @@ RUN case "${TARGETARCH}" in \
     && curl -fsSL "https://github.com/amacneil/dbmate/releases/download/v2.28.0/dbmate-linux-${dbmate_arch}" -o /usr/local/bin/dbmate \
     && chmod +x /usr/local/bin/dbmate
 
+COPY package.json bun.lock ./
+COPY apps/marketing/package.json apps/marketing/package.json
+COPY apps/self-hosted/package.json apps/self-hosted/package.json
+COPY packages/brand/package.json packages/brand/package.json
+COPY packages/typescript-config/package.json packages/typescript-config/package.json
+RUN bun install --frozen-lockfile
+
 COPY . .
 RUN bun install --frozen-lockfile \
     && bun run brand:export:marketing \

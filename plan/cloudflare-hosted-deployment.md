@@ -4,12 +4,12 @@ Issue 31 adds an explicit hosted deployment path for Agent Room on Cloudflare wh
 
 ## Hosted Stack
 
-- Control plane: Cloudflare Workers through the TanStack Start Cloudflare build path
+- Control plane: Cloudflare Workers through the TanStack Start Cloudflare build path. Hosted health and Better Auth routes are enabled; product app routes fail closed until their server functions use the D1 hosted route/service layer instead of the self-hosted Postgres/local-session graph.
 - Auth: Better Auth on the `AGENT_ROOM_DB` D1 binding with email/password, email verification, password reset, Google OAuth, and organization workspaces
 - Database: D1 migrations under `apps/self-hosted/db/d1-migrations`
 - Workspace storage: R2 object keys scoped by `workspace_id` and `room_id`
 - Runtime: Cloudflare Containers through `AgentRoomRuntimeContainer`, reusing the existing Pi runtime entrypoint and runtime config/token contract
-- Jobs: `AGENT_ROOM_RUNTIME_JOBS` queue binding for hosted runtime reconciliation work
+- Jobs: `AGENT_ROOM_RUNTIME_JOBS` queue binding for hosted runtime reconciliation work. The queue adapter verifies D1 runtime state and R2 object presence before starting the canonical room container.
 
 ## Cloudflare IaC
 
@@ -80,7 +80,7 @@ These steps require real deployment credentials and cannot be completed in the p
 - Sign up with email/password, receive verification mail through the webhook, verify email, sign in, request a password reset, and verify the reset mail
 - Sign in with Google OAuth and confirm the Better Auth user maps to an organization workspace
 - Create a workspace-backed room and verify every persisted room, provider connection, MCP connection, job, runtime state, and usage event row carries the same `workspace_id`
-- Start a hosted room runtime and verify the container receives only runtime config/token materialization, not direct D1 credentials
+- Start a hosted room runtime and verify the container receives only runtime config/token materialization, not direct D1 credentials. The hosted runtime hydrate/control-plane callback protocol is still required before this can run end-to-end.
 - Hydrate a workspace from R2, run a session, snapshot back to R2, stop on idle, and restart from the snapshot
 - Run scheduled jobs through the queue path and verify usage and audit rows remain workspace-scoped
 - Review Cloudflare Container isolation with untrusted multi-tenant code in the deployed account. If it does not meet the isolation bar, keep the runtime adapter path open for a stronger isolated runtime backend.

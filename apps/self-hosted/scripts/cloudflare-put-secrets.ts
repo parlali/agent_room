@@ -1,17 +1,8 @@
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { hostedSecretNames } from '../src/server/cloudflare/hosted-config-contract'
 
-const requiredSecretNames = [
-    'BETTER_AUTH_SECRET',
-    'BETTER_AUTH_URL',
-    'GOOGLE_CLIENT_ID',
-    'GOOGLE_CLIENT_SECRET',
-    'AGENT_ROOM_EMAIL_WEBHOOK_URL',
-    'AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN',
-    'AGENT_ROOM_EMAIL_FROM',
-] as const
-
-async function putSecret(name: (typeof requiredSecretNames)[number], value: string): Promise<void> {
+async function putSecret(name: (typeof hostedSecretNames)[number], value: string): Promise<void> {
     const subprocess = spawn(
         'bun',
         ['x', 'wrangler', 'secret', 'put', name, '--config', 'wrangler.hosted.jsonc'],
@@ -33,7 +24,7 @@ async function putSecret(name: (typeof requiredSecretNames)[number], value: stri
 }
 
 async function main(): Promise<void> {
-    for (const name of requiredSecretNames) {
+    for (const name of hostedSecretNames) {
         const value = process.env[name]
         if (!value) {
             throw new Error(`Missing required CI secret ${name}`)

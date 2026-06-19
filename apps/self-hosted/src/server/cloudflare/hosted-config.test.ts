@@ -1,8 +1,33 @@
+import { readFileSync } from 'node:fs'
+import type { D1Database, R2Bucket } from '@cloudflare/workers-types'
 import { describe, expect, it } from 'vitest'
 import type { AgentRoomHostedEnv } from './bindings'
 import { mapHostedSessionToActor } from './hosted-auth'
+import { hostedConfigValues, hostedSecretNames } from './hosted-config-contract'
 import { resolveHostedConfig } from './hosted-config'
+import { readHostedWorkspaceRole } from './hosted-membership'
 import { buildHostedRuntimeStartOptions, hostedRuntimeContainerName } from './runtime-contract'
+
+function readText(path: URL): string {
+    return readFileSync(path, 'utf8')
+}
+
+function extractWranglerRequiredSecrets(text: string): string[] {
+    const requiredIndex = text.indexOf('"required"')
+    const openIndex = text.indexOf('[', requiredIndex)
+    const closeIndex = text.indexOf(']', openIndex)
+    return Array.from(text.slice(openIndex, closeIndex).matchAll(/"([A-Z0-9_]+)"/g))
+        .map((match) => match[1])
+        .sort()
+}
+
+function extractWorkflowSecretEnvNames(text: string): string[] {
+    return Array.from(text.matchAll(/([A-Z0-9_]+):\s*\$\{\{\s*secrets\.([A-Z0-9_]+)\s*\}\}/g))
+        .filter((match) => match[1] === match[2])
+        .map((match) => match[1])
+        .filter((name) => hostedSecretNames.includes(name as never))
+        .sort()
+}
 
 function hostedEnv(overrides: Partial<AgentRoomHostedEnv> = {}): AgentRoomHostedEnv {
     return {
@@ -67,10 +92,36 @@ describe('hosted Cloudflare configuration', () => {
             ),
         ).toThrow(/AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN/)
     })
+
+    it('keeps Wrangler and workflow secret inventories aligned with the hosted config contract', () => {
+        const wranglerConfig = readText(new URL('../../../wrangler.hosted.jsonc', import.meta.url))
+        const workflowConfig = readText(
+            new URL(
+                '../../../../../.github/workflows/cloudflare-hosted-deploy.yml',
+                import.meta.url,
+            ),
+        )
+
+        expect(extractWranglerRequiredSecrets(wranglerConfig)).toEqual(
+            [...hostedSecretNames].sort(),
+        )
+        expect(extractWorkflowSecretEnvNames(workflowConfig)).toEqual([...hostedSecretNames].sort())
+    })
+
+    it('keeps Wrangler hosted vars aligned with the hosted config contract', () => {
+        const wranglerConfig = readText(new URL('../../../wrangler.hosted.jsonc', import.meta.url))
+        expect(wranglerConfig).toContain(`"AGENT_ROOM_AUTH_MODE": "${hostedConfigValues.authMode}"`)
+        expect(wranglerConfig).toContain(
+            `"AGENT_ROOM_RUNTIME_BACKEND": "${hostedConfigValues.runtimeBackend}"`,
+        )
+        expect(wranglerConfig).toContain(
+            `"AGENT_ROOM_RUNTIME_STORAGE": "${hostedConfigValues.runtimeStorage}"`,
+        )
+    })
 })
 
 describe('hosted auth actor mapping', () => {
-    it('maps a Better Auth session with an active organization to a hosted actor', () => {
+    it('maps a Better Auth session with an active organization without trusting session role', () => {
         expect(
             mapHostedSessionToActor({
                 user: {
@@ -87,7 +138,7 @@ describe('hosted auth actor mapping', () => {
             userId: 'user_1',
             email: 'user@example.test',
             workspaceId: 'workspace_1',
-            workspaceRole: 'owner',
+            workspaceRole: null,
         })
     })
 
@@ -101,6 +152,52 @@ describe('hosted auth actor mapping', () => {
                 session: {},
             }),
         ).toBeNull()
+    })
+})
+
+describe('hosted auth membership', () => {
+    it('reads workspace role from D1 membership truth', async () => {
+        const env = hostedEnv({
+            AGENT_ROOM_DB: {
+                prepare: () => ({
+                    bind: () => ({
+                        first: async () => ({
+                            role: 'admin',
+                        }),
+                    }),
+                }),
+            } as unknown as D1Database,
+        })
+
+        await expect(
+            readHostedWorkspaceRole({
+                env,
+                userId: 'user_1',
+                workspaceId: 'workspace_1',
+            }),
+        ).resolves.toBe('admin')
+    })
+
+    it('fails closed when membership role is missing or unsupported', async () => {
+        const env = hostedEnv({
+            AGENT_ROOM_DB: {
+                prepare: () => ({
+                    bind: () => ({
+                        first: async () => ({
+                            role: 'viewer',
+                        }),
+                    }),
+                }),
+            } as unknown as D1Database,
+        })
+
+        await expect(
+            readHostedWorkspaceRole({
+                env,
+                userId: 'user_1',
+                workspaceId: 'workspace_1',
+            }),
+        ).resolves.toBeNull()
     })
 })
 

@@ -3,6 +3,7 @@ import { organization } from 'better-auth/plugins'
 import type { AgentRoomHostedEnv } from './bindings'
 import { sendHostedAuthEmail } from './hosted-email'
 import { resolveHostedConfig } from './hosted-config'
+import { readHostedWorkspaceRole } from './hosted-membership'
 
 export type HostedWorkspaceRole = 'owner' | 'admin' | 'member'
 
@@ -115,13 +116,6 @@ function readStringField(value: unknown, field: string): string | null {
     return typeof fieldValue === 'string' && fieldValue.trim() ? fieldValue : null
 }
 
-function normalizeWorkspaceRole(role: string | null): HostedWorkspaceRole | null {
-    if (role === 'owner' || role === 'admin' || role === 'member') {
-        return role
-    }
-    return null
-}
-
 export function mapHostedSessionToActor(sessionPayload: unknown): HostedActor | null {
     if (!sessionPayload || typeof sessionPayload !== 'object') {
         return null
@@ -142,7 +136,7 @@ export function mapHostedSessionToActor(sessionPayload: unknown): HostedActor | 
         userId,
         email,
         workspaceId,
-        workspaceRole: normalizeWorkspaceRole(readStringField(session, 'activeOrganizationRole')),
+        workspaceRole: null,
     }
 }
 
@@ -153,5 +147,20 @@ export async function readHostedActorFromRequest(
     const session = await getHostedAuth(env).api.getSession({
         headers: request.headers,
     })
-    return mapHostedSessionToActor(session)
+    const actor = mapHostedSessionToActor(session)
+    if (!actor) {
+        return null
+    }
+    const workspaceRole = await readHostedWorkspaceRole({
+        env,
+        userId: actor.userId,
+        workspaceId: actor.workspaceId,
+    })
+    if (!workspaceRole) {
+        return null
+    }
+    return {
+        ...actor,
+        workspaceRole,
+    }
 }

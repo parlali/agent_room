@@ -1,12 +1,12 @@
+import {
+    buildPiRuntimeEntrypoint,
+    piRuntimeConfigPathEnvKey,
+    piRuntimeTokenEnvKey,
+} from '../rooms/pi-runtime-contract'
+
 export const hostedRuntimeContainerPort = 3000
 export const hostedRuntimeSleepAfter = '10m'
-
-export const hostedRuntimeEntrypoint = [
-    'bun',
-    '--no-env-file',
-    'run',
-    'src/server/pi-runtime/main.ts',
-] as const
+export const hostedRuntimeEntrypoint = buildPiRuntimeEntrypoint()
 
 export interface HostedRuntimeIdentity {
     workspaceId: string
@@ -24,6 +24,26 @@ export interface HostedRuntimeStartOptions {
     enableInternet: false
     envVars: Record<string, string>
     labels: Record<string, string>
+}
+
+export interface HostedRuntimeCancellationOptions {
+    instanceGetTimeoutMS: number
+    portReadyTimeoutMS: number
+    waitInterval: number
+}
+
+export interface HostedRuntimeStartAndWaitArgs {
+    ports: number | number[]
+    startOptions: HostedRuntimeStartOptions
+    cancellationOptions: HostedRuntimeCancellationOptions
+}
+
+export interface HostedRuntimeContainerStub {
+    startAndWaitForPorts: (args: HostedRuntimeStartAndWaitArgs) => Promise<void>
+}
+
+export interface HostedRuntimeContainerNamespace {
+    getByName: (name: string) => HostedRuntimeContainerStub
 }
 
 function assertHostedRuntimeId(value: string, label: string): void {
@@ -46,8 +66,8 @@ export function buildHostedRuntimeStartOptions(
         entrypoint: [...hostedRuntimeEntrypoint],
         enableInternet: false,
         envVars: {
-            AGENT_ROOM_PI_RUNTIME_CONFIG_PATH: input.runtimeConfigPath,
-            AGENT_ROOM_PI_RUNTIME_TOKEN: input.runtimeToken,
+            [piRuntimeConfigPathEnvKey]: input.runtimeConfigPath,
+            [piRuntimeTokenEnvKey]: input.runtimeToken,
             AGENT_ROOM_HOSTED_WORKSPACE_ID: input.workspaceId,
             AGENT_ROOM_HOSTED_ROOM_ID: input.roomId,
             AGENT_ROOM_HOSTED_CONTROL_PLANE_ORIGIN: input.controlPlaneOrigin,

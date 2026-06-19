@@ -9,7 +9,9 @@ node_modules
 dist
 **/dist
 .turbo
+.wrangler
 .agent-room
+**/worker-configuration.d.ts
 .DS_Store
 npm-debug.log
 bunx.lock

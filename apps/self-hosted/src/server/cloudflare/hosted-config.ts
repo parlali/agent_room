@@ -1,18 +1,5 @@
-import { z } from 'zod'
 import type { AgentRoomHostedEnv } from './bindings'
-
-const hostedConfigSchema = z.object({
-    AGENT_ROOM_AUTH_MODE: z.literal('better-auth'),
-    AGENT_ROOM_RUNTIME_BACKEND: z.literal('cloudflare-containers'),
-    AGENT_ROOM_RUNTIME_STORAGE: z.literal('r2'),
-    BETTER_AUTH_SECRET: z.string().trim().min(32),
-    BETTER_AUTH_URL: z.string().trim().url(),
-    GOOGLE_CLIENT_ID: z.string().trim().min(1),
-    GOOGLE_CLIENT_SECRET: z.string().trim().min(1),
-    AGENT_ROOM_EMAIL_WEBHOOK_URL: z.string().trim().url(),
-    AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN: z.string().trim().min(16),
-    AGENT_ROOM_EMAIL_FROM: z.string().trim().min(1),
-})
+import { hostedConfigSchema } from './hosted-config-contract'
 
 export interface HostedEmailWebhookConfig {
     url: string

@@ -1,4 +1,5 @@
-import type { AgentRoomRuntimeContainer } from './runtime-container'
+import type { D1Database, ExecutionContext, Queue, R2Bucket } from '@cloudflare/workers-types'
+import type { HostedRuntimeContainerNamespace } from './runtime-contract'
 
 export interface AgentRoomRuntimeJobMessage {
     kind: 'room-runtime-reconcile'
@@ -12,7 +13,7 @@ export interface AgentRoomHostedEnv {
     AGENT_ROOM_DB: D1Database
     AGENT_ROOM_WORKSPACE_BUCKET: R2Bucket
     AGENT_ROOM_RUNTIME_JOBS: Queue<AgentRoomRuntimeJobMessage>
-    AGENT_ROOM_RUNTIME: DurableObjectNamespace<AgentRoomRuntimeContainer>
+    AGENT_ROOM_RUNTIME: HostedRuntimeContainerNamespace
     AGENT_ROOM_AUTH_MODE: string
     AGENT_ROOM_RUNTIME_BACKEND: string
     AGENT_ROOM_RUNTIME_STORAGE: string

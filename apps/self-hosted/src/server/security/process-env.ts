@@ -1,4 +1,10 @@
 import { basename } from 'node:path'
+import {
+    piCodingAgentDirEnvKey,
+    piRuntimeConfigPathEnvKey,
+    piRuntimeStateDirEnvKey,
+    piRuntimeTokenEnvKey,
+} from '../rooms/pi-runtime-contract'
 
 const forwardedProcessEnvKeys = ['PATH', 'LANG', 'LC_ALL', 'TZ', 'BUN_INSTALL'] as const
 
@@ -9,9 +15,9 @@ export const reservedRoomRuntimeEnvKeys = new Set([
     'AGENT_ROOM_DATA_DIR',
     'AGENT_ROOM_ENCRYPTION_KEY_B64',
     'AGENT_ROOM_GITHUB_INSTALLATION_TOKEN',
-    'AGENT_ROOM_PI_RUNTIME_CONFIG_PATH',
-    'AGENT_ROOM_PI_RUNTIME_TOKEN',
-    'AGENT_ROOM_PI_STATE_DIR',
+    piRuntimeConfigPathEnvKey,
+    piRuntimeTokenEnvKey,
+    piRuntimeStateDirEnvKey,
     'AGENT_ROOM_ROOT_EMAIL',
     'AGENT_ROOM_ROOT_PASSWORD',
     'AGENT_ROOM_SESSION_TTL_HOURS',
@@ -28,7 +34,7 @@ export const reservedRoomRuntimeEnvKeys = new Set([
     'MCP_AUTH_TOKEN',
     'NODE_ENV',
     'PATH',
-    'PI_CODING_AGENT_DIR',
+    piCodingAgentDirEnvKey,
     'PORT',
     shellVisibleStoreDirEnvKey,
     shellVisibleWorkspaceDirEnvKey,
