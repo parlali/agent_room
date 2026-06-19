@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { z } from 'zod'
 import type { RuntimeSandboxHardening } from '#/domain/domain-types'
+import { resolveDefaultDatabaseUrl } from '../db/database-url'
 import { resolveRuntimeSandboxHardening } from '../rooms/runtime-sandbox-hardening'
 
 const optionalRuntimeLimit = z.preprocess(
@@ -14,10 +15,8 @@ const optionalRuntimeLimit = z.preprocess(
 const rawEnvSchema = z.object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     PORT: z.coerce.number().int().positive().default(3000),
-    DATABASE_URL: z
-        .string()
-        .min(1)
-        .default('postgres://agent_room:agent_room@127.0.0.1:5432/agent_room?sslmode=disable'),
+    AGENT_ROOM_DATABASE_DRIVER: z.enum(['sqlite', 'd1']).default('sqlite'),
+    AGENT_ROOM_DATABASE_URL: z.string().min(1).optional(),
     AGENT_ROOM_DATA_DIR: z.string().min(1).default('.agent-room'),
     AGENT_ROOM_ENCRYPTION_KEY_B64: z.string().min(1).optional(),
     AGENT_ROOM_ROOT_EMAIL: z.email().optional(),
@@ -115,6 +114,7 @@ type GeneratedBootstrap = z.infer<typeof generatedBootstrapSchema>
 export interface AppEnv {
     nodeEnv: 'development' | 'test' | 'production'
     port: number
+    databaseDriver: 'sqlite' | 'd1'
     databaseUrl: string
     dataDir: string
     encryptionKey: Buffer
@@ -277,7 +277,8 @@ export function getAppEnv(): AppEnv {
     cachedEnv = {
         nodeEnv: data.NODE_ENV,
         port: data.PORT,
-        databaseUrl: data.DATABASE_URL,
+        databaseDriver: data.AGENT_ROOM_DATABASE_DRIVER,
+        databaseUrl: data.AGENT_ROOM_DATABASE_URL ?? resolveDefaultDatabaseUrl(dataDir),
         dataDir,
         encryptionKey,
         rootEmail: bootstrap.payload.rootEmail,
@@ -324,5 +325,6 @@ export function getAppEnv(): AppEnv {
 
 export const __testing = {
     readGeneratedBootstrap,
+    resolveDefaultDatabaseUrl,
     resolveBootstrapPayload,
 }

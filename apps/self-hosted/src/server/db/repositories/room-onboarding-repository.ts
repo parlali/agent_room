@@ -1,6 +1,8 @@
+import { eq } from 'drizzle-orm'
 import type { RoomOnboardingRecord, RoomOnboardingStatus } from '#/domain/domain-types'
-import { sql } from '../client'
+import { roomOnboarding } from '../schema'
 import { mapRoomOnboarding } from './row-mappers'
+import { nowDate, repositoryDatabase } from './repository-utils'
 
 export const roomOnboardingRepository = {
     async getOrCreate(roomId: string): Promise<RoomOnboardingRecord> {
@@ -8,15 +10,23 @@ export const roomOnboardingRepository = {
         if (existing) {
             return existing
         }
-        const rows = await sql`
-            INSERT INTO room_onboarding (room_id, status)
-            VALUES (${roomId}, 'pending')
-            ON CONFLICT (room_id) DO NOTHING
-            RETURNING *
-        `
-        if (rows.length > 0) {
-            return mapRoomOnboarding(rows[0] as Record<string, unknown>)
+
+        const db = await repositoryDatabase()
+        const now = nowDate()
+        const [created] = await db
+            .insert(roomOnboarding)
+            .values({
+                roomId,
+                status: 'pending',
+                createdAt: now,
+                updatedAt: now,
+            })
+            .onConflictDoNothing()
+            .returning()
+        if (created) {
+            return mapRoomOnboarding(created)
         }
+
         const fallback = await this.findByRoomId(roomId)
         if (!fallback) {
             throw new Error(`Room onboarding row missing for ${roomId}`)
@@ -25,11 +35,13 @@ export const roomOnboardingRepository = {
     },
 
     async findByRoomId(roomId: string): Promise<RoomOnboardingRecord | null> {
-        const rows = await sql`SELECT * FROM room_onboarding WHERE room_id = ${roomId} LIMIT 1`
-        if (rows.length === 0) {
-            return null
-        }
-        return mapRoomOnboarding(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const [row] = await db
+            .select()
+            .from(roomOnboarding)
+            .where(eq(roomOnboarding.roomId, roomId))
+            .limit(1)
+        return row ? mapRoomOnboarding(row) : null
     },
 
     async update(input: {
@@ -39,32 +51,29 @@ export const roomOnboardingRepository = {
         completedAt?: Date | null
         deferredAt?: Date | null
     }): Promise<RoomOnboardingRecord> {
-        const hasSessionKey = Object.hasOwn(input, 'sessionKey')
-        const hasCompletedAt = Object.hasOwn(input, 'completedAt')
-        const hasDeferredAt = Object.hasOwn(input, 'deferredAt')
-        const rows = await sql`
-            UPDATE room_onboarding
-            SET
-                status = ${input.status},
-                session_key = CASE
-                    WHEN ${hasSessionKey} THEN ${input.sessionKey ?? null}
-                    ELSE session_key
-                END,
-                completed_at = CASE
-                    WHEN ${hasCompletedAt} THEN ${input.completedAt ?? null}
-                    ELSE completed_at
-                END,
-                deferred_at = CASE
-                    WHEN ${hasDeferredAt} THEN ${input.deferredAt ?? null}
-                    ELSE deferred_at
-                END,
-                updated_at = now()
-            WHERE room_id = ${input.roomId}
-            RETURNING *
-        `
-        if (rows.length === 0) {
+        const values: Partial<typeof roomOnboarding.$inferInsert> = {
+            status: input.status,
+            updatedAt: nowDate(),
+        }
+        if (Object.hasOwn(input, 'sessionKey')) {
+            values.sessionKey = input.sessionKey ?? null
+        }
+        if (Object.hasOwn(input, 'completedAt')) {
+            values.completedAt = input.completedAt ?? null
+        }
+        if (Object.hasOwn(input, 'deferredAt')) {
+            values.deferredAt = input.deferredAt ?? null
+        }
+
+        const db = await repositoryDatabase()
+        const [row] = await db
+            .update(roomOnboarding)
+            .set(values)
+            .where(eq(roomOnboarding.roomId, input.roomId))
+            .returning()
+        if (!row) {
             throw new Error(`Room onboarding row missing for ${input.roomId}`)
         }
-        return mapRoomOnboarding(rows[0] as Record<string, unknown>)
+        return mapRoomOnboarding(row)
     },
 }

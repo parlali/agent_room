@@ -1,5 +1,6 @@
 import type { ConnectionStatus, ProviderApi, ProviderAuthMode } from '#/domain/domain-types'
-import { sql } from '../client'
+import { providerValidationAttempts } from '../schema'
+import { createDatabaseId, repositoryDatabase } from './repository-utils'
 
 export const providerValidationRepository = {
     async appendAttempt(input: {
@@ -15,33 +16,20 @@ export const providerValidationRepository = {
         startedAt: Date
         completedAt: Date
     }): Promise<void> {
-        await sql`
-            INSERT INTO provider_validation_attempts (
-                provider_connection_id,
-                room_id,
-                provider,
-                auth_mode,
-                api,
-                base_url,
-                model,
-                status,
-                message,
-                started_at,
-                completed_at
-            )
-            VALUES (
-                ${input.providerConnectionId},
-                ${input.roomId},
-                ${input.provider},
-                ${input.authMode},
-                ${input.api},
-                ${input.baseUrl},
-                ${input.model},
-                ${input.status},
-                ${input.message},
-                ${input.startedAt},
-                ${input.completedAt}
-            )
-        `
+        const db = await repositoryDatabase()
+        await db.insert(providerValidationAttempts).values({
+            id: createDatabaseId(),
+            providerConnectionId: input.providerConnectionId,
+            roomId: input.roomId,
+            provider: input.provider,
+            authMode: input.authMode,
+            api: input.api,
+            baseUrl: input.baseUrl,
+            model: input.model,
+            status: input.status,
+            message: input.message,
+            startedAt: input.startedAt,
+            completedAt: input.completedAt,
+        })
     },
 }

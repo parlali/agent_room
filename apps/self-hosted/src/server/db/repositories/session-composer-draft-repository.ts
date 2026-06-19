@@ -1,7 +1,16 @@
+import { and, eq } from 'drizzle-orm'
 import { maxSessionComposerDraftLength } from '#/domain/session-composer-draft'
 import type { SessionComposerDraftRecord } from '#/domain/domain-types'
-import { sql } from '../client'
+import { sessionComposerDrafts } from '../schema'
 import { mapSessionComposerDraft } from './row-mappers'
+import { excluded, nowDate, repositoryDatabase } from './repository-utils'
+
+const draftKey = (input: { authSessionId: string; roomId: string; sessionKey: string }) =>
+    and(
+        eq(sessionComposerDrafts.authSessionId, input.authSessionId),
+        eq(sessionComposerDrafts.roomId, input.roomId),
+        eq(sessionComposerDrafts.sessionKey, input.sessionKey),
+    )
 
 export const sessionComposerDraftRepository = {
     async find(input: {
@@ -9,18 +18,9 @@ export const sessionComposerDraftRepository = {
         roomId: string
         sessionKey: string
     }): Promise<SessionComposerDraftRecord | null> {
-        const rows = await sql`
-            SELECT *
-            FROM session_composer_drafts
-            WHERE auth_session_id = ${input.authSessionId}
-              AND room_id = ${input.roomId}
-              AND session_key = ${input.sessionKey}
-            LIMIT 1
-        `
-        if (rows.length === 0) {
-            return null
-        }
-        return mapSessionComposerDraft(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const [row] = await db.select().from(sessionComposerDrafts).where(draftKey(input)).limit(1)
+        return row ? mapSessionComposerDraft(row) : null
     },
 
     async upsert(input: {
@@ -37,26 +37,31 @@ export const sessionComposerDraftRepository = {
             throw new Error('Composer draft is too long')
         }
 
-        const rows = await sql`
-            INSERT INTO session_composer_drafts (
-                auth_session_id,
-                room_id,
-                session_key,
-                draft
-            )
-            VALUES (
-                ${input.authSessionId},
-                ${input.roomId},
-                ${input.sessionKey},
-                ${input.draft}
-            )
-            ON CONFLICT (auth_session_id, room_id, session_key)
-            DO UPDATE SET
-                draft = excluded.draft,
-                updated_at = now()
-            RETURNING *
-        `
-        return mapSessionComposerDraft(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const now = nowDate()
+        const [row] = await db
+            .insert(sessionComposerDrafts)
+            .values({
+                authSessionId: input.authSessionId,
+                roomId: input.roomId,
+                sessionKey: input.sessionKey,
+                draft: input.draft,
+                createdAt: now,
+                updatedAt: now,
+            })
+            .onConflictDoUpdate({
+                target: [
+                    sessionComposerDrafts.authSessionId,
+                    sessionComposerDrafts.roomId,
+                    sessionComposerDrafts.sessionKey,
+                ],
+                set: {
+                    draft: excluded('draft'),
+                    updatedAt: now,
+                },
+            })
+            .returning()
+        return mapSessionComposerDraft(row)
     },
 
     async delete(input: {
@@ -64,26 +69,26 @@ export const sessionComposerDraftRepository = {
         roomId: string
         sessionKey: string
     }): Promise<void> {
-        await sql`
-            DELETE FROM session_composer_drafts
-            WHERE auth_session_id = ${input.authSessionId}
-              AND room_id = ${input.roomId}
-              AND session_key = ${input.sessionKey}
-        `
+        const db = await repositoryDatabase()
+        await db.delete(sessionComposerDrafts).where(draftKey(input))
     },
 
     async deleteByRoomSession(input: { roomId: string; sessionKey: string }): Promise<void> {
-        await sql`
-            DELETE FROM session_composer_drafts
-            WHERE room_id = ${input.roomId}
-              AND session_key = ${input.sessionKey}
-        `
+        const db = await repositoryDatabase()
+        await db
+            .delete(sessionComposerDrafts)
+            .where(
+                and(
+                    eq(sessionComposerDrafts.roomId, input.roomId),
+                    eq(sessionComposerDrafts.sessionKey, input.sessionKey),
+                ),
+            )
     },
 
     async deleteByAuthSession(authSessionId: string): Promise<void> {
-        await sql`
-            DELETE FROM session_composer_drafts
-            WHERE auth_session_id = ${authSessionId}
-        `
+        const db = await repositoryDatabase()
+        await db
+            .delete(sessionComposerDrafts)
+            .where(eq(sessionComposerDrafts.authSessionId, authSessionId))
     },
 }

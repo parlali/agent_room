@@ -1,3 +1,4 @@
+import { and, asc, desc, eq, ne, notInArray } from 'drizzle-orm'
 import type {
     AppGitHubAppRecord,
     AppGitHubInstallationRecord,
@@ -8,7 +9,14 @@ import type {
     JsonValue,
     RoomGitHubBindingRecord,
 } from '#/domain/domain-types'
-import { sql } from '../client'
+import {
+    appGithubApps,
+    appGithubInstallations,
+    appGithubManifestSessions,
+    appGithubUserAuthSessions,
+    appGithubUserConnections,
+    roomGithubBindings,
+} from '../schema'
 import {
     mapAppGitHubApp,
     mapAppGitHubInstallation,
@@ -17,6 +25,7 @@ import {
     mapAppGitHubUserConnection,
     mapRoomGitHubBinding,
 } from './row-mappers'
+import { excluded, nowDate, repositoryDatabase } from './repository-utils'
 
 export const appGitHubManifestSessionRepository = {
     async create(input: {
@@ -26,56 +35,46 @@ export const appGitHubManifestSessionRepository = {
         targetOwner: string | null
         expiresAt: Date
     }): Promise<AppGitHubManifestSessionRecord> {
-        const rows = await sql`
-            INSERT INTO app_github_manifest_sessions (
-                state_hash,
-                actor_user_id,
-                public_origin,
-                target_owner,
-                status,
-                expires_at,
-                created_at,
-                updated_at
-            )
-            VALUES (
-                ${input.stateHash},
-                ${input.actorUserId},
-                ${input.publicOrigin},
-                ${input.targetOwner},
-                'pending',
-                ${input.expiresAt},
-                now(),
-                now()
-            )
-            RETURNING *
-        `
-        return mapAppGitHubManifestSession(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const now = nowDate()
+        const [row] = await db
+            .insert(appGithubManifestSessions)
+            .values({
+                stateHash: input.stateHash,
+                actorUserId: input.actorUserId,
+                publicOrigin: input.publicOrigin,
+                targetOwner: input.targetOwner,
+                status: 'pending',
+                expiresAt: input.expiresAt,
+                createdAt: now,
+                updatedAt: now,
+            })
+            .returning()
+        return mapAppGitHubManifestSession(row)
     },
 
     async findByStateHash(stateHash: string): Promise<AppGitHubManifestSessionRecord | null> {
-        const rows = await sql`
-            SELECT *
-            FROM app_github_manifest_sessions
-            WHERE state_hash = ${stateHash}
-            LIMIT 1
-        `
-        if (rows.length === 0) {
-            return null
-        }
-        return mapAppGitHubManifestSession(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const [row] = await db
+            .select()
+            .from(appGithubManifestSessions)
+            .where(eq(appGithubManifestSessions.stateHash, stateHash))
+            .limit(1)
+        return row ? mapAppGitHubManifestSession(row) : null
     },
 
     async updateStatus(
         stateHash: string,
         status: AppGitHubManifestSessionRecord['status'],
     ): Promise<void> {
-        await sql`
-            UPDATE app_github_manifest_sessions
-            SET
-                status = ${status},
-                updated_at = now()
-            WHERE state_hash = ${stateHash}
-        `
+        const db = await repositoryDatabase()
+        await db
+            .update(appGithubManifestSessions)
+            .set({
+                status,
+                updatedAt: nowDate(),
+            })
+            .where(eq(appGithubManifestSessions.stateHash, stateHash))
     },
 
     async updateStatusIfCurrent(input: {
@@ -83,31 +82,33 @@ export const appGitHubManifestSessionRepository = {
         currentStatus: AppGitHubManifestSessionRecord['status']
         nextStatus: AppGitHubManifestSessionRecord['status']
     }): Promise<boolean> {
-        const rows = await sql`
-            UPDATE app_github_manifest_sessions
-            SET
-                status = ${input.nextStatus},
-                updated_at = now()
-            WHERE state_hash = ${input.stateHash}
-            AND status = ${input.currentStatus}
-            RETURNING state_hash
-        `
+        const db = await repositoryDatabase()
+        const rows = await db
+            .update(appGithubManifestSessions)
+            .set({
+                status: input.nextStatus,
+                updatedAt: nowDate(),
+            })
+            .where(
+                and(
+                    eq(appGithubManifestSessions.stateHash, input.stateHash),
+                    eq(appGithubManifestSessions.status, input.currentStatus),
+                ),
+            )
+            .returning({ stateHash: appGithubManifestSessions.stateHash })
         return rows.length > 0
     },
 }
 
 export const appGitHubAppRepository = {
     async get(): Promise<AppGitHubAppRecord | null> {
-        const rows = await sql`
-            SELECT *
-            FROM app_github_apps
-            WHERE id = true
-            LIMIT 1
-        `
-        if (rows.length === 0) {
-            return null
-        }
-        return mapAppGitHubApp(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const [row] = await db
+            .select()
+            .from(appGithubApps)
+            .where(eq(appGithubApps.id, true))
+            .limit(1)
+        return row ? mapAppGitHubApp(row) : null
     },
 
     async upsert(input: {
@@ -124,65 +125,51 @@ export const appGitHubAppRepository = {
         lastValidatedAt: Date | null
         createdByUserId: string | null
     }): Promise<AppGitHubAppRecord> {
-        const rows = await sql`
-            INSERT INTO app_github_apps (
-                id,
-                app_id,
-                slug,
-                name,
-                client_id,
-                client_secret_secret_id,
-                private_key_secret_id,
-                webhook_secret_secret_id,
-                html_url,
-                status,
-                validation_message,
-                last_validated_at,
-                created_by_user_id,
-                created_at,
-                updated_at
-            )
-            VALUES (
-                true,
-                ${input.appId},
-                ${input.slug},
-                ${input.name},
-                ${input.clientId},
-                ${input.clientSecretSecretId},
-                ${input.privateKeySecretId},
-                ${input.webhookSecretSecretId},
-                ${input.htmlUrl},
-                ${input.status},
-                ${input.validationMessage},
-                ${input.lastValidatedAt},
-                ${input.createdByUserId},
-                now(),
-                now()
-            )
-            ON CONFLICT (id)
-            DO UPDATE SET
-                app_id = excluded.app_id,
-                slug = excluded.slug,
-                name = excluded.name,
-                client_id = excluded.client_id,
-                client_secret_secret_id = excluded.client_secret_secret_id,
-                private_key_secret_id = excluded.private_key_secret_id,
-                webhook_secret_secret_id = excluded.webhook_secret_secret_id,
-                html_url = excluded.html_url,
-                status = excluded.status,
-                validation_message = excluded.validation_message,
-                last_validated_at = excluded.last_validated_at,
-                updated_at = now()
-            RETURNING *
-        `
-        return mapAppGitHubApp(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const now = nowDate()
+        const [row] = await db
+            .insert(appGithubApps)
+            .values({
+                id: true,
+                appId: input.appId,
+                slug: input.slug,
+                name: input.name,
+                clientId: input.clientId,
+                clientSecretSecretId: input.clientSecretSecretId,
+                privateKeySecretId: input.privateKeySecretId,
+                webhookSecretSecretId: input.webhookSecretSecretId,
+                htmlUrl: input.htmlUrl,
+                status: input.status,
+                validationMessage: input.validationMessage,
+                lastValidatedAt: input.lastValidatedAt,
+                createdByUserId: input.createdByUserId,
+                createdAt: now,
+                updatedAt: now,
+            })
+            .onConflictDoUpdate({
+                target: appGithubApps.id,
+                set: {
+                    appId: excluded('app_id'),
+                    slug: excluded('slug'),
+                    name: excluded('name'),
+                    clientId: excluded('client_id'),
+                    clientSecretSecretId: excluded('client_secret_secret_id'),
+                    privateKeySecretId: excluded('private_key_secret_id'),
+                    webhookSecretSecretId: excluded('webhook_secret_secret_id'),
+                    htmlUrl: excluded('html_url'),
+                    status: excluded('status'),
+                    validationMessage: excluded('validation_message'),
+                    lastValidatedAt: excluded('last_validated_at'),
+                    updatedAt: now,
+                },
+            })
+            .returning()
+        return mapAppGitHubApp(row)
     },
 
     async delete(): Promise<void> {
-        await sql`
-            DELETE FROM app_github_apps
-            WHERE id = true
-        `
+        const db = await repositoryDatabase()
+        await db.delete(appGithubApps).where(eq(appGithubApps.id, true))
     },
 }
 
@@ -194,56 +181,46 @@ export const appGitHubUserAuthSessionRepository = {
         codeVerifier: string
         expiresAt: Date
     }): Promise<AppGitHubUserAuthSessionRecord> {
-        const rows = await sql`
-            INSERT INTO app_github_user_auth_sessions (
-                state_hash,
-                actor_user_id,
-                public_origin,
-                code_verifier,
-                status,
-                expires_at,
-                created_at,
-                updated_at
-            )
-            VALUES (
-                ${input.stateHash},
-                ${input.actorUserId},
-                ${input.publicOrigin},
-                ${input.codeVerifier},
-                'pending',
-                ${input.expiresAt},
-                now(),
-                now()
-            )
-            RETURNING *
-        `
-        return mapAppGitHubUserAuthSession(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const now = nowDate()
+        const [row] = await db
+            .insert(appGithubUserAuthSessions)
+            .values({
+                stateHash: input.stateHash,
+                actorUserId: input.actorUserId,
+                publicOrigin: input.publicOrigin,
+                codeVerifier: input.codeVerifier,
+                status: 'pending',
+                expiresAt: input.expiresAt,
+                createdAt: now,
+                updatedAt: now,
+            })
+            .returning()
+        return mapAppGitHubUserAuthSession(row)
     },
 
     async findByStateHash(stateHash: string): Promise<AppGitHubUserAuthSessionRecord | null> {
-        const rows = await sql`
-            SELECT *
-            FROM app_github_user_auth_sessions
-            WHERE state_hash = ${stateHash}
-            LIMIT 1
-        `
-        if (rows.length === 0) {
-            return null
-        }
-        return mapAppGitHubUserAuthSession(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const [row] = await db
+            .select()
+            .from(appGithubUserAuthSessions)
+            .where(eq(appGithubUserAuthSessions.stateHash, stateHash))
+            .limit(1)
+        return row ? mapAppGitHubUserAuthSession(row) : null
     },
 
     async updateStatus(
         stateHash: string,
         status: AppGitHubUserAuthSessionRecord['status'],
     ): Promise<void> {
-        await sql`
-            UPDATE app_github_user_auth_sessions
-            SET
-                status = ${status},
-                updated_at = now()
-            WHERE state_hash = ${stateHash}
-        `
+        const db = await repositoryDatabase()
+        await db
+            .update(appGithubUserAuthSessions)
+            .set({
+                status,
+                updatedAt: nowDate(),
+            })
+            .where(eq(appGithubUserAuthSessions.stateHash, stateHash))
     },
 
     async updateStatusIfCurrent(input: {
@@ -251,31 +228,33 @@ export const appGitHubUserAuthSessionRepository = {
         currentStatus: AppGitHubUserAuthSessionRecord['status']
         nextStatus: AppGitHubUserAuthSessionRecord['status']
     }): Promise<boolean> {
-        const rows = await sql`
-            UPDATE app_github_user_auth_sessions
-            SET
-                status = ${input.nextStatus},
-                updated_at = now()
-            WHERE state_hash = ${input.stateHash}
-            AND status = ${input.currentStatus}
-            RETURNING state_hash
-        `
+        const db = await repositoryDatabase()
+        const rows = await db
+            .update(appGithubUserAuthSessions)
+            .set({
+                status: input.nextStatus,
+                updatedAt: nowDate(),
+            })
+            .where(
+                and(
+                    eq(appGithubUserAuthSessions.stateHash, input.stateHash),
+                    eq(appGithubUserAuthSessions.status, input.currentStatus),
+                ),
+            )
+            .returning({ stateHash: appGithubUserAuthSessions.stateHash })
         return rows.length > 0
     },
 }
 
 export const appGitHubUserConnectionRepository = {
     async get(): Promise<AppGitHubUserConnectionRecord | null> {
-        const rows = await sql`
-            SELECT *
-            FROM app_github_user_connections
-            WHERE id = true
-            LIMIT 1
-        `
-        if (rows.length === 0) {
-            return null
-        }
-        return mapAppGitHubUserConnection(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const [row] = await db
+            .select()
+            .from(appGithubUserConnections)
+            .where(eq(appGithubUserConnections.id, true))
+            .limit(1)
+        return row ? mapAppGitHubUserConnection(row) : null
     },
 
     async upsert(input: {
@@ -292,89 +271,75 @@ export const appGitHubUserConnectionRepository = {
         createdByUserId: string | null
         lastAuthorizedAt: Date
     }): Promise<AppGitHubUserConnectionRecord> {
-        const rows = await sql`
-            INSERT INTO app_github_user_connections (
-                id,
-                github_user_id,
-                login,
-                name,
-                avatar_url,
-                html_url,
-                token_type,
-                access_token_secret_id,
-                access_token_expires_at,
-                refresh_token_secret_id,
-                refresh_token_expires_at,
-                created_by_user_id,
-                last_authorized_at,
-                created_at,
-                updated_at
-            )
-            VALUES (
-                true,
-                ${input.githubUserId},
-                ${input.login},
-                ${input.name},
-                ${input.avatarUrl},
-                ${input.htmlUrl},
-                ${input.tokenType},
-                ${input.accessTokenSecretId},
-                ${input.accessTokenExpiresAt},
-                ${input.refreshTokenSecretId},
-                ${input.refreshTokenExpiresAt},
-                ${input.createdByUserId},
-                ${input.lastAuthorizedAt},
-                now(),
-                now()
-            )
-            ON CONFLICT (id)
-            DO UPDATE SET
-                github_user_id = excluded.github_user_id,
-                login = excluded.login,
-                name = excluded.name,
-                avatar_url = excluded.avatar_url,
-                html_url = excluded.html_url,
-                token_type = excluded.token_type,
-                access_token_secret_id = excluded.access_token_secret_id,
-                access_token_expires_at = excluded.access_token_expires_at,
-                refresh_token_secret_id = excluded.refresh_token_secret_id,
-                refresh_token_expires_at = excluded.refresh_token_expires_at,
-                last_authorized_at = excluded.last_authorized_at,
-                updated_at = now()
-            RETURNING *
-        `
-        return mapAppGitHubUserConnection(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const now = nowDate()
+        const [row] = await db
+            .insert(appGithubUserConnections)
+            .values({
+                id: true,
+                githubUserId: input.githubUserId,
+                login: input.login,
+                name: input.name,
+                avatarUrl: input.avatarUrl,
+                htmlUrl: input.htmlUrl,
+                tokenType: input.tokenType,
+                accessTokenSecretId: input.accessTokenSecretId,
+                accessTokenExpiresAt: input.accessTokenExpiresAt,
+                refreshTokenSecretId: input.refreshTokenSecretId,
+                refreshTokenExpiresAt: input.refreshTokenExpiresAt,
+                createdByUserId: input.createdByUserId,
+                lastAuthorizedAt: input.lastAuthorizedAt,
+                createdAt: now,
+                updatedAt: now,
+            })
+            .onConflictDoUpdate({
+                target: appGithubUserConnections.id,
+                set: {
+                    githubUserId: excluded('github_user_id'),
+                    login: excluded('login'),
+                    name: excluded('name'),
+                    avatarUrl: excluded('avatar_url'),
+                    htmlUrl: excluded('html_url'),
+                    tokenType: excluded('token_type'),
+                    accessTokenSecretId: excluded('access_token_secret_id'),
+                    accessTokenExpiresAt: excluded('access_token_expires_at'),
+                    refreshTokenSecretId: excluded('refresh_token_secret_id'),
+                    refreshTokenExpiresAt: excluded('refresh_token_expires_at'),
+                    lastAuthorizedAt: excluded('last_authorized_at'),
+                    updatedAt: now,
+                },
+            })
+            .returning()
+        return mapAppGitHubUserConnection(row)
     },
 
     async delete(): Promise<void> {
-        await sql`
-            DELETE FROM app_github_user_connections
-            WHERE id = true
-        `
+        const db = await repositoryDatabase()
+        await db.delete(appGithubUserConnections).where(eq(appGithubUserConnections.id, true))
     },
 }
 
 export const appGitHubInstallationRepository = {
     async list(): Promise<AppGitHubInstallationRecord[]> {
-        const rows = await sql`
-            SELECT *
-            FROM app_github_installations
-            ORDER BY account_login ASC, installation_id ASC
-        `
-        return rows.map((row) => mapAppGitHubInstallation(row as Record<string, unknown>))
+        const db = await repositoryDatabase()
+        const rows = await db
+            .select()
+            .from(appGithubInstallations)
+            .orderBy(
+                asc(appGithubInstallations.accountLogin),
+                asc(appGithubInstallations.installationId),
+            )
+        return rows.map(mapAppGitHubInstallation)
     },
 
     async findById(installationId: string): Promise<AppGitHubInstallationRecord | null> {
-        const rows = await sql`
-            SELECT *
-            FROM app_github_installations
-            WHERE installation_id = ${installationId}
-            LIMIT 1
-        `
-        if (rows.length === 0) {
-            return null
-        }
-        return mapAppGitHubInstallation(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const [row] = await db
+            .select()
+            .from(appGithubInstallations)
+            .where(eq(appGithubInstallations.installationId, installationId))
+            .limit(1)
+        return row ? mapAppGitHubInstallation(row) : null
     },
 
     async upsert(input: {
@@ -389,109 +354,96 @@ export const appGitHubInstallationRepository = {
         status: ConnectionStatus
         lastSyncedAt: Date
     }): Promise<AppGitHubInstallationRecord> {
-        const rows = await sql`
-            INSERT INTO app_github_installations (
-                installation_id,
-                account_login,
-                account_type,
-                target_type,
-                html_url,
-                repository_selection,
-                permissions,
-                suspended_at,
-                status,
-                last_synced_at,
-                created_at,
-                updated_at
-            )
-            VALUES (
-                ${input.installationId},
-                ${input.accountLogin},
-                ${input.accountType},
-                ${input.targetType},
-                ${input.htmlUrl},
-                ${input.repositorySelection},
-                ${sql.json(input.permissions)},
-                ${input.suspendedAt},
-                ${input.status},
-                ${input.lastSyncedAt},
-                now(),
-                now()
-            )
-            ON CONFLICT (installation_id)
-            DO UPDATE SET
-                account_login = excluded.account_login,
-                account_type = excluded.account_type,
-                target_type = excluded.target_type,
-                html_url = excluded.html_url,
-                repository_selection = excluded.repository_selection,
-                permissions = excluded.permissions,
-                suspended_at = excluded.suspended_at,
-                status = excluded.status,
-                last_synced_at = excluded.last_synced_at,
-                updated_at = now()
-            RETURNING *
-        `
-        return mapAppGitHubInstallation(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const now = nowDate()
+        const [row] = await db
+            .insert(appGithubInstallations)
+            .values({
+                installationId: input.installationId,
+                accountLogin: input.accountLogin,
+                accountType: input.accountType,
+                targetType: input.targetType,
+                htmlUrl: input.htmlUrl,
+                repositorySelection: input.repositorySelection,
+                permissions: input.permissions,
+                suspendedAt: input.suspendedAt,
+                status: input.status,
+                lastSyncedAt: input.lastSyncedAt,
+                createdAt: now,
+                updatedAt: now,
+            })
+            .onConflictDoUpdate({
+                target: appGithubInstallations.installationId,
+                set: {
+                    accountLogin: excluded('account_login'),
+                    accountType: excluded('account_type'),
+                    targetType: excluded('target_type'),
+                    htmlUrl: excluded('html_url'),
+                    repositorySelection: excluded('repository_selection'),
+                    permissions: excluded('permissions'),
+                    suspendedAt: excluded('suspended_at'),
+                    status: excluded('status'),
+                    lastSyncedAt: excluded('last_synced_at'),
+                    updatedAt: now,
+                },
+            })
+            .returning()
+        return mapAppGitHubInstallation(row)
     },
 
     async markMissingInvalid(input: {
         activeInstallationIds: string[]
         lastSyncedAt: Date
     }): Promise<number> {
-        const rows =
+        const db = await repositoryDatabase()
+        const baseCondition = ne(appGithubInstallations.status, 'invalid')
+        const condition =
             input.activeInstallationIds.length === 0
-                ? await sql`
-                      UPDATE app_github_installations
-                      SET
-                          status = 'invalid',
-                          last_synced_at = ${input.lastSyncedAt},
-                          updated_at = now()
-                      WHERE status <> 'invalid'
-                      RETURNING installation_id
-                  `
-                : await sql`
-                      UPDATE app_github_installations
-                      SET
-                          status = 'invalid',
-                          last_synced_at = ${input.lastSyncedAt},
-                          updated_at = now()
-                      WHERE installation_id NOT IN ${sql(input.activeInstallationIds)}
-                      AND status <> 'invalid'
-                      RETURNING installation_id
-                  `
+                ? baseCondition
+                : and(
+                      notInArray(
+                          appGithubInstallations.installationId,
+                          input.activeInstallationIds,
+                      ),
+                      baseCondition,
+                  )
+        const rows = await db
+            .update(appGithubInstallations)
+            .set({
+                status: 'invalid',
+                lastSyncedAt: input.lastSyncedAt,
+                updatedAt: nowDate(),
+            })
+            .where(condition)
+            .returning({ installationId: appGithubInstallations.installationId })
         return rows.length
     },
 
     async deleteAll(): Promise<void> {
-        await sql`
-            DELETE FROM app_github_installations
-        `
+        const db = await repositoryDatabase()
+        await db.delete(appGithubInstallations)
     },
 }
 
 export const roomGitHubBindingRepository = {
     async findByRoomId(roomId: string): Promise<RoomGitHubBindingRecord | null> {
-        const rows = await sql`
-            SELECT *
-            FROM room_github_bindings
-            WHERE room_id = ${roomId}
-            LIMIT 1
-        `
-        if (rows.length === 0) {
-            return null
-        }
-        return mapRoomGitHubBinding(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const [row] = await db
+            .select()
+            .from(roomGithubBindings)
+            .where(eq(roomGithubBindings.roomId, roomId))
+            .limit(1)
+        return row ? mapRoomGitHubBinding(row) : null
     },
 
     async listByInstallationId(installationId: string): Promise<RoomGitHubBindingRecord[]> {
-        const rows = await sql`
-            SELECT *
-            FROM room_github_bindings
-            WHERE installation_id = ${installationId}
-            ORDER BY updated_at DESC
-        `
-        return rows.map((row) => mapRoomGitHubBinding(row as Record<string, unknown>))
+        const db = await repositoryDatabase()
+        const rows = await db
+            .select()
+            .from(roomGithubBindings)
+            .where(eq(roomGithubBindings.installationId, installationId))
+            .orderBy(desc(roomGithubBindings.updatedAt))
+        return rows.map(mapRoomGitHubBinding)
     },
 
     async upsert(input: {
@@ -501,46 +453,39 @@ export const roomGitHubBindingRepository = {
         enabled: boolean
         createdByUserId: string | null
     }): Promise<RoomGitHubBindingRecord> {
-        const rows = await sql`
-            INSERT INTO room_github_bindings (
-                room_id,
-                installation_id,
-                repositories,
-                enabled,
-                created_by_user_id,
-                created_at,
-                updated_at
-            )
-            VALUES (
-                ${input.roomId},
-                ${input.installationId},
-                ${sql.json(input.repositories)},
-                ${input.enabled},
-                ${input.createdByUserId},
-                now(),
-                now()
-            )
-            ON CONFLICT (room_id)
-            DO UPDATE SET
-                installation_id = excluded.installation_id,
-                repositories = excluded.repositories,
-                enabled = excluded.enabled,
-                updated_at = now()
-            RETURNING *
-        `
-        return mapRoomGitHubBinding(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const now = nowDate()
+        const [row] = await db
+            .insert(roomGithubBindings)
+            .values({
+                roomId: input.roomId,
+                installationId: input.installationId,
+                repositories: input.repositories,
+                enabled: input.enabled,
+                createdByUserId: input.createdByUserId,
+                createdAt: now,
+                updatedAt: now,
+            })
+            .onConflictDoUpdate({
+                target: roomGithubBindings.roomId,
+                set: {
+                    installationId: excluded('installation_id'),
+                    repositories: excluded('repositories'),
+                    enabled: excluded('enabled'),
+                    updatedAt: now,
+                },
+            })
+            .returning()
+        return mapRoomGitHubBinding(row)
     },
 
     async deleteByRoomId(roomId: string): Promise<void> {
-        await sql`
-            DELETE FROM room_github_bindings
-            WHERE room_id = ${roomId}
-        `
+        const db = await repositoryDatabase()
+        await db.delete(roomGithubBindings).where(eq(roomGithubBindings.roomId, roomId))
     },
 
     async deleteAll(): Promise<void> {
-        await sql`
-            DELETE FROM room_github_bindings
-        `
+        const db = await repositoryDatabase()
+        await db.delete(roomGithubBindings)
     },
 }

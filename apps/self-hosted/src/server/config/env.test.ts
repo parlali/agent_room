@@ -6,6 +6,14 @@ import { describe, expect, it } from 'vitest'
 import { __testing } from './env'
 
 describe('bootstrap credential autogeneration', () => {
+    it('resolves the default SQLite database under the data directory', async () => {
+        const dataDir = await mkdtemp(join(tmpdir(), 'agent-room-bootstrap-'))
+
+        expect(__testing.resolveDefaultDatabaseUrl(dataDir)).toBe(
+            `file:${join(dataDir, 'system', 'agent-room.sqlite')}`,
+        )
+    })
+
     it('creates a bootstrap file with generated root credentials in a fresh data directory', async () => {
         const dataDir = await mkdtemp(join(tmpdir(), 'agent-room-bootstrap-'))
 

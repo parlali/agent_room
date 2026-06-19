@@ -1,30 +1,26 @@
+import { count, eq } from 'drizzle-orm'
 import type { UserRecord, UserRole } from '#/domain/domain-types'
-import { sql } from '../client'
+import { users } from '../schema'
 import { mapUser } from './row-mappers'
+import { createDatabaseId, nowDate, repositoryDatabase } from './repository-utils'
 
 export const userRepository = {
     async countUsers(): Promise<number> {
-        const [row] = await sql<{ count: string }[]>`SELECT count(*)::text AS count FROM users`
-        if (!row) {
-            return 0
-        }
-        return Number(row.count)
+        const db = await repositoryDatabase()
+        const [row] = await db.select({ count: count() }).from(users)
+        return row?.count ?? 0
     },
 
     async findByEmail(email: string): Promise<UserRecord | null> {
-        const rows = await sql`SELECT * FROM users WHERE email = ${email} LIMIT 1`
-        if (rows.length === 0) {
-            return null
-        }
-        return mapUser(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const [row] = await db.select().from(users).where(eq(users.email, email)).limit(1)
+        return row ? mapUser(row) : null
     },
 
     async findById(userId: string): Promise<UserRecord | null> {
-        const rows = await sql`SELECT * FROM users WHERE id = ${userId} LIMIT 1`
-        if (rows.length === 0) {
-            return null
-        }
-        return mapUser(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const [row] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
+        return row ? mapUser(row) : null
     },
 
     async createUser(input: {
@@ -32,11 +28,19 @@ export const userRepository = {
         passwordHash: string
         role: UserRole
     }): Promise<UserRecord> {
-        const rows = await sql`
-            INSERT INTO users (email, password_hash, role)
-            VALUES (${input.email}, ${input.passwordHash}, ${input.role})
-            RETURNING *
-        `
-        return mapUser(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const now = nowDate()
+        const [row] = await db
+            .insert(users)
+            .values({
+                id: createDatabaseId(),
+                email: input.email,
+                passwordHash: input.passwordHash,
+                role: input.role,
+                createdAt: now,
+                updatedAt: now,
+            })
+            .returning()
+        return mapUser(row)
     },
 }
