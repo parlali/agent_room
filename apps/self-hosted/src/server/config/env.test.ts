@@ -1,11 +1,19 @@
 import { Buffer } from 'node:buffer'
-import { mkdtemp, readFile, stat } from 'node:fs/promises'
+import { mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { __testing } from './env'
 
 describe('bootstrap credential autogeneration', () => {
+    it('resolves the default SQLite database under the data directory', async () => {
+        const dataDir = await mkdtemp(join(tmpdir(), 'agent-room-bootstrap-'))
+
+        expect(__testing.resolveDefaultDatabaseUrl(dataDir)).toBe(
+            `file:${join(dataDir, 'system', 'agent-room.sqlite')}`,
+        )
+    })
+
     it('creates a bootstrap file with generated root credentials in a fresh data directory', async () => {
         const dataDir = await mkdtemp(join(tmpdir(), 'agent-room-bootstrap-'))
 
@@ -47,5 +55,45 @@ describe('bootstrap credential autogeneration', () => {
         expect(second.payload.rootEmail).toBe(first.payload.rootEmail)
         expect(second.payload.rootPassword).toBe(first.payload.rootPassword)
         expect(second.payload.encryptionKeyB64).toBe(first.payload.encryptionKeyB64)
+    })
+
+    it('requires explicit reset when an existing bootstrap has no SQLite database', async () => {
+        const dataDir = await mkdtemp(join(tmpdir(), 'agent-room-bootstrap-'))
+        __testing.resolveBootstrapPayload({
+            dataDir,
+            providedSessionTtlHours: 24,
+        })
+        const databaseUrl = __testing.resolveDefaultDatabaseUrl(dataDir)
+
+        expect(() =>
+            __testing.assertExistingBootstrapHasDatabase({
+                databaseUrl,
+                generatedNewBootstrap: false,
+                allowDatabaseReset: false,
+            }),
+        ).toThrow(/does not migrate old Postgres data/)
+
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+        try {
+            expect(() =>
+                __testing.assertExistingBootstrapHasDatabase({
+                    databaseUrl,
+                    generatedNewBootstrap: false,
+                    allowDatabaseReset: true,
+                }),
+            ).not.toThrow()
+        } finally {
+            warn.mockRestore()
+        }
+
+        await writeFile(join(dataDir, 'system', 'agent-room.sqlite'), '')
+
+        expect(() =>
+            __testing.assertExistingBootstrapHasDatabase({
+                databaseUrl,
+                generatedNewBootstrap: false,
+                allowDatabaseReset: false,
+            }),
+        ).not.toThrow()
     })
 })

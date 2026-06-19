@@ -1,0 +1,3189 @@
+{
+    "version": "6",
+    "dialect": "sqlite",
+    "id": "6d9da24e-b5ea-4e7a-9db3-91d5387bec60",
+    "prevId": "00000000-0000-0000-0000-000000000000",
+    "tables": {
+        "app_github_apps": {
+            "name": "app_github_apps",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "integer",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "1"
+                },
+                "app_id": {
+                    "name": "app_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "slug": {
+                    "name": "slug",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "name": {
+                    "name": "name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "client_id": {
+                    "name": "client_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "client_secret_secret_id": {
+                    "name": "client_secret_secret_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "private_key_secret_id": {
+                    "name": "private_key_secret_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "webhook_secret_secret_id": {
+                    "name": "webhook_secret_secret_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "html_url": {
+                    "name": "html_url",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "status": {
+                    "name": "status",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'ready'"
+                },
+                "validation_message": {
+                    "name": "validation_message",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "last_validated_at": {
+                    "name": "last_validated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "created_by_user_id": {
+                    "name": "created_by_user_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {
+                "app_github_apps_client_secret_secret_id_secrets_id_fk": {
+                    "name": "app_github_apps_client_secret_secret_id_secrets_id_fk",
+                    "tableFrom": "app_github_apps",
+                    "tableTo": "secrets",
+                    "columnsFrom": ["client_secret_secret_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "restrict",
+                    "onUpdate": "no action"
+                },
+                "app_github_apps_private_key_secret_id_secrets_id_fk": {
+                    "name": "app_github_apps_private_key_secret_id_secrets_id_fk",
+                    "tableFrom": "app_github_apps",
+                    "tableTo": "secrets",
+                    "columnsFrom": ["private_key_secret_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "restrict",
+                    "onUpdate": "no action"
+                },
+                "app_github_apps_webhook_secret_secret_id_secrets_id_fk": {
+                    "name": "app_github_apps_webhook_secret_secret_id_secrets_id_fk",
+                    "tableFrom": "app_github_apps",
+                    "tableTo": "secrets",
+                    "columnsFrom": ["webhook_secret_secret_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                },
+                "app_github_apps_created_by_user_id_users_id_fk": {
+                    "name": "app_github_apps_created_by_user_id_users_id_fk",
+                    "tableFrom": "app_github_apps",
+                    "tableTo": "users",
+                    "columnsFrom": ["created_by_user_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "app_github_apps_singleton_check": {
+                    "name": "app_github_apps_singleton_check",
+                    "value": "\"app_github_apps\".\"id\" = 1"
+                },
+                "app_github_apps_status_check": {
+                    "name": "app_github_apps_status_check",
+                    "value": "\"app_github_apps\".\"status\" IN ('unchecked', 'ready', 'invalid')"
+                }
+            }
+        },
+        "app_github_installations": {
+            "name": "app_github_installations",
+            "columns": {
+                "installation_id": {
+                    "name": "installation_id",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "account_login": {
+                    "name": "account_login",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "account_type": {
+                    "name": "account_type",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "target_type": {
+                    "name": "target_type",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "html_url": {
+                    "name": "html_url",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "repository_selection": {
+                    "name": "repository_selection",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'selected'"
+                },
+                "permissions": {
+                    "name": "permissions",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'{}'"
+                },
+                "suspended_at": {
+                    "name": "suspended_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "status": {
+                    "name": "status",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'ready'"
+                },
+                "last_synced_at": {
+                    "name": "last_synced_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {
+                "app_github_installations_account_idx": {
+                    "name": "app_github_installations_account_idx",
+                    "columns": ["account_login"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {},
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "app_github_installations_status_check": {
+                    "name": "app_github_installations_status_check",
+                    "value": "\"app_github_installations\".\"status\" IN ('unchecked', 'ready', 'invalid')"
+                }
+            }
+        },
+        "app_github_manifest_sessions": {
+            "name": "app_github_manifest_sessions",
+            "columns": {
+                "state_hash": {
+                    "name": "state_hash",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "actor_user_id": {
+                    "name": "actor_user_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "public_origin": {
+                    "name": "public_origin",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "target_owner": {
+                    "name": "target_owner",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "status": {
+                    "name": "status",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'pending'"
+                },
+                "expires_at": {
+                    "name": "expires_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {
+                "app_github_manifest_sessions_expires_at_idx": {
+                    "name": "app_github_manifest_sessions_expires_at_idx",
+                    "columns": ["expires_at"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "app_github_manifest_sessions_actor_user_id_users_id_fk": {
+                    "name": "app_github_manifest_sessions_actor_user_id_users_id_fk",
+                    "tableFrom": "app_github_manifest_sessions",
+                    "tableTo": "users",
+                    "columnsFrom": ["actor_user_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "app_github_manifest_sessions_status_check": {
+                    "name": "app_github_manifest_sessions_status_check",
+                    "value": "\"app_github_manifest_sessions\".\"status\" IN ('pending', 'completed', 'expired', 'failed')"
+                }
+            }
+        },
+        "app_github_user_auth_sessions": {
+            "name": "app_github_user_auth_sessions",
+            "columns": {
+                "state_hash": {
+                    "name": "state_hash",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "actor_user_id": {
+                    "name": "actor_user_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "public_origin": {
+                    "name": "public_origin",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "code_verifier": {
+                    "name": "code_verifier",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "status": {
+                    "name": "status",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'pending'"
+                },
+                "expires_at": {
+                    "name": "expires_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {
+                "app_github_user_auth_sessions_expires_at_idx": {
+                    "name": "app_github_user_auth_sessions_expires_at_idx",
+                    "columns": ["expires_at"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "app_github_user_auth_sessions_actor_user_id_users_id_fk": {
+                    "name": "app_github_user_auth_sessions_actor_user_id_users_id_fk",
+                    "tableFrom": "app_github_user_auth_sessions",
+                    "tableTo": "users",
+                    "columnsFrom": ["actor_user_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "app_github_user_auth_sessions_status_check": {
+                    "name": "app_github_user_auth_sessions_status_check",
+                    "value": "\"app_github_user_auth_sessions\".\"status\" IN ('pending', 'completed', 'expired', 'failed')"
+                }
+            }
+        },
+        "app_github_user_connections": {
+            "name": "app_github_user_connections",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "integer",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "1"
+                },
+                "github_user_id": {
+                    "name": "github_user_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "login": {
+                    "name": "login",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "name": {
+                    "name": "name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "avatar_url": {
+                    "name": "avatar_url",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "html_url": {
+                    "name": "html_url",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "token_type": {
+                    "name": "token_type",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'bearer'"
+                },
+                "access_token_secret_id": {
+                    "name": "access_token_secret_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "access_token_expires_at": {
+                    "name": "access_token_expires_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "refresh_token_secret_id": {
+                    "name": "refresh_token_secret_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "refresh_token_expires_at": {
+                    "name": "refresh_token_expires_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "created_by_user_id": {
+                    "name": "created_by_user_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "last_authorized_at": {
+                    "name": "last_authorized_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {
+                "app_github_user_connections_login_idx": {
+                    "name": "app_github_user_connections_login_idx",
+                    "columns": ["login"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "app_github_user_connections_access_token_secret_id_secrets_id_fk": {
+                    "name": "app_github_user_connections_access_token_secret_id_secrets_id_fk",
+                    "tableFrom": "app_github_user_connections",
+                    "tableTo": "secrets",
+                    "columnsFrom": ["access_token_secret_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "restrict",
+                    "onUpdate": "no action"
+                },
+                "app_github_user_connections_refresh_token_secret_id_secrets_id_fk": {
+                    "name": "app_github_user_connections_refresh_token_secret_id_secrets_id_fk",
+                    "tableFrom": "app_github_user_connections",
+                    "tableTo": "secrets",
+                    "columnsFrom": ["refresh_token_secret_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                },
+                "app_github_user_connections_created_by_user_id_users_id_fk": {
+                    "name": "app_github_user_connections_created_by_user_id_users_id_fk",
+                    "tableFrom": "app_github_user_connections",
+                    "tableTo": "users",
+                    "columnsFrom": ["created_by_user_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "app_github_user_connections_singleton_check": {
+                    "name": "app_github_user_connections_singleton_check",
+                    "value": "\"app_github_user_connections\".\"id\" = 1"
+                }
+            }
+        },
+        "app_mcp_connections": {
+            "name": "app_mcp_connections",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "name": {
+                    "name": "name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "server_key": {
+                    "name": "server_key",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "transport": {
+                    "name": "transport",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "command": {
+                    "name": "command",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "args": {
+                    "name": "args",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'[]'"
+                },
+                "url": {
+                    "name": "url",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "headers": {
+                    "name": "headers",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'{}'"
+                },
+                "auth_mode": {
+                    "name": "auth_mode",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'none'"
+                },
+                "credential_secret_id": {
+                    "name": "credential_secret_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "allowed_tools": {
+                    "name": "allowed_tools",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'[]'"
+                },
+                "status": {
+                    "name": "status",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'unchecked'"
+                },
+                "validation_message": {
+                    "name": "validation_message",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "last_validated_at": {
+                    "name": "last_validated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "created_by_user_id": {
+                    "name": "created_by_user_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {
+                "app_mcp_connections_server_key_unique": {
+                    "name": "app_mcp_connections_server_key_unique",
+                    "columns": ["server_key"],
+                    "isUnique": true
+                },
+                "app_mcp_connections_transport_idx": {
+                    "name": "app_mcp_connections_transport_idx",
+                    "columns": ["transport"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "app_mcp_connections_credential_secret_id_secrets_id_fk": {
+                    "name": "app_mcp_connections_credential_secret_id_secrets_id_fk",
+                    "tableFrom": "app_mcp_connections",
+                    "tableTo": "secrets",
+                    "columnsFrom": ["credential_secret_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                },
+                "app_mcp_connections_created_by_user_id_users_id_fk": {
+                    "name": "app_mcp_connections_created_by_user_id_users_id_fk",
+                    "tableFrom": "app_mcp_connections",
+                    "tableTo": "users",
+                    "columnsFrom": ["created_by_user_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "app_mcp_connections_transport_check": {
+                    "name": "app_mcp_connections_transport_check",
+                    "value": "\"app_mcp_connections\".\"transport\" IN ('stdio', 'http', 'streamable_http')"
+                },
+                "app_mcp_connections_auth_mode_check": {
+                    "name": "app_mcp_connections_auth_mode_check",
+                    "value": "\"app_mcp_connections\".\"auth_mode\" IN ('none', 'bearer')"
+                },
+                "app_mcp_connections_status_check": {
+                    "name": "app_mcp_connections_status_check",
+                    "value": "\"app_mcp_connections\".\"status\" IN ('unchecked', 'ready', 'invalid')"
+                },
+                "app_mcp_connections_endpoint_check": {
+                    "name": "app_mcp_connections_endpoint_check",
+                    "value": "(\n                (\n                    \"app_mcp_connections\".\"transport\" = 'stdio'\n                    AND \"app_mcp_connections\".\"command\" IS NOT NULL\n                    AND length(trim(\"app_mcp_connections\".\"command\")) > 0\n                )\n                OR (\n                    \"app_mcp_connections\".\"transport\" IN ('http', 'streamable_http')\n                    AND \"app_mcp_connections\".\"url\" IS NOT NULL\n                    AND length(trim(\"app_mcp_connections\".\"url\")) > 0\n                )\n            )"
+                }
+            }
+        },
+        "app_provider_connections": {
+            "name": "app_provider_connections",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "label": {
+                    "name": "label",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "provider": {
+                    "name": "provider",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "auth_mode": {
+                    "name": "auth_mode",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "api": {
+                    "name": "api",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "base_url": {
+                    "name": "base_url",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "default_model": {
+                    "name": "default_model",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "fallback_models": {
+                    "name": "fallback_models",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'[]'"
+                },
+                "credential_secret_id": {
+                    "name": "credential_secret_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "status": {
+                    "name": "status",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'unchecked'"
+                },
+                "validation_message": {
+                    "name": "validation_message",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "last_validated_at": {
+                    "name": "last_validated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "created_by_user_id": {
+                    "name": "created_by_user_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {
+                "app_provider_connections_provider_unique_idx": {
+                    "name": "app_provider_connections_provider_unique_idx",
+                    "columns": ["provider"],
+                    "isUnique": true
+                }
+            },
+            "foreignKeys": {
+                "app_provider_connections_credential_secret_id_secrets_id_fk": {
+                    "name": "app_provider_connections_credential_secret_id_secrets_id_fk",
+                    "tableFrom": "app_provider_connections",
+                    "tableTo": "secrets",
+                    "columnsFrom": ["credential_secret_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                },
+                "app_provider_connections_created_by_user_id_users_id_fk": {
+                    "name": "app_provider_connections_created_by_user_id_users_id_fk",
+                    "tableFrom": "app_provider_connections",
+                    "tableTo": "users",
+                    "columnsFrom": ["created_by_user_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "app_provider_connections_provider_check": {
+                    "name": "app_provider_connections_provider_check",
+                    "value": "\"app_provider_connections\".\"provider\" IN ('openrouter', 'openai-codex')"
+                },
+                "app_provider_connections_auth_mode_check": {
+                    "name": "app_provider_connections_auth_mode_check",
+                    "value": "\"app_provider_connections\".\"auth_mode\" IN ('api_key', 'oauth')"
+                },
+                "app_provider_connections_api_check": {
+                    "name": "app_provider_connections_api_check",
+                    "value": "\"app_provider_connections\".\"api\" IN ('openai-completions', 'openai-codex-responses')"
+                },
+                "app_provider_connections_status_check": {
+                    "name": "app_provider_connections_status_check",
+                    "value": "\"app_provider_connections\".\"status\" IN ('unchecked', 'ready', 'invalid')"
+                },
+                "app_provider_connections_auth_secret_check": {
+                    "name": "app_provider_connections_auth_secret_check",
+                    "value": "(\n                (\n                    \"app_provider_connections\".\"provider\" = 'openrouter'\n                    AND \"app_provider_connections\".\"auth_mode\" = 'api_key'\n                    AND \"app_provider_connections\".\"api\" = 'openai-completions'\n                    AND \"app_provider_connections\".\"credential_secret_id\" IS NOT NULL\n                )\n                OR (\n                    \"app_provider_connections\".\"provider\" = 'openai-codex'\n                    AND \"app_provider_connections\".\"auth_mode\" = 'oauth'\n                    AND \"app_provider_connections\".\"api\" = 'openai-codex-responses'\n                    AND \"app_provider_connections\".\"credential_secret_id\" IS NULL\n                )\n            )"
+                }
+            }
+        },
+        "app_settings": {
+            "name": "app_settings",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "integer",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "1"
+                },
+                "default_provider_connection_id": {
+                    "name": "default_provider_connection_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "default_model": {
+                    "name": "default_model",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "capability_defaults": {
+                    "name": "capability_defaults",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'{}'"
+                },
+                "search_config": {
+                    "name": "search_config",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'{}'"
+                },
+                "image_config": {
+                    "name": "image_config",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'{}'"
+                },
+                "onboarding_completed_at": {
+                    "name": "onboarding_completed_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {
+                "app_settings_default_provider_connection_id_app_provider_connections_id_fk": {
+                    "name": "app_settings_default_provider_connection_id_app_provider_connections_id_fk",
+                    "tableFrom": "app_settings",
+                    "tableTo": "app_provider_connections",
+                    "columnsFrom": ["default_provider_connection_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "app_settings_singleton_check": {
+                    "name": "app_settings_singleton_check",
+                    "value": "\"app_settings\".\"id\" = 1"
+                }
+            }
+        },
+        "artifact_index": {
+            "name": "artifact_index",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "room_id": {
+                    "name": "room_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "artifact_id": {
+                    "name": "artifact_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "kind": {
+                    "name": "kind",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "sha256": {
+                    "name": "sha256",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "byte_length": {
+                    "name": "byte_length",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "media_type": {
+                    "name": "media_type",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "manifest_path": {
+                    "name": "manifest_path",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "source": {
+                    "name": "source",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'{}'"
+                },
+                "provenance": {
+                    "name": "provenance",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'{}'"
+                },
+                "created_by": {
+                    "name": "created_by",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {
+                "artifact_index_room_artifact_unique": {
+                    "name": "artifact_index_room_artifact_unique",
+                    "columns": ["room_id", "artifact_id"],
+                    "isUnique": true
+                },
+                "artifact_index_room_id_idx": {
+                    "name": "artifact_index_room_id_idx",
+                    "columns": ["room_id"],
+                    "isUnique": false
+                },
+                "artifact_index_sha_idx": {
+                    "name": "artifact_index_sha_idx",
+                    "columns": ["sha256"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "artifact_index_room_id_rooms_id_fk": {
+                    "name": "artifact_index_room_id_rooms_id_fk",
+                    "tableFrom": "artifact_index",
+                    "tableTo": "rooms",
+                    "columnsFrom": ["room_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "artifact_index_kind_check": {
+                    "name": "artifact_index_kind_check",
+                    "value": "\"artifact_index\".\"kind\" IN ('attachment', 'artifact')"
+                }
+            }
+        },
+        "audit_events": {
+            "name": "audit_events",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "integer",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": true
+                },
+                "actor_user_id": {
+                    "name": "actor_user_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "room_id": {
+                    "name": "room_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "action": {
+                    "name": "action",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "payload": {
+                    "name": "payload",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'{}'"
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {
+                "audit_events_room_id_idx": {
+                    "name": "audit_events_room_id_idx",
+                    "columns": ["room_id"],
+                    "isUnique": false
+                },
+                "audit_events_action_idx": {
+                    "name": "audit_events_action_idx",
+                    "columns": ["action"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "audit_events_actor_user_id_users_id_fk": {
+                    "name": "audit_events_actor_user_id_users_id_fk",
+                    "tableFrom": "audit_events",
+                    "tableTo": "users",
+                    "columnsFrom": ["actor_user_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                },
+                "audit_events_room_id_rooms_id_fk": {
+                    "name": "audit_events_room_id_rooms_id_fk",
+                    "tableFrom": "audit_events",
+                    "tableTo": "rooms",
+                    "columnsFrom": ["room_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {}
+        },
+        "provider_validation_attempts": {
+            "name": "provider_validation_attempts",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "provider_connection_id": {
+                    "name": "provider_connection_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "room_id": {
+                    "name": "room_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "provider": {
+                    "name": "provider",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "auth_mode": {
+                    "name": "auth_mode",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "api": {
+                    "name": "api",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "base_url": {
+                    "name": "base_url",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "model": {
+                    "name": "model",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "status": {
+                    "name": "status",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "message": {
+                    "name": "message",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "started_at": {
+                    "name": "started_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "completed_at": {
+                    "name": "completed_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                }
+            },
+            "indexes": {
+                "provider_validation_attempts_provider_idx": {
+                    "name": "provider_validation_attempts_provider_idx",
+                    "columns": ["provider", "completed_at"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "provider_validation_attempts_provider_connection_id_app_provider_connections_id_fk": {
+                    "name": "provider_validation_attempts_provider_connection_id_app_provider_connections_id_fk",
+                    "tableFrom": "provider_validation_attempts",
+                    "tableTo": "app_provider_connections",
+                    "columnsFrom": ["provider_connection_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                },
+                "provider_validation_attempts_room_id_rooms_id_fk": {
+                    "name": "provider_validation_attempts_room_id_rooms_id_fk",
+                    "tableFrom": "provider_validation_attempts",
+                    "tableTo": "rooms",
+                    "columnsFrom": ["room_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "provider_validation_attempts_auth_mode_check": {
+                    "name": "provider_validation_attempts_auth_mode_check",
+                    "value": "\"provider_validation_attempts\".\"auth_mode\" IN ('api_key', 'oauth')"
+                },
+                "provider_validation_attempts_api_check": {
+                    "name": "provider_validation_attempts_api_check",
+                    "value": "\"provider_validation_attempts\".\"api\" IN ('openai-completions', 'openai-codex-responses')"
+                },
+                "provider_validation_attempts_status_check": {
+                    "name": "provider_validation_attempts_status_check",
+                    "value": "\"provider_validation_attempts\".\"status\" IN ('unchecked', 'ready', 'invalid')"
+                }
+            }
+        },
+        "room_configs": {
+            "name": "room_configs",
+            "columns": {
+                "room_id": {
+                    "name": "room_id",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "instructions": {
+                    "name": "instructions",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "''"
+                },
+                "provider_mode": {
+                    "name": "provider_mode",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'app_default'"
+                },
+                "provider_connection_id": {
+                    "name": "provider_connection_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "room_mode": {
+                    "name": "room_mode",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'coworker'"
+                },
+                "capability_overrides": {
+                    "name": "capability_overrides",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'{}'"
+                },
+                "image_provider": {
+                    "name": "image_provider",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "image_model": {
+                    "name": "image_model",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "image_secret_id": {
+                    "name": "image_secret_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "cron_timezone": {
+                    "name": "cron_timezone",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'UTC'"
+                },
+                "browser_action_budget": {
+                    "name": "browser_action_budget",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": 50
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {
+                "room_configs_provider_connection_idx": {
+                    "name": "room_configs_provider_connection_idx",
+                    "columns": ["provider_connection_id"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "room_configs_room_id_rooms_id_fk": {
+                    "name": "room_configs_room_id_rooms_id_fk",
+                    "tableFrom": "room_configs",
+                    "tableTo": "rooms",
+                    "columnsFrom": ["room_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                },
+                "room_configs_provider_connection_id_app_provider_connections_id_fk": {
+                    "name": "room_configs_provider_connection_id_app_provider_connections_id_fk",
+                    "tableFrom": "room_configs",
+                    "tableTo": "app_provider_connections",
+                    "columnsFrom": ["provider_connection_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                },
+                "room_configs_image_secret_id_secrets_id_fk": {
+                    "name": "room_configs_image_secret_id_secrets_id_fk",
+                    "tableFrom": "room_configs",
+                    "tableTo": "secrets",
+                    "columnsFrom": ["image_secret_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "room_configs_provider_mode_check": {
+                    "name": "room_configs_provider_mode_check",
+                    "value": "\"room_configs\".\"provider_mode\" IN ('app_default', 'app_connection')"
+                },
+                "room_configs_room_mode_check": {
+                    "name": "room_configs_room_mode_check",
+                    "value": "\"room_configs\".\"room_mode\" IN ('programmer', 'coworker')"
+                },
+                "room_configs_image_provider_check": {
+                    "name": "room_configs_image_provider_check",
+                    "value": "\"room_configs\".\"image_provider\" IS NULL OR \"room_configs\".\"image_provider\" IN ('openai', 'gemini')"
+                },
+                "room_configs_browser_action_budget_check": {
+                    "name": "room_configs_browser_action_budget_check",
+                    "value": "\"room_configs\".\"browser_action_budget\" BETWEEN 1 AND 200"
+                }
+            }
+        },
+        "room_cron_jobs": {
+            "name": "room_cron_jobs",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "room_id": {
+                    "name": "room_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "name": {
+                    "name": "name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "message": {
+                    "name": "message",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "enabled": {
+                    "name": "enabled",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "1"
+                },
+                "every_minutes": {
+                    "name": "every_minutes",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "schedule": {
+                    "name": "schedule",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'{\"type\":\"daily\",\"times\":[\"09:00\"]}'"
+                },
+                "timezone": {
+                    "name": "timezone",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'UTC'"
+                },
+                "session_target": {
+                    "name": "session_target",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'isolated'"
+                },
+                "target_thread_key": {
+                    "name": "target_thread_key",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "next_run_at": {
+                    "name": "next_run_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "running_at": {
+                    "name": "running_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "locked_until": {
+                    "name": "locked_until",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "lock_token": {
+                    "name": "lock_token",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "heartbeat_at": {
+                    "name": "heartbeat_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "last_renewed_at": {
+                    "name": "last_renewed_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "run_budget_ms": {
+                    "name": "run_budget_ms",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "recovery_reason": {
+                    "name": "recovery_reason",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "last_run_at": {
+                    "name": "last_run_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "last_run_status": {
+                    "name": "last_run_status",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "last_error": {
+                    "name": "last_error",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "last_duration_ms": {
+                    "name": "last_duration_ms",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "provider": {
+                    "name": "provider",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "model": {
+                    "name": "model",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "config_version": {
+                    "name": "config_version",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {
+                "room_cron_jobs_room_id_idx": {
+                    "name": "room_cron_jobs_room_id_idx",
+                    "columns": ["room_id"],
+                    "isUnique": false
+                },
+                "room_cron_jobs_due_idx": {
+                    "name": "room_cron_jobs_due_idx",
+                    "columns": ["enabled", "next_run_at"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "room_cron_jobs_room_id_rooms_id_fk": {
+                    "name": "room_cron_jobs_room_id_rooms_id_fk",
+                    "tableFrom": "room_cron_jobs",
+                    "tableTo": "rooms",
+                    "columnsFrom": ["room_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "room_cron_jobs_every_minutes_check": {
+                    "name": "room_cron_jobs_every_minutes_check",
+                    "value": "\"room_cron_jobs\".\"every_minutes\" > 0"
+                },
+                "room_cron_jobs_session_target_check": {
+                    "name": "room_cron_jobs_session_target_check",
+                    "value": "\"room_cron_jobs\".\"session_target\" IN ('isolated', 'selected')"
+                }
+            }
+        },
+        "room_cron_runs": {
+            "name": "room_cron_runs",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "room_id": {
+                    "name": "room_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "job_id": {
+                    "name": "job_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "job_name": {
+                    "name": "job_name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "attempt": {
+                    "name": "attempt",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": 1
+                },
+                "status": {
+                    "name": "status",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "summary": {
+                    "name": "summary",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "error": {
+                    "name": "error",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "session_key": {
+                    "name": "session_key",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "session_id": {
+                    "name": "session_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "provider": {
+                    "name": "provider",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "model": {
+                    "name": "model",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "config_version": {
+                    "name": "config_version",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "started_at": {
+                    "name": "started_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "finished_at": {
+                    "name": "finished_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "duration_ms": {
+                    "name": "duration_ms",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "next_run_at": {
+                    "name": "next_run_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                }
+            },
+            "indexes": {
+                "room_cron_runs_room_id_started_at_idx": {
+                    "name": "room_cron_runs_room_id_started_at_idx",
+                    "columns": ["room_id", "started_at"],
+                    "isUnique": false
+                },
+                "room_cron_runs_job_id_started_at_idx": {
+                    "name": "room_cron_runs_job_id_started_at_idx",
+                    "columns": ["job_id", "started_at"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "room_cron_runs_room_id_rooms_id_fk": {
+                    "name": "room_cron_runs_room_id_rooms_id_fk",
+                    "tableFrom": "room_cron_runs",
+                    "tableTo": "rooms",
+                    "columnsFrom": ["room_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                },
+                "room_cron_runs_job_id_room_cron_jobs_id_fk": {
+                    "name": "room_cron_runs_job_id_room_cron_jobs_id_fk",
+                    "tableFrom": "room_cron_runs",
+                    "tableTo": "room_cron_jobs",
+                    "columnsFrom": ["job_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "room_cron_runs_attempt_check": {
+                    "name": "room_cron_runs_attempt_check",
+                    "value": "\"room_cron_runs\".\"attempt\" > 0"
+                },
+                "room_cron_runs_status_check": {
+                    "name": "room_cron_runs_status_check",
+                    "value": "\"room_cron_runs\".\"status\" IN ('running', 'complete', 'failed', 'skipped')"
+                }
+            }
+        },
+        "room_github_bindings": {
+            "name": "room_github_bindings",
+            "columns": {
+                "room_id": {
+                    "name": "room_id",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "installation_id": {
+                    "name": "installation_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "repositories": {
+                    "name": "repositories",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'[]'"
+                },
+                "enabled": {
+                    "name": "enabled",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "1"
+                },
+                "created_by_user_id": {
+                    "name": "created_by_user_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {
+                "room_github_bindings_installation_idx": {
+                    "name": "room_github_bindings_installation_idx",
+                    "columns": ["installation_id"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "room_github_bindings_room_id_rooms_id_fk": {
+                    "name": "room_github_bindings_room_id_rooms_id_fk",
+                    "tableFrom": "room_github_bindings",
+                    "tableTo": "rooms",
+                    "columnsFrom": ["room_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                },
+                "room_github_bindings_installation_id_app_github_installations_installation_id_fk": {
+                    "name": "room_github_bindings_installation_id_app_github_installations_installation_id_fk",
+                    "tableFrom": "room_github_bindings",
+                    "tableTo": "app_github_installations",
+                    "columnsFrom": ["installation_id"],
+                    "columnsTo": ["installation_id"],
+                    "onDelete": "restrict",
+                    "onUpdate": "no action"
+                },
+                "room_github_bindings_created_by_user_id_users_id_fk": {
+                    "name": "room_github_bindings_created_by_user_id_users_id_fk",
+                    "tableFrom": "room_github_bindings",
+                    "tableTo": "users",
+                    "columnsFrom": ["created_by_user_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {}
+        },
+        "room_mcp_bindings": {
+            "name": "room_mcp_bindings",
+            "columns": {
+                "room_id": {
+                    "name": "room_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "mcp_connection_id": {
+                    "name": "mcp_connection_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "allowed_tools": {
+                    "name": "allowed_tools",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'[]'"
+                },
+                "enabled": {
+                    "name": "enabled",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "1"
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {
+                "room_mcp_bindings_connection_idx": {
+                    "name": "room_mcp_bindings_connection_idx",
+                    "columns": ["mcp_connection_id"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "room_mcp_bindings_room_id_rooms_id_fk": {
+                    "name": "room_mcp_bindings_room_id_rooms_id_fk",
+                    "tableFrom": "room_mcp_bindings",
+                    "tableTo": "rooms",
+                    "columnsFrom": ["room_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                },
+                "room_mcp_bindings_mcp_connection_id_app_mcp_connections_id_fk": {
+                    "name": "room_mcp_bindings_mcp_connection_id_app_mcp_connections_id_fk",
+                    "tableFrom": "room_mcp_bindings",
+                    "tableTo": "app_mcp_connections",
+                    "columnsFrom": ["mcp_connection_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {
+                "room_mcp_bindings_pk": {
+                    "columns": ["room_id", "mcp_connection_id"],
+                    "name": "room_mcp_bindings_pk"
+                }
+            },
+            "uniqueConstraints": {},
+            "checkConstraints": {}
+        },
+        "room_onboarding": {
+            "name": "room_onboarding",
+            "columns": {
+                "room_id": {
+                    "name": "room_id",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "status": {
+                    "name": "status",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "session_key": {
+                    "name": "session_key",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "completed_at": {
+                    "name": "completed_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "deferred_at": {
+                    "name": "deferred_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                }
+            },
+            "indexes": {
+                "room_onboarding_status_idx": {
+                    "name": "room_onboarding_status_idx",
+                    "columns": ["status"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "room_onboarding_room_id_rooms_id_fk": {
+                    "name": "room_onboarding_room_id_rooms_id_fk",
+                    "tableFrom": "room_onboarding",
+                    "tableTo": "rooms",
+                    "columnsFrom": ["room_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "room_onboarding_status_check": {
+                    "name": "room_onboarding_status_check",
+                    "value": "\"room_onboarding\".\"status\" IN ('pending', 'completed', 'user_deferred')"
+                }
+            }
+        },
+        "room_runtime_metadata": {
+            "name": "room_runtime_metadata",
+            "columns": {
+                "room_id": {
+                    "name": "room_id",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "port": {
+                    "name": "port",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "pid": {
+                    "name": "pid",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "sandbox_uid": {
+                    "name": "sandbox_uid",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "sandbox_gid": {
+                    "name": "sandbox_gid",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "sandbox_user_name": {
+                    "name": "sandbox_user_name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "sandbox_group_name": {
+                    "name": "sandbox_group_name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "config_version": {
+                    "name": "config_version",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": 1
+                },
+                "token_version": {
+                    "name": "token_version",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": 1
+                },
+                "health_status": {
+                    "name": "health_status",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'unknown'"
+                },
+                "started_at": {
+                    "name": "started_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "last_health_at": {
+                    "name": "last_health_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "last_error": {
+                    "name": "last_error",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {},
+            "foreignKeys": {
+                "room_runtime_metadata_room_id_rooms_id_fk": {
+                    "name": "room_runtime_metadata_room_id_rooms_id_fk",
+                    "tableFrom": "room_runtime_metadata",
+                    "tableTo": "rooms",
+                    "columnsFrom": ["room_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "room_runtime_metadata_health_status_check": {
+                    "name": "room_runtime_metadata_health_status_check",
+                    "value": "\"room_runtime_metadata\".\"health_status\" IN ('unknown', 'healthy', 'unhealthy')"
+                }
+            }
+        },
+        "room_secrets": {
+            "name": "room_secrets",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "room_id": {
+                    "name": "room_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "secret_id": {
+                    "name": "secret_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "label": {
+                    "name": "label",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "env_key": {
+                    "name": "env_key",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "purpose": {
+                    "name": "purpose",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "provider": {
+                    "name": "provider",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "created_by_user_id": {
+                    "name": "created_by_user_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {
+                "room_secrets_room_env_unique": {
+                    "name": "room_secrets_room_env_unique",
+                    "columns": ["room_id", "env_key"],
+                    "isUnique": true
+                },
+                "room_secrets_room_id_idx": {
+                    "name": "room_secrets_room_id_idx",
+                    "columns": ["room_id"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "room_secrets_room_id_rooms_id_fk": {
+                    "name": "room_secrets_room_id_rooms_id_fk",
+                    "tableFrom": "room_secrets",
+                    "tableTo": "rooms",
+                    "columnsFrom": ["room_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                },
+                "room_secrets_secret_id_secrets_id_fk": {
+                    "name": "room_secrets_secret_id_secrets_id_fk",
+                    "tableFrom": "room_secrets",
+                    "tableTo": "secrets",
+                    "columnsFrom": ["secret_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                },
+                "room_secrets_created_by_user_id_users_id_fk": {
+                    "name": "room_secrets_created_by_user_id_users_id_fk",
+                    "tableFrom": "room_secrets",
+                    "tableTo": "users",
+                    "columnsFrom": ["created_by_user_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "room_secrets_purpose_check": {
+                    "name": "room_secrets_purpose_check",
+                    "value": "\"room_secrets\".\"purpose\" IN ('generic', 'webhook', 'image_api_key')"
+                }
+            }
+        },
+        "room_session_badge_state": {
+            "name": "room_session_badge_state",
+            "columns": {
+                "user_id": {
+                    "name": "user_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "room_id": {
+                    "name": "room_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "session_key": {
+                    "name": "session_key",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "completed_cleared_at": {
+                    "name": "completed_cleared_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {
+                "room_session_badge_state_room_user_idx": {
+                    "name": "room_session_badge_state_room_user_idx",
+                    "columns": ["room_id", "user_id"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "room_session_badge_state_user_id_users_id_fk": {
+                    "name": "room_session_badge_state_user_id_users_id_fk",
+                    "tableFrom": "room_session_badge_state",
+                    "tableTo": "users",
+                    "columnsFrom": ["user_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                },
+                "room_session_badge_state_room_id_rooms_id_fk": {
+                    "name": "room_session_badge_state_room_id_rooms_id_fk",
+                    "tableFrom": "room_session_badge_state",
+                    "tableTo": "rooms",
+                    "columnsFrom": ["room_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {
+                "room_session_badge_state_pk": {
+                    "columns": ["user_id", "room_id", "session_key"],
+                    "name": "room_session_badge_state_pk"
+                }
+            },
+            "uniqueConstraints": {},
+            "checkConstraints": {}
+        },
+        "rooms": {
+            "name": "rooms",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "slug": {
+                    "name": "slug",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "display_name": {
+                    "name": "display_name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "status": {
+                    "name": "status",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "desired_state": {
+                    "name": "desired_state",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "created_by_user_id": {
+                    "name": "created_by_user_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {
+                "rooms_slug_unique": {
+                    "name": "rooms_slug_unique",
+                    "columns": ["slug"],
+                    "isUnique": true
+                }
+            },
+            "foreignKeys": {
+                "rooms_created_by_user_id_users_id_fk": {
+                    "name": "rooms_created_by_user_id_users_id_fk",
+                    "tableFrom": "rooms",
+                    "tableTo": "users",
+                    "columnsFrom": ["created_by_user_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "restrict",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "rooms_status_check": {
+                    "name": "rooms_status_check",
+                    "value": "\"rooms\".\"status\" IN ('starting', 'running', 'stopped', 'degraded', 'failed', 'setup_required')"
+                },
+                "rooms_desired_state_check": {
+                    "name": "rooms_desired_state_check",
+                    "value": "\"rooms\".\"desired_state\" IN ('running', 'stopped')"
+                }
+            }
+        },
+        "secrets": {
+            "name": "secrets",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "key_name": {
+                    "name": "key_name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "cipher_text": {
+                    "name": "cipher_text",
+                    "type": "blob",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "nonce": {
+                    "name": "nonce",
+                    "type": "blob",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "auth_tag": {
+                    "name": "auth_tag",
+                    "type": "blob",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "key_version": {
+                    "name": "key_version",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": 1
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {
+                "secrets_key_name_unique": {
+                    "name": "secrets_key_name_unique",
+                    "columns": ["key_name"],
+                    "isUnique": true
+                }
+            },
+            "foreignKeys": {},
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {}
+        },
+        "session_composer_drafts": {
+            "name": "session_composer_drafts",
+            "columns": {
+                "auth_session_id": {
+                    "name": "auth_session_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "room_id": {
+                    "name": "room_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "session_key": {
+                    "name": "session_key",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "draft": {
+                    "name": "draft",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {
+                "session_composer_drafts_room_session_idx": {
+                    "name": "session_composer_drafts_room_session_idx",
+                    "columns": ["room_id", "session_key"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "session_composer_drafts_auth_session_id_sessions_id_fk": {
+                    "name": "session_composer_drafts_auth_session_id_sessions_id_fk",
+                    "tableFrom": "session_composer_drafts",
+                    "tableTo": "sessions",
+                    "columnsFrom": ["auth_session_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                },
+                "session_composer_drafts_room_id_rooms_id_fk": {
+                    "name": "session_composer_drafts_room_id_rooms_id_fk",
+                    "tableFrom": "session_composer_drafts",
+                    "tableTo": "rooms",
+                    "columnsFrom": ["room_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {
+                "session_composer_drafts_pk": {
+                    "columns": ["auth_session_id", "room_id", "session_key"],
+                    "name": "session_composer_drafts_pk"
+                }
+            },
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "session_composer_drafts_length_check": {
+                    "name": "session_composer_drafts_length_check",
+                    "value": "length(\"session_composer_drafts\".\"draft\") <= 20000"
+                }
+            }
+        },
+        "sessions": {
+            "name": "sessions",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "user_id": {
+                    "name": "user_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "token_hash": {
+                    "name": "token_hash",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "expires_at": {
+                    "name": "expires_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "last_seen_at": {
+                    "name": "last_seen_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "revoked_at": {
+                    "name": "revoked_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "user_agent": {
+                    "name": "user_agent",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "ip_address": {
+                    "name": "ip_address",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                }
+            },
+            "indexes": {
+                "sessions_token_hash_unique": {
+                    "name": "sessions_token_hash_unique",
+                    "columns": ["token_hash"],
+                    "isUnique": true
+                },
+                "sessions_user_id_idx": {
+                    "name": "sessions_user_id_idx",
+                    "columns": ["user_id"],
+                    "isUnique": false
+                },
+                "sessions_expires_at_idx": {
+                    "name": "sessions_expires_at_idx",
+                    "columns": ["expires_at"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "sessions_user_id_users_id_fk": {
+                    "name": "sessions_user_id_users_id_fk",
+                    "tableFrom": "sessions",
+                    "tableTo": "users",
+                    "columnsFrom": ["user_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {}
+        },
+        "usage_events": {
+            "name": "usage_events",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "room_id": {
+                    "name": "room_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "session_key": {
+                    "name": "session_key",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "run_id": {
+                    "name": "run_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "job_id": {
+                    "name": "job_id",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "kind": {
+                    "name": "kind",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "provider": {
+                    "name": "provider",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "model": {
+                    "name": "model",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "tool_name": {
+                    "name": "tool_name",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "input_tokens": {
+                    "name": "input_tokens",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "output_tokens": {
+                    "name": "output_tokens",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "cached_tokens": {
+                    "name": "cached_tokens",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "reasoning_tokens": {
+                    "name": "reasoning_tokens",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "total_tokens": {
+                    "name": "total_tokens",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "duration_ms": {
+                    "name": "duration_ms",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "active_duration_ms": {
+                    "name": "active_duration_ms",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "idle_duration_ms": {
+                    "name": "idle_duration_ms",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "estimated_cost_usd": {
+                    "name": "estimated_cost_usd",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": false,
+                    "autoincrement": false
+                },
+                "metadata": {
+                    "name": "metadata",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "'{}'"
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {
+                "usage_events_room_created_idx": {
+                    "name": "usage_events_room_created_idx",
+                    "columns": ["room_id", "created_at"],
+                    "isUnique": false
+                },
+                "usage_events_kind_created_idx": {
+                    "name": "usage_events_kind_created_idx",
+                    "columns": ["kind", "created_at"],
+                    "isUnique": false
+                },
+                "usage_events_session_run_idx": {
+                    "name": "usage_events_session_run_idx",
+                    "columns": ["room_id", "session_key", "run_id"],
+                    "isUnique": false
+                }
+            },
+            "foreignKeys": {
+                "usage_events_room_id_rooms_id_fk": {
+                    "name": "usage_events_room_id_rooms_id_fk",
+                    "tableFrom": "usage_events",
+                    "tableTo": "rooms",
+                    "columnsFrom": ["room_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "cascade",
+                    "onUpdate": "no action"
+                },
+                "usage_events_job_id_room_cron_jobs_id_fk": {
+                    "name": "usage_events_job_id_room_cron_jobs_id_fk",
+                    "tableFrom": "usage_events",
+                    "tableTo": "room_cron_jobs",
+                    "columnsFrom": ["job_id"],
+                    "columnsTo": ["id"],
+                    "onDelete": "set null",
+                    "onUpdate": "no action"
+                }
+            },
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "usage_events_kind_check": {
+                    "name": "usage_events_kind_check",
+                    "value": "\"usage_events\".\"kind\" IN ('run', 'provider', 'tool', 'document_worker', 'image', 'job')"
+                }
+            }
+        },
+        "users": {
+            "name": "users",
+            "columns": {
+                "id": {
+                    "name": "id",
+                    "type": "text",
+                    "primaryKey": true,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "email": {
+                    "name": "email",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "password_hash": {
+                    "name": "password_hash",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "role": {
+                    "name": "role",
+                    "type": "text",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false
+                },
+                "created_at": {
+                    "name": "created_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                },
+                "updated_at": {
+                    "name": "updated_at",
+                    "type": "integer",
+                    "primaryKey": false,
+                    "notNull": true,
+                    "autoincrement": false,
+                    "default": "(unixepoch() * 1000)"
+                }
+            },
+            "indexes": {
+                "users_email_unique": {
+                    "name": "users_email_unique",
+                    "columns": ["email"],
+                    "isUnique": true
+                }
+            },
+            "foreignKeys": {},
+            "compositePrimaryKeys": {},
+            "uniqueConstraints": {},
+            "checkConstraints": {
+                "users_role_check": {
+                    "name": "users_role_check",
+                    "value": "\"users\".\"role\" IN ('root', 'operator')"
+                }
+            }
+        }
+    },
+    "views": {},
+    "enums": {},
+    "_meta": {
+        "schemas": {},
+        "tables": {},
+        "columns": {}
+    },
+    "internal": {
+        "indexes": {}
+    }
+}

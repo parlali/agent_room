@@ -1,6 +1,6 @@
 import { bootstrapRootUser } from '../src/server/auth/auth-service'
 import { getAppEnv } from '../src/server/config/env'
-import { sql } from '../src/server/db/client'
+import { closeDatabase } from '../src/server/db/client'
 
 async function main() {
     const result = await bootstrapRootUser()
@@ -10,11 +10,11 @@ async function main() {
     } else {
         console.log('Root user already exists')
     }
-    await sql.end({ timeout: 5 })
+    await closeDatabase()
 }
 
 main().catch(async (error) => {
     console.error(error)
-    await sql.end({ timeout: 5 })
+    await closeDatabase()
     process.exit(1)
 })
