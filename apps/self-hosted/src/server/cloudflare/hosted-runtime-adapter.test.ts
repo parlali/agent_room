@@ -8,19 +8,28 @@ interface RuntimeUpdate {
     args: unknown[]
 }
 
+interface RuntimeStatement extends RuntimeUpdate {
+    first: () => Promise<unknown>
+    run: () => Promise<{ success: true }>
+}
+
 function hostedEnv(input: {
     runtimeRow: unknown
     objectKeys: string[]
     start?: (name: string, args: unknown) => Promise<void>
     updates?: RuntimeUpdate[]
+    batches?: RuntimeUpdate[][]
 }): AgentRoomHostedEnv {
     const updates = input.updates ?? []
+    const batches = input.batches ?? []
     const objectKeys = new Set(input.objectKeys)
 
     return {
         AGENT_ROOM_DB: {
             prepare: (sql: string) => ({
-                bind: (...args: unknown[]) => ({
+                bind: (...args: unknown[]): RuntimeStatement => ({
+                    sql,
+                    args,
                     first: async () => input.runtimeRow,
                     run: async () => {
                         updates.push({ sql, args })
@@ -28,6 +37,17 @@ function hostedEnv(input: {
                     },
                 }),
             }),
+            batch: async (statements: RuntimeStatement[]) => {
+                const batch = statements.map((statement) => ({
+                    sql: statement.sql,
+                    args: statement.args,
+                }))
+                batches.push(batch)
+                updates.push(...batch)
+                return batch.map(() => ({
+                    success: true,
+                }))
+            },
         } as unknown as D1Database,
         AGENT_ROOM_WORKSPACE_BUCKET: {
             head: async (key: string) => (objectKeys.has(key) ? {} : null),
@@ -66,9 +86,11 @@ function runtimeMessage(): AgentRoomRuntimeJobMessage {
 describe('hosted runtime reconciliation', () => {
     it('starts the canonical room container after D1 and R2 state are verified', async () => {
         const updates: RuntimeUpdate[] = []
+        const batches: RuntimeUpdate[][] = []
         const starts: Array<{ name: string; args: unknown }> = []
         const env = hostedEnv({
             updates,
+            batches,
             objectKeys: [
                 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
                 'workspaces/workspace_1/rooms/room_1/snapshots/snapshot_1.tar.zst',
@@ -108,7 +130,15 @@ describe('hosted runtime reconciliation', () => {
                 },
             },
         })
-        expect(updates.some((update) => update.sql.includes("status = 'running'"))).toBe(true)
+        expect(updates.some((update) => update.args.includes('running'))).toBe(true)
+        expect(
+            batches.some(
+                (batch) =>
+                    batch.length === 2 &&
+                    batch.some((update) => /UPDATE\s+hosted_room_runtime_state/.test(update.sql)) &&
+                    batch.some((update) => /UPDATE\s+hosted_room\s/.test(update.sql)),
+            ),
+        ).toBe(true)
     })
 
     it('fails closed when persisted container name does not match canonical identity', async () => {
@@ -131,8 +161,10 @@ describe('hosted runtime reconciliation', () => {
 
     it('fails closed when the runtime config object is missing from R2', async () => {
         const updates: RuntimeUpdate[] = []
+        const batches: RuntimeUpdate[][] = []
         const env = hostedEnv({
             updates,
+            batches,
             objectKeys: [],
             runtimeRow: {
                 roomId: 'room_1',
@@ -147,6 +179,7 @@ describe('hosted runtime reconciliation', () => {
         await expect(reconcileHostedRuntimeJob(env, runtimeMessage())).rejects.toThrow(
             /Runtime config object/,
         )
-        expect(updates.some((update) => update.sql.includes("status = 'failed'"))).toBe(true)
+        expect(updates.some((update) => update.args.includes('failed'))).toBe(true)
+        expect(batches).toHaveLength(1)
     })
 })

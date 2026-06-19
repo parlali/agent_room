@@ -1,5 +1,6 @@
 import type { AgentRoomHostedEnv, AgentRoomRuntimeJobMessage } from './bindings'
 import { resolveHostedConfig } from './hosted-config'
+import { writeHostedRuntimeStateTransition } from './hosted-runtime-state-repository'
 import {
     buildHostedRuntimeStartOptions,
     hostedRuntimeContainerName,
@@ -19,44 +20,6 @@ interface HostedRuntimeRow {
 
 interface HostedRuntimeObjectStore {
     head: (key: string) => Promise<unknown | null>
-}
-
-function truncateRuntimeError(error: unknown): string {
-    const message = error instanceof Error ? error.message : String(error)
-    return message.slice(0, 2000)
-}
-
-async function writeRuntimeFailure(input: {
-    env: AgentRoomHostedEnv
-    workspaceId: string
-    roomId: string
-    error: unknown
-}): Promise<void> {
-    const now = new Date().toISOString()
-    const lastError = truncateRuntimeError(input.error)
-    await input.env.AGENT_ROOM_DB.prepare(
-        `
-            UPDATE hosted_room_runtime_state
-            SET health_status = 'unhealthy',
-                last_error = ?1,
-                updated_at = ?2
-            WHERE room_id = ?3
-              AND workspace_id = ?4
-        `,
-    )
-        .bind(lastError, now, input.roomId, input.workspaceId)
-        .run()
-    await input.env.AGENT_ROOM_DB.prepare(
-        `
-            UPDATE hosted_room
-            SET status = 'failed',
-                updated_at = ?1
-            WHERE id = ?2
-              AND workspace_id = ?3
-        `,
-    )
-        .bind(now, input.roomId, input.workspaceId)
-        .run()
 }
 
 async function readHostedRuntimeRow(
@@ -101,69 +64,6 @@ async function assertObjectExists(input: {
     }
 }
 
-async function markRuntimeStarting(input: {
-    env: AgentRoomHostedEnv
-    workspaceId: string
-    roomId: string
-}): Promise<void> {
-    const now = new Date().toISOString()
-    await input.env.AGENT_ROOM_DB.prepare(
-        `
-            UPDATE hosted_room
-            SET status = 'starting',
-                updated_at = ?1
-            WHERE id = ?2
-              AND workspace_id = ?3
-        `,
-    )
-        .bind(now, input.roomId, input.workspaceId)
-        .run()
-    await input.env.AGENT_ROOM_DB.prepare(
-        `
-            UPDATE hosted_room_runtime_state
-            SET health_status = 'unknown',
-                last_error = NULL,
-                updated_at = ?1
-            WHERE room_id = ?2
-              AND workspace_id = ?3
-        `,
-    )
-        .bind(now, input.roomId, input.workspaceId)
-        .run()
-}
-
-async function markRuntimeRunning(input: {
-    env: AgentRoomHostedEnv
-    workspaceId: string
-    roomId: string
-}): Promise<void> {
-    const now = new Date().toISOString()
-    await input.env.AGENT_ROOM_DB.prepare(
-        `
-            UPDATE hosted_room_runtime_state
-            SET health_status = 'healthy',
-                started_at = COALESCE(started_at, ?1),
-                last_health_at = ?1,
-                updated_at = ?1
-            WHERE room_id = ?2
-              AND workspace_id = ?3
-        `,
-    )
-        .bind(now, input.roomId, input.workspaceId)
-        .run()
-    await input.env.AGENT_ROOM_DB.prepare(
-        `
-            UPDATE hosted_room
-            SET status = 'running',
-                updated_at = ?1
-            WHERE id = ?2
-              AND workspace_id = ?3
-        `,
-    )
-        .bind(now, input.roomId, input.workspaceId)
-        .run()
-}
-
 export async function reconcileHostedRuntimeJob(
     env: AgentRoomHostedEnv,
     message: AgentRoomRuntimeJobMessage,
@@ -206,10 +106,13 @@ export async function reconcileHostedRuntimeJob(
             })
         }
 
-        await markRuntimeStarting({
+        await writeHostedRuntimeStateTransition({
             env,
             workspaceId: runtime.workspaceId,
             roomId: runtime.roomId,
+            transition: {
+                kind: 'starting',
+            },
         })
 
         const config = resolveHostedConfig(env)
@@ -230,17 +133,23 @@ export async function reconcileHostedRuntimeJob(
                 waitInterval: 250,
             },
         })
-        await markRuntimeRunning({
+        await writeHostedRuntimeStateTransition({
             env,
             workspaceId: runtime.workspaceId,
             roomId: runtime.roomId,
+            transition: {
+                kind: 'running',
+            },
         })
     } catch (error) {
-        await writeRuntimeFailure({
+        await writeHostedRuntimeStateTransition({
             env,
             workspaceId: runtime.workspaceId,
             roomId: runtime.roomId,
-            error,
+            transition: {
+                kind: 'failed',
+                error,
+            },
         })
         throw error
     }
