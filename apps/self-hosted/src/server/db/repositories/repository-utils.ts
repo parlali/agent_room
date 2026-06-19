@@ -1,12 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import { sql } from 'drizzle-orm'
-import { getDatabase, runDatabaseBatch, type LocalDatabase } from '../client'
+import {
+    getDatabase,
+    runDatabaseBatch,
+    type DatabaseBatchStatements,
+    type LocalDatabase,
+} from '../client'
 
 export async function repositoryDatabase(): Promise<LocalDatabase> {
     return getDatabase()
 }
 
-export async function repositoryBatch(statements: unknown[]): Promise<unknown[]> {
+export async function repositoryBatch<T extends DatabaseBatchStatements>(statements: T) {
     return runDatabaseBatch(statements)
 }
 

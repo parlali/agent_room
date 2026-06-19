@@ -1,15 +1,25 @@
 import { defineConfig } from 'drizzle-kit'
-import { resolve } from 'node:path'
-import { resolveDefaultDatabaseUrl } from './src/server/db/database-url'
+import { resolveSqliteDatabasePath } from './src/server/db/database-url'
 
-const dataDir = resolve(process.env.AGENT_ROOM_DATA_DIR ?? '.agent-room')
+function requireDatabaseUrl(): string {
+    const databaseUrl = process.env.AGENT_ROOM_DATABASE_URL
+    if (!databaseUrl) {
+        throw new Error(
+            'AGENT_ROOM_DATABASE_URL must be set when running Drizzle Kit commands. Use an absolute file: SQLite URL.',
+        )
+    }
+    resolveSqliteDatabasePath(databaseUrl)
+    return databaseUrl
+}
+
+const databaseUrl = requireDatabaseUrl()
 
 export default defineConfig({
     schema: './src/server/db/schema.ts',
     out: './db/migrations',
     dialect: 'sqlite',
     dbCredentials: {
-        url: process.env.AGENT_ROOM_DATABASE_URL ?? resolveDefaultDatabaseUrl(dataDir),
+        url: databaseUrl,
     },
     casing: 'snake_case',
     breakpoints: true,

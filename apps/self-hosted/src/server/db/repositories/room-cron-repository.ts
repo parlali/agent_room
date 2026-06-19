@@ -380,20 +380,26 @@ export const roomCronRepository = {
     }): Promise<RoomCronRunRecord> {
         const db = await repositoryDatabase()
         const now = nowDate()
+        const [existing] = await db
+            .select({ startedAt: roomCronRuns.startedAt })
+            .from(roomCronRuns)
+            .where(eq(roomCronRuns.id, input.runId))
+            .limit(1)
+        if (!existing) {
+            throw new Error(`Cron run ${input.runId} does not exist`)
+        }
+        const durationMs = Math.max(0, now.getTime() - existing.startedAt.getTime())
         const [row] = await db
             .update(roomCronRuns)
             .set({
                 status: input.status,
                 error: input.error,
                 finishedAt: now,
-                durationMs: sql<number>`max(0, ${now.getTime()} - ${roomCronRuns.startedAt})`,
+                durationMs,
                 nextRunAt: input.nextRunAt,
             })
             .where(eq(roomCronRuns.id, input.runId))
             .returning()
-        if (!row) {
-            throw new Error(`Cron run ${input.runId} does not exist`)
-        }
         return mapRoomCronRun(row)
     },
 

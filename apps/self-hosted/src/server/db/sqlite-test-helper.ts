@@ -9,14 +9,21 @@ export async function createMigratedTestDatabase(prefix: string): Promise<{
     close: () => Promise<void>
 }> {
     const root = await mkdtemp(join(tmpdir(), prefix))
-    const handle = await createLocalDatabase(`file:${join(root, 'agent-room.sqlite')}`)
-    await migrate(handle.db as LocalDatabase, {
-        migrationsFolder: resolve('db/migrations'),
-    })
-    const restore = installDatabaseHandleForTesting(handle)
+    let handle: Awaited<ReturnType<typeof createLocalDatabase>> | null = null
+    try {
+        handle = await createLocalDatabase(`file:${join(root, 'agent-room.sqlite')}`)
+        await migrate(handle.db, {
+            migrationsFolder: resolve('db/migrations'),
+        })
+    } catch (error) {
+        await handle?.close()
+        await rm(root, { recursive: true, force: true })
+        throw error
+    }
 
+    const restore = installDatabaseHandleForTesting(handle)
     return {
-        db: handle.db as LocalDatabase,
+        db: handle.db,
         close: async () => {
             restore()
             await handle.close()

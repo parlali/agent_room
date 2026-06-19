@@ -15,6 +15,7 @@ import type {
     RoomSecretPurpose,
     RoomSecretRecord,
 } from '#/domain/domain-types'
+import type { DatabaseBatchStatements } from '../client'
 import {
     appMcpConnections,
     appProviderConnections,
@@ -471,7 +472,7 @@ export const roomMcpBindingRepository = {
     ): Promise<RoomMcpBindingRecord[]> {
         const db = await repositoryDatabase()
         const now = nowDate()
-        const statements = [
+        const statements: DatabaseBatchStatements = [
             db.delete(roomMcpBindings).where(eq(roomMcpBindings.roomId, roomId)),
             ...bindings.map((binding) =>
                 db

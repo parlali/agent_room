@@ -74,14 +74,17 @@ describe('bootstrap credential autogeneration', () => {
         ).toThrow(/does not migrate old Postgres data/)
 
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-        expect(() =>
-            __testing.assertExistingBootstrapHasDatabase({
-                databaseUrl,
-                generatedNewBootstrap: false,
-                allowDatabaseReset: true,
-            }),
-        ).not.toThrow()
-        warn.mockRestore()
+        try {
+            expect(() =>
+                __testing.assertExistingBootstrapHasDatabase({
+                    databaseUrl,
+                    generatedNewBootstrap: false,
+                    allowDatabaseReset: true,
+                }),
+            ).not.toThrow()
+        } finally {
+            warn.mockRestore()
+        }
 
         await writeFile(join(dataDir, 'system', 'agent-room.sqlite'), '')
 
