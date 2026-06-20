@@ -1,7 +1,5 @@
 FROM oven/bun:1.3.13
 
-ARG TARGETARCH
-
 WORKDIR /app
 
 RUN apt-get update \
@@ -41,15 +39,7 @@ RUN apt-get update \
     && ln -sf /usr/bin/python3 /usr/local/bin/python \
     && rm -rf /var/lib/apt/lists/*
 
-RUN case "${TARGETARCH}" in \
-        amd64) dbmate_arch="amd64" ;; \
-        arm64) dbmate_arch="arm64" ;; \
-        *) echo "Unsupported arch: ${TARGETARCH}" && exit 1 ;; \
-    esac \
-    && curl -fsSL "https://github.com/amacneil/dbmate/releases/download/v2.28.0/dbmate-linux-${dbmate_arch}" -o /usr/local/bin/dbmate \
-    && chmod +x /usr/local/bin/dbmate
-
-COPY package.json bun.lock ./
+COPY package.json bun.lock turbo.json ./
 COPY apps/marketing/package.json apps/marketing/package.json
 COPY apps/self-hosted/package.json apps/self-hosted/package.json
 COPY packages/brand/package.json packages/brand/package.json
@@ -57,8 +47,7 @@ COPY packages/typescript-config/package.json packages/typescript-config/package.
 RUN bun install --frozen-lockfile
 
 COPY . .
-RUN bun install --frozen-lockfile \
-    && bun run brand:export:marketing \
+RUN bun run brand:export:marketing \
     && bun run marketing:build \
     && bun run self-hosted:build \
     && chmod -R go-rX apps/self-hosted/src \

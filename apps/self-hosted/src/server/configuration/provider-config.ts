@@ -1,4 +1,4 @@
-import type { ProviderApi } from '#/domain/domain-types'
+import type { ModelProviderId, ProviderApi } from '#/domain/domain-types'
 
 export const providerCatalog = [
     {
@@ -14,13 +14,13 @@ export const providerCatalog = [
         model: 'openrouter/auto',
     },
 ] satisfies Array<{
-    provider: string
+    provider: ModelProviderId
     label: string
     api: ProviderApi
     model: string
 }>
 
-const supportedProviderIds = new Set(providerCatalog.map((entry) => entry.provider))
+const supportedProviderIds = new Set<string>(providerCatalog.map((entry) => entry.provider))
 
 export function normalizeProviderId(provider: string): string {
     const normalized = provider.trim().toLowerCase()

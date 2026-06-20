@@ -1,35 +1,60 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-
+import { and, eq } from 'drizzle-orm'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { LocalDatabase } from '../client'
+import { createMigratedTestDatabase } from '../sqlite-test-helper'
+import { rooms, sessionComposerDrafts, sessions, users } from '../schema'
 import { maxSessionComposerDraftLength } from '#/domain/session-composer-draft'
 import { sessionComposerDraftRepository } from './session-composer-draft-repository'
 
-const mocks = vi.hoisted(() => ({
-    sql: vi.fn(),
-}))
+let db: LocalDatabase
+let closeDatabase: (() => Promise<void>) | null = null
 
-vi.mock('../client', () => ({
-    sql: mocks.sql,
-}))
+const draftKey = and(
+    eq(sessionComposerDrafts.authSessionId, 'auth-session-1'),
+    eq(sessionComposerDrafts.roomId, 'room-1'),
+    eq(sessionComposerDrafts.sessionKey, 'thread-1'),
+)
 
 describe('session composer draft repository', () => {
-    beforeEach(() => {
-        mocks.sql.mockReset()
+    beforeEach(async () => {
+        const database = await createMigratedTestDatabase('agent-room-draft-repository-')
+        db = database.db
+        closeDatabase = database.close
+
+        const now = new Date('2026-05-20T10:00:00.000Z')
+        await db.insert(users).values({
+            id: 'user-1',
+            email: 'root@example.test',
+            passwordHash: 'hash',
+            role: 'root',
+            createdAt: now,
+            updatedAt: now,
+        })
+        await db.insert(rooms).values({
+            id: 'room-1',
+            slug: 'room-1',
+            displayName: 'Room 1',
+            status: 'stopped',
+            desiredState: 'stopped',
+            createdByUserId: 'user-1',
+            createdAt: now,
+            updatedAt: now,
+        })
+        await db.insert(sessions).values({
+            id: 'auth-session-1',
+            userId: 'user-1',
+            tokenHash: 'token-hash',
+            expiresAt: new Date('2026-05-21T10:00:00.000Z'),
+            createdAt: now,
+        })
     })
 
-    it('persists a draft for one browser session, room, and chat session', async () => {
-        const createdAt = new Date('2026-05-20T10:00:00.000Z')
-        const updatedAt = new Date('2026-05-20T10:01:00.000Z')
-        mocks.sql.mockResolvedValueOnce([
-            {
-                auth_session_id: 'auth-session-1',
-                room_id: 'room-1',
-                session_key: 'thread-1',
-                draft: 'half-written prompt',
-                created_at: createdAt,
-                updated_at: updatedAt,
-            },
-        ])
+    afterEach(async () => {
+        await closeDatabase?.()
+        closeDatabase = null
+    })
 
+    it('persists and reads a draft for one browser session, room, and chat session', async () => {
         const draft = await sessionComposerDraftRepository.upsert({
             authSessionId: 'auth-session-1',
             roomId: 'room-1',
@@ -37,25 +62,30 @@ describe('session composer draft repository', () => {
             draft: 'half-written prompt',
         })
 
-        expect(statementAt(0)).toContain('INSERT INTO session_composer_drafts')
-        expect(mocks.sql.mock.calls[0]?.slice(1, 5)).toEqual([
-            'auth-session-1',
-            'room-1',
-            'thread-1',
-            'half-written prompt',
-        ])
-        expect(draft).toEqual({
+        expect(draft).toMatchObject({
             authSessionId: 'auth-session-1',
             roomId: 'room-1',
             sessionKey: 'thread-1',
             draft: 'half-written prompt',
-            createdAt,
-            updatedAt,
+        })
+        await expect(
+            sessionComposerDraftRepository.find({
+                authSessionId: 'auth-session-1',
+                roomId: 'room-1',
+                sessionKey: 'thread-1',
+            }),
+        ).resolves.toMatchObject({
+            draft: 'half-written prompt',
         })
     })
 
     it('deletes the draft row when the draft is empty', async () => {
-        mocks.sql.mockResolvedValueOnce([])
+        await sessionComposerDraftRepository.upsert({
+            authSessionId: 'auth-session-1',
+            roomId: 'room-1',
+            sessionKey: 'thread-1',
+            draft: 'half-written prompt',
+        })
 
         const draft = await sessionComposerDraftRepository.upsert({
             authSessionId: 'auth-session-1',
@@ -64,13 +94,9 @@ describe('session composer draft repository', () => {
             draft: '',
         })
 
+        const rows = await db.select().from(sessionComposerDrafts).where(draftKey)
         expect(draft).toBeNull()
-        expect(statementAt(0)).toContain('DELETE FROM session_composer_drafts')
-        expect(mocks.sql.mock.calls[0]?.slice(1, 4)).toEqual([
-            'auth-session-1',
-            'room-1',
-            'thread-1',
-        ])
+        expect(rows).toHaveLength(0)
     })
 
     it('rejects drafts beyond the canonical length bound before writing', async () => {
@@ -83,34 +109,38 @@ describe('session composer draft repository', () => {
             }),
         ).rejects.toThrow('Composer draft is too long')
 
-        expect(mocks.sql).not.toHaveBeenCalled()
+        const rows = await db.select().from(sessionComposerDrafts).where(draftKey)
+        expect(rows).toHaveLength(0)
     })
 
     it('clears all browser-session drafts for a deleted chat session', async () => {
-        mocks.sql.mockResolvedValueOnce([])
+        await sessionComposerDraftRepository.upsert({
+            authSessionId: 'auth-session-1',
+            roomId: 'room-1',
+            sessionKey: 'thread-1',
+            draft: 'half-written prompt',
+        })
 
         await sessionComposerDraftRepository.deleteByRoomSession({
             roomId: 'room-1',
             sessionKey: 'thread-1',
         })
 
-        expect(statementAt(0)).toContain('DELETE FROM session_composer_drafts')
-        expect(statementAt(0)).not.toContain('auth_session_id')
-        expect(mocks.sql.mock.calls[0]?.slice(1, 3)).toEqual(['room-1', 'thread-1'])
+        const rows = await db.select().from(sessionComposerDrafts).where(draftKey)
+        expect(rows).toHaveLength(0)
     })
 
     it('clears all drafts when an auth session is revoked', async () => {
-        mocks.sql.mockResolvedValueOnce([])
+        await sessionComposerDraftRepository.upsert({
+            authSessionId: 'auth-session-1',
+            roomId: 'room-1',
+            sessionKey: 'thread-1',
+            draft: 'half-written prompt',
+        })
 
         await sessionComposerDraftRepository.deleteByAuthSession('auth-session-1')
 
-        expect(statementAt(0)).toContain('DELETE FROM session_composer_drafts')
-        expect(statementAt(0)).toContain('auth_session_id')
-        expect(mocks.sql.mock.calls[0]?.slice(1, 2)).toEqual(['auth-session-1'])
+        const rows = await db.select().from(sessionComposerDrafts).where(draftKey)
+        expect(rows).toHaveLength(0)
     })
 })
-
-function statementAt(index: number): string {
-    const strings = mocks.sql.mock.calls[index]?.[0]
-    return Array.from(strings ?? []).join(' ')
-}

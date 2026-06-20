@@ -7,7 +7,7 @@ import {
     roomSecretRepository,
 } from '../db/repositories'
 import {
-    roomConfigRepository,
+    roomConfigRepository_delete,
     roomMcpBindingRepository,
 } from '../db/repositories/configuration-repository'
 import { saveRoomConfig } from '../configuration/operator-configuration'
@@ -33,12 +33,15 @@ function normalizeSlug(value: string) {
 }
 
 function isUniqueViolation(error: unknown): boolean {
-    return (
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error &&
-        String((error as { code: unknown }).code) === '23505'
-    )
+    if (typeof error !== 'object' || error === null) {
+        return false
+    }
+
+    const record = error as { code?: unknown; message?: unknown }
+    const code = String(record.code ?? '')
+    const message = String(record.message ?? '')
+
+    return code === 'SQLITE_CONSTRAINT_UNIQUE' || message.includes('UNIQUE constraint failed')
 }
 
 function throwRoomSlugConflict(error: unknown, slug: string): never {
@@ -283,12 +286,7 @@ export async function deleteRoom(input: { roomId: string; actorUserId: string })
     await roomCronRepository.deleteAllByRoomId(input.roomId)
     await roomSecretRepository.deleteByRoomId(input.roomId)
     await roomMcpBindingRepository.replaceForRoom(input.roomId, [])
-    await roomConfigRepository.findByRoomId(input.roomId).then(async (config) => {
-        if (config) {
-            const { sql } = await import('../db/client')
-            await sql`DELETE FROM room_configs WHERE room_id = ${input.roomId}`
-        }
-    })
+    await roomConfigRepository_delete.deleteByRoomId(input.roomId)
     await roomRuntimeMetadataRepository.deleteByRoomId(input.roomId)
 
     await auditRepository.appendEvent({

@@ -1,6 +1,32 @@
+import { and, count, desc, eq, isNull, sql, sum } from 'drizzle-orm'
 import type { JsonValue, UsageEventKind, UsageEventRecord } from '#/domain/domain-types'
-import { sql } from '../client'
+import { usageEvents } from '../schema'
 import { mapUsageEvent } from './row-mappers'
+import { createDatabaseId, nowDate, repositoryDatabase } from './repository-utils'
+
+function mapSummary(row: {
+    eventCount: number
+    durationMs: string | null
+    totalTokens: string | null
+    estimatedCostUsd: number | null
+    unknownTokenEvents: number | null
+}) {
+    return {
+        eventCount: row.eventCount,
+        durationMs: row.durationMs === null ? null : Number(row.durationMs),
+        totalTokens: row.totalTokens === null ? null : Number(row.totalTokens),
+        estimatedCostUsd: row.estimatedCostUsd === null ? null : Number(row.estimatedCostUsd),
+        unknownTokenEvents: Number(row.unknownTokenEvents ?? 0),
+    }
+}
+
+const summarySelection = {
+    eventCount: count(),
+    durationMs: sum(usageEvents.durationMs),
+    totalTokens: sum(usageEvents.totalTokens),
+    estimatedCostUsd: sql<number | null>`sum(cast(${usageEvents.estimatedCostUsd} as real))`,
+    unknownTokenEvents: sql<number>`sum(case when ${usageEvents.totalTokens} is null then 1 else 0 end)`,
+}
 
 export const usageRepository = {
     async appendEvent(input: {
@@ -23,71 +49,55 @@ export const usageRepository = {
         estimatedCostUsd: number | null
         metadata: JsonValue
     }): Promise<UsageEventRecord> {
-        const rows = await sql`
-            INSERT INTO usage_events (
-                room_id,
-                session_key,
-                run_id,
-                job_id,
-                kind,
-                provider,
-                model,
-                tool_name,
-                input_tokens,
-                output_tokens,
-                cached_tokens,
-                reasoning_tokens,
-                total_tokens,
-                duration_ms,
-                active_duration_ms,
-                idle_duration_ms,
-                estimated_cost_usd,
-                metadata
-            )
-            VALUES (
-                ${input.roomId},
-                ${input.sessionKey},
-                ${input.runId},
-                ${input.jobId},
-                ${input.kind},
-                ${input.provider},
-                ${input.model},
-                ${input.toolName},
-                ${input.inputTokens},
-                ${input.outputTokens},
-                ${input.cachedTokens},
-                ${input.reasoningTokens},
-                ${input.totalTokens},
-                ${input.durationMs},
-                ${input.activeDurationMs},
-                ${input.idleDurationMs},
-                ${input.estimatedCostUsd},
-                ${sql.json(input.metadata)}
-            )
-            RETURNING *
-        `
-        return mapUsageEvent(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const [row] = await db
+            .insert(usageEvents)
+            .values({
+                id: createDatabaseId(),
+                roomId: input.roomId,
+                sessionKey: input.sessionKey,
+                runId: input.runId,
+                jobId: input.jobId,
+                kind: input.kind,
+                provider: input.provider,
+                model: input.model,
+                toolName: input.toolName,
+                inputTokens: input.inputTokens,
+                outputTokens: input.outputTokens,
+                cachedTokens: input.cachedTokens,
+                reasoningTokens: input.reasoningTokens,
+                totalTokens: input.totalTokens,
+                durationMs: input.durationMs,
+                activeDurationMs: input.activeDurationMs,
+                idleDurationMs: input.idleDurationMs,
+                estimatedCostUsd:
+                    input.estimatedCostUsd === null ? null : String(input.estimatedCostUsd),
+                metadata: input.metadata,
+                createdAt: nowDate(),
+            })
+            .returning()
+        return mapUsageEvent(row)
     },
 
     async listByRoom(input: { roomId: string; limit: number }): Promise<UsageEventRecord[]> {
-        const rows = await sql`
-            SELECT *
-            FROM usage_events
-            WHERE room_id = ${input.roomId}
-            ORDER BY created_at DESC
-            LIMIT ${input.limit}
-        `
-        return rows.map((row) => mapUsageEvent(row as Record<string, unknown>))
+        const db = await repositoryDatabase()
+        const rows = await db
+            .select()
+            .from(usageEvents)
+            .where(eq(usageEvents.roomId, input.roomId))
+            .orderBy(desc(usageEvents.createdAt))
+            .limit(input.limit)
+        return rows.map(mapUsageEvent)
     },
 
     async listRecent(input: { limit: number }): Promise<UsageEventRecord[]> {
-        const rows = await sql`
-            SELECT *
-            FROM usage_events
-            ORDER BY created_at DESC
-            LIMIT ${input.limit}
-        `
-        return rows.map((row) => mapUsageEvent(row as Record<string, unknown>))
+        const db = await repositoryDatabase()
+        const rows = await db
+            .select()
+            .from(usageEvents)
+            .orderBy(desc(usageEvents.createdAt))
+            .limit(input.limit)
+        return rows.map(mapUsageEvent)
     },
 
     async summarizeByRoom(input: { roomId: string }): Promise<{
@@ -97,25 +107,12 @@ export const usageRepository = {
         estimatedCostUsd: number | null
         unknownTokenEvents: number
     }> {
-        const rows = await sql`
-            SELECT
-                COUNT(*)::int AS event_count,
-                SUM(duration_ms)::bigint AS duration_ms,
-                SUM(total_tokens)::bigint AS total_tokens,
-                SUM(estimated_cost_usd)::numeric AS estimated_cost_usd,
-                COUNT(*) FILTER (WHERE total_tokens IS NULL)::int AS unknown_token_events
-            FROM usage_events
-            WHERE room_id = ${input.roomId}
-        `
-        const row = rows[0] as Record<string, unknown>
-        return {
-            eventCount: Number(row.event_count ?? 0),
-            durationMs: row.duration_ms === null ? null : Number(row.duration_ms),
-            totalTokens: row.total_tokens === null ? null : Number(row.total_tokens),
-            estimatedCostUsd:
-                row.estimated_cost_usd === null ? null : Number(row.estimated_cost_usd),
-            unknownTokenEvents: Number(row.unknown_token_events ?? 0),
-        }
+        const db = await repositoryDatabase()
+        const [row] = await db
+            .select(summarySelection)
+            .from(usageEvents)
+            .where(eq(usageEvents.roomId, input.roomId))
+        return mapSummary(row)
     },
 
     async summarizeAll(): Promise<{
@@ -125,35 +122,26 @@ export const usageRepository = {
         estimatedCostUsd: number | null
         unknownTokenEvents: number
     }> {
-        const rows = await sql`
-            SELECT
-                COUNT(*)::int AS event_count,
-                SUM(duration_ms)::bigint AS duration_ms,
-                SUM(total_tokens)::bigint AS total_tokens,
-                SUM(estimated_cost_usd)::numeric AS estimated_cost_usd,
-                COUNT(*) FILTER (WHERE total_tokens IS NULL)::int AS unknown_token_events
-            FROM usage_events
-        `
-        const row = rows[0] as Record<string, unknown>
-        return {
-            eventCount: Number(row.event_count ?? 0),
-            durationMs: row.duration_ms === null ? null : Number(row.duration_ms),
-            totalTokens: row.total_tokens === null ? null : Number(row.total_tokens),
-            estimatedCostUsd:
-                row.estimated_cost_usd === null ? null : Number(row.estimated_cost_usd),
-            unknownTokenEvents: Number(row.unknown_token_events ?? 0),
-        }
+        const db = await repositoryDatabase()
+        const [row] = await db.select(summarySelection).from(usageEvents)
+        return mapSummary(row)
     },
 
     async attachJobToRun(input: { roomId: string; runId: string; jobId: string }): Promise<number> {
-        const rows = await sql`
-            UPDATE usage_events
-            SET job_id = ${input.jobId}
-            WHERE room_id = ${input.roomId}
-                AND run_id = ${input.runId}
-                AND job_id IS NULL
-            RETURNING id
-        `
+        const db = await repositoryDatabase()
+        const rows = await db
+            .update(usageEvents)
+            .set({ jobId: input.jobId })
+            .where(
+                and(
+                    eq(usageEvents.roomId, input.roomId),
+                    eq(usageEvents.runId, input.runId),
+                    isNull(usageEvents.jobId),
+                ),
+            )
+            .returning({
+                id: usageEvents.id,
+            })
         return rows.length
     },
 }

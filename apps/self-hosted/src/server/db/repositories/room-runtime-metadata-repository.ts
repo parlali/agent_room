@@ -1,15 +1,18 @@
+import { eq, sql } from 'drizzle-orm'
 import type { HealthStatus, RoomRuntimeMetadataRecord } from '#/domain/domain-types'
-import { sql } from '../client'
+import { roomRuntimeMetadata } from '../schema'
 import { mapRuntimeMetadata } from './row-mappers'
+import { excluded, nowDate, repositoryDatabase } from './repository-utils'
 
 export const roomRuntimeMetadataRepository = {
     async findByRoomId(roomId: string): Promise<RoomRuntimeMetadataRecord | null> {
-        const rows =
-            await sql`SELECT * FROM room_runtime_metadata WHERE room_id = ${roomId} LIMIT 1`
-        if (rows.length === 0) {
-            return null
-        }
-        return mapRuntimeMetadata(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const [row] = await db
+            .select()
+            .from(roomRuntimeMetadata)
+            .where(eq(roomRuntimeMetadata.roomId, roomId))
+            .limit(1)
+        return row ? mapRuntimeMetadata(row) : null
     },
 
     async upsert(input: {
@@ -27,68 +30,62 @@ export const roomRuntimeMetadataRepository = {
         lastHealthAt: Date | null
         lastError: string | null
     }): Promise<RoomRuntimeMetadataRecord> {
-        const rows = await sql`
-            INSERT INTO room_runtime_metadata (
-                room_id,
-                port,
-                pid,
-                sandbox_uid,
-                sandbox_gid,
-                sandbox_user_name,
-                sandbox_group_name,
-                config_version,
-                token_version,
-                health_status,
-                started_at,
-                last_health_at,
-                last_error,
-                updated_at
-            )
-            VALUES (
-                ${input.roomId},
-                ${input.port},
-                ${input.pid},
-                ${input.sandboxUid ?? null},
-                ${input.sandboxGid ?? null},
-                ${input.sandboxUserName ?? null},
-                ${input.sandboxGroupName ?? null},
-                ${input.configVersion},
-                ${input.tokenVersion},
-                ${input.healthStatus},
-                ${input.startedAt},
-                ${input.lastHealthAt},
-                ${input.lastError},
-                now()
-            )
-            ON CONFLICT (room_id)
-            DO UPDATE SET
-                port = excluded.port,
-                pid = excluded.pid,
-                sandbox_uid = COALESCE(excluded.sandbox_uid, room_runtime_metadata.sandbox_uid),
-                sandbox_gid = COALESCE(excluded.sandbox_gid, room_runtime_metadata.sandbox_gid),
-                sandbox_user_name = COALESCE(excluded.sandbox_user_name, room_runtime_metadata.sandbox_user_name),
-                sandbox_group_name = COALESCE(excluded.sandbox_group_name, room_runtime_metadata.sandbox_group_name),
-                config_version = excluded.config_version,
-                token_version = excluded.token_version,
-                health_status = excluded.health_status,
-                started_at = excluded.started_at,
-                last_health_at = excluded.last_health_at,
-                last_error = excluded.last_error,
-                updated_at = now()
-            RETURNING *
-        `
-        return mapRuntimeMetadata(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const now = nowDate()
+        const [row] = await db
+            .insert(roomRuntimeMetadata)
+            .values({
+                roomId: input.roomId,
+                port: input.port,
+                pid: input.pid,
+                sandboxUid: input.sandboxUid ?? null,
+                sandboxGid: input.sandboxGid ?? null,
+                sandboxUserName: input.sandboxUserName ?? null,
+                sandboxGroupName: input.sandboxGroupName ?? null,
+                configVersion: input.configVersion,
+                tokenVersion: input.tokenVersion,
+                healthStatus: input.healthStatus,
+                startedAt: input.startedAt,
+                lastHealthAt: input.lastHealthAt,
+                lastError: input.lastError,
+                updatedAt: now,
+            })
+            .onConflictDoUpdate({
+                target: roomRuntimeMetadata.roomId,
+                set: {
+                    port: excluded('port'),
+                    pid: excluded('pid'),
+                    sandboxUid: sql`COALESCE(excluded.sandbox_uid, ${roomRuntimeMetadata.sandboxUid})`,
+                    sandboxGid: sql`COALESCE(excluded.sandbox_gid, ${roomRuntimeMetadata.sandboxGid})`,
+                    sandboxUserName: sql`COALESCE(excluded.sandbox_user_name, ${roomRuntimeMetadata.sandboxUserName})`,
+                    sandboxGroupName: sql`COALESCE(excluded.sandbox_group_name, ${roomRuntimeMetadata.sandboxGroupName})`,
+                    configVersion: excluded('config_version'),
+                    tokenVersion: excluded('token_version'),
+                    healthStatus: excluded('health_status'),
+                    startedAt: excluded('started_at'),
+                    lastHealthAt: excluded('last_health_at'),
+                    lastError: excluded('last_error'),
+                    updatedAt: now,
+                },
+            })
+            .returning()
+        return mapRuntimeMetadata(row)
     },
 
     async deleteByRoomId(roomId: string): Promise<void> {
-        await sql`DELETE FROM room_runtime_metadata WHERE room_id = ${roomId}`
+        const db = await repositoryDatabase()
+        await db.delete(roomRuntimeMetadata).where(eq(roomRuntimeMetadata.roomId, roomId))
     },
 
     async clearLastError(roomId: string): Promise<void> {
-        await sql`
-            UPDATE room_runtime_metadata
-            SET last_error = NULL, health_status = 'unknown', updated_at = now()
-            WHERE room_id = ${roomId}
-        `
+        const db = await repositoryDatabase()
+        await db
+            .update(roomRuntimeMetadata)
+            .set({
+                lastError: null,
+                healthStatus: 'unknown',
+                updatedAt: nowDate(),
+            })
+            .where(eq(roomRuntimeMetadata.roomId, roomId))
     },
 }

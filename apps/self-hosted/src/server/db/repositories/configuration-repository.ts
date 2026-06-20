@@ -1,3 +1,4 @@
+import { and, asc, count, desc, eq, isNull, notExists } from 'drizzle-orm'
 import type {
     AppMcpConnectionRecord,
     AppProviderConnectionRecord,
@@ -6,15 +7,23 @@ import type {
     JsonValue,
     McpAuthMode,
     McpTransport,
-    ProviderAuthMode,
     ProviderApi,
+    ProviderAuthMode,
     RoomConfigRecord,
     RoomMcpBindingRecord,
     RoomProviderMode,
     RoomSecretPurpose,
     RoomSecretRecord,
 } from '#/domain/domain-types'
-import { sql, withTransaction } from '../client'
+import type { DatabaseBatchStatements } from '../client'
+import {
+    appMcpConnections,
+    appProviderConnections,
+    appSettings,
+    roomConfigs,
+    roomMcpBindings,
+    roomSecrets,
+} from '../schema'
 import {
     mapAppMcpConnection,
     mapAppProviderConnection,
@@ -23,78 +32,80 @@ import {
     mapRoomMcpBinding,
     mapRoomSecret,
 } from './row-mappers'
+import {
+    createDatabaseId,
+    excluded,
+    nowDate,
+    repositoryBatch,
+    repositoryDatabase,
+} from './repository-utils'
 
 export const appProviderConnectionRepository = {
     async list(): Promise<AppProviderConnectionRecord[]> {
-        const rows = await sql`
-            SELECT *
-            FROM app_provider_connections
-            ORDER BY updated_at DESC
-        `
-        return rows.map((row) => mapAppProviderConnection(row as Record<string, unknown>))
+        const db = await repositoryDatabase()
+        const rows = await db
+            .select()
+            .from(appProviderConnections)
+            .orderBy(desc(appProviderConnections.updatedAt))
+        return rows.map(mapAppProviderConnection)
     },
 
     async findById(id: string): Promise<AppProviderConnectionRecord | null> {
-        const rows = await sql`
-            SELECT *
-            FROM app_provider_connections
-            WHERE id = ${id}
-            LIMIT 1
-        `
-        if (rows.length === 0) {
-            return null
-        }
-        return mapAppProviderConnection(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const [row] = await db
+            .select()
+            .from(appProviderConnections)
+            .where(eq(appProviderConnections.id, id))
+            .limit(1)
+        return row ? mapAppProviderConnection(row) : null
     },
 
     async findByProvider(provider: string): Promise<AppProviderConnectionRecord | null> {
-        const rows = await sql`
-            SELECT *
-            FROM app_provider_connections
-            WHERE provider = ${provider}
-            ORDER BY updated_at DESC
-            LIMIT 1
-        `
-        if (rows.length === 0) {
-            return null
-        }
-        return mapAppProviderConnection(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const [row] = await db
+            .select()
+            .from(appProviderConnections)
+            .where(eq(appProviderConnections.provider, provider as never))
+            .orderBy(desc(appProviderConnections.updatedAt))
+            .limit(1)
+        return row ? mapAppProviderConnection(row) : null
     },
 
     async countRoomReferences(id: string): Promise<number> {
-        const rows = await sql`
-            SELECT count(*)::int AS count
-            FROM room_configs
-            WHERE provider_connection_id = ${id}
-        `
-        return Number(rows[0]?.count ?? 0)
+        const db = await repositoryDatabase()
+        const [row] = await db
+            .select({ count: count() })
+            .from(roomConfigs)
+            .where(eq(roomConfigs.providerConnectionId, id))
+        return row?.count ?? 0
     },
 
     async deleteByIdIfUnused(id: string): Promise<boolean> {
-        return withTransaction(async (trx) => {
-            const rows = await trx`
-                DELETE FROM app_provider_connections
-                WHERE id = ${id}
-                    AND NOT EXISTS (
-                        SELECT 1
-                        FROM room_configs
-                        WHERE provider_connection_id = ${id}
-                    )
-                RETURNING id
-            `
-            if (rows.length === 0) {
-                return false
-            }
-            await trx`
-                UPDATE app_settings
-                SET
-                    default_model = NULL,
-                    updated_at = now()
-                WHERE id = true
-                    AND default_provider_connection_id IS NULL
-            `
-            return true
-        })
+        const db = await repositoryDatabase()
+        const [deletedRows] = await repositoryBatch([
+            db
+                .delete(appProviderConnections)
+                .where(
+                    and(
+                        eq(appProviderConnections.id, id),
+                        notExists(
+                            db
+                                .select({ roomId: roomConfigs.roomId })
+                                .from(roomConfigs)
+                                .where(eq(roomConfigs.providerConnectionId, id)),
+                        ),
+                    ),
+                )
+                .returning({ id: appProviderConnections.id }),
+            db
+                .update(appSettings)
+                .set({
+                    defaultModel: null,
+                    updatedAt: nowDate(),
+                })
+                .where(isNull(appSettings.defaultProviderConnectionId)),
+        ])
+        return (deletedRows as Array<{ id: string }>).length > 0
     },
 
     async upsert(input: {
@@ -112,58 +123,46 @@ export const appProviderConnectionRepository = {
         lastValidatedAt: Date | null
         createdByUserId: string | null
     }): Promise<AppProviderConnectionRecord> {
-        const rows = await sql`
-            INSERT INTO app_provider_connections (
-                id,
-                label,
-                provider,
-                auth_mode,
-                api,
-                base_url,
-                default_model,
-                fallback_models,
-                credential_secret_id,
-                status,
-                validation_message,
-                last_validated_at,
-                created_by_user_id,
-                created_at,
-                updated_at
-            )
-            VALUES (
-                ${input.id},
-                ${input.label},
-                ${input.provider},
-                ${input.authMode},
-                ${input.api},
-                ${input.baseUrl},
-                ${input.defaultModel},
-                ${sql.json(input.fallbackModels)},
-                ${input.credentialSecretId},
-                ${input.status},
-                ${input.validationMessage},
-                ${input.lastValidatedAt},
-                ${input.createdByUserId},
-                now(),
-                now()
-            )
-            ON CONFLICT (id)
-            DO UPDATE SET
-                label = excluded.label,
-                provider = excluded.provider,
-                auth_mode = excluded.auth_mode,
-                api = excluded.api,
-                base_url = excluded.base_url,
-                default_model = excluded.default_model,
-                fallback_models = excluded.fallback_models,
-                credential_secret_id = excluded.credential_secret_id,
-                status = excluded.status,
-                validation_message = excluded.validation_message,
-                last_validated_at = excluded.last_validated_at,
-                updated_at = now()
-            RETURNING *
-        `
-        return mapAppProviderConnection(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const now = nowDate()
+        const [row] = await db
+            .insert(appProviderConnections)
+            .values({
+                id: input.id,
+                label: input.label,
+                provider: input.provider as never,
+                authMode: input.authMode,
+                api: input.api,
+                baseUrl: input.baseUrl,
+                defaultModel: input.defaultModel,
+                fallbackModels: input.fallbackModels,
+                credentialSecretId: input.credentialSecretId,
+                status: input.status,
+                validationMessage: input.validationMessage,
+                lastValidatedAt: input.lastValidatedAt,
+                createdByUserId: input.createdByUserId,
+                createdAt: now,
+                updatedAt: now,
+            })
+            .onConflictDoUpdate({
+                target: appProviderConnections.id,
+                set: {
+                    label: excluded('label'),
+                    provider: excluded('provider'),
+                    authMode: excluded('auth_mode'),
+                    api: excluded('api'),
+                    baseUrl: excluded('base_url'),
+                    defaultModel: excluded('default_model'),
+                    fallbackModels: excluded('fallback_models'),
+                    credentialSecretId: excluded('credential_secret_id'),
+                    status: excluded('status'),
+                    validationMessage: excluded('validation_message'),
+                    lastValidatedAt: excluded('last_validated_at'),
+                    updatedAt: now,
+                },
+            })
+            .returning()
+        return mapAppProviderConnection(row)
     },
 
     async updateValidation(input: {
@@ -172,66 +171,69 @@ export const appProviderConnectionRepository = {
         validationMessage: string | null
         lastValidatedAt: Date
     }): Promise<AppProviderConnectionRecord> {
-        const rows = await sql`
-            UPDATE app_provider_connections
-            SET
-                status = ${input.status},
-                validation_message = ${input.validationMessage},
-                last_validated_at = ${input.lastValidatedAt},
-                updated_at = now()
-            WHERE id = ${input.id}
-            RETURNING *
-        `
-        if (rows.length === 0) {
+        const db = await repositoryDatabase()
+        const [row] = await db
+            .update(appProviderConnections)
+            .set({
+                status: input.status,
+                validationMessage: input.validationMessage,
+                lastValidatedAt: input.lastValidatedAt,
+                updatedAt: nowDate(),
+            })
+            .where(eq(appProviderConnections.id, input.id))
+            .returning()
+        if (!row) {
             throw new Error('Provider connection does not exist')
         }
-        return mapAppProviderConnection(rows[0] as Record<string, unknown>)
+        return mapAppProviderConnection(row)
     },
 }
 
 export const appMcpConnectionRepository = {
     async list(): Promise<AppMcpConnectionRecord[]> {
-        const rows = await sql`
-            SELECT *
-            FROM app_mcp_connections
-            ORDER BY updated_at DESC
-        `
-        return rows.map((row) => mapAppMcpConnection(row as Record<string, unknown>))
+        const db = await repositoryDatabase()
+        const rows = await db
+            .select()
+            .from(appMcpConnections)
+            .orderBy(desc(appMcpConnections.updatedAt))
+        return rows.map(mapAppMcpConnection)
     },
 
     async findById(id: string): Promise<AppMcpConnectionRecord | null> {
-        const rows = await sql`
-            SELECT *
-            FROM app_mcp_connections
-            WHERE id = ${id}
-            LIMIT 1
-        `
-        if (rows.length === 0) {
-            return null
-        }
-        return mapAppMcpConnection(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const [row] = await db
+            .select()
+            .from(appMcpConnections)
+            .where(eq(appMcpConnections.id, id))
+            .limit(1)
+        return row ? mapAppMcpConnection(row) : null
     },
 
     async countRoomBindings(id: string): Promise<number> {
-        const rows = await sql`
-            SELECT count(*)::int AS count
-            FROM room_mcp_bindings
-            WHERE mcp_connection_id = ${id}
-        `
-        return Number(rows[0]?.count ?? 0)
+        const db = await repositoryDatabase()
+        const [row] = await db
+            .select({ count: count() })
+            .from(roomMcpBindings)
+            .where(eq(roomMcpBindings.mcpConnectionId, id))
+        return row?.count ?? 0
     },
 
     async deleteByIdIfUnused(id: string): Promise<boolean> {
-        const rows = await sql`
-            DELETE FROM app_mcp_connections
-            WHERE id = ${id}
-                AND NOT EXISTS (
-                    SELECT 1
-                    FROM room_mcp_bindings
-                    WHERE mcp_connection_id = ${id}
-                )
-            RETURNING id
-        `
+        const db = await repositoryDatabase()
+        const rows = await db
+            .delete(appMcpConnections)
+            .where(
+                and(
+                    eq(appMcpConnections.id, id),
+                    notExists(
+                        db
+                            .select({ roomId: roomMcpBindings.roomId })
+                            .from(roomMcpBindings)
+                            .where(eq(roomMcpBindings.mcpConnectionId, id)),
+                    ),
+                ),
+            )
+            .returning({ id: appMcpConnections.id })
         return rows.length > 0
     },
 
@@ -252,76 +254,78 @@ export const appMcpConnectionRepository = {
         lastValidatedAt: Date | null
         createdByUserId: string | null
     }): Promise<AppMcpConnectionRecord> {
-        const rows = await sql`
-            INSERT INTO app_mcp_connections (
-                id,
-                name,
-                server_key,
-                transport,
-                command,
-                args,
-                url,
-                headers,
-                auth_mode,
-                credential_secret_id,
-                allowed_tools,
-                status,
-                validation_message,
-                last_validated_at,
-                created_by_user_id,
-                created_at,
-                updated_at
-            )
-            VALUES (
-                ${input.id},
-                ${input.name},
-                ${input.serverKey},
-                ${input.transport},
-                ${input.command},
-                ${sql.json(input.args)},
-                ${input.url},
-                ${sql.json(input.headers)},
-                ${input.authMode},
-                ${input.credentialSecretId},
-                ${sql.json(input.allowedTools)},
-                ${input.status},
-                ${input.validationMessage},
-                ${input.lastValidatedAt},
-                ${input.createdByUserId},
-                now(),
-                now()
-            )
-            ON CONFLICT (id)
-            DO UPDATE SET
-                name = excluded.name,
-                server_key = excluded.server_key,
-                transport = excluded.transport,
-                command = excluded.command,
-                args = excluded.args,
-                url = excluded.url,
-                headers = excluded.headers,
-                auth_mode = excluded.auth_mode,
-                credential_secret_id = excluded.credential_secret_id,
-                allowed_tools = excluded.allowed_tools,
-                status = excluded.status,
-                validation_message = excluded.validation_message,
-                last_validated_at = excluded.last_validated_at,
-                updated_at = now()
-            RETURNING *
-        `
-        return mapAppMcpConnection(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const now = nowDate()
+        const [row] = await db
+            .insert(appMcpConnections)
+            .values({
+                id: input.id,
+                name: input.name,
+                serverKey: input.serverKey,
+                transport: input.transport,
+                command: input.command,
+                args: input.args,
+                url: input.url,
+                headers: input.headers,
+                authMode: input.authMode,
+                credentialSecretId: input.credentialSecretId,
+                allowedTools: input.allowedTools,
+                status: input.status,
+                validationMessage: input.validationMessage,
+                lastValidatedAt: input.lastValidatedAt,
+                createdByUserId: input.createdByUserId,
+                createdAt: now,
+                updatedAt: now,
+            })
+            .onConflictDoUpdate({
+                target: appMcpConnections.id,
+                set: {
+                    name: excluded('name'),
+                    serverKey: excluded('server_key'),
+                    transport: excluded('transport'),
+                    command: excluded('command'),
+                    args: excluded('args'),
+                    url: excluded('url'),
+                    headers: excluded('headers'),
+                    authMode: excluded('auth_mode'),
+                    credentialSecretId: excluded('credential_secret_id'),
+                    allowedTools: excluded('allowed_tools'),
+                    status: excluded('status'),
+                    validationMessage: excluded('validation_message'),
+                    lastValidatedAt: excluded('last_validated_at'),
+                    updatedAt: now,
+                },
+            })
+            .returning()
+        return mapAppMcpConnection(row)
     },
 }
 
 export const appSettingsRepository = {
     async getOrCreate(): Promise<AppSettingsRecord> {
-        const rows = await sql`
-            INSERT INTO app_settings (id)
-            VALUES (true)
-            ON CONFLICT (id) DO UPDATE SET updated_at = app_settings.updated_at
-            RETURNING *
-        `
-        return mapAppSettings(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const now = nowDate()
+        const [created] = await db
+            .insert(appSettings)
+            .values({
+                id: true,
+                createdAt: now,
+                updatedAt: now,
+            })
+            .onConflictDoNothing()
+            .returning()
+        if (created) {
+            return mapAppSettings(created)
+        }
+        const [existing] = await db
+            .select()
+            .from(appSettings)
+            .where(eq(appSettings.id, true))
+            .limit(1)
+        if (!existing) {
+            throw new Error('App settings row missing')
+        }
+        return mapAppSettings(existing)
     },
 
     async update(input: {
@@ -332,45 +336,66 @@ export const appSettingsRepository = {
         searchConfig?: JsonValue
         imageConfig?: JsonValue
     }): Promise<AppSettingsRecord> {
-        const rows = await sql`
-            UPDATE app_settings
-            SET
-                default_provider_connection_id = ${input.defaultProviderConnectionId},
-                default_model = ${input.defaultModel},
-                capability_defaults = COALESCE(${input.capabilityDefaults === undefined ? null : sql.json(input.capabilityDefaults)}::jsonb, capability_defaults),
-                search_config = COALESCE(${input.searchConfig === undefined ? null : sql.json(input.searchConfig)}::jsonb, search_config),
-                image_config = COALESCE(${input.imageConfig === undefined ? null : sql.json(input.imageConfig)}::jsonb, image_config),
-                onboarding_completed_at = ${input.onboardingCompletedAt},
-                updated_at = now()
-            WHERE id = true
-            RETURNING *
-        `
-        return mapAppSettings(rows[0] as Record<string, unknown>)
+        const values: Partial<typeof appSettings.$inferInsert> = {
+            defaultProviderConnectionId: input.defaultProviderConnectionId,
+            defaultModel: input.defaultModel,
+            onboardingCompletedAt: input.onboardingCompletedAt,
+            updatedAt: nowDate(),
+        }
+        if (input.capabilityDefaults !== undefined) {
+            values.capabilityDefaults = input.capabilityDefaults
+        }
+        if (input.searchConfig !== undefined) {
+            values.searchConfig = input.searchConfig
+        }
+        if (input.imageConfig !== undefined) {
+            values.imageConfig = input.imageConfig
+        }
+
+        const db = await repositoryDatabase()
+        const [row] = await db
+            .update(appSettings)
+            .set(values)
+            .where(eq(appSettings.id, true))
+            .returning()
+        if (!row) {
+            throw new Error('App settings row missing')
+        }
+        return mapAppSettings(row)
     },
 }
 
 export const roomConfigRepository = {
     async getOrCreate(roomId: string): Promise<RoomConfigRecord> {
-        const rows = await sql`
-            INSERT INTO room_configs (room_id)
-            VALUES (${roomId})
-            ON CONFLICT (room_id) DO UPDATE SET updated_at = room_configs.updated_at
-            RETURNING *
-        `
-        return mapRoomConfig(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const now = nowDate()
+        const [created] = await db
+            .insert(roomConfigs)
+            .values({
+                roomId,
+                createdAt: now,
+                updatedAt: now,
+            })
+            .onConflictDoNothing()
+            .returning()
+        if (created) {
+            return mapRoomConfig(created)
+        }
+        const existing = await this.findByRoomId(roomId)
+        if (!existing) {
+            throw new Error(`Room config row missing for ${roomId}`)
+        }
+        return existing
     },
 
     async findByRoomId(roomId: string): Promise<RoomConfigRecord | null> {
-        const rows = await sql`
-            SELECT *
-            FROM room_configs
-            WHERE room_id = ${roomId}
-            LIMIT 1
-        `
-        if (rows.length === 0) {
-            return null
-        }
-        return mapRoomConfig(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const [row] = await db
+            .select()
+            .from(roomConfigs)
+            .where(eq(roomConfigs.roomId, roomId))
+            .limit(1)
+        return row ? mapRoomConfig(row) : null
     },
 
     async upsert(input: {
@@ -386,65 +411,55 @@ export const roomConfigRepository = {
         cronTimezone: string
         browserActionBudget: number
     }): Promise<RoomConfigRecord> {
-        const rows = await sql`
-            INSERT INTO room_configs (
-                room_id,
-                instructions,
-                provider_mode,
-                provider_connection_id,
-                room_mode,
-                capability_overrides,
-                image_provider,
-                image_model,
-                image_secret_id,
-                cron_timezone,
-                browser_action_budget,
-                created_at,
-                updated_at
-            )
-            VALUES (
-                ${input.roomId},
-                ${input.instructions},
-                ${input.providerMode},
-                ${input.providerConnectionId},
-                ${input.roomMode},
-                ${sql.json(input.capabilityOverrides)},
-                ${input.imageProvider},
-                ${input.imageModel},
-                ${input.imageSecretId},
-                ${input.cronTimezone},
-                ${input.browserActionBudget},
-                now(),
-                now()
-            )
-            ON CONFLICT (room_id)
-            DO UPDATE SET
-                instructions = excluded.instructions,
-                provider_mode = excluded.provider_mode,
-                provider_connection_id = excluded.provider_connection_id,
-                room_mode = excluded.room_mode,
-                capability_overrides = excluded.capability_overrides,
-                image_provider = excluded.image_provider,
-                image_model = excluded.image_model,
-                image_secret_id = excluded.image_secret_id,
-                cron_timezone = excluded.cron_timezone,
-                browser_action_budget = excluded.browser_action_budget,
-                updated_at = now()
-            RETURNING *
-        `
-        return mapRoomConfig(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const now = nowDate()
+        const [row] = await db
+            .insert(roomConfigs)
+            .values({
+                roomId: input.roomId,
+                instructions: input.instructions,
+                providerMode: input.providerMode,
+                providerConnectionId: input.providerConnectionId,
+                roomMode: input.roomMode as never,
+                capabilityOverrides: input.capabilityOverrides,
+                imageProvider: input.imageProvider as never,
+                imageModel: input.imageModel,
+                imageSecretId: input.imageSecretId,
+                cronTimezone: input.cronTimezone,
+                browserActionBudget: input.browserActionBudget,
+                createdAt: now,
+                updatedAt: now,
+            })
+            .onConflictDoUpdate({
+                target: roomConfigs.roomId,
+                set: {
+                    instructions: excluded('instructions'),
+                    providerMode: excluded('provider_mode'),
+                    providerConnectionId: excluded('provider_connection_id'),
+                    roomMode: excluded('room_mode'),
+                    capabilityOverrides: excluded('capability_overrides'),
+                    imageProvider: excluded('image_provider'),
+                    imageModel: excluded('image_model'),
+                    imageSecretId: excluded('image_secret_id'),
+                    cronTimezone: excluded('cron_timezone'),
+                    browserActionBudget: excluded('browser_action_budget'),
+                    updatedAt: now,
+                },
+            })
+            .returning()
+        return mapRoomConfig(row)
     },
 }
 
 export const roomMcpBindingRepository = {
     async listByRoomId(roomId: string): Promise<RoomMcpBindingRecord[]> {
-        const rows = await sql`
-            SELECT *
-            FROM room_mcp_bindings
-            WHERE room_id = ${roomId}
-            ORDER BY created_at ASC
-        `
-        return rows.map((row) => mapRoomMcpBinding(row as Record<string, unknown>))
+        const db = await repositoryDatabase()
+        const rows = await db
+            .select()
+            .from(roomMcpBindings)
+            .where(eq(roomMcpBindings.roomId, roomId))
+            .orderBy(asc(roomMcpBindings.createdAt))
+        return rows.map(mapRoomMcpBinding)
     },
 
     async replaceForRoom(
@@ -455,65 +470,60 @@ export const roomMcpBindingRepository = {
             enabled: boolean
         }>,
     ): Promise<RoomMcpBindingRecord[]> {
-        return withTransaction(async (trx) => {
-            await trx`
-                DELETE FROM room_mcp_bindings
-                WHERE room_id = ${roomId}
-            `
-
-            const rows: RoomMcpBindingRecord[] = []
-            for (const binding of bindings) {
-                const inserted = await trx`
-                    INSERT INTO room_mcp_bindings (
-                        room_id,
-                        mcp_connection_id,
-                        allowed_tools,
-                        enabled,
-                        created_at,
-                        updated_at
-                    )
-                    VALUES (
-                        ${roomId},
-                        ${binding.mcpConnectionId},
-                        ${sql.json(binding.allowedTools)},
-                        ${binding.enabled},
-                        now(),
-                        now()
-                    )
-                    RETURNING *
-                `
-                rows.push(mapRoomMcpBinding(inserted[0] as Record<string, unknown>))
-            }
-            return rows
-        })
+        const db = await repositoryDatabase()
+        const now = nowDate()
+        const statements: DatabaseBatchStatements = [
+            db.delete(roomMcpBindings).where(eq(roomMcpBindings.roomId, roomId)),
+            ...bindings.map((binding) =>
+                db
+                    .insert(roomMcpBindings)
+                    .values({
+                        roomId,
+                        mcpConnectionId: binding.mcpConnectionId,
+                        allowedTools: binding.allowedTools,
+                        enabled: binding.enabled,
+                        createdAt: now,
+                        updatedAt: now,
+                    })
+                    .returning(),
+            ),
+        ]
+        const results = await repositoryBatch(statements)
+        return results
+            .slice(1)
+            .flatMap((result) => result as Array<typeof roomMcpBindings.$inferSelect>)
+            .map(mapRoomMcpBinding)
     },
 }
 
 export const roomConfigRepository_delete = {
     async deleteByRoomId(roomId: string): Promise<void> {
-        await sql`DELETE FROM room_configs WHERE room_id = ${roomId}`
+        const db = await repositoryDatabase()
+        await db.delete(roomConfigs).where(eq(roomConfigs.roomId, roomId))
     },
 }
 
 export const roomMcpBindingRepository_delete = {
     async deleteByRoomId(roomId: string): Promise<void> {
-        await sql`DELETE FROM room_mcp_bindings WHERE room_id = ${roomId}`
+        const db = await repositoryDatabase()
+        await db.delete(roomMcpBindings).where(eq(roomMcpBindings.roomId, roomId))
     },
 }
 
 export const roomSecretRepository = {
     async listByRoomId(roomId: string): Promise<RoomSecretRecord[]> {
-        const rows = await sql`
-            SELECT *
-            FROM room_secrets
-            WHERE room_id = ${roomId}
-            ORDER BY updated_at DESC
-        `
-        return rows.map((row) => mapRoomSecret(row as Record<string, unknown>))
+        const db = await repositoryDatabase()
+        const rows = await db
+            .select()
+            .from(roomSecrets)
+            .where(eq(roomSecrets.roomId, roomId))
+            .orderBy(desc(roomSecrets.updatedAt))
+        return rows.map(mapRoomSecret)
     },
 
     async deleteByRoomId(roomId: string): Promise<void> {
-        await sql`DELETE FROM room_secrets WHERE room_id = ${roomId}`
+        const db = await repositoryDatabase()
+        await db.delete(roomSecrets).where(eq(roomSecrets.roomId, roomId))
     },
 
     async upsert(input: {
@@ -525,38 +535,33 @@ export const roomSecretRepository = {
         provider: string | null
         createdByUserId: string | null
     }): Promise<RoomSecretRecord> {
-        const rows = await sql`
-            INSERT INTO room_secrets (
-                room_id,
-                secret_id,
-                label,
-                env_key,
-                purpose,
-                provider,
-                created_by_user_id,
-                created_at,
-                updated_at
-            )
-            VALUES (
-                ${input.roomId},
-                ${input.secretId},
-                ${input.label},
-                ${input.envKey},
-                ${input.purpose},
-                ${input.provider},
-                ${input.createdByUserId},
-                now(),
-                now()
-            )
-            ON CONFLICT (room_id, env_key)
-            DO UPDATE SET
-                secret_id = excluded.secret_id,
-                label = excluded.label,
-                purpose = excluded.purpose,
-                provider = excluded.provider,
-                updated_at = now()
-            RETURNING *
-        `
-        return mapRoomSecret(rows[0] as Record<string, unknown>)
+        const db = await repositoryDatabase()
+        const now = nowDate()
+        const [row] = await db
+            .insert(roomSecrets)
+            .values({
+                id: createDatabaseId(),
+                roomId: input.roomId,
+                secretId: input.secretId,
+                label: input.label,
+                envKey: input.envKey,
+                purpose: input.purpose,
+                provider: input.provider,
+                createdByUserId: input.createdByUserId,
+                createdAt: now,
+                updatedAt: now,
+            })
+            .onConflictDoUpdate({
+                target: [roomSecrets.roomId, roomSecrets.envKey],
+                set: {
+                    secretId: excluded('secret_id'),
+                    label: excluded('label'),
+                    purpose: excluded('purpose'),
+                    provider: excluded('provider'),
+                    updatedAt: now,
+                },
+            })
+            .returning()
+        return mapRoomSecret(row)
     },
 }
