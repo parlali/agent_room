@@ -41,7 +41,7 @@ The manual deployment workflow requires these GitHub Actions secrets:
 - `AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN`
 - `AGENT_ROOM_EMAIL_FROM`
 
-`BETTER_AUTH_URL` must be the deployed hosted origin. The email webhook must accept a bearer-authenticated JSON payload and return a 2xx response only after the provider accepts the message.
+`BETTER_AUTH_URL` must be the deployed hosted origin. The email webhook URL must accept a bearer-authenticated Resend-compatible JSON payload with `from`, `to`, `subject`, `html`, and `text`, then return a 2xx response only after the provider accepts the message.
 
 ## Commands
 
