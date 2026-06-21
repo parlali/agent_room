@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
     applyHostedDeploymentTarget,
@@ -8,6 +9,10 @@ import {
 
 function readHostedConfig(): string {
     return readFileSync(hostedConfigPath, 'utf8')
+}
+
+function readSelfHostedFile(path: string): string {
+    return readFileSync(join(dirname(hostedConfigPath), path), 'utf8')
 }
 
 describe('hosted Cloudflare deployment target config', () => {
@@ -46,5 +51,22 @@ describe('hosted Cloudflare deployment target config', () => {
 
         expect(Array.from(configText.matchAll(/"queue"/g))).toHaveLength(2)
         expect(configText.match(/agent-room-hosted-pr-41-runtime-jobs/g)).toHaveLength(2)
+    })
+
+    it('uses the dedicated lean runtime image for hosted containers', () => {
+        const configText = readHostedConfig()
+        const image = configText.match(/"image":\s*"([^"]+)"/)?.[1]
+        const runtimeDockerfile = readSelfHostedFile('Dockerfile.cloudflare-runtime')
+
+        expect(image).toBe('Dockerfile.cloudflare-runtime')
+        expect(configText).not.toContain('../../Dockerfile')
+        expect(runtimeDockerfile).not.toContain('libreoffice')
+        expect(runtimeDockerfile).not.toContain('pandoc')
+        expect(runtimeDockerfile).not.toContain('ghostscript')
+        expect(runtimeDockerfile).not.toContain('poppler-utils')
+        expect(runtimeDockerfile).not.toContain('qpdf')
+        expect(runtimeDockerfile).toContain(
+            'CMD ["bun", "--no-env-file", "run", "src/server/pi-runtime/main.ts"]',
+        )
     })
 })

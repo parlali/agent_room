@@ -1,0 +1,62 @@
+FROM oven/bun:1.3.13
+
+WORKDIR /app
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        bash \
+        bzip2 \
+        ca-certificates \
+        curl \
+        file \
+        fonts-dejavu \
+        gh \
+        git \
+        jq \
+        less \
+        make \
+        openssh-client \
+        passwd \
+        patch \
+        python3 \
+        python3-venv \
+        ripgrep \
+        rsync \
+        sqlite3 \
+        tini \
+        tree \
+        unzip \
+        util-linux \
+        xz-utils \
+        zip \
+        zstd \
+    && ln -sf /usr/bin/python3 /usr/local/bin/python \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY package.json bun.lock turbo.json ./
+COPY apps/marketing/package.json apps/marketing/package.json
+COPY apps/self-hosted/package.json apps/self-hosted/package.json
+COPY packages/brand/package.json packages/brand/package.json
+COPY packages/typescript-config/package.json packages/typescript-config/package.json
+RUN bun install --frozen-lockfile --production
+
+COPY apps/self-hosted/src apps/self-hosted/src
+COPY apps/self-hosted/scripts/copy-runtime-assets.ts apps/self-hosted/scripts/copy-runtime-assets.ts
+COPY apps/self-hosted/tsconfig.json apps/self-hosted/tsconfig.json
+COPY packages/brand packages/brand
+COPY packages/typescript-config packages/typescript-config
+RUN cd apps/self-hosted \
+    && bun run scripts/copy-runtime-assets.ts \
+    && chmod -R go-rX src \
+    && chmod -R a+rX dist/server/assets/skills
+
+WORKDIR /app/apps/self-hosted
+
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV AGENT_ROOM_DATA_DIR=/workspace/.agent-room
+
+EXPOSE 3000
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["bun", "--no-env-file", "run", "src/server/pi-runtime/main.ts"]

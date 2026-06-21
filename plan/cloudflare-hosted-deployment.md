@@ -20,7 +20,7 @@ Hosted infrastructure lives in `apps/self-hosted/wrangler.hosted.jsonc`. Wrangle
 - R2 workspace bucket binding
 - Queue producer and consumer
 - Durable Object binding for the runtime container
-- Cloudflare Container image built from the root Dockerfile
+- Cloudflare Container image built from `apps/self-hosted/Dockerfile.cloudflare-runtime`
 - Required hosted secrets
 - workers.dev route for pre-custom-domain smoke verification
 - `app.openagentroom.com` custom domain routing for the production app Worker
@@ -28,6 +28,8 @@ Hosted infrastructure lives in `apps/self-hosted/wrangler.hosted.jsonc`. Wrangle
 The config intentionally omits Cloudflare resource IDs. Deployment scripts resolve the hosted D1 `database_id` from the target Cloudflare account into a temporary local config before running remote migrations or deploys. Do not add account-specific IDs, local generated config, or dashboard-exported secrets to the repo.
 
 The hosted build emits `apps/self-hosted/dist/client` assets before deployment. The deployment helper uses the hosted Wrangler config with a temporary D1 ID overlay and passes required Worker secrets through a temporary secrets file so first deployment can create the Worker and set secrets in one upload.
+
+The hosted runtime Container image is intentionally separate from the root self-hosted Dockerfile. It runs only the Pi runtime command from the `apps/self-hosted` workspace, copies the bundled runtime skills into production assets, and omits the web app build plus heavyweight document-rendering system packages so Cloudflare can accept the image under its hosted Container size limit. The root Dockerfile remains the full local self-hosted image.
 
 The production workflow runs on pushes to `main` and manual dispatch. It bootstraps the production D1 database, R2 bucket, and queue if they are missing, applies D1 migrations, then deploys the same `agent-room-hosted` Worker that was used for workers.dev smoke verification. Cloudflare's native dashboard Git integration is not required; GitHub Actions is the deployment controller.
 
