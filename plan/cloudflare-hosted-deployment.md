@@ -20,7 +20,7 @@ Hosted infrastructure lives in `apps/self-hosted/wrangler.hosted.jsonc`. Wrangle
 - R2 workspace bucket binding
 - Queue producer and consumer
 - Durable Object binding for the runtime container
-- Cloudflare Container image built from `apps/self-hosted/Dockerfile.cloudflare-runtime`
+- Cloudflare Container image built from the root `Dockerfile.cloudflare-runtime`
 - Required hosted secrets
 - workers.dev route for pre-custom-domain smoke verification
 - `app.openagentroom.com` custom domain routing for the production app Worker

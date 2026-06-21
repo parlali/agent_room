@@ -15,6 +15,10 @@ function readSelfHostedFile(path: string): string {
     return readFileSync(join(dirname(hostedConfigPath), path), 'utf8')
 }
 
+function readRepoFile(path: string): string {
+    return readFileSync(join(dirname(hostedConfigPath), '../..', path), 'utf8')
+}
+
 describe('hosted Cloudflare deployment target config', () => {
     it('keeps the production resource names canonical by default', () => {
         expect(extractHostedResourceNames(readHostedConfig())).toEqual({
@@ -56,10 +60,10 @@ describe('hosted Cloudflare deployment target config', () => {
     it('uses the dedicated lean runtime image for hosted containers', () => {
         const configText = readHostedConfig()
         const image = configText.match(/"image":\s*"([^"]+)"/)?.[1]
-        const runtimeDockerfile = readSelfHostedFile('Dockerfile.cloudflare-runtime')
+        const runtimeDockerfile = readRepoFile('Dockerfile.cloudflare-runtime')
 
-        expect(image).toBe('Dockerfile.cloudflare-runtime')
-        expect(configText).not.toContain('../../Dockerfile')
+        expect(image).toBe('../../Dockerfile.cloudflare-runtime')
+        expect(configText).not.toContain('"image": "../../Dockerfile"')
         expect(runtimeDockerfile).not.toContain('libreoffice')
         expect(runtimeDockerfile).not.toContain('pandoc')
         expect(runtimeDockerfile).not.toContain('ghostscript')
