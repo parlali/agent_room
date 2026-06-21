@@ -1,17 +1,17 @@
 import { spawn } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import type { HostedSecretName } from '../src/server/cloudflare/hosted-config-contract'
 import {
-    type HostedSecretName,
-    hostedOptionalSecretNames,
-    hostedRequiredSecretNames,
-} from '../src/server/cloudflare/hosted-config-contract'
+    hostedConfigPath,
+    readHostedSecretsFromEnvironment,
+    selfHostedDirectory,
+} from './cloudflare-hosted-config'
 
 async function putSecret(name: HostedSecretName, value: string): Promise<void> {
     const subprocess = spawn(
         'bun',
-        ['x', 'wrangler', 'secret', 'put', name, '--config', 'wrangler.hosted.jsonc'],
+        ['x', 'wrangler', 'secret', 'put', name, '--config', hostedConfigPath],
         {
-            cwd: fileURLToPath(new URL('..', import.meta.url)),
+            cwd: selfHostedDirectory,
             stdio: ['pipe', 'inherit', 'inherit'],
         },
     )
@@ -31,18 +31,8 @@ async function putSecret(name: HostedSecretName, value: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-    for (const name of hostedRequiredSecretNames) {
-        const value = process.env[name]
-        if (!value) {
-            throw new Error(`Missing required CI secret ${name}`)
-        }
+    for (const [name, value] of readHostedSecretsFromEnvironment()) {
         await putSecret(name, value)
-    }
-    for (const name of hostedOptionalSecretNames) {
-        const value = process.env[name]
-        if (value) {
-            await putSecret(name, value)
-        }
     }
 }
 

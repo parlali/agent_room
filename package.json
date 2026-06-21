@@ -45,6 +45,7 @@
         "self-hosted:build": "bun run --filter @agent-room/self-hosted build",
         "self-hosted:cloudflare:build": "bun run --filter @agent-room/self-hosted build:cloudflare",
         "self-hosted:cloudflare:deploy": "bun run --filter @agent-room/self-hosted deploy:cloudflare",
+        "self-hosted:cloudflare:deploy:built": "bun run --filter @agent-room/self-hosted deploy:cloudflare:built",
         "self-hosted:cloudflare:secrets": "bun run --filter @agent-room/self-hosted secrets:cloudflare",
         "self-hosted:cloudflare:typegen": "bun run --filter @agent-room/self-hosted types:cloudflare",
         "self-hosted:cloudflare:d1:migrate": "bun run --filter @agent-room/self-hosted d1:migrate:cloudflare",

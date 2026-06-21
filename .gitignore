@@ -9,6 +9,7 @@ dist-ssr
 .nitro
 .tanstack
 .wrangler
+apps/self-hosted/.wrangler.hosted.resolved.*.jsonc
 .output
 .vinxi
 .turbo

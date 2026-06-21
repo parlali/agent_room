@@ -35,11 +35,8 @@ jobs:
             - name: Build hosted Worker
               run: bun run self-hosted:cloudflare:build
 
-            - name: Sync hosted secrets
-              run: bun run self-hosted:cloudflare:secrets
-
             - name: Apply D1 migrations
               run: bun run self-hosted:cloudflare:d1:migrate
 
             - name: Deploy hosted Worker and Containers
-              run: bun run self-hosted:cloudflare:deploy
+              run: bun run self-hosted:cloudflare:deploy:built

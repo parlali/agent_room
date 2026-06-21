@@ -15,7 +15,8 @@
         "start": "bun run scripts/start-server.ts",
         "preview": "vite preview",
         "preview:cloudflare": "AGENT_ROOM_DEPLOY_TARGET=cloudflare vite preview",
-        "deploy:cloudflare": "bun run build:cloudflare && bun x wrangler deploy --config dist/server/wrangler.json",
+        "deploy:cloudflare": "bun run build:cloudflare && bun run deploy:cloudflare:built",
+        "deploy:cloudflare:built": "bun run scripts/cloudflare-deploy-hosted.ts",
         "secrets:cloudflare": "bun run scripts/cloudflare-put-secrets.ts",
         "types:cloudflare": "bun x wrangler types --config wrangler.hosted.jsonc --include-runtime false",
         "test": "vitest run",
@@ -28,7 +29,7 @@
         "quality:score": "bun run scripts/code-quality-score.ts",
         "db:generate": "drizzle-kit generate --config drizzle.config.ts",
         "db:migrate": "bun run scripts/migrate-database.ts",
-        "d1:migrate:cloudflare": "bun x wrangler d1 migrations apply agent-room-hosted --remote --config wrangler.hosted.jsonc",
+        "d1:migrate:cloudflare": "bun run scripts/cloudflare-migrate-hosted-d1.ts",
         "bootstrap:root": "bun run scripts/bootstrap-root-user.ts"
     },
     "dependencies": {

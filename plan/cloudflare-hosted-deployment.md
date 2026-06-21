@@ -23,9 +23,9 @@ Hosted infrastructure lives in `apps/self-hosted/wrangler.hosted.jsonc`. Wrangle
 - Cloudflare Container image built from the root Dockerfile
 - Required hosted secrets
 
-The config intentionally omits Cloudflare resource IDs so Wrangler can provision supported resources from IaC. Do not add account-specific IDs, local generated config, or dashboard-exported secrets to the repo.
+The config intentionally omits Cloudflare resource IDs. Deployment scripts resolve the hosted D1 `database_id` from the target Cloudflare account into a temporary local config before running remote migrations or deploys. Do not add account-specific IDs, local generated config, or dashboard-exported secrets to the repo.
 
-The hosted build emits `apps/self-hosted/dist/server/wrangler.json`, and deployment uses that generated config. Do not deploy `wrangler.hosted.jsonc` directly: Vite must first resolve TanStack Start virtual modules and merge the hosted Worker entry into the built Worker bundle.
+The hosted build emits `apps/self-hosted/dist/client` assets before deployment. The deployment helper uses the hosted Wrangler config with a temporary D1 ID overlay and passes required Worker secrets through a temporary secrets file so first deployment can create the Worker and set secrets in one upload.
 
 ## Required CI Secrets
 
@@ -74,6 +74,7 @@ bun run self-hosted:cloudflare:deploy
 These steps require real deployment credentials and cannot be completed in the public repo:
 
 - Enable Workers Paid, R2, D1, Queues, and Containers on the target Cloudflare account
+- Create the `agent-room-hosted` D1 database, `agent-room-hosted-runtime-jobs` queue, and `agent-room-hosted-workspaces` R2 bucket. Wrangler can create D1 and Queues from CLI, but Cloudflare requires R2 to be enabled in the dashboard before bucket creation.
 - Add the required GitHub Actions secrets
 - Run the `Cloudflare Hosted Deploy` workflow
 - Confirm `/api/hosted/health` returns the expected D1, R2, queue, and runtime container binding truth
