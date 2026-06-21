@@ -22,6 +22,7 @@ Hosted infrastructure lives in `apps/self-hosted/wrangler.hosted.jsonc`. Wrangle
 - Durable Object binding for the runtime container
 - Cloudflare Container image built from the root Dockerfile
 - Required hosted secrets
+- workers.dev route for pre-custom-domain smoke verification
 
 The config intentionally omits Cloudflare resource IDs. Deployment scripts resolve the hosted D1 `database_id` from the target Cloudflare account into a temporary local config before running remote migrations or deploys. Do not add account-specific IDs, local generated config, or dashboard-exported secrets to the repo.
 
@@ -77,10 +78,11 @@ These steps require real deployment credentials and cannot be completed in the p
 - Create the `agent-room-hosted` D1 database, `agent-room-hosted-runtime-jobs` queue, and `agent-room-hosted-workspaces` R2 bucket. Wrangler can create D1 and Queues from CLI, but Cloudflare requires R2 to be enabled in the dashboard before bucket creation.
 - Add the required GitHub Actions secrets
 - Run the `Cloudflare Hosted Deploy` workflow
-- Confirm `/api/hosted/health` returns the expected D1, R2, queue, and runtime container binding truth
+- Confirm `/api/hosted/health` returns the expected D1, R2, queue, and runtime container binding truth on the workers.dev route before wiring `app.openagentroom.com`
 - Sign up with email/password, receive verification mail through the webhook, verify email, sign in, request a password reset, and verify the reset mail
 - If Google OAuth is configured, sign in with Google OAuth and confirm the Better Auth user maps to an organization workspace
 - Create a workspace-backed room and verify every persisted room, provider connection, MCP connection, job, runtime state, and usage event row carries the same `workspace_id`
+- Enable Workers Paid before deploying Cloudflare Containers. Wrangler returns an account-level Containers authorization error until the target account has Workers Paid access.
 - Start a hosted room runtime and verify the container receives only runtime config/token materialization, not direct D1 credentials. The hosted runtime hydrate/control-plane callback protocol is still required before this can run end-to-end.
 - Hydrate a workspace from R2, run a session, snapshot back to R2, stop on idle, and restart from the snapshot
 - Run scheduled jobs through the queue path and verify usage and audit rows remain workspace-scoped
