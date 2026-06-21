@@ -17,7 +17,7 @@ export interface HostedConfig {
     google: {
         clientId: string
         clientSecret: string
-    }
+    } | null
     emailWebhook: HostedEmailWebhookConfig
 }
 
@@ -37,10 +37,13 @@ export function resolveHostedConfig(env: AgentRoomHostedEnv): HostedConfig {
         betterAuthSecret: data.BETTER_AUTH_SECRET,
         betterAuthUrl: data.BETTER_AUTH_URL.replace(/\/$/, ''),
         publicOrigin,
-        google: {
-            clientId: data.GOOGLE_CLIENT_ID,
-            clientSecret: data.GOOGLE_CLIENT_SECRET,
-        },
+        google:
+            data.GOOGLE_CLIENT_ID && data.GOOGLE_CLIENT_SECRET
+                ? {
+                      clientId: data.GOOGLE_CLIENT_ID,
+                      clientSecret: data.GOOGLE_CLIENT_SECRET,
+                  }
+                : null,
         emailWebhook: {
             url: data.AGENT_ROOM_EMAIL_WEBHOOK_URL,
             bearerToken: data.AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN,

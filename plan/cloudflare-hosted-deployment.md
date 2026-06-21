@@ -5,7 +5,7 @@ Issue 31 adds an explicit hosted deployment path for Agent Room on Cloudflare wh
 ## Hosted Stack
 
 - Control plane: Cloudflare Workers through the TanStack Start Cloudflare build path. Hosted health and Better Auth routes are enabled; product app routes fail closed until their server functions use the D1 hosted route/service layer instead of the self-hosted Postgres/local-session graph.
-- Auth: Better Auth on the `AGENT_ROOM_DB` D1 binding with email/password, email verification, password reset, Google OAuth, and organization workspaces
+- Auth: Better Auth on the `AGENT_ROOM_DB` D1 binding with email/password, email verification, password reset, optional Google OAuth, and organization workspaces
 - Database: D1 migrations under `apps/self-hosted/db/d1-migrations`
 - Workspace storage: R2 object keys scoped by `workspace_id` and `room_id`
 - Runtime: Cloudflare Containers through `AgentRoomRuntimeContainer`, reusing the existing Pi runtime entrypoint and runtime config/token contract
@@ -35,13 +35,13 @@ The manual deployment workflow requires these GitHub Actions secrets:
 - `CLOUDFLARE_ACCOUNT_ID`
 - `BETTER_AUTH_SECRET`
 - `BETTER_AUTH_URL`
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
 - `AGENT_ROOM_EMAIL_WEBHOOK_URL`
 - `AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN`
 - `AGENT_ROOM_EMAIL_FROM`
 
 `BETTER_AUTH_URL` must be the deployed hosted origin. The email webhook URL must accept a bearer-authenticated Resend-compatible JSON payload with `from`, `to`, `subject`, `html`, and `text`, then return a 2xx response only after the provider accepts the message.
+
+Optional Google OAuth requires both `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. If either value is missing, Google sign-in is disabled rather than partially configured.
 
 ## Commands
 
@@ -78,7 +78,7 @@ These steps require real deployment credentials and cannot be completed in the p
 - Run the `Cloudflare Hosted Deploy` workflow
 - Confirm `/api/hosted/health` returns the expected D1, R2, queue, and runtime container binding truth
 - Sign up with email/password, receive verification mail through the webhook, verify email, sign in, request a password reset, and verify the reset mail
-- Sign in with Google OAuth and confirm the Better Auth user maps to an organization workspace
+- If Google OAuth is configured, sign in with Google OAuth and confirm the Better Auth user maps to an organization workspace
 - Create a workspace-backed room and verify every persisted room, provider connection, MCP connection, job, runtime state, and usage event row carries the same `workspace_id`
 - Start a hosted room runtime and verify the container receives only runtime config/token materialization, not direct D1 credentials. The hosted runtime hydrate/control-plane callback protocol is still required before this can run end-to-end.
 - Hydrate a workspace from R2, run a session, snapshot back to R2, stop on idle, and restart from the snapshot

@@ -3,7 +3,11 @@ import type { D1Database, R2Bucket } from '@cloudflare/workers-types'
 import { describe, expect, it } from 'vitest'
 import type { AgentRoomHostedEnv } from './bindings'
 import { mapHostedSessionToActor } from './hosted-auth'
-import { hostedConfigValues, hostedSecretNames } from './hosted-config-contract'
+import {
+    hostedConfigValues,
+    hostedRequiredSecretNames,
+    hostedSecretNames,
+} from './hosted-config-contract'
 import { resolveHostedConfig } from './hosted-config'
 import { readHostedWorkspaceRole } from './hosted-membership'
 import { buildHostedRuntimeStartOptions, hostedRuntimeContainerName } from './runtime-contract'
@@ -73,7 +77,20 @@ describe('hosted Cloudflare configuration', () => {
         ).toThrow(/Invalid hosted Cloudflare configuration/)
     })
 
-    it('requires Google OAuth credentials for hosted auth', () => {
+    it('allows hosted auth without Google OAuth credentials', () => {
+        expect(
+            resolveHostedConfig(
+                hostedEnv({
+                    GOOGLE_CLIENT_ID: undefined,
+                    GOOGLE_CLIENT_SECRET: undefined,
+                }),
+            ),
+        ).toMatchObject({
+            google: null,
+        })
+    })
+
+    it('fails closed when Google OAuth credentials are partially configured', () => {
         expect(() =>
             resolveHostedConfig(
                 hostedEnv({
@@ -120,7 +137,7 @@ describe('hosted Cloudflare configuration', () => {
         )
 
         expect(extractWranglerRequiredSecrets(wranglerConfig)).toEqual(
-            [...hostedSecretNames].sort(),
+            [...hostedRequiredSecretNames].sort(),
         )
         expect(extractWorkflowSecretEnvNames(workflowConfig)).toEqual([...hostedSecretNames].sort())
     })

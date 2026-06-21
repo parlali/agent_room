@@ -23,6 +23,14 @@ function invitationUrl(publicOrigin: string, invitationId: string): string {
 
 export function createHostedAuth(env: AgentRoomHostedEnv) {
     const config = resolveHostedConfig(env)
+    const socialProviders = config.google
+        ? {
+              google: {
+                  clientId: config.google.clientId,
+                  clientSecret: config.google.clientSecret,
+              },
+          }
+        : undefined
 
     return betterAuth({
         database: env.AGENT_ROOM_DB,
@@ -60,12 +68,7 @@ export function createHostedAuth(env: AgentRoomHostedEnv) {
                 })
             },
         },
-        socialProviders: {
-            google: {
-                clientId: config.google.clientId,
-                clientSecret: config.google.clientSecret,
-            },
-        },
+        ...(socialProviders ? { socialProviders } : {}),
         plugins: [
             organization({
                 creatorRole: 'owner',

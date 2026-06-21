@@ -21,8 +21,6 @@
         "required": [
             "BETTER_AUTH_SECRET",
             "BETTER_AUTH_URL",
-            "GOOGLE_CLIENT_ID",
-            "GOOGLE_CLIENT_SECRET",
             "AGENT_ROOM_EMAIL_WEBHOOK_URL",
             "AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN",
             "AGENT_ROOM_EMAIL_FROM",

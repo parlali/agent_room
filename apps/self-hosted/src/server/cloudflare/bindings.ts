@@ -19,8 +19,8 @@ export interface AgentRoomHostedEnv {
     AGENT_ROOM_RUNTIME_STORAGE: string
     BETTER_AUTH_SECRET: string
     BETTER_AUTH_URL: string
-    GOOGLE_CLIENT_ID: string
-    GOOGLE_CLIENT_SECRET: string
+    GOOGLE_CLIENT_ID?: string
+    GOOGLE_CLIENT_SECRET?: string
     AGENT_ROOM_EMAIL_WEBHOOK_URL: string
     AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN: string
     AGENT_ROOM_EMAIL_FROM: string
