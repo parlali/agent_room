@@ -11,10 +11,6 @@ function readHostedConfig(): string {
     return readFileSync(hostedConfigPath, 'utf8')
 }
 
-function readSelfHostedFile(path: string): string {
-    return readFileSync(join(dirname(hostedConfigPath), path), 'utf8')
-}
-
 function readRepoFile(path: string): string {
     return readFileSync(join(dirname(hostedConfigPath), '../..', path), 'utf8')
 }
