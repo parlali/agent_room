@@ -135,11 +135,23 @@ describe('hosted Cloudflare configuration', () => {
                 import.meta.url,
             ),
         )
+        const previewWorkflowConfig = readText(
+            new URL(
+                '../../../../../.github/workflows/cloudflare-hosted-preview.yml',
+                import.meta.url,
+            ),
+        )
 
         expect(extractWranglerRequiredSecrets(wranglerConfig)).toEqual(
             [...hostedRequiredSecretNames].sort(),
         )
         expect(extractWorkflowSecretEnvNames(workflowConfig)).toEqual([...hostedSecretNames].sort())
+        expect(extractWorkflowSecretEnvNames(previewWorkflowConfig)).toEqual(
+            hostedSecretNames.filter((name) => name !== 'BETTER_AUTH_URL').sort(),
+        )
+        expect(previewWorkflowConfig).toContain(
+            'BETTER_AUTH_URL: https://agent-room-hosted-pr-${{ github.event.pull_request.number }}.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev',
+        )
     })
 
     it('keeps Wrangler hosted vars aligned with the hosted config contract', () => {

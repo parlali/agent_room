@@ -14,6 +14,12 @@
         "binding": "ASSETS",
         "not_found_handling": "single-page-application",
     },
+    "routes": [
+        {
+            "pattern": "app.openagentroom.com",
+            "custom_domain": true,
+        },
+    ],
     "vars": {
         "AGENT_ROOM_AUTH_MODE": "better-auth",
         "AGENT_ROOM_RUNTIME_BACKEND": "cloudflare-containers",

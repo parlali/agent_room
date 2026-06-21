@@ -15,6 +15,7 @@ export const hostedConfigPath = join(selfHostedDirectory, 'wrangler.hosted.jsonc
 interface ResolvedHostedConfig {
     path: string
     databaseName: string
+    resourceNames: HostedResourceNames
     cleanup: () => Promise<void>
 }
 
@@ -23,13 +24,36 @@ interface HostedSecretsFile {
     cleanup: () => Promise<void>
 }
 
-interface D1DatabaseRow {
+export interface HostedResourceNames {
+    workerName: string
+    d1DatabaseName: string
+    r2BucketName: string
+    queueName: string
+}
+
+export interface HostedDeploymentTarget {
+    workerName?: string
+    d1DatabaseName?: string
+    r2BucketName?: string
+    queueName?: string
+    routePattern?: string | null
+    workersDev?: boolean
+    previewUrls?: boolean
+}
+
+export interface D1DatabaseRow {
     uuid: string
     name: string
 }
 
 interface CommandOptions {
     input?: string
+}
+
+export interface WranglerResult {
+    exitCode: number
+    stdout: string
+    stderr: string
 }
 
 export async function runWrangler(args: string[], options: CommandOptions = {}): Promise<void> {
@@ -53,6 +77,44 @@ export async function runWrangler(args: string[], options: CommandOptions = {}):
     }
 }
 
+export async function runWranglerResult(
+    args: string[],
+    options: CommandOptions = {},
+): Promise<WranglerResult> {
+    const subprocess = spawn('bun', ['x', 'wrangler', ...args], {
+        cwd: selfHostedDirectory,
+        stdio: [options.input ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+    })
+    const stdoutChunks: Buffer[] = []
+    const stderrChunks: Buffer[] = []
+    if (!subprocess.stdout || !subprocess.stderr) {
+        throw new Error('Wrangler subprocess output streams were not available')
+    }
+
+    subprocess.stdout.on('data', (chunk: Buffer) => {
+        stdoutChunks.push(chunk)
+    })
+    subprocess.stderr.on('data', (chunk: Buffer) => {
+        stderrChunks.push(chunk)
+    })
+
+    if (options.input) {
+        const stdin = subprocess.stdin
+        if (!stdin) {
+            throw new Error('Wrangler subprocess stdin was not available')
+        }
+        stdin.write(options.input)
+        stdin.end()
+    }
+
+    const exitCode = await waitForSubprocess(subprocess)
+    return {
+        exitCode,
+        stdout: Buffer.concat(stdoutChunks).toString('utf8'),
+        stderr: Buffer.concat(stderrChunks).toString('utf8'),
+    }
+}
+
 export async function readWrangler(args: string[]): Promise<string> {
     const subprocess = spawn('bun', ['x', 'wrangler', ...args], {
         cwd: selfHostedDirectory,
@@ -71,9 +133,10 @@ export async function readWrangler(args: string[]): Promise<string> {
 }
 
 export async function createResolvedHostedConfig(): Promise<ResolvedHostedConfig> {
-    const configText = await readFile(hostedConfigPath, 'utf8')
-    const databaseName = extractHostedD1DatabaseName(configText)
-    const databaseId = await resolveD1DatabaseId(databaseName)
+    const configText = await readTargetedHostedConfigText()
+    const resourceNames = extractHostedResourceNames(configText)
+    const databaseName = resourceNames.d1DatabaseName
+    const databaseId = await resolveD1DatabaseId(resourceNames.d1DatabaseName)
     const resolvedConfigText = addD1DatabaseId(configText, databaseName, databaseId)
     const path = join(
         selfHostedDirectory,
@@ -84,7 +147,84 @@ export async function createResolvedHostedConfig(): Promise<ResolvedHostedConfig
     return {
         path,
         databaseName,
+        resourceNames,
         cleanup: () => rm(path, { force: true }),
+    }
+}
+
+export async function readTargetedHostedConfigText(): Promise<string> {
+    const configText = await readFile(hostedConfigPath, 'utf8')
+    return applyHostedDeploymentTarget(configText, readHostedDeploymentTargetFromEnvironment())
+}
+
+export function readHostedDeploymentTargetFromEnvironment(): HostedDeploymentTarget {
+    const routePattern = readOptionalEnvironmentValue('AGENT_ROOM_CLOUDFLARE_ROUTE_PATTERN')
+    return removeUndefinedValues({
+        workerName: readCloudflareNameEnvironmentValue('AGENT_ROOM_CLOUDFLARE_WORKER_NAME'),
+        d1DatabaseName: readCloudflareNameEnvironmentValue(
+            'AGENT_ROOM_CLOUDFLARE_D1_DATABASE_NAME',
+        ),
+        r2BucketName: readCloudflareNameEnvironmentValue('AGENT_ROOM_CLOUDFLARE_R2_BUCKET_NAME'),
+        queueName: readCloudflareNameEnvironmentValue('AGENT_ROOM_CLOUDFLARE_QUEUE_NAME'),
+        routePattern: routePattern === undefined ? undefined : routePattern || null,
+        workersDev: readBooleanEnvironmentValue('AGENT_ROOM_CLOUDFLARE_WORKERS_DEV'),
+        previewUrls: readBooleanEnvironmentValue('AGENT_ROOM_CLOUDFLARE_PREVIEW_URLS'),
+    })
+}
+
+export function applyHostedDeploymentTarget(
+    configText: string,
+    target: HostedDeploymentTarget,
+): string {
+    let nextConfigText = configText
+    if (target.workerName) {
+        nextConfigText = replaceFirstStringProperty(nextConfigText, 'name', target.workerName)
+    }
+    if (target.d1DatabaseName) {
+        nextConfigText = replaceEveryStringProperty(
+            nextConfigText,
+            'database_name',
+            target.d1DatabaseName,
+        )
+    }
+    if (target.r2BucketName) {
+        nextConfigText = replaceEveryStringProperty(
+            nextConfigText,
+            'bucket_name',
+            target.r2BucketName,
+        )
+    }
+    if (target.queueName) {
+        nextConfigText = replaceEveryStringProperty(nextConfigText, 'queue', target.queueName)
+    }
+    if (target.workersDev !== undefined) {
+        nextConfigText = replaceBooleanProperty(nextConfigText, 'workers_dev', target.workersDev)
+    }
+    if (target.previewUrls !== undefined) {
+        nextConfigText = replaceBooleanProperty(nextConfigText, 'preview_urls', target.previewUrls)
+    }
+    if (target.routePattern !== undefined) {
+        nextConfigText = target.routePattern
+            ? upsertRoutesProperty(nextConfigText, target.routePattern)
+            : removeRoutesProperty(nextConfigText)
+    }
+    return nextConfigText
+}
+
+export function extractHostedResourceNames(configText: string): HostedResourceNames {
+    const queueNames = Array.from(configText.matchAll(/"queue"\s*:\s*"([^"]+)"/g)).map(
+        (match) => match[1],
+    )
+    const uniqueQueueNames = new Set(queueNames)
+    if (uniqueQueueNames.size !== 1) {
+        throw new Error('Hosted Wrangler config must use one canonical queue name')
+    }
+
+    return {
+        workerName: extractFirstStringProperty(configText, 'name'),
+        d1DatabaseName: extractFirstStringProperty(configText, 'database_name'),
+        r2BucketName: extractFirstStringProperty(configText, 'bucket_name'),
+        queueName: queueNames[0],
     }
 }
 
@@ -126,10 +266,10 @@ function waitForSubprocess(subprocess: ReturnType<typeof spawn>): Promise<number
     })
 }
 
-function extractHostedD1DatabaseName(configText: string): string {
-    const match = configText.match(/"database_name"\s*:\s*"([^"]+)"/)
+function extractFirstStringProperty(configText: string, propertyName: string): string {
+    const match = new RegExp(`"${escapeRegExp(propertyName)}"\\s*:\\s*"([^"]+)"`).exec(configText)
     if (!match) {
-        throw new Error('Hosted Wrangler config is missing a D1 database_name')
+        throw new Error(`Hosted Wrangler config is missing ${propertyName}`)
     }
     return match[1]
 }
@@ -151,7 +291,7 @@ async function resolveD1DatabaseId(databaseName: string): Promise<string> {
     return database.uuid
 }
 
-function parseD1Databases(value: unknown): D1DatabaseRow[] {
+export function parseD1Databases(value: unknown): D1DatabaseRow[] {
     if (!Array.isArray(value)) {
         throw new Error('Unexpected Wrangler D1 list response')
     }
@@ -190,6 +330,141 @@ function addD1DatabaseId(configText: string, databaseName: string, databaseId: s
         databaseNamePattern,
         `$1\n            "database_id": "${databaseId}",`,
     )
+}
+
+function readOptionalEnvironmentValue(name: string): string | undefined {
+    const value = process.env[name]
+    return value === undefined ? undefined : value.trim()
+}
+
+function readCloudflareNameEnvironmentValue(name: string): string | undefined {
+    const value = readOptionalEnvironmentValue(name)
+    if (!value) {
+        return undefined
+    }
+    if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(value)) {
+        throw new Error(`${name} must use lowercase letters, numbers, and hyphens`)
+    }
+    return value
+}
+
+function readBooleanEnvironmentValue(name: string): boolean | undefined {
+    const value = readOptionalEnvironmentValue(name)
+    if (!value) {
+        return undefined
+    }
+    if (['1', 'true', 'yes'].includes(value.toLowerCase())) {
+        return true
+    }
+    if (['0', 'false', 'no'].includes(value.toLowerCase())) {
+        return false
+    }
+    throw new Error(`${name} must be true or false`)
+}
+
+function removeUndefinedValues<T extends Record<string, unknown>>(value: T): T {
+    return Object.fromEntries(Object.entries(value).filter((entry) => entry[1] !== undefined)) as T
+}
+
+function replaceFirstStringProperty(
+    configText: string,
+    propertyName: string,
+    value: string,
+): string {
+    const pattern = new RegExp(`("${escapeRegExp(propertyName)}"\\s*:\\s*)"[^"]*"`)
+    if (!pattern.test(configText)) {
+        throw new Error(`Hosted Wrangler config is missing ${propertyName}`)
+    }
+    return configText.replace(pattern, `$1"${value}"`)
+}
+
+function replaceEveryStringProperty(
+    configText: string,
+    propertyName: string,
+    value: string,
+): string {
+    const pattern = new RegExp(`("${escapeRegExp(propertyName)}"\\s*:\\s*)"[^"]*"`, 'g')
+    if (!pattern.test(configText)) {
+        throw new Error(`Hosted Wrangler config is missing ${propertyName}`)
+    }
+    return configText.replace(pattern, `$1"${value}"`)
+}
+
+function replaceBooleanProperty(configText: string, propertyName: string, value: boolean): string {
+    const pattern = new RegExp(`("${escapeRegExp(propertyName)}"\\s*:\\s*)(true|false)`)
+    if (!pattern.test(configText)) {
+        throw new Error(`Hosted Wrangler config is missing ${propertyName}`)
+    }
+    return configText.replace(pattern, `$1${String(value)}`)
+}
+
+function upsertRoutesProperty(configText: string, routePattern: string): string {
+    const withoutRoutes = removeRoutesProperty(configText)
+    const varsIndex = withoutRoutes.indexOf('    "vars"')
+    if (varsIndex < 0) {
+        throw new Error('Hosted Wrangler config is missing vars')
+    }
+    const routesText = [
+        '    "routes": [',
+        '        {',
+        `            "pattern": "${routePattern}",`,
+        '            "custom_domain": true,',
+        '        },',
+        '    ],',
+        '',
+    ].join('\n')
+    return `${withoutRoutes.slice(0, varsIndex)}${routesText}${withoutRoutes.slice(varsIndex)}`
+}
+
+function removeRoutesProperty(configText: string): string {
+    const propertyIndex = configText.indexOf('"routes"')
+    if (propertyIndex < 0) {
+        return configText
+    }
+    const lineStart = configText.lastIndexOf('\n', propertyIndex)
+    const arrayStart = configText.indexOf('[', propertyIndex)
+    if (arrayStart < 0) {
+        throw new Error('Hosted Wrangler routes config is malformed')
+    }
+    const arrayEnd = findMatchingArrayEnd(configText, arrayStart)
+    let removalEnd = arrayEnd + 1
+    if (configText[removalEnd] === ',') {
+        removalEnd += 1
+    }
+    if (configText[removalEnd] === '\n') {
+        removalEnd += 1
+    }
+    return `${configText.slice(0, lineStart + 1)}${configText.slice(removalEnd)}`
+}
+
+function findMatchingArrayEnd(configText: string, arrayStart: number): number {
+    let depth = 0
+    let insideString = false
+    let escaped = false
+    for (let index = arrayStart; index < configText.length; index += 1) {
+        const character = configText[index]
+        if (insideString) {
+            if (escaped) {
+                escaped = false
+            } else if (character === '\\') {
+                escaped = true
+            } else if (character === '"') {
+                insideString = false
+            }
+            continue
+        }
+        if (character === '"') {
+            insideString = true
+        } else if (character === '[') {
+            depth += 1
+        } else if (character === ']') {
+            depth -= 1
+            if (depth === 0) {
+                return index
+            }
+        }
+    }
+    throw new Error('Hosted Wrangler routes config is malformed')
 }
 
 function escapeRegExp(value: string): string {

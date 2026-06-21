@@ -23,10 +23,15 @@ Hosted infrastructure lives in `apps/self-hosted/wrangler.hosted.jsonc`. Wrangle
 - Cloudflare Container image built from the root Dockerfile
 - Required hosted secrets
 - workers.dev route for pre-custom-domain smoke verification
+- `app.openagentroom.com` custom domain routing for the production app Worker
 
 The config intentionally omits Cloudflare resource IDs. Deployment scripts resolve the hosted D1 `database_id` from the target Cloudflare account into a temporary local config before running remote migrations or deploys. Do not add account-specific IDs, local generated config, or dashboard-exported secrets to the repo.
 
 The hosted build emits `apps/self-hosted/dist/client` assets before deployment. The deployment helper uses the hosted Wrangler config with a temporary D1 ID overlay and passes required Worker secrets through a temporary secrets file so first deployment can create the Worker and set secrets in one upload.
+
+The production workflow runs on pushes to `main` and manual dispatch. It bootstraps the production D1 database, R2 bucket, and queue if they are missing, applies D1 migrations, then deploys the same `agent-room-hosted` Worker that was used for workers.dev smoke verification. Cloudflare's native dashboard Git integration is not required; GitHub Actions is the deployment controller.
+
+The PR preview workflow is intentionally separate. When `CLOUDFLARE_HOSTED_PREVIEWS_ENABLED=true` and `CLOUDFLARE_WORKERS_SUBDOMAIN` is set as a repository variable, same-repository pull requests deploy isolated resources named `agent-room-hosted-pr-<number>`, `agent-room-hosted-pr-<number>-workspaces`, and `agent-room-hosted-pr-<number>-runtime-jobs`. Preview Workers use their workers.dev URL and do not attach `app.openagentroom.com`. Cleanup on PR close refuses to delete any resource that does not match the preview naming pattern, then deletes the Worker, D1 database, queue, and an empty R2 bucket.
 
 ## Required CI Secrets
 
@@ -44,6 +49,11 @@ The manual deployment workflow requires these GitHub Actions secrets:
 
 Optional Google OAuth requires both `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. If either value is missing, Google sign-in is disabled rather than partially configured.
 
+Preview deployment also needs these GitHub Actions repository variables:
+
+- `CLOUDFLARE_HOSTED_PREVIEWS_ENABLED=true`
+- `CLOUDFLARE_WORKERS_SUBDOMAIN`, for example the subdomain in `https://<worker>.<subdomain>.workers.dev`
+
 ## Commands
 
 Build the hosted Worker:
@@ -56,6 +66,12 @@ Generate Cloudflare binding types:
 
 ```bash
 bun run self-hosted:cloudflare:typegen
+```
+
+Ensure the target Cloudflare D1 database, R2 bucket, and queue exist:
+
+```bash
+bun run self-hosted:cloudflare:resources
 ```
 
 Apply remote D1 migrations:
@@ -75,10 +91,11 @@ bun run self-hosted:cloudflare:deploy
 These steps require real deployment credentials and cannot be completed in the public repo:
 
 - Enable Workers Paid, R2, D1, Queues, and Containers on the target Cloudflare account
-- Create the `agent-room-hosted` D1 database, `agent-room-hosted-runtime-jobs` queue, and `agent-room-hosted-workspaces` R2 bucket. Wrangler can create D1 and Queues from CLI, but Cloudflare requires R2 to be enabled in the dashboard before bucket creation.
+- Ensure the `agent-room-hosted` D1 database, `agent-room-hosted-runtime-jobs` queue, and `agent-room-hosted-workspaces` R2 bucket exist. The hosted resource script can create these once the relevant Cloudflare services are enabled.
 - Add the required GitHub Actions secrets
-- Run the `Cloudflare Hosted Deploy` workflow
-- Confirm `/api/hosted/health` returns the expected D1, R2, queue, and runtime container binding truth on the workers.dev route before wiring `app.openagentroom.com`
+- Set the preview repository variables if PR previews should deploy automatically
+- Merge to `main` or run the `Cloudflare Hosted Deploy` workflow
+- Confirm `/api/hosted/health` returns the expected D1, R2, queue, and runtime container binding truth on `https://app.openagentroom.com`
 - Sign up with email/password, receive verification mail through the webhook, verify email, sign in, request a password reset, and verify the reset mail
 - If Google OAuth is configured, sign in with Google OAuth and confirm the Better Auth user maps to an organization workspace
 - Create a workspace-backed room and verify every persisted room, provider connection, MCP connection, job, runtime state, and usage event row carries the same `workspace_id`

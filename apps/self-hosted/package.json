@@ -18,6 +18,8 @@
         "deploy:cloudflare": "bun run build:cloudflare && bun run deploy:cloudflare:built",
         "deploy:cloudflare:built": "bun run scripts/cloudflare-deploy-hosted.ts",
         "secrets:cloudflare": "bun run scripts/cloudflare-put-secrets.ts",
+        "resources:cloudflare": "bun run scripts/cloudflare-ensure-hosted-resources.ts",
+        "preview:cloudflare:delete": "bun run scripts/cloudflare-delete-hosted-preview.ts",
         "types:cloudflare": "bun x wrangler types --config wrangler.hosted.jsonc --include-runtime false",
         "test": "vitest run",
         "typecheck": "tsc --noEmit",
