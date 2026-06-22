@@ -40,6 +40,12 @@ function hostedEnv(overrides: Partial<AgentRoomHostedEnv> = {}): AgentRoomHosted
         AGENT_ROOM_RUNTIME_JOBS: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME_JOBS'],
         AGENT_ROOM_RUNTIME: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME'],
         AGENT_ROOM_AUTH_MODE: 'better-auth',
+        AGENT_ROOM_BILLING_MODE: 'disabled',
+        AGENT_ROOM_BILLING_PLANS:
+            '[{"key":"starter","priceId":"price_starter_placeholder","monthlyCents":700,"includedCents":0},{"key":"standard","priceId":"price_standard_placeholder","monthlyCents":2000,"includedCents":1200},{"key":"pro","priceId":"price_pro_placeholder","monthlyCents":5000,"includedCents":3500}]',
+        AGENT_ROOM_BILLING_USAGE_MARKUP_BPS: '13000',
+        AGENT_ROOM_BILLING_TAX_MODE: 'automatic',
+        AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS: '3',
         AGENT_ROOM_RUNTIME_BACKEND: 'cloudflare-containers',
         AGENT_ROOM_RUNTIME_STORAGE: 'r2',
         BETTER_AUTH_SECRET: 'a'.repeat(32),
@@ -59,6 +65,33 @@ describe('hosted Cloudflare configuration', () => {
             authMode: 'better-auth',
             runtimeBackend: 'cloudflare-containers',
             runtimeStorage: 'r2',
+            billing: {
+                mode: 'disabled',
+                plans: [
+                    {
+                        key: 'starter',
+                        priceId: 'price_starter_placeholder',
+                        monthlyCents: 700,
+                        includedCents: 0,
+                    },
+                    {
+                        key: 'standard',
+                        priceId: 'price_standard_placeholder',
+                        monthlyCents: 2000,
+                        includedCents: 1200,
+                    },
+                    {
+                        key: 'pro',
+                        priceId: 'price_pro_placeholder',
+                        monthlyCents: 5000,
+                        includedCents: 3500,
+                    },
+                ],
+                usageMarkupBps: 13000,
+                taxMode: 'automatic',
+                maxConcurrentRoomsPerWorkspace: 3,
+                stripe: null,
+            },
             publicOrigin: 'https://rooms.example.test',
             google: {
                 clientId: 'google-client',
@@ -110,6 +143,71 @@ describe('hosted Cloudflare configuration', () => {
         ).toThrow(/AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN/)
     })
 
+    it('requires Stripe secrets when Stripe billing is enabled', () => {
+        expect(() =>
+            resolveHostedConfig(
+                hostedEnv({
+                    AGENT_ROOM_BILLING_MODE: 'stripe',
+                }),
+            ),
+        ).toThrow(/STRIPE_SECRET_KEY/)
+
+        expect(
+            resolveHostedConfig(
+                hostedEnv({
+                    AGENT_ROOM_BILLING_MODE: 'stripe',
+                    STRIPE_SECRET_KEY: 'stripe-secret-test-value',
+                    STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
+                    STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_topup_placeholder',
+                }),
+            ).billing.stripe,
+        ).toMatchObject({
+            secretKey: 'stripe-secret-test-value',
+            webhookSecret: 'stripe-webhook-test-value',
+            creditTopupPriceId: 'price_topup_placeholder',
+        })
+    })
+
+    it('resolves the configured billing plans and knobs in stripe mode', () => {
+        const config = resolveHostedConfig(
+            hostedEnv({
+                AGENT_ROOM_BILLING_MODE: 'stripe',
+                STRIPE_SECRET_KEY: 'stripe-secret-test-value',
+                STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
+                STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_topup_placeholder',
+            }),
+        )
+        expect(config.billing.plans.map((plan) => plan.key)).toEqual(['starter', 'standard', 'pro'])
+        expect(config.billing.usageMarkupBps).toBe(13000)
+        expect(config.billing.taxMode).toBe('automatic')
+        expect(config.billing.maxConcurrentRoomsPerWorkspace).toBe(3)
+    })
+
+    it('fails closed when stripe mode has no billing plans', () => {
+        expect(() =>
+            resolveHostedConfig(
+                hostedEnv({
+                    AGENT_ROOM_BILLING_MODE: 'stripe',
+                    STRIPE_SECRET_KEY: 'stripe-secret-test-value',
+                    STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
+                    STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_topup_placeholder',
+                    AGENT_ROOM_BILLING_PLANS: '[]',
+                }),
+            ),
+        ).toThrow(/AGENT_ROOM_BILLING_PLANS/)
+    })
+
+    it('fails closed when a plan includes more usage than its monthly price', () => {
+        expect(() =>
+            resolveHostedConfig(
+                hostedEnv({
+                    AGENT_ROOM_BILLING_PLANS:
+                        '[{"key":"bad","priceId":"price_bad","monthlyCents":700,"includedCents":1200}]',
+                }),
+            ),
+        ).toThrow(/Invalid hosted Cloudflare configuration/)
+    })
+
     it('requires HTTPS URLs for auth and email delivery endpoints', () => {
         expect(() =>
             resolveHostedConfig(
@@ -157,6 +255,10 @@ describe('hosted Cloudflare configuration', () => {
     it('keeps Wrangler hosted vars aligned with the hosted config contract', () => {
         const wranglerConfig = readText(new URL('../../../wrangler.hosted.jsonc', import.meta.url))
         expect(wranglerConfig).toContain(`"AGENT_ROOM_AUTH_MODE": "${hostedConfigValues.authMode}"`)
+        expect(wranglerConfig).toContain(`"AGENT_ROOM_BILLING_MODE": "disabled"`)
+        expect(wranglerConfig).toContain(`"AGENT_ROOM_BILLING_USAGE_MARKUP_BPS": "13000"`)
+        expect(wranglerConfig).toContain(`"AGENT_ROOM_BILLING_TAX_MODE": "automatic"`)
+        expect(wranglerConfig).toContain(`"AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS": "3"`)
         expect(wranglerConfig).toContain(
             `"AGENT_ROOM_RUNTIME_BACKEND": "${hostedConfigValues.runtimeBackend}"`,
         )

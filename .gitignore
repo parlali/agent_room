@@ -27,4 +27,5 @@ db/schema.sql
 *.sqlite
 *.db
 plan.md
+plan/
 packages/brand/exports/marketing/og-share.png

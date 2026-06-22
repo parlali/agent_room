@@ -11,6 +11,12 @@ import {
     roomStatuses,
     usageEventKinds,
 } from '../../domain/domain-types'
+import {
+    hostedBillingLedgerDirections,
+    hostedBillingLedgerSources,
+    hostedBillingPlanStatuses,
+    hostedUsageBillingStatuses,
+} from './hosted-billing-types'
 
 function readHostedMigration(): string {
     return readFileSync(
@@ -136,6 +142,34 @@ describe('hosted D1 schema contract', () => {
                 columnName: 'kind',
             }),
         ).toEqual([...usageEventKinds])
+        expect(
+            extractCheckValues({
+                sql,
+                tableName: 'hosted_billing_account',
+                columnName: 'plan_status',
+            }),
+        ).toEqual([...hostedBillingPlanStatuses])
+        expect(
+            extractCheckValues({
+                sql,
+                tableName: 'hosted_billing_ledger_entry',
+                columnName: 'direction',
+            }),
+        ).toEqual([...hostedBillingLedgerDirections])
+        expect(
+            extractCheckValues({
+                sql,
+                tableName: 'hosted_billing_ledger_entry',
+                columnName: 'source',
+            }),
+        ).toEqual([...hostedBillingLedgerSources])
+        expect(
+            extractCheckValues({
+                sql,
+                tableName: 'hosted_usage_event',
+                columnName: 'billing_status',
+            }),
+        ).toEqual([...hostedUsageBillingStatuses])
     })
 
     it('enforces workspace ownership for hosted room state, jobs, and usage rows', () => {
@@ -178,6 +212,38 @@ describe('hosted D1 schema contract', () => {
             sql,
             tableName: 'hosted_room_job',
             constraint: 'enabled INTEGER NOT NULL CHECK (enabled IN (0, 1))',
+        })
+    })
+
+    it('constrains hosted billing balances and ledger amounts to non-negative cents', () => {
+        const sql = readHostedMigration()
+
+        expectTableConstraint({
+            sql,
+            tableName: 'hosted_billing_account',
+            constraint:
+                'included_balance_cents INTEGER NOT NULL DEFAULT 0 CHECK (included_balance_cents >= 0)',
+        })
+        expectTableConstraint({
+            sql,
+            tableName: 'hosted_billing_account',
+            constraint:
+                'purchased_balance_cents INTEGER NOT NULL DEFAULT 0 CHECK (purchased_balance_cents >= 0)',
+        })
+        expectTableConstraint({
+            sql,
+            tableName: 'hosted_billing_ledger_entry',
+            constraint: 'amount_cents INTEGER NOT NULL CHECK (amount_cents > 0)',
+        })
+        expectTableConstraint({
+            sql,
+            tableName: 'hosted_billing_ledger_entry',
+            constraint: 'balance_after_cents INTEGER NOT NULL CHECK (balance_after_cents >= 0)',
+        })
+        expectTableConstraint({
+            sql,
+            tableName: 'hosted_billing_ledger_entry',
+            constraint: 'UNIQUE(workspace_id, idempotency_key)',
         })
     })
 })

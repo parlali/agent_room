@@ -1,5 +1,6 @@
 import type { AgentRoomHostedEnv, AgentRoomRuntimeJobMessage } from './bindings'
 import { resolveHostedConfig } from './hosted-config'
+import { evaluateHostedRuntimeAccess } from './hosted-runtime-access'
 import { writeHostedRuntimeStateTransition } from './hosted-runtime-state-repository'
 import {
     buildHostedRuntimeStartOptions,
@@ -78,6 +79,35 @@ export async function reconcileHostedRuntimeJob(
     }
 
     try {
+        const access = await evaluateHostedRuntimeAccess({
+            env,
+            workspaceId: runtime.workspaceId,
+            roomId: runtime.roomId,
+            codexAvailable: false,
+            userKeyAvailable: false,
+        })
+        if (!access.allowed) {
+            const reasonMessage =
+                access.reason === 'no_subscription'
+                    ? 'Hosted runtime access denied: workspace has no active subscription'
+                    : 'Hosted runtime access denied: workspace concurrent room limit reached'
+            console.error(reasonMessage, {
+                workspaceId: runtime.workspaceId,
+                roomId: runtime.roomId,
+                reason: access.reason,
+            })
+            await writeHostedRuntimeStateTransition({
+                env,
+                workspaceId: runtime.workspaceId,
+                roomId: runtime.roomId,
+                transition: {
+                    kind: 'failed',
+                    error: new Error(reasonMessage),
+                },
+            })
+            return
+        }
+
         const expectedContainerName = hostedRuntimeContainerName({
             workspaceId: runtime.workspaceId,
             roomId: runtime.roomId,

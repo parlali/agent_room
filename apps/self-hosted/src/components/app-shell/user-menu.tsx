@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import {
     BarChart3Icon,
+    CreditCardIcon,
     LogOutIcon,
     MonitorIcon,
     MoonIcon,
@@ -88,6 +89,13 @@ export function UserMenu({ user }: { user: AuthUserSnapshot | null }) {
                 >
                     <BarChart3Icon className="size-4" />
                     Usage & Activity
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    className="h-8 px-2 text-sm"
+                    onSelect={() => navigate({ to: '/billing' })}
+                >
+                    <CreditCardIcon className="size-4" />
+                    Billing
                 </DropdownMenuItem>
                 <div className="px-2 py-1.5">
                     <div className="mb-1.5 text-xs font-medium text-muted-foreground">Theme</div>

@@ -22,6 +22,11 @@
     ],
     "vars": {
         "AGENT_ROOM_AUTH_MODE": "better-auth",
+        "AGENT_ROOM_BILLING_MODE": "disabled",
+        "AGENT_ROOM_BILLING_PLANS": "[{\"key\":\"starter\",\"priceId\":\"price_starter_placeholder\",\"monthlyCents\":700,\"includedCents\":0},{\"key\":\"standard\",\"priceId\":\"price_standard_placeholder\",\"monthlyCents\":2000,\"includedCents\":1200},{\"key\":\"pro\",\"priceId\":\"price_pro_placeholder\",\"monthlyCents\":5000,\"includedCents\":3500}]",
+        "AGENT_ROOM_BILLING_USAGE_MARKUP_BPS": "13000",
+        "AGENT_ROOM_BILLING_TAX_MODE": "automatic",
+        "AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS": "3",
         "AGENT_ROOM_RUNTIME_BACKEND": "cloudflare-containers",
         "AGENT_ROOM_RUNTIME_STORAGE": "r2",
     },
