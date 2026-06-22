@@ -5,6 +5,7 @@ import {
     applyHostedDeploymentTarget,
     extractHostedResourceNames,
     hostedConfigPath,
+    selectD1DatabaseId,
 } from './cloudflare-hosted-config'
 
 function readHostedConfig(): string {
@@ -68,5 +69,35 @@ describe('hosted Cloudflare deployment target config', () => {
         expect(runtimeDockerfile).toContain(
             'CMD ["bun", "--no-env-file", "run", "src/server/pi-runtime/main.ts"]',
         )
+    })
+
+    it('escapes custom route patterns before writing the generated JSONC', () => {
+        const routePattern = 'app."quoted"\\route.example.com'
+        const configText = applyHostedDeploymentTarget(readHostedConfig(), {
+            routePattern,
+        })
+
+        expect(configText).toContain(`"pattern": ${JSON.stringify(routePattern)},`)
+    })
+
+    it('validates explicit D1 database ids against the targeted database name', () => {
+        const databases = [
+            {
+                uuid: 'database-prod',
+                name: 'agent-room-hosted',
+            },
+            {
+                uuid: 'database-preview',
+                name: 'agent-room-hosted-pr-40',
+            },
+        ]
+
+        expect(selectD1DatabaseId('agent-room-hosted', databases)).toBe('database-prod')
+        expect(selectD1DatabaseId('agent-room-hosted-pr-40', databases, 'database-preview')).toBe(
+            'database-preview',
+        )
+        expect(() =>
+            selectD1DatabaseId('agent-room-hosted-pr-40', databases, 'database-prod'),
+        ).toThrow(/CLOUDFLARE_D1_DATABASE_ID/)
     })
 })

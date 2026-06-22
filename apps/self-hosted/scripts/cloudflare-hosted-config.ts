@@ -276,12 +276,27 @@ function extractFirstStringProperty(configText: string, propertyName: string): s
 
 async function resolveD1DatabaseId(databaseName: string): Promise<string> {
     const configuredDatabaseId = process.env.CLOUDFLARE_D1_DATABASE_ID?.trim()
+    const output = await readWrangler(['d1', 'list', '--json'])
+    const databases = parseD1Databases(JSON.parse(output))
+    return selectD1DatabaseId(databaseName, databases, configuredDatabaseId || undefined)
+}
+
+export function selectD1DatabaseId(
+    databaseName: string,
+    databases: D1DatabaseRow[],
+    configuredDatabaseId?: string,
+): string {
     if (configuredDatabaseId) {
+        const database = databases.find((row) => row.uuid === configuredDatabaseId)
+        if (!database || database.name !== databaseName) {
+            throw new Error(
+                `CLOUDFLARE_D1_DATABASE_ID does not match hosted database ${databaseName}`,
+            )
+        }
+        console.log(`Using explicit CLOUDFLARE_D1_DATABASE_ID for ${databaseName}`)
         return configuredDatabaseId
     }
 
-    const output = await readWrangler(['d1', 'list', '--json'])
-    const databases = parseD1Databases(JSON.parse(output))
     const database = databases.find((row) => row.name === databaseName)
     if (!database) {
         throw new Error(
@@ -404,10 +419,11 @@ function upsertRoutesProperty(configText: string, routePattern: string): string 
     if (varsIndex < 0) {
         throw new Error('Hosted Wrangler config is missing vars')
     }
+    const encodedRoutePattern = JSON.stringify(routePattern)
     const routesText = [
         '    "routes": [',
         '        {',
-        `            "pattern": "${routePattern}",`,
+        `            "pattern": ${encodedRoutePattern},`,
         '            "custom_domain": true,',
         '        },',
         '    ],',
