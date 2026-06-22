@@ -203,6 +203,49 @@ CREATE INDEX hosted_room_job_workspace_id_idx ON hosted_room_job(workspace_id);
 CREATE INDEX hosted_room_job_room_id_idx ON hosted_room_job(room_id);
 CREATE INDEX hosted_room_job_next_run_at_idx ON hosted_room_job(next_run_at);
 
+CREATE TABLE hosted_billing_account (
+    workspace_id TEXT PRIMARY KEY NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
+    stripe_customer_id TEXT UNIQUE,
+    stripe_subscription_id TEXT UNIQUE,
+    plan_key TEXT NOT NULL DEFAULT 'none',
+    plan_status TEXT NOT NULL CHECK (plan_status IN ('none', 'incomplete', 'trialing', 'active', 'past_due', 'canceled', 'unpaid')) DEFAULT 'none',
+    included_balance_cents INTEGER NOT NULL DEFAULT 0 CHECK (included_balance_cents >= 0),
+    purchased_balance_cents INTEGER NOT NULL DEFAULT 0 CHECK (purchased_balance_cents >= 0),
+    included_monthly_credit_cents INTEGER NOT NULL DEFAULT 0 CHECK (included_monthly_credit_cents >= 0),
+    created_at DATE NOT NULL,
+    updated_at DATE NOT NULL
+);
+
+CREATE INDEX hosted_billing_account_stripe_customer_idx ON hosted_billing_account(stripe_customer_id);
+
+CREATE TABLE hosted_billing_ledger_entry (
+    id TEXT PRIMARY KEY NOT NULL,
+    workspace_id TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
+    direction TEXT NOT NULL CHECK (direction IN ('credit', 'debit')),
+    source TEXT NOT NULL CHECK (source IN ('subscription_included_credit', 'included_credit_expiry', 'stripe_topup', 'hosted_openrouter_usage', 'hosted_brave_usage', 'manual_adjustment')),
+    amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+    balance_after_cents INTEGER NOT NULL CHECK (balance_after_cents >= 0),
+    stripe_event_id TEXT,
+    stripe_checkout_session_id TEXT,
+    stripe_invoice_id TEXT,
+    usage_event_id TEXT REFERENCES hosted_usage_event(id) ON DELETE RESTRICT,
+    idempotency_key TEXT NOT NULL,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at DATE NOT NULL,
+    UNIQUE(workspace_id, idempotency_key)
+);
+
+CREATE INDEX hosted_billing_ledger_workspace_created_idx ON hosted_billing_ledger_entry(workspace_id, created_at);
+CREATE INDEX hosted_billing_ledger_stripe_event_idx ON hosted_billing_ledger_entry(stripe_event_id);
+CREATE INDEX hosted_billing_ledger_usage_event_idx ON hosted_billing_ledger_entry(usage_event_id);
+
+CREATE TABLE hosted_stripe_event (
+    id TEXT PRIMARY KEY NOT NULL,
+    type TEXT NOT NULL,
+    livemode INTEGER NOT NULL CHECK (livemode IN (0, 1)),
+    processed_at DATE NOT NULL
+);
+
 CREATE TABLE hosted_usage_event (
     id TEXT PRIMARY KEY NOT NULL,
     workspace_id TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
@@ -218,12 +261,18 @@ CREATE TABLE hosted_usage_event (
     output_tokens INTEGER,
     cached_tokens INTEGER,
     cost_micros INTEGER,
+    billing_status TEXT NOT NULL CHECK (billing_status IN ('not_billable', 'pending', 'debited', 'blocked')) DEFAULT 'not_billable',
+    billing_ledger_entry_id TEXT,
     created_at DATE NOT NULL,
     FOREIGN KEY (workspace_id, room_id)
         REFERENCES hosted_room(workspace_id, id)
-        ON DELETE CASCADE
+        ON DELETE CASCADE,
+    FOREIGN KEY (billing_ledger_entry_id)
+        REFERENCES hosted_billing_ledger_entry(id)
+        ON DELETE SET NULL
 );
 
 CREATE INDEX hosted_usage_event_workspace_id_idx ON hosted_usage_event(workspace_id);
 CREATE INDEX hosted_usage_event_room_id_idx ON hosted_usage_event(room_id);
 CREATE INDEX hosted_usage_event_created_at_idx ON hosted_usage_event(created_at);
+CREATE INDEX hosted_usage_event_billing_status_idx ON hosted_usage_event(workspace_id, billing_status);

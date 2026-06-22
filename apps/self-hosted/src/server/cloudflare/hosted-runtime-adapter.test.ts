@@ -19,6 +19,9 @@ function hostedEnv(input: {
     start?: (name: string, args: unknown) => Promise<void>
     updates?: RuntimeUpdate[]
     batches?: RuntimeUpdate[][]
+    billingMode?: string
+    billingAccountRow?: unknown
+    activeRuntimeCountRow?: unknown
 }): AgentRoomHostedEnv {
     const updates = input.updates ?? []
     const batches = input.batches ?? []
@@ -30,7 +33,18 @@ function hostedEnv(input: {
                 bind: (...args: unknown[]): RuntimeStatement => ({
                     sql,
                     args,
-                    first: async () => input.runtimeRow,
+                    first: async () => {
+                        if (/FROM\s+hosted_billing_account/.test(sql)) {
+                            return input.billingAccountRow ?? null
+                        }
+                        if (
+                            /FROM\s+hosted_room\b(?![\s\S]*INNER JOIN)/.test(sql) &&
+                            /COUNT/.test(sql)
+                        ) {
+                            return input.activeRuntimeCountRow ?? { activeCount: 0 }
+                        }
+                        return input.runtimeRow
+                    },
                     run: async () => {
                         updates.push({ sql, args })
                         return { success: true }
@@ -65,6 +79,15 @@ function hostedEnv(input: {
             }),
         } as unknown as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME'],
         AGENT_ROOM_AUTH_MODE: 'better-auth',
+        AGENT_ROOM_BILLING_MODE: input.billingMode ?? 'disabled',
+        AGENT_ROOM_BILLING_PLANS:
+            '[{"key":"standard","priceId":"price_standard_placeholder","monthlyCents":2000,"includedCents":1200}]',
+        AGENT_ROOM_BILLING_USAGE_MARKUP_BPS: '13000',
+        AGENT_ROOM_BILLING_TAX_MODE: 'automatic',
+        AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS: '3',
+        STRIPE_SECRET_KEY: 'sk_test_placeholder',
+        STRIPE_WEBHOOK_SECRET: 'whsec_placeholder',
+        STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_topup_placeholder',
         AGENT_ROOM_RUNTIME_BACKEND: 'cloudflare-containers',
         AGENT_ROOM_RUNTIME_STORAGE: 'r2',
         BETTER_AUTH_SECRET: 'a'.repeat(32),
@@ -188,5 +211,86 @@ describe('hosted runtime reconciliation', () => {
         )
         expect(updates.some((update) => update.args.includes('failed'))).toBe(true)
         expect(batches).toHaveLength(1)
+    })
+
+    it('starts the container when stripe billing access allows an active subscription', async () => {
+        const starts: Array<{ name: string; args: unknown }> = []
+        const env = hostedEnv({
+            billingMode: 'stripe',
+            billingAccountRow: { planStatus: 'active' },
+            activeRuntimeCountRow: { activeCount: 0 },
+            objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],
+            runtimeRow: {
+                roomId: 'room_1',
+                workspaceId: 'workspace_1',
+                desiredState: 'running',
+                containerName: 'workspace:workspace_1:room:room_1',
+                configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
+                workspaceSnapshotKey: null,
+            },
+            start: async (name, args) => {
+                starts.push({ name, args })
+            },
+        })
+
+        await reconcileHostedRuntimeJob(env, runtimeMessage())
+
+        expect(starts).toHaveLength(1)
+    })
+
+    it('fails closed without starting when stripe billing has no active subscription', async () => {
+        const updates: RuntimeUpdate[] = []
+        const starts: Array<{ name: string; args: unknown }> = []
+        const env = hostedEnv({
+            updates,
+            billingMode: 'stripe',
+            billingAccountRow: { planStatus: 'canceled' },
+            activeRuntimeCountRow: { activeCount: 0 },
+            objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],
+            runtimeRow: {
+                roomId: 'room_1',
+                workspaceId: 'workspace_1',
+                desiredState: 'running',
+                containerName: 'workspace:workspace_1:room:room_1',
+                configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
+                workspaceSnapshotKey: null,
+            },
+            start: async (name, args) => {
+                starts.push({ name, args })
+            },
+        })
+
+        await reconcileHostedRuntimeJob(env, runtimeMessage())
+
+        expect(starts).toHaveLength(0)
+        expect(updates.some((update) => update.args.includes('failed'))).toBe(true)
+    })
+
+    it('fails closed without starting when the workspace concurrent room limit is reached', async () => {
+        const updates: RuntimeUpdate[] = []
+        const starts: Array<{ name: string; args: unknown }> = []
+        const env = hostedEnv({
+            updates,
+            billingMode: 'stripe',
+            billingAccountRow: { planStatus: 'active' },
+            activeRuntimeCountRow: { activeCount: 3 },
+            objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],
+            runtimeRow: {
+                roomId: 'room_1',
+                workspaceId: 'workspace_1',
+                desiredState: 'running',
+                containerName: 'workspace:workspace_1:room:room_1',
+                configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
+                workspaceSnapshotKey: null,
+            },
+            start: async (name, args) => {
+                starts.push({ name, args })
+            },
+        })
+
+        await reconcileHostedRuntimeJob(env, runtimeMessage())
+
+        expect(starts).toHaveLength(0)
+        expect(updates.some((update) => update.args.includes('failed'))).toBe(true)
     })
 })

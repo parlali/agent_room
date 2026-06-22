@@ -105,6 +105,25 @@ async function batchRuntimeState(input: {
     })
 }
 
+export async function countActiveHostedRuntimesForWorkspace(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    excludeRoomId: string
+}): Promise<number> {
+    const row = await input.env.AGENT_ROOM_DB.prepare(
+        `
+            SELECT COUNT(*) AS activeCount
+            FROM hosted_room
+            WHERE workspace_id = ?1
+              AND status IN ('starting', 'running')
+              AND id != ?2
+        `,
+    )
+        .bind(input.workspaceId, input.excludeRoomId)
+        .first<{ activeCount: number }>()
+    return row?.activeCount ?? 0
+}
+
 export async function writeHostedRuntimeStateTransition(
     input: HostedRuntimeStateTransitionInput,
 ): Promise<void> {
