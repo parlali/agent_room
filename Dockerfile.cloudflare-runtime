@@ -50,6 +50,11 @@ RUN cd apps/self-hosted \
     && chmod -R go-rX src \
     && chmod -R a+rX dist/server/assets/skills
 
+RUN groupadd --system agentroom \
+    && useradd --system --gid agentroom --home-dir /workspace --create-home agentroom \
+    && mkdir -p /workspace/.agent-room \
+    && chown -R agentroom:agentroom /workspace apps/self-hosted/src apps/self-hosted/dist
+
 WORKDIR /app/apps/self-hosted
 
 ENV NODE_ENV=production
@@ -57,6 +62,8 @@ ENV PORT=3000
 ENV AGENT_ROOM_DATA_DIR=/workspace/.agent-room
 
 EXPOSE 3000
+
+USER agentroom
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["bun", "--no-env-file", "run", "src/server/pi-runtime/main.ts"]
