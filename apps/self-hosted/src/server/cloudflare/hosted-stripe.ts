@@ -19,6 +19,13 @@ import {
 } from './hosted-billing-types'
 import type { HostedActor } from './hosted-auth'
 
+export class HostedStripeWebhookError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'HostedStripeWebhookError'
+    }
+}
+
 interface StripeCheckoutSession {
     id: string
     customer: string | null
@@ -151,7 +158,9 @@ function parseStripeSignature(header: string): { timestamp: string; signatures: 
         .filter(([key, value]) => key === 'v1' && Boolean(value))
         .map(([, value]) => value)
     if (!timestamp || signatures.length === 0) {
-        throw new Error('Stripe signature header is missing timestamp or signature')
+        throw new HostedStripeWebhookError(
+            'Stripe signature header is missing timestamp or signature',
+        )
     }
     return {
         timestamp,
@@ -196,18 +205,24 @@ export async function verifyStripeWebhookPayload(input: {
     const parsed = parseStripeSignature(input.signatureHeader)
     const timestamp = Number(parsed.timestamp)
     if (!Number.isSafeInteger(timestamp)) {
-        throw new Error('Stripe signature timestamp is invalid')
+        throw new HostedStripeWebhookError('Stripe signature timestamp is invalid')
     }
     const nowSeconds = input.nowSeconds ?? Math.floor(Date.now() / 1000)
     const toleranceSeconds = input.toleranceSeconds ?? 300
     if (Math.abs(nowSeconds - timestamp) > toleranceSeconds) {
-        throw new Error('Stripe signature timestamp is outside the allowed tolerance')
+        throw new HostedStripeWebhookError(
+            'Stripe signature timestamp is outside the allowed tolerance',
+        )
     }
     const expected = await hmacSha256Hex(input.secret, `${parsed.timestamp}.${input.body}`)
     if (!parsed.signatures.some((signature) => timingSafeEqualHex(signature, expected))) {
-        throw new Error('Stripe webhook signature verification failed')
+        throw new HostedStripeWebhookError('Stripe webhook signature verification failed')
     }
-    return parseStripeEvent(JSON.parse(input.body))
+    try {
+        return parseStripeEvent(JSON.parse(input.body))
+    } catch {
+        throw new HostedStripeWebhookError('Stripe webhook payload was not valid JSON')
+    }
 }
 
 function hostedBillingReturnUrl(origin: string, state: 'success' | 'cancel'): string {
@@ -371,7 +386,7 @@ export async function processHostedStripeWebhook(input: {
 }): Promise<{ processed: boolean; eventId: string; type: string }> {
     const config = resolveHostedConfig(input.env)
     if (!config.billing.stripe) {
-        throw new Error('Stripe billing is disabled')
+        throw new HostedStripeWebhookError('Stripe billing is disabled')
     }
     const event = await verifyStripeWebhookPayload({
         secret: config.billing.stripe.webhookSecret,

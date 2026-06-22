@@ -163,8 +163,8 @@ describe('hosted runtime access room-cap self-exclusion', () => {
                 AGENT_ROOM_BILLING_MODE: input.billingMode ?? 'stripe',
                 AGENT_ROOM_BILLING_PLANS:
                     '[{"key":"standard","priceId":"price_std","monthlyCents":2000,"includedCents":1200}]',
-                STRIPE_SECRET_KEY: 'sk_test_placeholder',
-                STRIPE_WEBHOOK_SECRET: 'whsec_placeholder',
+                STRIPE_SECRET_KEY: 'stripe-secret-test-value',
+                STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
                 STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_topup_placeholder',
                 AGENT_ROOM_BILLING_USAGE_MARKUP_BPS: '13000',
                 AGENT_ROOM_BILLING_TAX_MODE: 'automatic',

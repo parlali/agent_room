@@ -247,23 +247,9 @@ export async function creditHostedBalance(input: {
     const id = crypto.randomUUID()
     const now = nowIso(input.now)
     const bucket = bucketForCreditSource(input.source)
-    const bucketColumn =
-        bucket === 'included' ? 'included_balance_cents' : 'purchased_balance_cents'
-    const account = await input.env.AGENT_ROOM_DB.prepare(
-        `
-            UPDATE hosted_billing_account
-            SET ${bucketColumn} = ${bucketColumn} + ?2,
-                updated_at = ?3
-            WHERE workspace_id = ?1
-            RETURNING included_balance_cents + purchased_balance_cents AS currentBalanceCents
-        `,
-    )
-        .bind(input.workspaceId, input.amountCents, now)
-        .first<{ currentBalanceCents: number }>()
-    if (!account) {
-        throw new Error('Hosted billing account was not found while crediting balance')
-    }
-    await input.env.AGENT_ROOM_DB.prepare(
+    const before = await readHostedBillingAccount(input)
+    const balanceAfterCents = before.currentBalanceCents + input.amountCents
+    const inserted = await input.env.AGENT_ROOM_DB.prepare(
         `
             INSERT INTO hosted_billing_ledger_entry (
                 id,
@@ -281,6 +267,7 @@ export async function creditHostedBalance(input: {
                 created_at
             )
             VALUES (?1, ?2, 'credit', ?3, ?4, ?5, ?6, ?7, ?8, NULL, ?9, ?10, ?11)
+            ON CONFLICT(workspace_id, idempotency_key) DO NOTHING
         `,
     )
         .bind(
@@ -288,7 +275,7 @@ export async function creditHostedBalance(input: {
             input.workspaceId,
             input.source,
             input.amountCents,
-            account.currentBalanceCents,
+            balanceAfterCents,
             input.stripeEventId ?? null,
             input.stripeCheckoutSessionId ?? null,
             input.stripeInvoiceId ?? null,
@@ -297,6 +284,27 @@ export async function creditHostedBalance(input: {
             now,
         )
         .run()
+    if ((inserted.meta.changes ?? 0) < 1) {
+        const winner = await findLedgerEntryByIdempotencyKey(input)
+        if (winner) return winner
+        throw new Error('Hosted billing credit conflicted without a persisted ledger entry')
+    }
+    const bucketColumn =
+        bucket === 'included' ? 'included_balance_cents' : 'purchased_balance_cents'
+    const account = await input.env.AGENT_ROOM_DB.prepare(
+        `
+            UPDATE hosted_billing_account
+            SET ${bucketColumn} = ${bucketColumn} + ?2,
+                updated_at = ?3
+            WHERE workspace_id = ?1
+            RETURNING included_balance_cents + purchased_balance_cents AS currentBalanceCents
+        `,
+    )
+        .bind(input.workspaceId, input.amountCents, now)
+        .first<{ currentBalanceCents: number }>()
+    if (!account) {
+        throw new Error('Hosted billing account was not found while crediting balance')
+    }
     const entry = await findLedgerEntryByIdempotencyKey(input)
     if (!entry) {
         throw new Error('Hosted billing credit ledger entry was not persisted')

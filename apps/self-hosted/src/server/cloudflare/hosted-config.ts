@@ -51,6 +51,23 @@ export function resolveHostedConfig(env: AgentRoomHostedEnv): HostedConfig {
     const data = parsed.data
     const publicOrigin = new URL(data.BETTER_AUTH_URL).origin
 
+    let stripe: HostedConfig['billing']['stripe'] = null
+    if (data.AGENT_ROOM_BILLING_MODE === 'stripe') {
+        const secretKey = data.STRIPE_SECRET_KEY
+        const webhookSecret = data.STRIPE_WEBHOOK_SECRET
+        const creditTopupPriceId = data.STRIPE_CREDIT_TOPUP_PRICE_ID
+        if (!secretKey || !webhookSecret || !creditTopupPriceId) {
+            throw new Error(
+                'Stripe billing mode requires STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CREDIT_TOPUP_PRICE_ID',
+            )
+        }
+        stripe = {
+            secretKey,
+            webhookSecret,
+            creditTopupPriceId,
+        }
+    }
+
     return {
         authMode: data.AGENT_ROOM_AUTH_MODE,
         billing: {
@@ -59,14 +76,7 @@ export function resolveHostedConfig(env: AgentRoomHostedEnv): HostedConfig {
             usageMarkupBps: data.AGENT_ROOM_BILLING_USAGE_MARKUP_BPS,
             taxMode: data.AGENT_ROOM_BILLING_TAX_MODE,
             maxConcurrentRoomsPerWorkspace: data.AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS,
-            stripe:
-                data.AGENT_ROOM_BILLING_MODE === 'stripe'
-                    ? {
-                          secretKey: data.STRIPE_SECRET_KEY ?? '',
-                          webhookSecret: data.STRIPE_WEBHOOK_SECRET ?? '',
-                          creditTopupPriceId: data.STRIPE_CREDIT_TOPUP_PRICE_ID ?? '',
-                      }
-                    : null,
+            stripe,
         },
         runtimeBackend: data.AGENT_ROOM_RUNTIME_BACKEND,
         runtimeStorage: data.AGENT_ROOM_RUNTIME_STORAGE,

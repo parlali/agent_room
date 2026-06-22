@@ -156,14 +156,14 @@ describe('hosted Cloudflare configuration', () => {
             resolveHostedConfig(
                 hostedEnv({
                     AGENT_ROOM_BILLING_MODE: 'stripe',
-                    STRIPE_SECRET_KEY: 'sk_test_placeholder',
-                    STRIPE_WEBHOOK_SECRET: 'whsec_placeholder',
+                    STRIPE_SECRET_KEY: 'stripe-secret-test-value',
+                    STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
                     STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_topup_placeholder',
                 }),
             ).billing.stripe,
         ).toMatchObject({
-            secretKey: 'sk_test_placeholder',
-            webhookSecret: 'whsec_placeholder',
+            secretKey: 'stripe-secret-test-value',
+            webhookSecret: 'stripe-webhook-test-value',
             creditTopupPriceId: 'price_topup_placeholder',
         })
     })
@@ -172,8 +172,8 @@ describe('hosted Cloudflare configuration', () => {
         const config = resolveHostedConfig(
             hostedEnv({
                 AGENT_ROOM_BILLING_MODE: 'stripe',
-                STRIPE_SECRET_KEY: 'sk_test_placeholder',
-                STRIPE_WEBHOOK_SECRET: 'whsec_placeholder',
+                STRIPE_SECRET_KEY: 'stripe-secret-test-value',
+                STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
                 STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_topup_placeholder',
             }),
         )
@@ -188,8 +188,8 @@ describe('hosted Cloudflare configuration', () => {
             resolveHostedConfig(
                 hostedEnv({
                     AGENT_ROOM_BILLING_MODE: 'stripe',
-                    STRIPE_SECRET_KEY: 'sk_test_placeholder',
-                    STRIPE_WEBHOOK_SECRET: 'whsec_placeholder',
+                    STRIPE_SECRET_KEY: 'stripe-secret-test-value',
+                    STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
                     STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_topup_placeholder',
                     AGENT_ROOM_BILLING_PLANS: '[]',
                 }),

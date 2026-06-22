@@ -338,8 +338,8 @@ function stripeHostedEnv(db = new FakeD1()): AgentRoomHostedEnv {
         ...hostedEnv(db),
         AGENT_ROOM_BILLING_MODE: 'stripe',
         AGENT_ROOM_BILLING_PLANS: stripePlansJson,
-        STRIPE_SECRET_KEY: 'sk_test_placeholder',
-        STRIPE_WEBHOOK_SECRET: 'whsec_placeholder',
+        STRIPE_SECRET_KEY: 'stripe-secret-test-value',
+        STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
         STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_topup_placeholder',
     }
 }
@@ -701,7 +701,7 @@ describe('hosted billing service API', () => {
 
         const [, init] = fetchMock.mock.calls[0] ?? []
         expect(init?.headers).toMatchObject({
-            authorization: 'Bearer sk_test_placeholder',
+            authorization: 'Bearer stripe-secret-test-value',
         })
         expect(String(init?.body)).toContain('metadata%5Bworkspace_id%5D=workspace_1')
         expect(String(init?.body)).toContain('line_items%5B0%5D%5Bprice%5D=price_topup_placeholder')
@@ -766,7 +766,7 @@ describe('hosted billing stripe webhooks', () => {
 
         const result = await deliverStripeEvent({
             env,
-            secret: 'whsec_placeholder',
+            secret: 'stripe-webhook-test-value',
             event: {
                 id: 'evt_topup',
                 type: 'checkout.session.completed',
@@ -843,7 +843,7 @@ describe('hosted billing stripe webhooks', () => {
 
         await deliverStripeEvent({
             env,
-            secret: 'whsec_placeholder',
+            secret: 'stripe-webhook-test-value',
             event: invoiceEvent('evt_invoice_1', 'in_1'),
         })
         const afterFirst = db.accounts.get('workspace_1')!
@@ -855,7 +855,7 @@ describe('hosted billing stripe webhooks', () => {
 
         await deliverStripeEvent({
             env,
-            secret: 'whsec_placeholder',
+            secret: 'stripe-webhook-test-value',
             event: invoiceEvent('evt_invoice_2', 'in_2'),
         })
         const afterSecond = db.accounts.get('workspace_1')!
@@ -909,7 +909,7 @@ describe('hosted billing stripe webhooks', () => {
         await expect(
             deliverStripeEvent({
                 env,
-                secret: 'whsec_placeholder',
+                secret: 'stripe-webhook-test-value',
                 event: invoiceEvent,
             }),
         ).rejects.toThrow(/transient failure/)
@@ -921,7 +921,7 @@ describe('hosted billing stripe webhooks', () => {
 
         const retryResult = await deliverStripeEvent({
             env,
-            secret: 'whsec_placeholder',
+            secret: 'stripe-webhook-test-value',
             event: invoiceEvent,
         })
         expect(retryResult.processed).toBe(true)
@@ -1048,13 +1048,13 @@ describe('hosted Stripe webhook verification', () => {
         })
         const timestamp = 1000
         const signature = await stripeSignature({
-            secret: 'whsec_placeholder',
+            secret: 'stripe-webhook-test-value',
             body,
             timestamp,
         })
         await expect(
             verifyStripeWebhookPayload({
-                secret: 'whsec_placeholder',
+                secret: 'stripe-webhook-test-value',
                 body,
                 signatureHeader: `t=${timestamp},v1=${signature}`,
                 nowSeconds: timestamp,
@@ -1064,7 +1064,7 @@ describe('hosted Stripe webhook verification', () => {
         })
         await expect(
             verifyStripeWebhookPayload({
-                secret: 'whsec_placeholder',
+                secret: 'stripe-webhook-test-value',
                 body,
                 signatureHeader: `t=${timestamp},v1=bad`,
                 nowSeconds: timestamp,

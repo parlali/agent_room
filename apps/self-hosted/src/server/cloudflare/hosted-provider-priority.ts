@@ -1,5 +1,5 @@
 import type { AgentRoomHostedEnv } from './bindings'
-import { readHostedBillingAccount } from './hosted-billing-repository'
+import { ensureHostedBillingAccount, readHostedBillingAccount } from './hosted-billing-repository'
 import { resolveHostedConfig } from './hosted-config'
 
 export type HostedProviderCandidate = 'codex' | 'user_key' | 'hosted_openrouter'
@@ -19,6 +19,10 @@ export async function selectHostedProviderCandidate(
 
     const config = resolveHostedConfig(input.env)
     if (!config.hostedProviders.openrouter) return null
+    await ensureHostedBillingAccount({
+        env: input.env,
+        workspaceId: input.workspaceId,
+    })
     const account = await readHostedBillingAccount({
         env: input.env,
         workspaceId: input.workspaceId,

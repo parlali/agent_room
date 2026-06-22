@@ -7,6 +7,7 @@ import { resolveHostedConfig } from '#/server/cloudflare/hosted-config'
 import { reconcileHostedRuntimeJob } from '#/server/cloudflare/hosted-runtime-adapter'
 import {
     createHostedStripeCheckout,
+    HostedStripeWebhookError,
     processHostedStripeWebhook,
     readHostedBillingSummary,
 } from '#/server/cloudflare/hosted-stripe'
@@ -89,9 +90,36 @@ async function hostedBillingSummary(env: AgentRoomHostedEnv, request: Request): 
 async function hostedBillingCheckout(env: AgentRoomHostedEnv, request: Request): Promise<Response> {
     const actor = await requireHostedActor(env, request)
     if (actor instanceof Response) return actor
-    const body = (await request.json()) as unknown
-    const record = body && typeof body === 'object' ? (body as Record<string, unknown>) : {}
-    const kind = hostedBillingCheckoutKindSchema.parse(record.kind)
+    let record: Record<string, unknown> = {}
+    try {
+        const body = (await request.json()) as unknown
+        record = body && typeof body === 'object' ? (body as Record<string, unknown>) : {}
+    } catch {
+        return jsonResponse(
+            {
+                ok: false,
+                code: 'invalid_request_body',
+                message: 'Request body must be valid JSON',
+            },
+            {
+                status: 400,
+            },
+        )
+    }
+    const kindResult = hostedBillingCheckoutKindSchema.safeParse(record.kind)
+    if (!kindResult.success) {
+        return jsonResponse(
+            {
+                ok: false,
+                code: 'invalid_checkout_kind',
+                message: 'A valid checkout kind is required',
+            },
+            {
+                status: 400,
+            },
+        )
+    }
+    const kind = kindResult.data
     if (kind === 'credit_topup') {
         const checkout = await createHostedStripeCheckout({
             env,
@@ -142,15 +170,31 @@ async function hostedStripeWebhook(env: AgentRoomHostedEnv, request: Request): P
             },
         )
     }
-    const result = await processHostedStripeWebhook({
-        env,
-        body: await request.text(),
-        signatureHeader,
-    })
-    return jsonResponse({
-        ok: true,
-        ...result,
-    })
+    try {
+        const result = await processHostedStripeWebhook({
+            env,
+            body: await request.text(),
+            signatureHeader,
+        })
+        return jsonResponse({
+            ok: true,
+            ...result,
+        })
+    } catch (error) {
+        if (error instanceof HostedStripeWebhookError) {
+            return jsonResponse(
+                {
+                    ok: false,
+                    code: 'invalid_stripe_webhook',
+                    message: error.message,
+                },
+                {
+                    status: 400,
+                },
+            )
+        }
+        throw error
+    }
 }
 
 function hostedAppNotReady(): Response {
