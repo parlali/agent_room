@@ -1,6 +1,14 @@
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { buildPiRuntimeConfig } from './pi-runtime-config'
+import {
+    buildPiRuntimeEntrypoint,
+    piCodingAgentDirEnvKey,
+    piRuntimeConfigPathEnvKey,
+    piRuntimeMainRelativePath,
+    piRuntimeStateDirEnvKey,
+    piRuntimeTokenEnvKey,
+} from './pi-runtime-contract'
 import type {
     RuntimeEngineCommand,
     RuntimeEngineProfile,
@@ -13,9 +21,12 @@ import {
 } from '../security/process-env'
 
 function resolvePiRuntimeCommand(): RuntimeEngineCommand {
+    const [command, ...args] = buildPiRuntimeEntrypoint(
+        join(process.cwd(), piRuntimeMainRelativePath),
+    )
     return {
-        command: 'bun',
-        args: ['--no-env-file', 'run', join(process.cwd(), 'src/server/pi-runtime/main.ts')],
+        command,
+        args,
     }
 }
 
@@ -48,12 +59,12 @@ function buildPiRuntimeProfile(input: RuntimeEngineProfileBuildInput) {
     const env: Record<string, string> = {
         ...input.roomConfiguration.entitlements.env,
         ...input.roomConfiguration.entitlements.internalEnv,
-        AGENT_ROOM_PI_RUNTIME_CONFIG_PATH: input.paths.runtimeConfigPath,
-        AGENT_ROOM_PI_RUNTIME_TOKEN: input.token,
-        AGENT_ROOM_PI_STATE_DIR: input.paths.engineStateDir,
+        [piRuntimeConfigPathEnvKey]: input.paths.runtimeConfigPath,
+        [piRuntimeTokenEnvKey]: input.token,
+        [piRuntimeStateDirEnvKey]: input.paths.engineStateDir,
         [shellVisibleWorkspaceDirEnvKey]: input.paths.workspaceDir,
         [shellVisibleStoreDirEnvKey]: input.paths.storeDir,
-        PI_CODING_AGENT_DIR: input.paths.engineStateDir,
+        [piCodingAgentDirEnvKey]: input.paths.engineStateDir,
         HOME: config.paths.homeDir,
         TMPDIR: config.paths.tmpDir,
     }

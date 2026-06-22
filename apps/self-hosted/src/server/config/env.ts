@@ -15,6 +15,7 @@ const optionalRuntimeLimit = z.preprocess(
 const rawEnvSchema = z.object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     PORT: z.coerce.number().int().positive().default(3000),
+    AGENT_ROOM_AUTH_MODE: z.enum(['local', 'better-auth']).default('local'),
     AGENT_ROOM_DATABASE_URL: z.string().min(1).optional(),
     AGENT_ROOM_ALLOW_DATABASE_RESET: z
         .string()
@@ -117,6 +118,7 @@ type GeneratedBootstrap = z.infer<typeof generatedBootstrapSchema>
 export interface AppEnv {
     nodeEnv: 'development' | 'test' | 'production'
     port: number
+    authMode: 'local' | 'better-auth'
     databaseUrl: string
     dataDir: string
     encryptionKey: Buffer
@@ -313,6 +315,7 @@ export function getAppEnv(): AppEnv {
     cachedEnv = {
         nodeEnv: data.NODE_ENV,
         port: data.PORT,
+        authMode: data.AGENT_ROOM_AUTH_MODE,
         databaseUrl,
         dataDir,
         encryptionKey,

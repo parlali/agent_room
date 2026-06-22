@@ -1,0 +1,86 @@
+{
+    "$schema": "../../node_modules/wrangler/config-schema.json",
+    "name": "agent-room-hosted",
+    "main": "src/cloudflare/worker.ts",
+    "workers_dev": true,
+    "preview_urls": false,
+    "compatibility_date": "2026-06-16",
+    "compatibility_flags": ["nodejs_compat"],
+    "observability": {
+        "enabled": true,
+    },
+    "assets": {
+        "directory": "./dist/client",
+        "binding": "ASSETS",
+        "not_found_handling": "single-page-application",
+    },
+    "routes": [
+        {
+            "pattern": "app.openagentroom.com",
+            "custom_domain": true,
+        },
+    ],
+    "vars": {
+        "AGENT_ROOM_AUTH_MODE": "better-auth",
+        "AGENT_ROOM_RUNTIME_BACKEND": "cloudflare-containers",
+        "AGENT_ROOM_RUNTIME_STORAGE": "r2",
+    },
+    "secrets": {
+        "required": [
+            "BETTER_AUTH_SECRET",
+            "BETTER_AUTH_URL",
+            "AGENT_ROOM_EMAIL_WEBHOOK_URL",
+            "AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN",
+            "AGENT_ROOM_EMAIL_FROM",
+        ],
+    },
+    "d1_databases": [
+        {
+            "binding": "AGENT_ROOM_DB",
+            "database_name": "agent-room-hosted",
+            "migrations_dir": "db/d1-migrations",
+        },
+    ],
+    "r2_buckets": [
+        {
+            "binding": "AGENT_ROOM_WORKSPACE_BUCKET",
+            "bucket_name": "agent-room-hosted-workspaces",
+        },
+    ],
+    "queues": {
+        "producers": [
+            {
+                "binding": "AGENT_ROOM_RUNTIME_JOBS",
+                "queue": "agent-room-hosted-runtime-jobs",
+            },
+        ],
+        "consumers": [
+            {
+                "queue": "agent-room-hosted-runtime-jobs",
+                "max_batch_size": 1,
+                "max_retries": 3,
+            },
+        ],
+    },
+    "containers": [
+        {
+            "class_name": "AgentRoomRuntimeContainer",
+            "image": "../../Dockerfile.cloudflare-runtime",
+            "max_instances": 100,
+        },
+    ],
+    "durable_objects": {
+        "bindings": [
+            {
+                "name": "AGENT_ROOM_RUNTIME",
+                "class_name": "AgentRoomRuntimeContainer",
+            },
+        ],
+    },
+    "migrations": [
+        {
+            "tag": "v1",
+            "new_sqlite_classes": ["AgentRoomRuntimeContainer"],
+        },
+    ],
+}

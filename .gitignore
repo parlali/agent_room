@@ -9,11 +9,13 @@ dist-ssr
 .nitro
 .tanstack
 .wrangler
+apps/self-hosted/.wrangler.hosted.resolved.*.jsonc
 .output
 .vinxi
 .turbo
 coverage
 *.log
+**/worker-configuration.d.ts
 tmp
 .tmp_bootstrap
 .agent-room

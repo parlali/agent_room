@@ -20,7 +20,15 @@ export interface AuthenticatedSession {
     expiresAt: Date
 }
 
+function assertLocalAuthEnabled() {
+    if (env.authMode !== 'local') {
+        throw new Error('Local password authentication is disabled for this auth mode')
+    }
+}
+
 export async function bootstrapRootUser() {
+    assertLocalAuthEnabled()
+
     const totalUsers = await userRepository.countUsers()
     if (totalUsers > 0) {
         return {
@@ -54,6 +62,8 @@ export async function loginWithPassword(input: {
     userAgent?: string | null
     ipAddress?: string | null
 }): Promise<AuthenticatedSession> {
+    assertLocalAuthEnabled()
+
     const user = await userRepository.findByEmail(input.email)
     if (!user || !verifyPassword(input.password, user.passwordHash)) {
         throw new Error('Invalid credentials')

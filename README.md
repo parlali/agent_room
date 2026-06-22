@@ -10,6 +10,8 @@ Agent Room is early self-hosted software. It is designed for local or private-ne
 
 Do not expose it directly to the public internet without a trusted reverse proxy, HTTPS, strong authentication, and backups.
 
+The Cloudflare hosted path is tracked separately from the local Docker quickstart. See `plan/cloudflare-hosted-deployment.md` for the Workers, D1, R2, Containers, Better Auth, and CI/CD setup plus the deployment-key verification steps.
+
 ## Repository Layout
 
 Agent Room is a Bun and Turborepo workspace:

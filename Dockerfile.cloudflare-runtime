@@ -11,21 +11,15 @@ RUN apt-get update \
         file \
         fonts-dejavu \
         gh \
-        ghostscript \
         git \
         jq \
         less \
-        libreoffice \
         make \
         openssh-client \
-        pandoc \
         passwd \
         patch \
-        poppler-utils \
         python3 \
-        python3-pip \
         python3-venv \
-        qpdf \
         ripgrep \
         rsync \
         sqlite3 \
@@ -44,20 +38,32 @@ COPY apps/marketing/package.json apps/marketing/package.json
 COPY apps/self-hosted/package.json apps/self-hosted/package.json
 COPY packages/brand/package.json packages/brand/package.json
 COPY packages/typescript-config/package.json packages/typescript-config/package.json
-RUN bun install --frozen-lockfile
+RUN bun install --frozen-lockfile --production
 
-COPY . .
-RUN bun run brand:export:marketing \
-    && bun run marketing:build \
-    && bun run self-hosted:build \
-    && chmod -R go-rX apps/self-hosted/src \
-    && chmod -R a+rX apps/self-hosted/dist/server/assets/skills
+COPY apps/self-hosted/src apps/self-hosted/src
+COPY apps/self-hosted/scripts/copy-runtime-assets.ts apps/self-hosted/scripts/copy-runtime-assets.ts
+COPY apps/self-hosted/tsconfig.json apps/self-hosted/tsconfig.json
+COPY packages/brand packages/brand
+COPY packages/typescript-config packages/typescript-config
+RUN cd apps/self-hosted \
+    && bun run scripts/copy-runtime-assets.ts \
+    && chmod -R go-rX src \
+    && chmod -R a+rX dist/server/assets/skills
+
+RUN groupadd --system agentroom \
+    && useradd --system --gid agentroom --home-dir /workspace --create-home agentroom \
+    && mkdir -p /workspace/.agent-room \
+    && chown -R agentroom:agentroom /workspace apps/self-hosted/src apps/self-hosted/dist
+
+WORKDIR /app/apps/self-hosted
 
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV AGENT_ROOM_DATA_DIR=/app/.agent-room
+ENV AGENT_ROOM_DATA_DIR=/workspace/.agent-room
 
 EXPOSE 3000
 
+USER agentroom
+
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["sh", "-c", "cd /app && bun run db:migrate && bun run bootstrap:root && bun run start"]
+CMD ["bun", "--no-env-file", "run", "src/server/pi-runtime/main.ts"]
