@@ -11,11 +11,20 @@ interface DeleteOptions {
     toleratedFailureMessage?: string
 }
 
-interface DeleteStep {
+interface WranglerDeleteStep {
+    type: 'wrangler'
     args: string[]
     label: string
     options: DeleteOptions
 }
+
+interface WorkerScriptDeleteStep {
+    type: 'worker-script'
+    scriptName: string
+    label: string
+}
+
+type DeleteStep = WranglerDeleteStep | WorkerScriptDeleteStep
 
 function assertPreviewResourceNames(resourceNames: HostedResourceNames): void {
     const values = [
@@ -34,6 +43,7 @@ function assertPreviewResourceNames(resourceNames: HostedResourceNames): void {
 export function buildPreviewDeleteSteps(resourceNames: HostedResourceNames): DeleteStep[] {
     return [
         {
+            type: 'wrangler',
             args: [
                 'queues',
                 'consumer',
@@ -43,17 +53,17 @@ export function buildPreviewDeleteSteps(resourceNames: HostedResourceNames): Del
             ],
             label: `${resourceNames.queueName} consumer ${resourceNames.workerName}`,
             options: {
-                missingPattern: /does not exist|could not find|not found|no consumer/i,
+                missingPattern:
+                    /does not exist|could not find|not found|no consumer|no worker consumer/i,
             },
         },
         {
-            args: ['delete', resourceNames.workerName, '--force'],
+            type: 'worker-script',
+            scriptName: resourceNames.workerName,
             label: resourceNames.workerName,
-            options: {
-                missingPattern: /does not exist|\[code: 10090\]/i,
-            },
         },
         {
+            type: 'wrangler',
             args: ['d1', 'delete', resourceNames.d1DatabaseName, '--skip-confirmation'],
             label: resourceNames.d1DatabaseName,
             options: {
@@ -61,6 +71,7 @@ export function buildPreviewDeleteSteps(resourceNames: HostedResourceNames): Del
             },
         },
         {
+            type: 'wrangler',
             args: ['queues', 'delete', resourceNames.queueName],
             label: resourceNames.queueName,
             options: {
@@ -68,6 +79,7 @@ export function buildPreviewDeleteSteps(resourceNames: HostedResourceNames): Del
             },
         },
         {
+            type: 'wrangler',
             args: ['r2', 'bucket', 'delete', resourceNames.r2BucketName],
             label: resourceNames.r2BucketName,
             options: {
@@ -77,6 +89,21 @@ export function buildPreviewDeleteSteps(resourceNames: HostedResourceNames): Del
             },
         },
     ]
+}
+
+interface CloudflareApiCredentials {
+    accountId: string
+    apiToken: string
+}
+
+interface CloudflareApiError {
+    code?: number | string
+    message?: string
+}
+
+interface CloudflareApiResponse {
+    success?: boolean
+    errors?: CloudflareApiError[]
 }
 
 async function deleteResource(
@@ -106,6 +133,91 @@ async function deleteResource(
     throw new Error(`Wrangler command failed: wrangler ${args.join(' ')}`)
 }
 
+async function deleteStep(step: DeleteStep): Promise<void> {
+    if (step.type === 'worker-script') {
+        await deleteWorkerScript(step.scriptName, step.label)
+        return
+    }
+    await deleteResource(step.args, step.label, step.options)
+}
+
+async function deleteWorkerScript(scriptName: string, label: string): Promise<void> {
+    const credentials = readCloudflareApiCredentials()
+    if (!credentials) {
+        await deleteResource(['delete', scriptName, '--force'], label, {
+            missingPattern: /does not exist|\[code: 10090\]/i,
+        })
+        return
+    }
+
+    const response = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(credentials.accountId)}/workers/scripts/${encodeURIComponent(scriptName)}`,
+        {
+            method: 'DELETE',
+            headers: {
+                Authorization: `Bearer ${credentials.apiToken}`,
+            },
+        },
+    )
+    const bodyText = await response.text()
+    const body = parseCloudflareApiResponse(bodyText)
+    if (response.ok && body?.success !== false) {
+        console.log(`Deleted ${label}`)
+        return
+    }
+    if (response.status === 404 || hasCloudflareErrorCode(body, '10007')) {
+        console.log(`${label} does not exist`)
+        return
+    }
+
+    throw new Error(
+        `Cloudflare API failed to delete ${label}: ${summarizeCloudflareApiError(response, body)}`,
+    )
+}
+
+function readCloudflareApiCredentials(): CloudflareApiCredentials | null {
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim()
+    const apiToken = process.env.CLOUDFLARE_API_TOKEN?.trim()
+    if (!accountId && !apiToken) {
+        return null
+    }
+    if (!accountId || !apiToken) {
+        throw new Error('CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must both be set')
+    }
+    return {
+        accountId,
+        apiToken,
+    }
+}
+
+function parseCloudflareApiResponse(bodyText: string): CloudflareApiResponse | null {
+    if (!bodyText.trim()) {
+        return null
+    }
+    try {
+        return JSON.parse(bodyText) as CloudflareApiResponse
+    } catch {
+        return null
+    }
+}
+
+function hasCloudflareErrorCode(body: CloudflareApiResponse | null, code: string): boolean {
+    return body?.errors?.some((error) => String(error.code) === code) ?? false
+}
+
+function summarizeCloudflareApiError(
+    response: Response,
+    body: CloudflareApiResponse | null,
+): string {
+    const errors = body?.errors
+        ?.map((error) => [error.code, error.message].filter(Boolean).join(' '))
+        .filter(Boolean)
+    if (errors?.length) {
+        return errors.join('; ')
+    }
+    return `HTTP ${response.status}`
+}
+
 function writeOutput(output: string): void {
     if (output.trim()) {
         process.stdout.write(output)
@@ -118,7 +230,7 @@ async function main(): Promise<void> {
     assertPreviewResourceNames(resourceNames)
 
     for (const step of buildPreviewDeleteSteps(resourceNames)) {
-        await deleteResource(step.args, step.label, step.options)
+        await deleteStep(step)
     }
 }
 

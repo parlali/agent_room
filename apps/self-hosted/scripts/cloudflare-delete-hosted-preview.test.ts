@@ -10,18 +10,33 @@ describe('hosted Cloudflare preview deletion', () => {
             queueName: 'agent-room-hosted-pr-123-runtime-jobs',
         })
 
-        expect(steps.map((step) => step.args)).toEqual([
-            [
-                'queues',
-                'consumer',
-                'remove',
-                'agent-room-hosted-pr-123-runtime-jobs',
-                'agent-room-hosted-pr-123',
-            ],
-            ['delete', 'agent-room-hosted-pr-123', '--force'],
-            ['d1', 'delete', 'agent-room-hosted-pr-123', '--skip-confirmation'],
-            ['queues', 'delete', 'agent-room-hosted-pr-123-runtime-jobs'],
-            ['r2', 'bucket', 'delete', 'agent-room-hosted-pr-123-workspaces'],
+        expect(steps).toMatchObject([
+            {
+                type: 'wrangler',
+                args: [
+                    'queues',
+                    'consumer',
+                    'remove',
+                    'agent-room-hosted-pr-123-runtime-jobs',
+                    'agent-room-hosted-pr-123',
+                ],
+            },
+            {
+                type: 'worker-script',
+                scriptName: 'agent-room-hosted-pr-123',
+            },
+            {
+                type: 'wrangler',
+                args: ['d1', 'delete', 'agent-room-hosted-pr-123', '--skip-confirmation'],
+            },
+            {
+                type: 'wrangler',
+                args: ['queues', 'delete', 'agent-room-hosted-pr-123-runtime-jobs'],
+            },
+            {
+                type: 'wrangler',
+                args: ['r2', 'bucket', 'delete', 'agent-room-hosted-pr-123-workspaces'],
+            },
         ])
     })
 })
