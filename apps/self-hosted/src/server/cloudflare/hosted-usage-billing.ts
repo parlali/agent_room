@@ -9,7 +9,6 @@ import {
     readHostedBillingAccount,
     releaseHostedBillingReservation,
     releaseExpiredHostedBillingReservations,
-    settleHostedBillingReservation,
 } from './hosted-billing-repository'
 import {
     applyUsageMarkupMicros,
@@ -155,6 +154,15 @@ export async function recordHostedProviderUsage(input: HostedProviderUsageInput)
                       purchasedCents: activeBillingReservation.purchasedReservedCents,
                   }
                 : undefined,
+            settleReservation: activeBillingReservation
+                ? {
+                      reservationId: activeBillingReservation.id,
+                      reservedCents: activeBillingReservation.reservedCents,
+                      includedReservedCents: activeBillingReservation.includedReservedCents,
+                      purchasedReservedCents: activeBillingReservation.purchasedReservedCents,
+                      settledCents: amountCents,
+                  }
+                : undefined,
             metadata: {
                 provider: input.provider,
                 model: input.model,
@@ -175,17 +183,6 @@ export async function recordHostedProviderUsage(input: HostedProviderUsageInput)
             })
         }
         throw error
-    }
-    if (activeBillingReservation) {
-        await settleHostedBillingReservation({
-            env: input.env,
-            workspaceId: input.workspaceId,
-            reservationId: activeBillingReservation.id,
-            settledCents: Math.min(amountCents, activeBillingReservation.reservedCents),
-            usageEventId,
-            billingLedgerEntryId: ledger.id,
-            now: input.now,
-        })
     }
     return {
         usageEventId,

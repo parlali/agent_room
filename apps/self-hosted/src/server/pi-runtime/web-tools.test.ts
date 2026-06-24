@@ -1,20 +1,11 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-    assertSafeUrl,
     createWebTools,
-    isBlockedNetworkAddress,
-    normalizeSearxngSafeSearch,
     parseBraveSearchResults,
     parseBrowserbaseSearchResults,
     parseSearxngResults,
-    sanitizeUrlForAudit,
 } from './web-tools'
-import {
-    SearchProviderError,
-    type SearchProvider,
-    type SearchProviderSearchInput,
-    type SearchProviderResponse,
-} from './web-search'
+import { SearchProviderError } from './web-search'
 import { BraveSearchProvider } from './web-search-brave'
 import { BrowserbaseSearchProvider } from './web-search-browserbase'
 import { SearchRouter } from './web-search-router'
@@ -25,105 +16,15 @@ import {
     hostedRuntimeBraveProxyUrlEnvKey,
     piRuntimeTokenEnvKey,
 } from '../rooms/pi-runtime-contract'
-
-const originalFetch = globalThis.fetch
-const originalBraveKey = process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY
-const originalHostedBraveProxyUrl = process.env[hostedRuntimeBraveProxyUrlEnvKey]
-const originalPiRuntimeToken = process.env[piRuntimeTokenEnvKey]
-const originalBrowserbaseKey = process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY
-const originalWebSocket = globalThis.WebSocket
-
-async function executeWebTool(input: object) {
-    const events: Array<{ event: string; payload: unknown }> = []
-    const tools = createWebTools({
-        config: createTestPiRuntimeConfig({
-            search: {
-                brave: {
-                    enabled: true,
-                    envKey: 'AGENT_ROOM_SEARCH_BRAVE_API_KEY',
-                    country: null,
-                    searchLang: null,
-                    safeSearch: 'moderate',
-                    timeoutMs: 10000,
-                    resultCount: 5,
-                },
-            },
-        }),
-        audit: async (event, payload) => {
-            events.push({ event, payload })
-        },
-    })
-    const tool = tools.find((entry) => entry.name === 'web_search')
-    if (!tool) {
-        throw new Error('Missing web search tool')
-    }
-    const result = await tool.execute('call-1', input as never, undefined, undefined, {} as never)
-    return {
-        result,
-        events,
-    }
-}
-
-function resultDetails(result: Awaited<ReturnType<typeof executeWebTool>>['result']) {
-    return typeof result.details === 'object' && result.details !== null
-        ? (result.details as Record<string, unknown>)
-        : {}
-}
-
-class FakeSearchProvider implements SearchProvider {
-    id
-    label
-    priority
-    calls = 0
-    private implementation
-
-    constructor(input: {
-        id: SearchProvider['id']
-        label: string
-        priority: number
-        implementation: (input: SearchProviderSearchInput, calls: number) => SearchProviderResponse
-    }) {
-        this.id = input.id
-        this.label = input.label
-        this.priority = input.priority
-        this.implementation = input.implementation
-    }
-
-    isConfigured(): boolean {
-        return true
-    }
-
-    async search(input: SearchProviderSearchInput): Promise<SearchProviderResponse> {
-        this.calls += 1
-        return this.implementation(input, this.calls)
-    }
-}
+import {
+    FakeSearchProvider,
+    executeWebTool,
+    resetWebToolTestGlobals,
+    resultDetails,
+} from './web-tools-test-support'
 
 describe('web tools', () => {
-    afterEach(() => {
-        globalThis.fetch = originalFetch
-        if (originalBraveKey === undefined) {
-            delete process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY
-        } else {
-            process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = originalBraveKey
-        }
-        if (originalHostedBraveProxyUrl === undefined) {
-            delete process.env[hostedRuntimeBraveProxyUrlEnvKey]
-        } else {
-            process.env[hostedRuntimeBraveProxyUrlEnvKey] = originalHostedBraveProxyUrl
-        }
-        if (originalPiRuntimeToken === undefined) {
-            delete process.env[piRuntimeTokenEnvKey]
-        } else {
-            process.env[piRuntimeTokenEnvKey] = originalPiRuntimeToken
-        }
-        if (originalBrowserbaseKey === undefined) {
-            delete process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY
-        } else {
-            process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = originalBrowserbaseKey
-        }
-        globalThis.WebSocket = originalWebSocket
-    })
+    afterEach(resetWebToolTestGlobals)
 
     it('parses bounded SearXNG results into canonical search results', () => {
         const results = parseSearxngResults(
@@ -1074,50 +975,5 @@ describe('web tools', () => {
             },
         ])
         expect(JSON.stringify(events)).not.toContain('brave-secret')
-    })
-
-    it('blocks local, private, link-local, and metadata network addresses', () => {
-        expect(isBlockedNetworkAddress('127.0.0.1')).toBe(true)
-        expect(isBlockedNetworkAddress('10.1.2.3')).toBe(true)
-        expect(isBlockedNetworkAddress('172.20.1.1')).toBe(true)
-        expect(isBlockedNetworkAddress('192.168.1.1')).toBe(true)
-        expect(isBlockedNetworkAddress('169.254.169.254')).toBe(true)
-        expect(isBlockedNetworkAddress('::1')).toBe(true)
-        expect(isBlockedNetworkAddress('::ffff:127.0.0.1')).toBe(true)
-        expect(isBlockedNetworkAddress('::ffff:7f00:1')).toBe(true)
-        expect(isBlockedNetworkAddress('8.8.8.8')).toBe(false)
-    })
-
-    it('rejects unsafe fetch URL schemes and hostnames before network fetch', async () => {
-        await expect(assertSafeUrl(new URL('file:///etc/passwd'))).rejects.toThrow(
-            'Only http and https URLs can be fetched',
-        )
-        await expect(assertSafeUrl(new URL('http://localhost/status'))).rejects.toThrow(
-            'Local and metadata hostnames cannot be fetched',
-        )
-        await expect(assertSafeUrl(new URL('http://[::1]/status'))).rejects.toThrow(
-            'Local and private network addresses cannot be fetched',
-        )
-        await expect(
-            assertSafeUrl(new URL('http://metadata.google.internal/computeMetadata/v1')),
-        ).rejects.toThrow('Local and metadata hostnames cannot be fetched')
-        await expect(
-            assertSafeUrl(new URL('https://user:pass@example.com/private')),
-        ).rejects.toThrow('URLs with embedded credentials cannot be fetched')
-    })
-
-    it('normalizes SearXNG safe search values before they reach the backend', () => {
-        expect(normalizeSearxngSafeSearch('off')).toBe('0')
-        expect(normalizeSearxngSafeSearch('moderate')).toBe('1')
-        expect(normalizeSearxngSafeSearch('strict')).toBe('2')
-        expect(() => normalizeSearxngSafeSearch('unbounded')).toThrow(
-            'safeSearch must be off, moderate, strict, 0, 1, or 2',
-        )
-    })
-
-    it('redacts URL credentials, queries, and fragments before audit persistence', () => {
-        expect(sanitizeUrlForAudit('https://user:pass@example.com/path?token=secret#frag')).toBe(
-            'https://example.com/path?[redacted]#[redacted]',
-        )
     })
 })

@@ -192,6 +192,91 @@ export async function creditHostedBalance(input: {
     return entry
 }
 
+interface DebitReservationSettlementInput {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    usageEventId: string
+    billingLedgerEntryId: string
+    settleReservation?: {
+        reservationId: string
+        reservedCents: number
+        includedReservedCents: number
+        purchasedReservedCents: number
+        settledCents: number
+    }
+    now?: Date
+}
+
+async function repairExistingHostedBillingDebitReservation(
+    input: DebitReservationSettlementInput,
+): Promise<void> {
+    if (!input.settleReservation) {
+        return
+    }
+    const now = nowIso(input.now)
+    const [updated, account] = await input.env.AGENT_ROOM_DB.batch([
+        input.env.AGENT_ROOM_DB.prepare(
+            `
+                UPDATE hosted_billing_reservation
+                SET status = 'settled',
+                    settled_cents = ?3,
+                    usage_event_id = ?4,
+                    billing_ledger_entry_id = ?5,
+                    updated_at = ?6
+                WHERE workspace_id = ?1
+                  AND id = ?2
+                  AND status = 'authorized'
+                  AND included_reserved_cents = ?7
+                  AND purchased_reserved_cents = ?8
+                  AND EXISTS (
+                      SELECT 1
+                      FROM hosted_billing_ledger_entry
+                      WHERE workspace_id = ?1
+                        AND id = ?5
+                        AND usage_event_id = ?4
+                  )
+            `,
+        ).bind(
+            input.workspaceId,
+            input.settleReservation.reservationId,
+            Math.min(input.settleReservation.settledCents, input.settleReservation.reservedCents),
+            input.usageEventId,
+            input.billingLedgerEntryId,
+            now,
+            input.settleReservation.includedReservedCents,
+            input.settleReservation.purchasedReservedCents,
+        ),
+        input.env.AGENT_ROOM_DB.prepare(
+            `
+                UPDATE hosted_billing_account
+                SET included_reserved_cents = included_reserved_cents - ?2,
+                    purchased_reserved_cents = purchased_reserved_cents - ?3,
+                    updated_at = ?4
+                WHERE workspace_id = ?1
+                  AND included_reserved_cents >= ?2
+                  AND purchased_reserved_cents >= ?3
+                  AND EXISTS (
+                      SELECT 1
+                      FROM hosted_billing_reservation
+                      WHERE workspace_id = ?1
+                        AND id = ?5
+                        AND status = 'settled'
+                        AND updated_at = ?4
+                  )
+            `,
+        ).bind(
+            input.workspaceId,
+            input.settleReservation.includedReservedCents,
+            input.settleReservation.purchasedReservedCents,
+            now,
+            input.settleReservation.reservationId,
+        ),
+    ])
+    if ((updated.meta.changes ?? 0) > 0 && (account.meta.changes ?? 0) < 1) {
+        throw new Error('Hosted billing existing debit reservation hold was not released')
+    }
+}
+
 export async function debitHostedBalance(input: {
     env: AgentRoomHostedEnv
     workspaceId: string
@@ -204,18 +289,45 @@ export async function debitHostedBalance(input: {
         includedCents: number
         purchasedCents: number
     }
+    settleReservation?: {
+        reservationId: string
+        reservedCents: number
+        includedReservedCents: number
+        purchasedReservedCents: number
+        settledCents: number
+    }
     now?: Date
 }): Promise<HostedBillingLedgerEntry> {
     assertPositiveCents(input.amountCents)
     const existing = await findLedgerEntryByIdempotencyKey(input)
-    if (existing) return existing
+    if (existing) {
+        await repairExistingHostedBillingDebitReservation({
+            env: input.env,
+            workspaceId: input.workspaceId,
+            usageEventId: input.usageEventId,
+            billingLedgerEntryId: existing.id,
+            settleReservation: input.settleReservation,
+            now: input.now,
+        })
+        return existing
+    }
 
     const id = crypto.randomUUID()
     const now = nowIso(input.now)
     const maxAttempts = 8
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         const retryExisting = await findLedgerEntryByIdempotencyKey(input)
-        if (retryExisting) return retryExisting
+        if (retryExisting) {
+            await repairExistingHostedBillingDebitReservation({
+                env: input.env,
+                workspaceId: input.workspaceId,
+                usageEventId: input.usageEventId,
+                billingLedgerEntryId: retryExisting.id,
+                settleReservation: input.settleReservation,
+                now: input.now,
+            })
+            return retryExisting
+        }
 
         const usageState = await readHostedUsageBillingState({
             env: input.env,
@@ -240,6 +352,14 @@ export async function debitHostedBalance(input: {
             Math.max(0, Math.floor(input.reservedDraw?.purchasedCents ?? 0)),
             before.purchasedReservedCents,
         )
+        const includedReservedRelease = Math.min(
+            Math.max(0, Math.floor(input.settleReservation?.includedReservedCents ?? 0)),
+            before.includedReservedCents,
+        )
+        const purchasedReservedRelease = Math.min(
+            Math.max(0, Math.floor(input.settleReservation?.purchasedReservedCents ?? 0)),
+            before.purchasedReservedCents,
+        )
         const includedSpendable =
             before.includedBalanceCents - before.includedReservedCents + includedReservedDraw
         const purchasedSpendable =
@@ -262,8 +382,10 @@ export async function debitHostedBalance(input: {
             purchasedDebitedCents: purchasedDrawn,
             includedReservedDebitCents: includedReservedDraw,
             purchasedReservedDebitCents: purchasedReservedDraw,
+            includedReservedReleasedCents: includedReservedRelease,
+            purchasedReservedReleasedCents: purchasedReservedRelease,
         })
-        const [inserted, updated, marked] = await input.env.AGENT_ROOM_DB.batch([
+        const statements = [
             input.env.AGENT_ROOM_DB.prepare(
                 `
                     INSERT INTO hosted_billing_ledger_entry (
@@ -298,14 +420,14 @@ export async function debitHostedBalance(input: {
                         WHERE workspace_id = ?2
                           AND id = ?6
                           AND billing_status = 'pending'
-                    )
-                      AND NOT EXISTS (
-                        SELECT 1
-                        FROM hosted_billing_ledger_entry
-                        WHERE workspace_id = ?2
-                          AND idempotency_key = ?7
-                    )
-                `,
+	                    )
+	                      AND NOT EXISTS (
+	                        SELECT 1
+	                        FROM hosted_billing_ledger_entry
+	                        WHERE workspace_id = ?2
+	                          AND idempotency_key = ?7
+	                    )
+	                `,
             ).bind(
                 id,
                 input.workspaceId,
@@ -325,26 +447,32 @@ export async function debitHostedBalance(input: {
             ),
             input.env.AGENT_ROOM_DB.prepare(
                 `
-	                    UPDATE hosted_billing_account
-	                    SET included_balance_cents = included_balance_cents - ?2,
-	                        purchased_balance_cents = purchased_balance_cents - ?3,
-	                        updated_at = ?4
-	                    WHERE workspace_id = ?1
-	                      AND included_balance_cents = ?5
-	                      AND purchased_balance_cents = ?6
-	                      AND included_reserved_cents = ?7
-	                      AND purchased_reserved_cents = ?8
-	                      AND EXISTS (
-	                          SELECT 1
-	                          FROM hosted_billing_ledger_entry
-	                          WHERE id = ?9
-	                            AND workspace_id = ?1
-	                      )
-	                `,
+		                    UPDATE hosted_billing_account
+		                    SET included_balance_cents = included_balance_cents - ?2,
+		                        purchased_balance_cents = purchased_balance_cents - ?3,
+		                        included_reserved_cents = included_reserved_cents - ?4,
+		                        purchased_reserved_cents = purchased_reserved_cents - ?5,
+		                        updated_at = ?6
+		                    WHERE workspace_id = ?1
+		                      AND included_balance_cents = ?7
+		                      AND purchased_balance_cents = ?8
+		                      AND included_reserved_cents = ?9
+		                      AND purchased_reserved_cents = ?10
+		                      AND included_reserved_cents >= ?4
+		                      AND purchased_reserved_cents >= ?5
+		                      AND EXISTS (
+		                          SELECT 1
+		                          FROM hosted_billing_ledger_entry
+		                          WHERE id = ?11
+		                            AND workspace_id = ?1
+		                      )
+		                `,
             ).bind(
                 input.workspaceId,
                 includedDrawn,
                 purchasedDrawn,
+                includedReservedRelease,
+                purchasedReservedRelease,
                 now,
                 before.includedBalanceCents,
                 before.purchasedBalanceCents,
@@ -366,9 +494,52 @@ export async function debitHostedBalance(input: {
                           WHERE id = ?3
                             AND workspace_id = ?1
                       )
-                `,
+	                `,
             ).bind(input.workspaceId, input.usageEventId, id),
-        ])
+        ]
+        if (input.settleReservation) {
+            statements.push(
+                input.env.AGENT_ROOM_DB.prepare(
+                    `
+                        UPDATE hosted_billing_reservation
+                        SET status = 'settled',
+                            settled_cents = ?3,
+                            usage_event_id = ?4,
+                            billing_ledger_entry_id = ?5,
+                            updated_at = ?6
+                        WHERE workspace_id = ?1
+                          AND id = ?2
+                          AND status = 'authorized'
+                          AND included_reserved_cents = ?7
+                          AND purchased_reserved_cents = ?8
+                          AND EXISTS (
+                              SELECT 1
+                              FROM hosted_billing_ledger_entry
+                              WHERE workspace_id = ?1
+                                AND id = ?5
+                                AND usage_event_id = ?4
+                          )
+                    `,
+                ).bind(
+                    input.workspaceId,
+                    input.settleReservation.reservationId,
+                    Math.min(
+                        input.settleReservation.settledCents,
+                        input.settleReservation.reservedCents,
+                    ),
+                    input.usageEventId,
+                    id,
+                    now,
+                    input.settleReservation.includedReservedCents,
+                    input.settleReservation.purchasedReservedCents,
+                ),
+            )
+        }
+        const results = await input.env.AGENT_ROOM_DB.batch(statements)
+        const inserted = results[0]
+        const updated = results[1]
+        const marked = results[2]
+        const settled = results[3]
         if ((inserted.meta.changes ?? 0) < 1) {
             continue
         }
@@ -377,6 +548,9 @@ export async function debitHostedBalance(input: {
         }
         if ((marked.meta.changes ?? 0) < 1) {
             throw new Error('Hosted billing debit ledger was inserted without marking usage')
+        }
+        if (input.settleReservation && (!settled || (settled.meta.changes ?? 0) < 1)) {
+            throw new Error('Hosted billing debit ledger was inserted without settling reservation')
         }
         const entry = await findLedgerEntryByIdempotencyKey(input)
         if (!entry) {

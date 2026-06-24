@@ -20,6 +20,16 @@ export function stringifyJson(value: JsonValue): string {
     return JSON.stringify(value)
 }
 
+export function nullableObjectRecord(value: unknown): Record<string, unknown> | null {
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : null
+}
+
+export function objectRecord(value: unknown): Record<string, unknown> {
+    return nullableObjectRecord(value) ?? {}
+}
+
 export function toDate(value: string | null | undefined): Date | null {
     return value ? new Date(value) : null
 }

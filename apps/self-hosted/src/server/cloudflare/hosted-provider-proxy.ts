@@ -1,3 +1,5 @@
+import { nullableObjectRecord } from './hosted-json'
+
 export const hostedOpenRouterProxyPathPrefix = '/api/hosted/runtime/provider/openrouter/v1'
 export const hostedBraveProxyPathPrefix = '/api/hosted/runtime/provider/brave/v1'
 const hostedOpenRouterProxyAllowedPaths = new Set(['/chat/completions'])
@@ -72,12 +74,6 @@ export function parseHostedBraveProxyPath(pathname: string): HostedOpenRouterPro
     }
 }
 
-function objectRecord(value: unknown): Record<string, unknown> | null {
-    return value && typeof value === 'object' && !Array.isArray(value)
-        ? (value as Record<string, unknown>)
-        : null
-}
-
 function openRouterCostDollars(value: unknown): number | null {
     const numeric =
         typeof value === 'number'
@@ -98,11 +94,11 @@ function openRouterCostMicrosFromDollars(value: unknown): number | null {
 }
 
 export function openRouterCostMicrosFromProviderPayload(value: unknown): number | null {
-    const record = objectRecord(value)
+    const record = nullableObjectRecord(value)
     if (!record) {
         return null
     }
-    const usage = objectRecord(record.usage)
+    const usage = nullableObjectRecord(record.usage)
     if (!usage) {
         return null
     }

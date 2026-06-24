@@ -54,6 +54,12 @@ const roomConfigQuerySchema = z.object({
     roomId: z.string().uuid(),
 })
 
+async function rejectHostedGitHubAppSetup() {
+    if (await requireHostedMutationActor()) {
+        throw new Error('Hosted GitHub app setup is not available in this hosted runtime')
+    }
+}
+
 async function requireAuthenticatedActor() {
     const { requireAuthenticatedActor: requireActor } = await import('#/server/auth/session-auth')
     return requireActor()
@@ -200,9 +206,7 @@ export const updateAppCapabilitySettingsServer = createServerFn({ method: 'POST'
 export const startGitHubAppManifestServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => githubAppManifestStartInputSchema.parse(input))
     .handler(async ({ data }) => {
-        if (await requireHostedMutationActor()) {
-            throw new Error('Hosted GitHub app setup is tracked outside issue 42')
-        }
+        await rejectHostedGitHubAppSetup()
         const actor = await requireMutationActor()
         const { startGitHubAppManifest } =
             await import('#/server/configuration/operator-configuration')
@@ -216,9 +220,7 @@ export const startGitHubAppManifestServer = createServerFn({ method: 'POST' })
 export const completeGitHubAppManifestServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => githubAppManifestCompleteInputSchema.parse(input))
     .handler(async ({ data }) => {
-        if (await requireHostedMutationActor()) {
-            throw new Error('Hosted GitHub app setup is tracked outside issue 42')
-        }
+        await rejectHostedGitHubAppSetup()
         const actor = await requireMutationActor()
         const { completeGitHubAppManifest } =
             await import('#/server/configuration/operator-configuration')
@@ -232,9 +234,7 @@ export const completeGitHubAppManifestServer = createServerFn({ method: 'POST' }
 export const completeGitHubCallbackServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => githubAppManifestCompleteInputSchema.parse(input))
     .handler(async ({ data }) => {
-        if (await requireHostedMutationActor()) {
-            throw new Error('Hosted GitHub app setup is tracked outside issue 42')
-        }
+        await rejectHostedGitHubAppSetup()
         const actor = await requireMutationActor()
         const { completeGitHubCallback } =
             await import('#/server/configuration/operator-configuration')
@@ -254,9 +254,7 @@ export const startGitHubUserAuthorizationServer = createServerFn({ method: 'POST
             .parse(input),
     )
     .handler(async ({ data }) => {
-        if (await requireHostedMutationActor()) {
-            throw new Error('Hosted GitHub app setup is tracked outside issue 42')
-        }
+        await rejectHostedGitHubAppSetup()
         const actor = await requireMutationActor()
         const { startGitHubUserAuthorization } =
             await import('#/server/configuration/operator-configuration')
@@ -268,9 +266,7 @@ export const startGitHubUserAuthorizationServer = createServerFn({ method: 'POST
 
 export const refreshGitHubInstallationsServer = createServerFn({ method: 'POST' }).handler(
     async () => {
-        if (await requireHostedMutationActor()) {
-            throw new Error('Hosted GitHub app setup is tracked outside issue 42')
-        }
+        await rejectHostedGitHubAppSetup()
         const actor = await requireMutationActor()
         const { refreshGitHubInstallations } =
             await import('#/server/configuration/operator-configuration')
@@ -281,9 +277,7 @@ export const refreshGitHubInstallationsServer = createServerFn({ method: 'POST' 
 export const disconnectGitHubUserAuthorizationServer = createServerFn({
     method: 'POST',
 }).handler(async () => {
-    if (await requireHostedMutationActor()) {
-        throw new Error('Hosted GitHub app setup is tracked outside issue 42')
-    }
+    await rejectHostedGitHubAppSetup()
     const actor = await requireMutationActor()
     const { disconnectGitHubUserAuthorization } =
         await import('#/server/configuration/operator-configuration')
@@ -292,9 +286,7 @@ export const disconnectGitHubUserAuthorizationServer = createServerFn({
 
 export const resetGitHubAppConfigurationServer = createServerFn({ method: 'POST' }).handler(
     async () => {
-        if (await requireHostedMutationActor()) {
-            throw new Error('Hosted GitHub app setup is tracked outside issue 42')
-        }
+        await rejectHostedGitHubAppSetup()
         const actor = await requireMutationActor()
         const { resetGitHubAppConfiguration } =
             await import('#/server/configuration/operator-configuration')
