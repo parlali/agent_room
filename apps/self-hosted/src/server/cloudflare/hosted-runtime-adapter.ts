@@ -1,21 +1,28 @@
 import type { AgentRoomHostedEnv, AgentRoomRuntimeJobMessage } from './bindings'
-import { resolveHostedConfig } from './hosted-config'
 import { evaluateHostedRuntimeAccess } from './hosted-runtime-access'
+import {
+    failClosedHostedRuntime,
+    HostedRuntimeMaterializationConflictError,
+    materializeHostedRuntime,
+    resolveHostedRuntimeProviderAvailability,
+} from './hosted-room-service'
+import { listHostedRoomFileMaterializations } from './hosted-file-read-store'
 import { writeHostedRuntimeStateTransition } from './hosted-runtime-state-repository'
 import {
     buildHostedRuntimeStartOptions,
+    hostedRuntimeDeniedHosts,
     hostedRuntimeContainerName,
     hostedRuntimeContainerPort,
 } from './runtime-contract'
+import { hostedRuntimeConfigPath } from './hosted-runtime-paths'
 
-export const hostedRuntimeConfigPath = '/workspace/runtime/pi-runtime.config.json'
+export { hostedRuntimeConfigPath }
 
 interface HostedRuntimeRow {
     roomId: string
     workspaceId: string
     desiredState: string
     containerName: string
-    configObjectKey: string | null
     workspaceSnapshotKey: string | null
 }
 
@@ -34,7 +41,6 @@ async function readHostedRuntimeRow(
                 room.workspace_id AS workspaceId,
                 room.desired_state AS desiredState,
                 runtime.container_name AS containerName,
-                runtime.config_object_key AS configObjectKey,
                 runtime.workspace_snapshot_key AS workspaceSnapshotKey
             FROM hosted_room AS room
             INNER JOIN hosted_room_runtime_state AS runtime
@@ -65,6 +71,36 @@ async function assertObjectExists(input: {
     }
 }
 
+async function hydrateHostedRuntimeFiles(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+    containerName: string
+    token: string
+}): Promise<void> {
+    const files = await listHostedRoomFileMaterializations({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+    })
+    const container = input.env.AGENT_ROOM_RUNTIME.getByName(input.containerName)
+    for (const file of files) {
+        const response = await container.fetch(
+            new Request('http://agent-room-runtime/files/materialize', {
+                method: 'POST',
+                headers: {
+                    authorization: `Bearer ${input.token}`,
+                    'content-type': 'application/json',
+                },
+                body: JSON.stringify(file),
+            }),
+        )
+        if (!response.ok) {
+            throw new Error(`Hosted runtime file hydration failed with status ${response.status}`)
+        }
+    }
+}
+
 export async function reconcileHostedRuntimeJob(
     env: AgentRoomHostedEnv,
     message: AgentRoomRuntimeJobMessage,
@@ -79,31 +115,29 @@ export async function reconcileHostedRuntimeJob(
     }
 
     try {
+        const availability = await resolveHostedRuntimeProviderAvailability({
+            env,
+            workspaceId: runtime.workspaceId,
+            roomId: runtime.roomId,
+        })
         const access = await evaluateHostedRuntimeAccess({
             env,
             workspaceId: runtime.workspaceId,
             roomId: runtime.roomId,
-            codexAvailable: false,
-            userKeyAvailable: false,
+            codexAvailable: availability.codexAvailable,
+            userKeyAvailable: availability.userKeyAvailable,
         })
         if (!access.allowed) {
             const reasonMessage =
                 access.reason === 'no_subscription'
                     ? 'Hosted runtime access denied: workspace has no active subscription'
                     : 'Hosted runtime access denied: workspace concurrent room limit reached'
-            console.error(reasonMessage, {
-                workspaceId: runtime.workspaceId,
-                roomId: runtime.roomId,
-                reason: access.reason,
-            })
-            await writeHostedRuntimeStateTransition({
+            console.error(reasonMessage, { reason: access.reason })
+            await failClosedHostedRuntime({
                 env,
                 workspaceId: runtime.workspaceId,
                 roomId: runtime.roomId,
-                transition: {
-                    kind: 'failed',
-                    error: new Error(reasonMessage),
-                },
+                error: new Error(reasonMessage),
             })
             return
         }
@@ -117,16 +151,38 @@ export async function reconcileHostedRuntimeJob(
                 'Hosted runtime state container name does not match canonical room identity',
             )
         }
-        if (!runtime.configObjectKey) {
-            throw new Error(
-                'Hosted runtime config object key is required before starting a container',
-            )
+
+        const materialization = await materializeHostedRuntime({
+            env,
+            actor: {
+                workspaceId: runtime.workspaceId,
+                userId: message.actorUserId ?? 'system',
+            },
+            roomId: runtime.roomId,
+        })
+
+        if (
+            !materialization.configObjectKey ||
+            !materialization.tokenObjectKey ||
+            !materialization.bundleObjectKey
+        ) {
+            throw new Error('Hosted runtime objects are required before starting a container')
         }
 
         await assertObjectExists({
             bucket: env.AGENT_ROOM_WORKSPACE_BUCKET,
-            key: runtime.configObjectKey,
+            key: materialization.configObjectKey,
             label: 'Runtime config',
+        })
+        await assertObjectExists({
+            bucket: env.AGENT_ROOM_WORKSPACE_BUCKET,
+            key: materialization.tokenObjectKey,
+            label: 'Runtime token',
+        })
+        await assertObjectExists({
+            bucket: env.AGENT_ROOM_WORKSPACE_BUCKET,
+            key: materialization.bundleObjectKey,
+            label: 'Runtime boot bundle',
         })
         if (runtime.workspaceSnapshotKey) {
             await assertObjectExists({
@@ -145,15 +201,16 @@ export async function reconcileHostedRuntimeJob(
             },
         })
 
-        const config = resolveHostedConfig(env)
         const startOptions = buildHostedRuntimeStartOptions({
             workspaceId: runtime.workspaceId,
             roomId: runtime.roomId,
             runtimeConfigPath: hostedRuntimeConfigPath,
-            runtimeToken: crypto.randomUUID(),
-            controlPlaneOrigin: config.publicOrigin,
+            runtimeToken: materialization.runtimeEnv.AGENT_ROOM_PI_RUNTIME_TOKEN,
+            envVars: materialization.runtimeEnv,
         })
         const container = env.AGENT_ROOM_RUNTIME.getByName(runtime.containerName)
+        await container.setAllowedHosts(materialization.egressAllowedHosts)
+        await container.setDeniedHosts(hostedRuntimeDeniedHosts)
         await container.startAndWaitForPorts({
             ports: hostedRuntimeContainerPort,
             startOptions,
@@ -162,6 +219,13 @@ export async function reconcileHostedRuntimeJob(
                 portReadyTimeoutMS: 10000,
                 waitInterval: 250,
             },
+        })
+        await hydrateHostedRuntimeFiles({
+            env,
+            workspaceId: runtime.workspaceId,
+            roomId: runtime.roomId,
+            containerName: runtime.containerName,
+            token: materialization.runtimeEnv.AGENT_ROOM_PI_RUNTIME_TOKEN,
         })
         await writeHostedRuntimeStateTransition({
             env,
@@ -172,14 +236,15 @@ export async function reconcileHostedRuntimeJob(
             },
         })
     } catch (error) {
-        await writeHostedRuntimeStateTransition({
+        if (error instanceof HostedRuntimeMaterializationConflictError) {
+            console.warn('Hosted runtime reconcile skipped because materialization was superseded')
+            return
+        }
+        await failClosedHostedRuntime({
             env,
             workspaceId: runtime.workspaceId,
             roomId: runtime.roomId,
-            transition: {
-                kind: 'failed',
-                error,
-            },
+            error,
         })
         throw error
     }

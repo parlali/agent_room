@@ -66,7 +66,7 @@ export interface PiRuntimeConfig {
         kind: 'pi'
         roomId: string
         displayName: string
-        bindHost: '127.0.0.1'
+        bindHost: '127.0.0.1' | '0.0.0.0'
         port: number
         token: string
     }
@@ -190,6 +190,7 @@ export function buildPiRuntimeConfig(input: {
     sandbox: RuntimeSandboxIdentity
     sandboxHardening: RuntimeSandboxHardening
     roomConfiguration: MaterializedRoomConfiguration
+    bindHost?: PiRuntimeConfig['runtime']['bindHost']
 }): PiRuntimeConfig {
     const provider = input.roomConfiguration.provider
     assertSupportedProvider(provider.provider)
@@ -212,7 +213,7 @@ export function buildPiRuntimeConfig(input: {
             kind: 'pi',
             roomId: input.roomId,
             displayName: input.displayName,
-            bindHost: '127.0.0.1',
+            bindHost: input.bindHost ?? '127.0.0.1',
             port: input.port,
             token: input.token,
         },

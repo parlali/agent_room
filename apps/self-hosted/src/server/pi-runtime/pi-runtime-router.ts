@@ -27,6 +27,17 @@ import { isRecord } from './runtime-redaction'
 import { isValidSpeedMode } from './runtime-speed-mode'
 import type { ThreadKind, ThreadRecord } from './thread-records'
 import { cancelReadableStreamReaderInBackground } from '../streams/readable-stream'
+import {
+    createThreadRuntimeBodySchema,
+    sendThreadRuntimeBodySchema,
+} from '../rooms/pi-execution-adapter/thread-requests'
+import { replaceMemory } from './memory'
+import { normalizeRoomFileRelativePath, resolveRoomFilePathInsideRoot } from '../rooms/file-paths'
+import {
+    deleteVisibleFileNoFollow,
+    readVisibleFileNoFollow,
+    writeVisibleFileNoFollow,
+} from './visible-file-access'
 
 interface RouterActiveThread {
     session: AgentSession
@@ -35,6 +46,113 @@ interface RouterActiveThread {
 
 function fileSurface(value: unknown): RoomFileSurface | null {
     return value === 'workspace' || value === 'store' ? value : null
+}
+
+function normalizedVisibleRelativePath(value: unknown): string {
+    if (typeof value !== 'string') {
+        throw new HttpError(400, 'File relativePath is required')
+    }
+    try {
+        const relativePath = normalizeRoomFileRelativePath(value)
+        if (!relativePath) {
+            throw new HttpError(400, 'File relativePath must be relative')
+        }
+        return relativePath
+    } catch (error) {
+        if (error instanceof HttpError) {
+            throw error
+        }
+        throw new HttpError(400, 'File relativePath escapes the room boundary')
+    }
+}
+
+function visibleRoot(config: PiRuntimeConfig, surface: RoomFileSurface): string {
+    return surface === 'workspace' ? config.paths.workspaceDir : config.paths.storeDir
+}
+
+function visibleFilePath(input: {
+    config: PiRuntimeConfig
+    surface: RoomFileSurface
+    relativePath: string
+}): string {
+    try {
+        return resolveRoomFilePathInsideRoot({
+            root: visibleRoot(input.config, input.surface),
+            relativePath: input.relativePath,
+            boundaryErrorMessage: 'File path escapes the room boundary',
+        })
+    } catch {
+        throw new HttpError(400, 'File path escapes the room boundary')
+    }
+}
+
+function materializeFileRequestBody(
+    config: PiRuntimeConfig,
+    body: unknown,
+): {
+    surface: RoomFileSurface
+    relativePath: string
+    root: string
+    path: string
+    content: Buffer
+    mode: number
+} {
+    if (!isRecord(body)) {
+        throw new HttpError(400, 'File materialization body must be an object')
+    }
+    const surface = fileSurface(body.surface)
+    if (!surface) {
+        throw new HttpError(400, 'File surface is invalid')
+    }
+    const relativePath = normalizedVisibleRelativePath(body.relativePath)
+    if (typeof body.contentBase64 !== 'string') {
+        throw new HttpError(400, 'File contentBase64 is required')
+    }
+    const mode =
+        typeof body.mode === 'number' && Number.isInteger(body.mode)
+            ? Math.max(0o400, Math.min(body.mode, 0o777))
+            : 0o600
+    return {
+        surface,
+        relativePath,
+        root: visibleRoot(config, surface),
+        path: visibleFilePath({
+            config,
+            surface,
+            relativePath,
+        }),
+        content: Buffer.from(body.contentBase64, 'base64url'),
+        mode,
+    }
+}
+
+function readVisibleFileRequestBody(
+    config: PiRuntimeConfig,
+    body: unknown,
+): {
+    surface: RoomFileSurface
+    relativePath: string
+    root: string
+    path: string
+} {
+    if (!isRecord(body)) {
+        throw new HttpError(400, 'File read body must be an object')
+    }
+    const surface = fileSurface(body.surface)
+    if (!surface) {
+        throw new HttpError(400, 'File surface is invalid')
+    }
+    const relativePath = normalizedVisibleRelativePath(body.relativePath)
+    return {
+        surface,
+        relativePath,
+        root: visibleRoot(config, surface),
+        path: visibleFilePath({
+            config,
+            surface,
+            relativePath,
+        }),
+    }
 }
 
 function fileChangeOperation(value: unknown): RoomFileChangeOperation {
@@ -118,6 +236,7 @@ export function createPiRuntimeRouter({
         runId: string
         awaitCompletion: boolean
         runKind?: RunKind
+        jobId?: string | null
         hideUserMessage?: boolean
     }) => Promise<string>
     updateThreadModel: (input: {
@@ -188,6 +307,23 @@ export function createPiRuntimeRouter({
             return
         }
 
+        if (request.method === 'POST' && url.pathname === '/memory') {
+            const body = await getRequestBody(request)
+            if (!isRecord(body)) {
+                throw new HttpError(400, 'Invalid memory body')
+            }
+            const memory = await replaceMemory({
+                config,
+                memory: body.memory,
+                expectedHash:
+                    typeof body.expectedHash === 'string' && body.expectedHash.trim()
+                        ? body.expectedHash
+                        : null,
+            })
+            sendJson(response, 200, memory)
+            return
+        }
+
         const threadWindowMatch = url.pathname.match(/^\/threads\/([^/]+)\/window$/)
         if (request.method === 'GET' && threadWindowMatch) {
             const sessionKey = decodeURIComponent(threadWindowMatch[1]!)
@@ -209,29 +345,21 @@ export function createPiRuntimeRouter({
         }
 
         if (request.method === 'POST' && url.pathname === '/threads') {
-            const body = await getRequestBody(request)
-            const firstMessage =
-                isRecord(body) && typeof body.firstMessage === 'string' ? body.firstMessage : null
-            const title = isRecord(body) && typeof body.title === 'string' ? body.title : null
-            const internalInstruction =
-                isRecord(body) && typeof body.internalInstruction === 'string'
-                    ? body.internalInstruction
-                    : null
-            const awaitInitialRun = isRecord(body) && body.awaitInitialRun === true
-            const kind =
-                isRecord(body) && body.kind === 'onboarding' ? ('onboarding' as const) : undefined
-            const hideUserMessage =
-                isRecord(body) && body.hideUserMessage === true && kind === 'onboarding'
+            const parsed = createThreadRuntimeBodySchema.safeParse(await getRequestBody(request))
+            if (!parsed.success) {
+                throw new HttpError(400, parsed.error.issues[0]?.message ?? 'Invalid thread body')
+            }
+            const body = parsed.data
             sendJson(
                 response,
                 200,
                 await createThread({
-                    firstMessage,
-                    title,
-                    internalInstruction,
-                    hideUserMessage,
-                    awaitInitialRun,
-                    kind,
+                    firstMessage: body.firstMessage,
+                    title: body.title,
+                    internalInstruction: body.internalInstruction,
+                    hideUserMessage: body.hideUserMessage && body.kind === 'onboarding',
+                    awaitInitialRun: body.awaitInitialRun,
+                    kind: body.kind,
                 }),
             )
             return
@@ -244,34 +372,25 @@ export function createPiRuntimeRouter({
             if (!record) {
                 throw new HttpError(404, `Thread ${sessionKey} does not exist`)
             }
-            const body = await getRequestBody(request)
-            const message =
-                isRecord(body) && typeof body.message === 'string' ? body.message.trim() : ''
-            if (!message) {
-                throw new HttpError(400, 'Message cannot be empty')
+            const parsed = sendThreadRuntimeBodySchema.safeParse(await getRequestBody(request))
+            if (!parsed.success) {
+                throw new HttpError(400, parsed.error.issues[0]?.message ?? 'Invalid send body')
             }
-            const runId = randomUUID()
-            const awaitCompletion = isRecord(body) && body.awaitCompletion === true
-            const runKind =
-                isRecord(body) &&
-                (body.runKind === 'scheduled' ||
-                    body.runKind === 'subagent' ||
-                    body.runKind === 'maintenance')
-                    ? body.runKind
-                    : 'manual'
-            const hideUserMessage =
-                isRecord(body) && body.hideUserMessage === true && record.kind === 'onboarding'
+            const body = parsed.data
+            const runId = body.runId ?? randomUUID()
+            const hideUserMessage = body.hideUserMessage === true && record.kind === 'onboarding'
             const finalStatus = await runPrompt({
                 record,
-                message,
+                message: body.message,
                 runId,
-                awaitCompletion,
-                runKind,
+                awaitCompletion: body.awaitCompletion,
+                runKind: body.runKind,
+                jobId: body.jobId,
                 hideUserMessage,
             })
             const payload: PiRuntimeSendPayload = {
                 runId,
-                status: awaitCompletion ? finalStatus : 'accepted',
+                status: body.awaitCompletion ? finalStatus : 'accepted',
                 messageSeq: null,
                 interruptedActiveRun: false,
                 error: record.lastError,
@@ -508,6 +627,53 @@ export function createPiRuntimeRouter({
             const payload = parseFileChangedPayload(config, await getRequestBody(request))
             publishRoomFileChanged(payload)
             sendJson(response, 200, { ok: true })
+            return
+        }
+
+        if (request.method === 'POST' && url.pathname === '/files/materialize') {
+            const file = materializeFileRequestBody(config, await getRequestBody(request))
+            await writeVisibleFileNoFollow({
+                root: file.root,
+                path: file.path,
+                content: file.content,
+                mode: file.mode,
+            })
+            sendJson(response, 200, {
+                ok: true,
+                surface: file.surface,
+                relativePath: file.relativePath,
+                byteLength: file.content.byteLength,
+            })
+            return
+        }
+
+        if (request.method === 'POST' && url.pathname === '/files/read') {
+            const file = readVisibleFileRequestBody(config, await getRequestBody(request))
+            const read = await readVisibleFileNoFollow({
+                root: file.root,
+                path: file.path,
+            })
+            sendJson(response, 200, {
+                ok: true,
+                surface: file.surface,
+                relativePath: file.relativePath,
+                contentBase64: read.content.toString('base64url'),
+                byteLength: read.byteLength,
+            })
+            return
+        }
+
+        if (request.method === 'POST' && url.pathname === '/files/delete') {
+            const file = readVisibleFileRequestBody(config, await getRequestBody(request))
+            await deleteVisibleFileNoFollow({
+                root: file.root,
+                path: file.path,
+            })
+            sendJson(response, 200, {
+                ok: true,
+                surface: file.surface,
+                relativePath: file.relativePath,
+            })
             return
         }
 

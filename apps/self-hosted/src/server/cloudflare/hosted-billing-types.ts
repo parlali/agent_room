@@ -22,11 +22,21 @@ export const hostedBillingLedgerSources = [
 ] as const
 
 export const hostedUsageBillingStatuses = ['not_billable', 'pending', 'debited', 'blocked'] as const
+export const hostedBillingReservationStatuses = [
+    'authorized',
+    'settled',
+    'released',
+    'expired',
+] as const
+export const hostedBillingReservationProviders = ['openrouter', 'brave'] as const
+export const hostedProviderBillingGateCents = 1
 
 export type HostedBillingPlanStatus = (typeof hostedBillingPlanStatuses)[number]
 export type HostedBillingLedgerDirection = (typeof hostedBillingLedgerDirections)[number]
 export type HostedBillingLedgerSource = (typeof hostedBillingLedgerSources)[number]
 export type HostedUsageBillingStatus = (typeof hostedUsageBillingStatuses)[number]
+export type HostedBillingReservationStatus = (typeof hostedBillingReservationStatuses)[number]
+export type HostedBillingReservationProvider = (typeof hostedBillingReservationProviders)[number]
 
 export interface HostedBillingAccountSnapshot {
     workspaceId: string
@@ -37,6 +47,10 @@ export interface HostedBillingAccountSnapshot {
     includedBalanceCents: number
     purchasedBalanceCents: number
     currentBalanceCents: number
+    includedReservedCents: number
+    purchasedReservedCents: number
+    reservedBalanceCents: number
+    availableBalanceCents: number
     includedMonthlyCreditCents: number
     createdAt: string
     updatedAt: string

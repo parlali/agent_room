@@ -142,6 +142,10 @@ function SettingsPage() {
     const providers = config?.providers ?? []
     const mcpConnections = config?.mcpConnections ?? []
     const onboardingCompleted = config?.onboarding.completed ?? null
+    const hostedCodexCredentialMode =
+        config?.codexAuth.requiresStoredCredential ??
+        codexAuthQuery.data?.auth.requiresStoredCredential ??
+        false
 
     const [providerSheetOpen, setProviderSheetOpen] = useState(false)
     const [providerForm, setProviderForm] = useState<ProviderFormState>(EMPTY_PROVIDER_FORM)
@@ -243,6 +247,8 @@ function SettingsPage() {
             )
             const usesOAuth =
                 protocol.authMode === 'oauth' || protocol.api === 'openai-codex-responses'
+            const allowOAuthCredential =
+                hostedCodexCredentialMode && protocol.api === 'openai-codex-responses'
             return saveProviderConnectionServer({
                 data: {
                     id: providerForm.id,
@@ -251,7 +257,9 @@ function SettingsPage() {
                     defaultModel: providerForm.defaultModel.trim(),
                     fallbackModels,
                     apiKey:
-                        !usesOAuth && providerForm.replaceApiKey && providerForm.apiKey.trim()
+                        (!usesOAuth || allowOAuthCredential) &&
+                        providerForm.replaceApiKey &&
+                        providerForm.apiKey.trim()
                             ? providerForm.apiKey.trim()
                             : undefined,
                     makeDefault: providerForm.makeDefault,
@@ -720,6 +728,7 @@ function SettingsPage() {
                         loading={codexAuthQuery.isLoading}
                         startPending={startCodexAuthMutation.isPending}
                         cancelPending={cancelCodexAuthMutation.isPending}
+                        hostedCredentialMode={hostedCodexCredentialMode}
                         onStart={() => startCodexAuthMutation.mutate()}
                         onCancel={() => cancelCodexAuthMutation.mutate()}
                     />
@@ -811,6 +820,11 @@ function SettingsPage() {
                     onCancel={() => setProviderSheetOpen(false)}
                     pending={saveProviderMutation.isPending}
                     providerCatalog={config?.providerCatalog ?? []}
+                    allowOAuthCredential={
+                        hostedCodexCredentialMode &&
+                        resolveProviderFormProtocol(providerForm, config?.providerCatalog ?? [])
+                            .api === 'openai-codex-responses'
+                    }
                 />
             </EditSheet>
 

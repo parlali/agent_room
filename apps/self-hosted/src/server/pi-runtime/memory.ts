@@ -2,6 +2,7 @@ export { renderMemoryBrief } from './memory-brief'
 export { maintainMemory } from './memory-maintenance'
 export {
     emptyRoomMemory,
+    canonicalMemoryJson,
     hashRoomMemory,
     isMemorySectionPath,
     memoryPath,

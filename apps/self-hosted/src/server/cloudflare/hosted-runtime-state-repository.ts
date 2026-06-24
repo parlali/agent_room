@@ -38,7 +38,7 @@ function assertRuntimeStateBatchChanged(input: {
     )
     if (failedIndex !== -1) {
         throw new Error(
-            `Hosted runtime state transition did not update statement ${failedIndex + 1} for workspace ${input.workspaceId} room ${input.roomId}`,
+            `Hosted runtime state transition did not update statement ${failedIndex + 1}`,
         )
     }
 }

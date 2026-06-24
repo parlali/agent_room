@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 export interface ToolRunContext {
     sessionKey: string
     runId: string
+    jobId?: string | null
     signal: AbortSignal
 }
 

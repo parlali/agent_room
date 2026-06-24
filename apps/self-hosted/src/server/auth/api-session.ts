@@ -1,16 +1,35 @@
 import { parse } from 'cookie'
 import { getAppEnv } from '../config/env'
 import { validateSessionToken } from './auth-service'
-import { isSameOrigin, resolveEffectiveRequestUrl, sessionCookieName } from './session-auth'
+import {
+    isSameOrigin,
+    resolveEffectiveRequestUrl,
+    sessionCookieName,
+    type AuthenticatedActor,
+} from './session-auth'
 
-export async function requireApiSession(request: Request): Promise<boolean> {
+export async function readApiSessionActor(request: Request): Promise<AuthenticatedActor | null> {
     const cookies = parse(request.headers.get('cookie') ?? '')
     const token = cookies[sessionCookieName]?.trim()
     if (!token) {
-        return false
+        return null
     }
 
-    return (await validateSessionToken(token)) !== null
+    const validated = await validateSessionToken(token)
+    if (!validated) {
+        return null
+    }
+
+    return {
+        userId: validated.user.id,
+        email: validated.user.email,
+        role: validated.user.role,
+        sessionId: validated.session.id,
+    }
+}
+
+export async function requireApiSession(request: Request): Promise<boolean> {
+    return (await readApiSessionActor(request)) !== null
 }
 
 export function assertApiSameOriginMutation(request: Request): Response | null {

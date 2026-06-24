@@ -1,5 +1,5 @@
 import { lstat, mkdir, readdir, realpath, rm, writeFile } from 'node:fs/promises'
-import { basename, join, relative, sep } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import type {
     RoomDirectoryListing,
     RoomFileEntry,
@@ -18,7 +18,9 @@ import {
     ensureMaterializedRuntimeSandboxDirectory,
     ensureMaterializedRuntimeSandboxFile,
 } from './runtime-sandbox-identity'
+import { parentRoomFilePath, roomFileBreadcrumbs } from './file-paths'
 import { shouldExposeStoreRelativePath } from './room-store-visibility'
+import { sanitizeUploadName } from './upload-name'
 
 export type {
     RoomDirectoryListing,
@@ -47,42 +49,6 @@ function toDisplayPath(path: string): string {
 function normalizeInputPath(path: string | null | undefined): string {
     const value = path?.trim() ?? ''
     return value === '.' ? '' : value
-}
-
-function pathParts(relativePath: string): string[] {
-    return relativePath.split(/[\\/]+/).filter(Boolean)
-}
-
-function parentRelativePath(relativePath: string): string | null {
-    const parts = pathParts(relativePath)
-    if (parts.length === 0) return null
-    return parts.slice(0, -1).join('/')
-}
-
-function sanitizeUploadName(name: string): string {
-    const cleaned = basename(name.replace(/\\/g, '/'))
-        .split('')
-        .filter((char) => {
-            const code = char.charCodeAt(0)
-            return code >= 32 && code !== 127
-        })
-        .join('')
-        .trim()
-    if (!cleaned || cleaned === '.' || cleaned === '..') {
-        throw new Error('Uploaded file name is invalid')
-    }
-    if (cleaned.includes('/') || cleaned.includes('\\')) {
-        throw new Error('Uploaded file name is invalid')
-    }
-    return cleaned
-}
-
-function breadcrumbsFor(relativePath: string): RoomDirectoryListing['breadcrumbs'] {
-    const parts = pathParts(relativePath)
-    return parts.map((name, index) => ({
-        name,
-        relativePath: parts.slice(0, index + 1).join('/'),
-    }))
 }
 
 function shouldExposeRoomFile(input: { surface: RoomFileSurface; relativePath: string }) {
@@ -311,8 +277,8 @@ export async function listRoomDirectory(input: {
     return {
         surface: input.surface,
         relativePath,
-        parentPath: parentRelativePath(relativePath),
-        breadcrumbs: breadcrumbsFor(relativePath),
+        parentPath: parentRoomFilePath(relativePath),
+        breadcrumbs: roomFileBreadcrumbs(relativePath),
         entries,
     }
 }

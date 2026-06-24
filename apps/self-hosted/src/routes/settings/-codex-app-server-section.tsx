@@ -16,6 +16,7 @@ export function CodexAppServerSection({
     loading,
     startPending,
     cancelPending,
+    hostedCredentialMode,
     onStart,
     onCancel,
 }: {
@@ -24,6 +25,7 @@ export function CodexAppServerSection({
     loading: boolean
     startPending: boolean
     cancelPending: boolean
+    hostedCredentialMode?: boolean
     onStart: () => void
     onCancel: () => void
 }) {
@@ -35,34 +37,28 @@ export function CodexAppServerSection({
         if (!session?.userCode) return
         void navigator.clipboard.writeText(session.userCode)
     }
+    const actions = hostedCredentialMode ? undefined : active ? (
+        <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={onCancel}
+            disabled={cancelPending}
+        >
+            Cancel
+        </Button>
+    ) : (
+        <Button type="button" size="sm" onClick={onStart} disabled={loading || startPending}>
+            <ExternalLinkIcon />
+            {startPending ? 'Starting...' : auth?.ready ? 'Reauthorize' : 'Authorize'}
+        </Button>
+    )
 
     return (
         <Section
             title="Codex app server"
             description="Authorize the app once with OpenAI token verification."
-            actions={
-                active ? (
-                    <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={onCancel}
-                        disabled={cancelPending}
-                    >
-                        Cancel
-                    </Button>
-                ) : (
-                    <Button
-                        type="button"
-                        size="sm"
-                        onClick={onStart}
-                        disabled={loading || startPending}
-                    >
-                        <ExternalLinkIcon />
-                        {startPending ? 'Starting...' : auth?.ready ? 'Reauthorize' : 'Authorize'}
-                    </Button>
-                )
-            }
+            actions={actions}
         >
             <div className="space-y-4">
                 <div className="flex flex-wrap items-center gap-2">

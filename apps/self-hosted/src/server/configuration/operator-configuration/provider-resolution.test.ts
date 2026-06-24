@@ -19,6 +19,7 @@ const codexReadyAuth: CodexAppAuthStatus = {
     accountId: 'account-1',
     expiresAt: '2026-06-11T01:00:00.000Z',
     message: 'Codex app server login is active',
+    requiresStoredCredential: false,
 }
 
 const codexMissingAuth: CodexAppAuthStatus = {
@@ -27,6 +28,7 @@ const codexMissingAuth: CodexAppAuthStatus = {
     accountId: null,
     expiresAt: null,
     message: 'Codex app server login is missing',
+    requiresStoredCredential: false,
 }
 
 function buildSettings(input: Partial<AppSettingsRecord> = {}): AppSettingsRecord {

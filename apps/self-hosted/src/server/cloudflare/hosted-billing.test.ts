@@ -2,13 +2,22 @@ import type { D1Database, R2Bucket } from '@cloudflare/workers-types'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentRoomHostedEnv } from './bindings'
 import {
+    appendHostedUsageEvent,
+    authorizeHostedBillingReservation,
     creditHostedBalance,
     debitHostedBalance,
     ensureHostedBillingAccount,
     expireIncludedBalance,
+    readHostedBillingAccount,
+    readHostedProviderUsageSettlementByIdempotencyKey,
+    releaseExpiredHostedBillingReservations,
 } from './hosted-billing-repository'
 import { centsFromMicrosCeil } from './hosted-billing-types'
-import { recordHostedProviderUsage } from './hosted-usage-billing'
+import {
+    assertHostedProviderCreditsAvailable,
+    recordHostedProviderUsage,
+    recordHostedRuntimeUsageEvent,
+} from './hosted-usage-billing'
 import {
     createHostedStripeCheckout,
     processHostedStripeWebhook,
@@ -24,6 +33,8 @@ interface AccountRow {
     planStatus: string
     includedBalanceCents: number
     purchasedBalanceCents: number
+    includedReservedCents: number
+    purchasedReservedCents: number
     includedMonthlyCreditCents: number
     createdAt: string
     updatedAt: string
@@ -49,12 +60,37 @@ interface UsageRow {
     id: string
     workspaceId: string
     roomId: string | null
+    kind: string
     provider: string | null
     model: string | null
     costMicros: number | null
     billingStatus: string
     billingLedgerEntryId: string | null
+    idempotencyKey: string | null
+    metadata?: string
     createdAt: string
+}
+
+interface ReservationRow {
+    id: string
+    workspaceId: string
+    roomId: string | null
+    sessionKey: string | null
+    runId: string | null
+    jobId: string | null
+    provider: 'openrouter' | 'brave'
+    status: 'authorized' | 'settled' | 'released' | 'expired'
+    reservedCents: number
+    includedReservedCents: number
+    purchasedReservedCents: number
+    settledCents: number
+    usageEventId: string | null
+    billingLedgerEntryId: string | null
+    idempotencyKey: string
+    metadata: string
+    expiresAt: string
+    createdAt: string
+    updatedAt: string
 }
 
 function totalBalance(account: AccountRow): number {
@@ -65,12 +101,21 @@ class FakeD1 {
     accounts = new Map<string, AccountRow>()
     ledger = new Map<string, LedgerRow>()
     usage = new Map<string, UsageRow>()
+    reservations = new Map<string, ReservationRow>()
     stripeEvents = new Set<string>()
 
     prepare(sql: string) {
         return {
             bind: (...args: unknown[]) => this.statement(sql, args),
         }
+    }
+
+    async batch(statements: Array<{ run: () => Promise<unknown> }>) {
+        const results = []
+        for (const statement of statements) {
+            results.push(await statement.run())
+        }
+        return results
     }
 
     private statement(sql: string, args: unknown[]) {
@@ -103,6 +148,85 @@ class FakeD1 {
                     entry.workspaceId === workspaceId && entry.idempotencyKey === idempotencyKey,
             ) ?? null) as T | null
         }
+        if (sql.includes('FROM hosted_usage_event') && sql.includes('idempotency_key')) {
+            const workspaceId = String(args[0])
+            const idempotencyKey = String(args[1])
+            const usage = Array.from(this.usage.values()).find(
+                (entry) =>
+                    entry.workspaceId === workspaceId && entry.idempotencyKey === idempotencyKey,
+            )
+            if (!usage) {
+                return null
+            }
+            if (sql.includes('cost_micros AS costMicros')) {
+                return {
+                    id: usage.id,
+                    roomId: usage.roomId,
+                    sessionKey: null,
+                    runId: null,
+                    jobId: null,
+                    provider: usage.provider,
+                    model: usage.model,
+                    costMicros: usage.costMicros,
+                    billingStatus: usage.billingStatus,
+                    billingLedgerEntryId: usage.billingLedgerEntryId,
+                } as T
+            }
+            return { id: usage.id } as T
+        }
+        if (
+            sql.includes('FROM hosted_billing_reservation') &&
+            sql.includes('AND idempotency_key = ?2')
+        ) {
+            const workspaceId = String(args[0])
+            const idempotencyKey = String(args[1])
+            return (Array.from(this.reservations.values()).find(
+                (reservation) =>
+                    reservation.workspaceId === workspaceId &&
+                    reservation.idempotencyKey === idempotencyKey,
+            ) ?? null) as T | null
+        }
+        if (sql.includes('FROM hosted_billing_reservation') && sql.includes('AND id = ?2')) {
+            const workspaceId = String(args[0])
+            const id = String(args[1])
+            const reservation = this.reservations.get(id)
+            return (reservation?.workspaceId === workspaceId ? reservation : null) as T | null
+        }
+        if (
+            sql.includes('FROM hosted_billing_reservation') &&
+            sql.includes('ORDER BY created_at ASC')
+        ) {
+            const workspaceId = String(args[0])
+            const roomId = (args[1] as string | null) ?? null
+            const provider = String(args[2])
+            const now = String(args[3])
+            return (Array.from(this.reservations.values())
+                .filter(
+                    (reservation) =>
+                        reservation.workspaceId === workspaceId &&
+                        (roomId === null || reservation.roomId === roomId) &&
+                        reservation.provider === provider &&
+                        reservation.status === 'authorized' &&
+                        reservation.expiresAt > now,
+                )
+                .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0] ?? null) as T | null
+        }
+        if (
+            sql.includes('FROM hosted_usage_event') &&
+            sql.includes('billing_status AS billingStatus')
+        ) {
+            const workspaceId = String(args[0])
+            const usageEventId = String(args[1])
+            const usage = this.usage.get(usageEventId)
+            return (
+                usage?.workspaceId === workspaceId
+                    ? {
+                          billingStatus: usage.billingStatus,
+                          billingLedgerEntryId: usage.billingLedgerEntryId,
+                      }
+                    : null
+            ) as T | null
+        }
         if (sql.includes('FROM hosted_billing_account')) {
             return (this.accounts.get(String(args[0])) ?? null) as T | null
         }
@@ -110,10 +234,16 @@ class FakeD1 {
             const workspaceId = String(args[0])
             const account = this.accounts.get(workspaceId)
             if (!account) return null
-            if (sql.includes('included_balance_cents = 0')) {
-                const clearedCents = Number(args[1])
-                if (account.includedBalanceCents !== clearedCents) return null
-                account.includedBalanceCents = 0
+            if (sql.includes('included_balance_cents = included_reserved_cents')) {
+                const expectedIncluded = Number(args[1])
+                const expectedReserved = Number(args[3])
+                if (
+                    account.includedBalanceCents !== expectedIncluded ||
+                    account.includedReservedCents !== expectedReserved
+                ) {
+                    return null
+                }
+                account.includedBalanceCents = account.includedReservedCents
                 account.updatedAt = String(args[2])
                 return { currentBalanceCents: totalBalance(account) } as T
             }
@@ -151,6 +281,19 @@ class FakeD1 {
     }
 
     private all<T>(sql: string, args: unknown[]): T[] {
+        if (sql.includes('FROM hosted_billing_reservation') && sql.includes('expires_at <=')) {
+            const scoped = sql.includes('workspace_id = ?1')
+            const workspaceId = scoped ? String(args[0]) : null
+            const now = String(scoped ? args[1] : args[0])
+            return Array.from(this.reservations.values())
+                .filter(
+                    (reservation) =>
+                        reservation.status === 'authorized' &&
+                        reservation.expiresAt <= now &&
+                        (!workspaceId || reservation.workspaceId === workspaceId),
+                )
+                .sort((a, b) => a.expiresAt.localeCompare(b.expiresAt)) as T[]
+        }
         if (sql.includes('FROM hosted_billing_ledger_entry')) {
             return Array.from(this.ledger.values())
                 .filter((entry) => entry.workspaceId === String(args[0]))
@@ -177,6 +320,8 @@ class FakeD1 {
                     planStatus: 'none',
                     includedBalanceCents: 0,
                     purchasedBalanceCents: 0,
+                    includedReservedCents: 0,
+                    purchasedReservedCents: 0,
                     includedMonthlyCreditCents: 0,
                     createdAt: String(args[1]),
                     updatedAt: String(args[1]),
@@ -184,22 +329,128 @@ class FakeD1 {
                 changes = 1
             }
         }
+        if (sql.includes('INSERT INTO hosted_billing_reservation')) {
+            const workspaceId = String(args[1])
+            const account = this.accounts.get(workspaceId)
+            const existing = Array.from(this.reservations.values()).find(
+                (reservation) =>
+                    reservation.workspaceId === workspaceId &&
+                    reservation.idempotencyKey === String(args[10]),
+            )
+            const reservedCents = Number(args[7])
+            const expectedIncluded = Number(args[14])
+            const expectedPurchased = Number(args[15])
+            const expectedIncludedReserved = Number(args[16])
+            const expectedPurchasedReserved = Number(args[17])
+            if (
+                account &&
+                !existing &&
+                account.includedBalanceCents === expectedIncluded &&
+                account.purchasedBalanceCents === expectedPurchased &&
+                account.includedReservedCents === expectedIncludedReserved &&
+                account.purchasedReservedCents === expectedPurchasedReserved &&
+                totalBalance(account) -
+                    account.includedReservedCents -
+                    account.purchasedReservedCents >=
+                    reservedCents
+            ) {
+                this.reservations.set(String(args[0]), {
+                    id: String(args[0]),
+                    workspaceId,
+                    roomId: (args[2] as string | null) ?? null,
+                    sessionKey: (args[3] as string | null) ?? null,
+                    runId: (args[4] as string | null) ?? null,
+                    jobId: (args[5] as string | null) ?? null,
+                    provider: args[6] as ReservationRow['provider'],
+                    status: 'authorized',
+                    reservedCents,
+                    includedReservedCents: Number(args[8]),
+                    purchasedReservedCents: Number(args[9]),
+                    settledCents: 0,
+                    usageEventId: null,
+                    billingLedgerEntryId: null,
+                    idempotencyKey: String(args[10]),
+                    metadata: String(args[11]),
+                    expiresAt: String(args[12]),
+                    createdAt: String(args[13]),
+                    updatedAt: String(args[13]),
+                })
+                changes = 1
+            }
+        }
         if (sql.includes('INSERT INTO hosted_billing_ledger_entry')) {
             const entry = this.parseLedgerInsert(sql, args)
-            this.ledger.set(entry.id, entry)
-            changes = 1
+            if (sql.includes('SELECT ?1') && sql.includes('NOT EXISTS')) {
+                const account = this.accounts.get(entry.workspaceId)
+                const creditInsert = sql.includes("'credit'")
+                const expectedIncluded = Number(args[creditInsert ? 11 : 9])
+                const expectedPurchased = Number(args[creditInsert ? 12 : 10])
+                const expectedIncludedReserved = creditInsert ? 0 : Number(args[11])
+                const expectedPurchasedReserved = creditInsert ? 0 : Number(args[12])
+                const includedReservedDraw = creditInsert ? 0 : Number(args[13])
+                const purchasedReservedDraw = creditInsert ? 0 : Number(args[14])
+                const existing = Array.from(this.ledger.values()).find(
+                    (candidate) =>
+                        candidate.workspaceId === entry.workspaceId &&
+                        candidate.idempotencyKey === entry.idempotencyKey,
+                )
+                const spendable =
+                    account === undefined
+                        ? 0
+                        : totalBalance(account) -
+                          account.includedReservedCents -
+                          account.purchasedReservedCents +
+                          includedReservedDraw +
+                          purchasedReservedDraw
+                if (
+                    account &&
+                    !existing &&
+                    account.includedBalanceCents === expectedIncluded &&
+                    account.purchasedBalanceCents === expectedPurchased &&
+                    (creditInsert ||
+                        (account.includedReservedCents === expectedIncludedReserved &&
+                            account.purchasedReservedCents === expectedPurchasedReserved &&
+                            spendable >= entry.amountCents))
+                ) {
+                    this.ledger.set(entry.id, entry)
+                    changes = 1
+                }
+            } else {
+                this.ledger.set(entry.id, entry)
+                changes = 1
+            }
         }
-        if (sql.includes('INSERT INTO hosted_usage_event')) {
+        if (sql.includes('INSERT') && sql.includes('INTO hosted_usage_event')) {
+            const idempotencyKey = (args[22] as string | null) ?? null
+            const existing = idempotencyKey
+                ? Array.from(this.usage.values()).find(
+                      (entry) =>
+                          entry.workspaceId === String(args[1]) &&
+                          entry.idempotencyKey === idempotencyKey,
+                  )
+                : null
+            if (existing) {
+                return {
+                    success: true,
+                    meta: {
+                        changes: 0,
+                    },
+                    results: [],
+                }
+            }
             this.usage.set(String(args[0]), {
                 id: String(args[0]),
                 workspaceId: String(args[1]),
                 roomId: (args[2] as string | null) ?? null,
+                kind: String(args[6]),
                 provider: (args[7] as string | null) ?? null,
                 model: (args[8] as string | null) ?? null,
-                costMicros: (args[13] as number | null) ?? null,
-                billingStatus: String(args[14]),
+                costMicros: (args[19] as number | null) ?? null,
+                billingStatus: String(args[20]),
                 billingLedgerEntryId: null,
-                createdAt: String(args[15]),
+                idempotencyKey,
+                metadata: String(args[21]),
+                createdAt: String(args[23]),
             })
             changes = 1
         }
@@ -211,7 +462,80 @@ class FakeD1 {
             }
         }
         if (sql.includes('UPDATE hosted_billing_account') && !sql.includes('RETURNING')) {
-            if (sql.includes('SET stripe_customer_id')) {
+            if (
+                sql.includes('included_reserved_cents = included_reserved_cents + ?2') &&
+                sql.includes('purchased_reserved_cents = purchased_reserved_cents + ?3')
+            ) {
+                const account = this.accounts.get(String(args[0]))
+                const reservation = this.reservations.get(String(args[8]))
+                if (
+                    account &&
+                    reservation?.workspaceId === String(args[0]) &&
+                    account.includedBalanceCents === Number(args[4]) &&
+                    account.purchasedBalanceCents === Number(args[5]) &&
+                    account.includedReservedCents === Number(args[6]) &&
+                    account.purchasedReservedCents === Number(args[7])
+                ) {
+                    account.includedReservedCents += Number(args[1])
+                    account.purchasedReservedCents += Number(args[2])
+                    account.updatedAt = String(args[3])
+                    changes = 1
+                }
+            } else if (
+                sql.includes('included_balance_cents = included_balance_cents + ?2') ||
+                sql.includes('purchased_balance_cents = purchased_balance_cents + ?2')
+            ) {
+                const account = this.accounts.get(String(args[0]))
+                const ledgerId = String(args[5])
+                if (
+                    account &&
+                    this.ledger.has(ledgerId) &&
+                    account.includedBalanceCents === Number(args[3]) &&
+                    account.purchasedBalanceCents === Number(args[4])
+                ) {
+                    if (sql.includes('included_balance_cents = included_balance_cents + ?2')) {
+                        account.includedBalanceCents += Number(args[1])
+                    } else {
+                        account.purchasedBalanceCents += Number(args[1])
+                    }
+                    account.updatedAt = String(args[2])
+                    changes = 1
+                }
+            } else if (
+                sql.includes('included_reserved_cents = included_reserved_cents - ?2') &&
+                sql.includes('purchased_reserved_cents = purchased_reserved_cents - ?3')
+            ) {
+                const account = this.accounts.get(String(args[0]))
+                if (
+                    account &&
+                    account.includedReservedCents >= Number(args[1]) &&
+                    account.purchasedReservedCents >= Number(args[2])
+                ) {
+                    account.includedReservedCents -= Number(args[1])
+                    account.purchasedReservedCents -= Number(args[2])
+                    account.updatedAt = String(args[3])
+                    changes = 1
+                }
+            } else if (
+                sql.includes('included_balance_cents = included_balance_cents - ?2') &&
+                sql.includes('purchased_balance_cents = purchased_balance_cents - ?3')
+            ) {
+                const account = this.accounts.get(String(args[0]))
+                const ledgerId = String(args[8])
+                if (
+                    account &&
+                    this.ledger.has(ledgerId) &&
+                    account.includedBalanceCents === Number(args[4]) &&
+                    account.purchasedBalanceCents === Number(args[5]) &&
+                    account.includedReservedCents === Number(args[6]) &&
+                    account.purchasedReservedCents === Number(args[7])
+                ) {
+                    account.includedBalanceCents -= Number(args[1])
+                    account.purchasedBalanceCents -= Number(args[2])
+                    account.updatedAt = String(args[3])
+                    changes = 1
+                }
+            } else if (sql.includes('SET stripe_customer_id')) {
                 const account = this.accounts.get(String(args[0]))
                 if (account) {
                     account.stripeCustomerId = String(args[1])
@@ -228,6 +552,20 @@ class FakeD1 {
                     account.updatedAt = String(args[6])
                     changes = 1
                 }
+            }
+        }
+        if (sql.includes('UPDATE hosted_billing_reservation')) {
+            const reservation = this.reservations.get(String(args[1]))
+            if (
+                reservation?.workspaceId === String(args[0]) &&
+                reservation.status === 'authorized'
+            ) {
+                reservation.status = args[2] as ReservationRow['status']
+                reservation.settledCents = Number(args[3])
+                reservation.usageEventId = (args[4] as string | null) ?? null
+                reservation.billingLedgerEntryId = (args[5] as string | null) ?? null
+                reservation.updatedAt = String(args[6])
+                changes = 1
             }
         }
         if (sql.includes("SET billing_status = 'debited'")) {
@@ -324,14 +662,16 @@ function hostedEnv(db = new FakeD1()): AgentRoomHostedEnv {
         AGENT_ROOM_RUNTIME_STORAGE: 'r2',
         BETTER_AUTH_SECRET: 'a'.repeat(32),
         BETTER_AUTH_URL: 'https://rooms.example.test',
+        AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
         AGENT_ROOM_EMAIL_WEBHOOK_URL: 'https://mail.example.test/send',
         AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN: 'b'.repeat(16),
         AGENT_ROOM_EMAIL_FROM: 'Agent Room <noreply@example.test>',
+        AGENT_ROOM_HOSTED_OPENROUTER_API_KEY: 'openrouter-platform-key',
     }
 }
 
 const stripePlansJson =
-    '[{"key":"starter","priceId":"price_starter_placeholder","monthlyCents":700,"includedCents":0},{"key":"standard","priceId":"price_standard_placeholder","monthlyCents":2000,"includedCents":1200},{"key":"pro","priceId":"price_pro_placeholder","monthlyCents":5000,"includedCents":3500}]'
+    '[{"key":"starter","priceId":"price_test_starter_000000","monthlyCents":700,"includedCents":0},{"key":"standard","priceId":"price_test_standard_000000","monthlyCents":2000,"includedCents":1200},{"key":"pro","priceId":"price_test_pro_000000","monthlyCents":5000,"includedCents":3500}]'
 
 function stripeHostedEnv(db = new FakeD1()): AgentRoomHostedEnv {
     return {
@@ -340,7 +680,7 @@ function stripeHostedEnv(db = new FakeD1()): AgentRoomHostedEnv {
         AGENT_ROOM_BILLING_PLANS: stripePlansJson,
         STRIPE_SECRET_KEY: 'stripe-secret-test-value',
         STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
-        STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_topup_placeholder',
+        STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_test_topup_000000',
     }
 }
 
@@ -443,6 +783,19 @@ describe('hosted billing ledger', () => {
         })
         expect(usageEventId.debitedCents).toBe(3)
         expect(totalBalance(db.accounts.get('workspace_1')!)).toBe(22)
+        db.usage.set('usage_too_large', {
+            id: 'usage_too_large',
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            kind: 'provider',
+            provider: 'openrouter',
+            model: null,
+            costMicros: null,
+            billingStatus: 'pending',
+            billingLedgerEntryId: null,
+            idempotencyKey: null,
+            createdAt: new Date(3).toISOString(),
+        })
 
         await expect(
             debitHostedBalance({
@@ -450,7 +803,7 @@ describe('hosted billing ledger', () => {
                 workspaceId: 'workspace_1',
                 source: 'hosted_openrouter_usage',
                 amountCents: 24,
-                usageEventId: usageEventId.usageEventId,
+                usageEventId: 'usage_too_large',
                 idempotencyKey: 'usage_too_large',
                 now: new Date(3),
             }),
@@ -481,6 +834,137 @@ describe('hosted billing ledger', () => {
         })
         expect(db.accounts.get('workspace_1')?.purchasedBalanceCents).toBe(10)
         expect(db.ledger.size).toBe(1)
+    })
+
+    it('does not debit balance or insert a ledger entry when the usage event is missing', async () => {
+        const db = new FakeD1()
+        const env = hostedEnv(db)
+        await ensureHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+            now: new Date(0),
+        })
+        await creditHostedBalance({
+            env,
+            workspaceId: 'workspace_1',
+            source: 'stripe_topup',
+            amountCents: 25,
+            idempotencyKey: 'topup_missing_usage',
+            now: new Date(1),
+        })
+
+        await expect(
+            debitHostedBalance({
+                env,
+                workspaceId: 'workspace_1',
+                source: 'hosted_openrouter_usage',
+                amountCents: 5,
+                usageEventId: 'missing_usage',
+                idempotencyKey: 'missing_usage_debit',
+                now: new Date(2),
+            }),
+        ).rejects.toThrow(/existing usage event/)
+
+        expect(totalBalance(db.accounts.get('workspace_1')!)).toBe(25)
+        expect(
+            Array.from(db.ledger.values()).some((entry) => entry.usageEventId === 'missing_usage'),
+        ).toBe(false)
+    })
+
+    it('does not debit balance or insert a ledger entry when usage is no longer pending', async () => {
+        const db = new FakeD1()
+        const env = hostedEnv(db)
+        await ensureHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+            now: new Date(0),
+        })
+        await creditHostedBalance({
+            env,
+            workspaceId: 'workspace_1',
+            source: 'stripe_topup',
+            amountCents: 25,
+            idempotencyKey: 'topup_debited_usage',
+            now: new Date(1),
+        })
+        db.usage.set('usage_debited', {
+            id: 'usage_debited',
+            workspaceId: 'workspace_1',
+            roomId: null,
+            kind: 'provider',
+            provider: 'openrouter',
+            model: null,
+            costMicros: null,
+            billingStatus: 'debited',
+            billingLedgerEntryId: 'existing_ledger',
+            idempotencyKey: null,
+            createdAt: new Date(1).toISOString(),
+        })
+
+        await expect(
+            debitHostedBalance({
+                env,
+                workspaceId: 'workspace_1',
+                source: 'hosted_openrouter_usage',
+                amountCents: 5,
+                usageEventId: 'usage_debited',
+                idempotencyKey: 'debited_usage_debit',
+                now: new Date(2),
+            }),
+        ).rejects.toThrow(/pending usage/)
+
+        expect(totalBalance(db.accounts.get('workspace_1')!)).toBe(25)
+        expect(
+            Array.from(db.ledger.values()).some((entry) => entry.usageEventId === 'usage_debited'),
+        ).toBe(false)
+    })
+})
+
+describe('hosted usage event idempotency', () => {
+    it('returns a proven existing id for repeated idempotency keys', async () => {
+        const db = new FakeD1()
+        const env = hostedEnv(db)
+        const first = await appendHostedUsageEvent({
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            sessionKey: null,
+            runId: null,
+            jobId: null,
+            kind: 'provider',
+            provider: 'openrouter',
+            model: 'openrouter/auto',
+            toolName: null,
+            inputTokens: null,
+            outputTokens: null,
+            cachedTokens: null,
+            costMicros: 12000,
+            billingStatus: 'pending',
+            idempotencyKey: 'usage_once',
+            now: new Date(0),
+        })
+        const second = await appendHostedUsageEvent({
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            sessionKey: null,
+            runId: null,
+            jobId: null,
+            kind: 'provider',
+            provider: 'openrouter',
+            model: 'openrouter/auto',
+            toolName: null,
+            inputTokens: null,
+            outputTokens: null,
+            cachedTokens: null,
+            costMicros: 12000,
+            billingStatus: 'pending',
+            idempotencyKey: 'usage_once',
+            now: new Date(1),
+        })
+
+        expect(second).toBe(first)
+        expect(db.usage.size).toBe(1)
     })
 })
 
@@ -516,11 +1000,13 @@ describe('hosted billing two-bucket spend', () => {
             id: 'usage_split',
             workspaceId: 'workspace_1',
             roomId: null,
+            kind: 'provider',
             provider: 'openrouter',
             model: null,
             costMicros: null,
             billingStatus: 'pending',
             billingLedgerEntryId: null,
+            idempotencyKey: null,
             createdAt: new Date(2).toISOString(),
         })
 
@@ -541,6 +1027,127 @@ describe('hosted billing two-bucket spend', () => {
             includedDebitedCents: 5,
             purchasedDebitedCents: 3,
         })
+    })
+})
+
+describe('hosted billing reservations', () => {
+    it('reserves only available balance and releases expired holds', async () => {
+        const db = new FakeD1()
+        const env = hostedEnv(db)
+        await ensureHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+            now: new Date(0),
+        })
+        await creditHostedBalance({
+            env,
+            workspaceId: 'workspace_1',
+            source: 'subscription_included_credit',
+            amountCents: 100,
+            idempotencyKey: 'included_grant',
+            now: new Date(1),
+        })
+
+        const reservation = await authorizeHostedBillingReservation({
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            provider: 'openrouter',
+            amountCents: 40,
+            idempotencyKey: 'reservation_1',
+            metadata: {
+                targetPath: '/chat/completions',
+            },
+            expiresAt: new Date(5),
+            now: new Date(2),
+        })
+        let account = await readHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+        })
+        expect(reservation.status).toBe('authorized')
+        expect(account.currentBalanceCents).toBe(100)
+        expect(account.reservedBalanceCents).toBe(40)
+        expect(account.availableBalanceCents).toBe(60)
+
+        await expect(
+            authorizeHostedBillingReservation({
+                env,
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                provider: 'openrouter',
+                amountCents: 70,
+                idempotencyKey: 'reservation_too_large',
+                expiresAt: new Date(10),
+                now: new Date(3),
+            }),
+        ).rejects.toThrow('Hosted billing balance is exhausted')
+
+        const released = await releaseExpiredHostedBillingReservations({
+            env,
+            workspaceId: 'workspace_1',
+            now: new Date(6),
+        })
+        account = await readHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+        })
+        expect(released).toBe(1)
+        expect(db.reservations.get(reservation.id)?.status).toBe('expired')
+        expect(account.reservedBalanceCents).toBe(0)
+        expect(account.availableBalanceCents).toBe(100)
+    })
+
+    it('releases expired holds before the provider pre-send balance gate', async () => {
+        const db = new FakeD1()
+        const env = hostedEnv(db)
+        await ensureHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+            now: new Date(0),
+        })
+        await creditHostedBalance({
+            env,
+            workspaceId: 'workspace_1',
+            source: 'subscription_included_credit',
+            amountCents: 1,
+            idempotencyKey: 'included_gate',
+            now: new Date(1),
+        })
+        const reservation = await authorizeHostedBillingReservation({
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            provider: 'openrouter',
+            amountCents: 1,
+            idempotencyKey: 'expired_gate_reservation',
+            expiresAt: new Date(5),
+            now: new Date(2),
+        })
+
+        await expect(
+            assertHostedProviderCreditsAvailable({
+                env,
+                workspaceId: 'workspace_1',
+                now: new Date(3),
+            }),
+        ).rejects.toThrow('Hosted billing balance is exhausted')
+
+        await expect(
+            assertHostedProviderCreditsAvailable({
+                env,
+                workspaceId: 'workspace_1',
+                now: new Date(6),
+            }),
+        ).resolves.toBeUndefined()
+
+        const account = await readHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+        })
+        expect(db.reservations.get(reservation.id)?.status).toBe('expired')
+        expect(account.availableBalanceCents).toBe(1)
+        expect(account.reservedBalanceCents).toBe(0)
     })
 })
 
@@ -587,6 +1194,504 @@ describe('hosted billing usage markup', () => {
         const account = db.accounts.get('workspace_1')!
         expect(account.includedBalanceCents).toBe(87)
         expect(account.purchasedBalanceCents).toBe(0)
+    })
+
+    it('releases active reservations for exact zero-cost provider usage', async () => {
+        const db = new FakeD1()
+        const env = hostedEnv(db)
+        await ensureHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+            now: new Date(0),
+        })
+        await creditHostedBalance({
+            env,
+            workspaceId: 'workspace_1',
+            source: 'subscription_included_credit',
+            amountCents: 10,
+            idempotencyKey: 'included',
+            now: new Date(1),
+        })
+        const reservation = await authorizeHostedBillingReservation({
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            provider: 'openrouter',
+            amountCents: 1,
+            idempotencyKey: 'zero_cost_reservation',
+            expiresAt: new Date(10_000),
+            now: new Date(2),
+        })
+
+        const result = await recordHostedProviderUsage({
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            sessionKey: 'thread_1',
+            runId: 'run_1',
+            jobId: null,
+            provider: 'openrouter',
+            model: 'openrouter/free',
+            inputTokens: null,
+            outputTokens: null,
+            cachedTokens: null,
+            costMicros: 0,
+            billingReservationId: reservation.id,
+            releaseReservationOnDebitFailure: false,
+            idempotencyKey: 'zero_cost_usage',
+            now: new Date(3),
+        })
+
+        expect(result.debitedCents).toBe(0)
+        expect(result.ledgerEntryId).toBeNull()
+        expect(db.reservations.get(reservation.id)?.status).toBe('released')
+        expect(db.accounts.get('workspace_1')?.includedReservedCents).toBe(0)
+        expect(db.usage.get(result.usageEventId)?.billingStatus).toBe('not_billable')
+        await expect(
+            readHostedProviderUsageSettlementByIdempotencyKey({
+                env,
+                workspaceId: 'workspace_1',
+                idempotencyKey: 'zero_cost_usage',
+            }),
+        ).resolves.toMatchObject({
+            id: result.usageEventId,
+            provider: 'openrouter',
+            costMicros: 0,
+        })
+    })
+
+    it('does not debit managed runtime OpenRouter callbacks from estimated session pricing', async () => {
+        const db = new FakeD1()
+        const env = hostedEnv(db)
+        await ensureHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+            now: new Date(0),
+        })
+        await creditHostedBalance({
+            env,
+            workspaceId: 'workspace_1',
+            source: 'subscription_included_credit',
+            amountCents: 100,
+            idempotencyKey: 'included',
+            now: new Date(1),
+        })
+        const input = {
+            env,
+            workspaceId: 'workspace_1',
+            providerCandidate: 'hosted_openrouter' as const,
+            idempotencyKey: 'runtime:workspace_1:room_1:1:7:provider.finished',
+            event: {
+                roomId: 'room_1',
+                sessionKey: 'thread_1',
+                runId: 'run_1',
+                jobId: null,
+                kind: 'provider' as const,
+                provider: 'openrouter',
+                model: 'openrouter/auto',
+                toolName: null,
+                inputTokens: 10,
+                outputTokens: 20,
+                cachedTokens: 0,
+                reasoningTokens: 3,
+                totalTokens: 33,
+                durationMs: 1000,
+                activeDurationMs: 900,
+                idleDurationMs: 100,
+                estimatedCostUsd: 0.1,
+                metadata: {},
+            },
+            now: new Date(2),
+        }
+        const first = await recordHostedRuntimeUsageEvent(input)
+        const second = await recordHostedRuntimeUsageEvent(input)
+
+        expect(first.usageEventId).toBe(second.usageEventId)
+        expect(first.debitedCents).toBe(0)
+        expect(second.debitedCents).toBe(0)
+        expect(db.usage.size).toBe(1)
+        expect(db.ledger.size).toBe(1)
+        expect(Array.from(db.ledger.values()).map((entry) => entry.source)).toEqual([
+            'subscription_included_credit',
+        ])
+        expect(Array.from(db.usage.values())[0]?.billingStatus).toBe('not_billable')
+        expect(Array.from(db.usage.values())[0]?.costMicros).toBeNull()
+        expect(JSON.parse(Array.from(db.usage.values())[0]?.metadata ?? '{}')).toMatchObject({
+            providerProxyBillingAuthority: 'worker_proxy',
+            runtimeCallbackBilling: 'telemetry_only',
+        })
+        expect(db.accounts.get('workspace_1')?.includedBalanceCents).toBe(100)
+        expect(db.accounts.get('workspace_1')?.includedReservedCents).toBe(0)
+    })
+
+    it('records managed OpenRouter runtime callbacks as telemetry without provider cost billing', async () => {
+        const db = new FakeD1()
+        const env = hostedEnv(db)
+        await ensureHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+            now: new Date(0),
+        })
+        await creditHostedBalance({
+            env,
+            workspaceId: 'workspace_1',
+            source: 'subscription_included_credit',
+            amountCents: 100,
+            idempotencyKey: 'included',
+            now: new Date(1),
+        })
+
+        const result = await recordHostedRuntimeUsageEvent({
+            env,
+            workspaceId: 'workspace_1',
+            providerCandidate: 'hosted_openrouter',
+            idempotencyKey: 'runtime:workspace_1:room_1:1:10:provider.finished',
+            event: {
+                roomId: 'room_1',
+                sessionKey: 'thread_1',
+                runId: 'run_1',
+                jobId: null,
+                kind: 'provider',
+                provider: 'openrouter',
+                model: 'openrouter/auto',
+                toolName: null,
+                inputTokens: 10,
+                outputTokens: 20,
+                cachedTokens: 0,
+                reasoningTokens: null,
+                totalTokens: 30,
+                durationMs: 1000,
+                activeDurationMs: null,
+                idleDurationMs: null,
+                estimatedCostUsd: 0.1,
+                metadata: {},
+            },
+            now: new Date(2),
+        })
+
+        expect(result.debitedCents).toBe(0)
+        expect(result.ledgerEntryId).toBeNull()
+        expect(db.ledger.size).toBe(1)
+        const usage = Array.from(db.usage.values())[0]!
+        expect(usage.billingStatus).toBe('not_billable')
+        expect(usage.costMicros).toBeNull()
+        expect(JSON.parse(usage.metadata ?? '{}')).toMatchObject({
+            providerProxyBillingAuthority: 'worker_proxy',
+            runtimeCallbackBilling: 'telemetry_only',
+        })
+        expect(db.accounts.get('workspace_1')?.includedBalanceCents).toBe(100)
+    })
+
+    it('ignores managed OpenRouter callback cost metadata for billing', async () => {
+        const db = new FakeD1()
+        const env = hostedEnv(db)
+        await ensureHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+            now: new Date(0),
+        })
+        await creditHostedBalance({
+            env,
+            workspaceId: 'workspace_1',
+            source: 'subscription_included_credit',
+            amountCents: 100,
+            idempotencyKey: 'included',
+            now: new Date(1),
+        })
+
+        const result = await recordHostedRuntimeUsageEvent({
+            env,
+            workspaceId: 'workspace_1',
+            providerCandidate: 'hosted_openrouter',
+            idempotencyKey: 'runtime:workspace_1:room_1:1:8:provider.finished',
+            event: {
+                roomId: 'room_1',
+                sessionKey: 'thread_1',
+                runId: 'run_1',
+                jobId: null,
+                kind: 'provider',
+                provider: 'openrouter',
+                model: 'openrouter/auto',
+                toolName: null,
+                inputTokens: 10,
+                outputTokens: 20,
+                cachedTokens: 0,
+                reasoningTokens: 3,
+                totalTokens: 33,
+                durationMs: 1000,
+                activeDurationMs: 900,
+                idleDurationMs: 100,
+                estimatedCostUsd: 0.1,
+                metadata: {
+                    hostedProviderReservationIds: ['reservation_from_callback'],
+                    hostedProviderUsageCharges: [
+                        {
+                            provider: 'openrouter',
+                            reservationId: 'reservation_from_callback',
+                            costMicros: 100000,
+                        },
+                    ],
+                },
+            },
+            now: new Date(3),
+        })
+
+        expect(result.debitedCents).toBe(0)
+        expect(result.ledgerEntryId).toBeNull()
+        expect(db.accounts.get('workspace_1')?.includedBalanceCents).toBe(100)
+        expect(db.accounts.get('workspace_1')?.includedReservedCents).toBe(0)
+        expect(Array.from(db.usage.values())[0]?.billingStatus).toBe('not_billable')
+        expect(Array.from(db.usage.values())[0]?.costMicros).toBeNull()
+        expect(Array.from(db.ledger.values()).map((entry) => entry.source)).toEqual([
+            'subscription_included_credit',
+        ])
+    })
+
+    it('settles active reservations when retrying after the usage debit ledger already exists', async () => {
+        const db = new FakeD1()
+        const env = hostedEnv(db)
+        await ensureHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+            now: new Date(0),
+        })
+        await creditHostedBalance({
+            env,
+            workspaceId: 'workspace_1',
+            source: 'subscription_included_credit',
+            amountCents: 100,
+            idempotencyKey: 'included',
+            now: new Date(1),
+        })
+        const reservation = await authorizeHostedBillingReservation({
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            provider: 'openrouter',
+            amountCents: 1,
+            idempotencyKey: 'openrouter_retry_reservation',
+            expiresAt: new Date(10),
+            now: new Date(2),
+        })
+        const usageEventId = 'usage_retry'
+        const idempotencyKey = 'provider_proxy:openrouter:workspace_1:room_1:usage_retry'
+        const account = db.accounts.get('workspace_1')!
+        account.includedBalanceCents = 87
+        db.usage.set(usageEventId, {
+            id: usageEventId,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            kind: 'provider',
+            provider: 'openrouter',
+            model: 'openrouter/auto',
+            costMicros: 100000,
+            billingStatus: 'debited',
+            billingLedgerEntryId: 'ledger_retry',
+            idempotencyKey,
+            metadata: '{}',
+            createdAt: new Date(3).toISOString(),
+        })
+        db.ledger.set('ledger_retry', {
+            id: 'ledger_retry',
+            workspaceId: 'workspace_1',
+            direction: 'debit',
+            source: 'hosted_openrouter_usage',
+            amountCents: 13,
+            balanceAfterCents: 87,
+            stripeEventId: null,
+            stripeCheckoutSessionId: null,
+            stripeInvoiceId: null,
+            usageEventId,
+            idempotencyKey: `hosted_usage:${usageEventId}`,
+            metadata: '{}',
+            createdAt: new Date(3).toISOString(),
+        })
+
+        const result = await recordHostedProviderUsage({
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            sessionKey: null,
+            runId: null,
+            jobId: null,
+            provider: 'openrouter',
+            model: 'openrouter/auto',
+            inputTokens: null,
+            outputTokens: null,
+            cachedTokens: null,
+            estimatedCostUsd: 0.1,
+            costMicros: 100000,
+            billingReservationId: reservation.id,
+            idempotencyKey,
+            metadata: {
+                billedBy: 'hosted_openrouter_proxy',
+                reservationId: reservation.id,
+            },
+            now: new Date(4),
+        })
+
+        expect(result.usageEventId).toBe(usageEventId)
+        expect(result.debitedCents).toBe(13)
+        expect(result.ledgerEntryId).toBe('ledger_retry')
+        expect(db.reservations.get(reservation.id)?.status).toBe('settled')
+        expect(db.reservations.get(reservation.id)?.billingLedgerEntryId).toBe('ledger_retry')
+        expect(db.accounts.get('workspace_1')?.includedBalanceCents).toBe(87)
+        expect(db.accounts.get('workspace_1')?.includedReservedCents).toBe(0)
+    })
+
+    it('does not close reservations from managed OpenRouter callback metadata', async () => {
+        const db = new FakeD1()
+        const env = hostedEnv(db)
+        await ensureHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+            now: new Date(0),
+        })
+        await creditHostedBalance({
+            env,
+            workspaceId: 'workspace_1',
+            source: 'subscription_included_credit',
+            amountCents: 100,
+            idempotencyKey: 'included',
+            now: new Date(1),
+        })
+        const firstReservation = await authorizeHostedBillingReservation({
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            provider: 'openrouter',
+            amountCents: 1,
+            idempotencyKey: 'openrouter_reservation_1',
+            expiresAt: new Date(10),
+            now: new Date(2),
+        })
+        const secondReservation = await authorizeHostedBillingReservation({
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            provider: 'openrouter',
+            amountCents: 1,
+            idempotencyKey: 'openrouter_reservation_2',
+            expiresAt: new Date(10),
+            now: new Date(2),
+        })
+
+        const result = await recordHostedRuntimeUsageEvent({
+            env,
+            workspaceId: 'workspace_1',
+            providerCandidate: 'hosted_openrouter',
+            idempotencyKey: 'runtime:workspace_1:room_1:1:9:run.finished',
+            event: {
+                roomId: 'room_1',
+                sessionKey: 'thread_1',
+                runId: 'run_1',
+                jobId: null,
+                kind: 'run',
+                provider: 'openrouter',
+                model: 'openrouter/auto',
+                toolName: null,
+                inputTokens: 10,
+                outputTokens: 20,
+                cachedTokens: 0,
+                reasoningTokens: 3,
+                totalTokens: 33,
+                durationMs: 1000,
+                activeDurationMs: 900,
+                idleDurationMs: 100,
+                estimatedCostUsd: 0.1,
+                metadata: {
+                    hostedProviderReservationIds: [firstReservation.id, secondReservation.id],
+                    hostedProviderUsageCharges: [
+                        {
+                            provider: 'openrouter',
+                            reservationId: firstReservation.id,
+                            costMicros: 100000,
+                        },
+                    ],
+                },
+            },
+            now: new Date(3),
+        })
+
+        expect(result.debitedCents).toBe(0)
+        expect(result.ledgerEntryId).toBeNull()
+        expect(db.ledger.size).toBe(1)
+        expect(Array.from(db.usage.values())[0]?.billingStatus).toBe('not_billable')
+        expect(Array.from(db.usage.values())[0]?.costMicros).toBeNull()
+        expect(db.reservations.get(firstReservation.id)?.status).toBe('authorized')
+        expect(db.reservations.get(secondReservation.id)?.status).toBe('authorized')
+        expect(db.accounts.get('workspace_1')?.includedBalanceCents).toBe(100)
+        expect(db.accounts.get('workspace_1')?.includedReservedCents).toBe(2)
+        expect(JSON.parse(Array.from(db.usage.values())[0]?.metadata ?? '{}')).toMatchObject({
+            providerProxyBillingAuthority: 'worker_proxy',
+            runtimeCallbackBilling: 'telemetry_only',
+        })
+    })
+
+    it('does not debit Brave runtime usage without provider-returned actual dollar cost', async () => {
+        const db = new FakeD1()
+        const env = hostedEnv(db)
+        await ensureHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+            now: new Date(0),
+        })
+        await creditHostedBalance({
+            env,
+            workspaceId: 'workspace_1',
+            source: 'subscription_included_credit',
+            amountCents: 100,
+            idempotencyKey: 'included',
+            now: new Date(1),
+        })
+
+        const result = await recordHostedRuntimeUsageEvent({
+            env,
+            workspaceId: 'workspace_1',
+            providerCandidate: 'user_key',
+            idempotencyKey: 'runtime:workspace_1:room_1:1:11:tool.web_search',
+            event: {
+                roomId: 'room_1',
+                sessionKey: 'thread_1',
+                runId: 'run_1',
+                jobId: null,
+                kind: 'tool',
+                provider: 'brave',
+                model: 'brave-search',
+                toolName: 'web_search',
+                inputTokens: null,
+                outputTokens: null,
+                cachedTokens: null,
+                reasoningTokens: null,
+                totalTokens: null,
+                durationMs: 1000,
+                activeDurationMs: null,
+                idleDurationMs: null,
+                estimatedCostUsd: null,
+                metadata: {
+                    payload: {
+                        web: {
+                            results: [
+                                {
+                                    title: 'Result',
+                                    url: 'https://example.test',
+                                },
+                            ],
+                        },
+                    },
+                },
+            },
+            now: new Date(2),
+        })
+
+        expect(result.debitedCents).toBe(0)
+        expect(result.ledgerEntryId).toBeNull()
+        expect(db.ledger.size).toBe(1)
+        const usage = Array.from(db.usage.values())[0]!
+        expect(usage.provider).toBe('brave')
+        expect(usage.billingStatus).toBe('not_billable')
+        expect(usage.costMicros).toBeNull()
+        expect(db.accounts.get('workspace_1')?.includedBalanceCents).toBe(100)
     })
 })
 
@@ -638,6 +1743,48 @@ describe('hosted billing included credit expiry', () => {
         })
         expect(noop).toBeNull()
     })
+
+    it('preserves included credit that backs active reservations', async () => {
+        const db = new FakeD1()
+        const env = hostedEnv(db)
+        await ensureHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+            now: new Date(0),
+        })
+        await creditHostedBalance({
+            env,
+            workspaceId: 'workspace_1',
+            source: 'subscription_included_credit',
+            amountCents: 40,
+            idempotencyKey: 'included',
+            now: new Date(1),
+        })
+        await authorizeHostedBillingReservation({
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            provider: 'openrouter',
+            amountCents: 15,
+            idempotencyKey: 'reservation_1',
+            expiresAt: new Date(Date.now() + 60_000),
+            now: new Date(2),
+        })
+
+        const expiry = await expireIncludedBalance({
+            env,
+            workspaceId: 'workspace_1',
+            idempotencyKey: 'expire_reserved',
+            now: new Date(3),
+        })
+
+        expect(expiry?.amountCents).toBe(25)
+        expect(expiry?.balanceAfterCents).toBe(15)
+        const account = db.accounts.get('workspace_1')!
+        expect(account.includedBalanceCents).toBe(15)
+        expect(account.includedReservedCents).toBe(15)
+        expect(account.purchasedBalanceCents).toBe(0)
+    })
 })
 
 describe('hosted billing service API', () => {
@@ -647,9 +1794,9 @@ describe('hosted billing service API', () => {
         const actor = {
             authProvider: 'better-auth' as const,
             userId: 'user_1',
+            sessionId: 'session_1',
             email: 'user@example.test',
             workspaceId: 'workspace_1',
-            workspaceRole: 'owner' as const,
         }
         const fetchMock = vi.fn<(...args: Parameters<typeof fetch>) => Promise<Response>>(
             async () =>
@@ -687,7 +1834,7 @@ describe('hosted billing service API', () => {
                 .map((a) => a.planKey),
         ).toEqual(['starter', 'standard', 'pro'])
         expect(summary.actions.every((action) => action.enabled)).toBe(true)
-        expect(summary.providerPriority).toEqual(['codex', 'user_key', 'hosted_openrouter'])
+        expect(summary.providerPriority).toEqual(['user_key', 'codex', 'hosted_openrouter'])
 
         await expect(
             createHostedStripeCheckout({
@@ -704,7 +1851,7 @@ describe('hosted billing service API', () => {
             authorization: 'Bearer stripe-secret-test-value',
         })
         expect(String(init?.body)).toContain('metadata%5Bworkspace_id%5D=workspace_1')
-        expect(String(init?.body)).toContain('line_items%5B0%5D%5Bprice%5D=price_topup_placeholder')
+        expect(String(init?.body)).toContain('line_items%5B0%5D%5Bprice%5D=price_test_topup_000000')
         expect(String(init?.body)).toContain('automatic_tax%5Benabled%5D=true')
 
         await createHostedStripeCheckout({
@@ -715,7 +1862,7 @@ describe('hosted billing service API', () => {
         })
         const [, subscriptionInit] = fetchMock.mock.calls[1] ?? []
         expect(String(subscriptionInit?.body)).toContain(
-            'line_items%5B0%5D%5Bprice%5D=price_standard_placeholder',
+            'line_items%5B0%5D%5Bprice%5D=price_test_standard_000000',
         )
         expect(String(subscriptionInit?.body)).toContain('metadata%5Bplan_key%5D=standard')
         expect(String(subscriptionInit?.body)).toContain(
@@ -729,9 +1876,9 @@ describe('hosted billing service API', () => {
         const actor = {
             authProvider: 'better-auth' as const,
             userId: 'user_1',
+            sessionId: 'session_1',
             email: 'user@example.test',
             workspaceId: 'workspace_1',
-            workspaceRole: 'owner' as const,
         }
         const fetchMock = vi.fn<(...args: Parameters<typeof fetch>) => Promise<Response>>(
             async () =>
@@ -832,7 +1979,7 @@ describe('hosted billing stripe webhooks', () => {
                         data: [
                             {
                                 price: {
-                                    id: 'price_standard_placeholder',
+                                    id: 'price_test_standard_000000',
                                 },
                             },
                         ],
@@ -894,7 +2041,7 @@ describe('hosted billing stripe webhooks', () => {
                     status: 'paid',
                     metadata: { workspace_id: 'workspace_1' },
                     lines: {
-                        data: [{ price: { id: 'price_standard_placeholder' } }],
+                        data: [{ price: { id: 'price_test_standard_000000' } }],
                     },
                 },
             },
@@ -962,11 +2109,13 @@ describe('hosted billing debit two-bucket split', () => {
             id: 'u_split',
             workspaceId: 'ws',
             roomId: null,
+            kind: 'provider',
             provider: 'openrouter',
             model: null,
             costMicros: null,
             billingStatus: 'pending',
             billingLedgerEntryId: null,
+            idempotencyKey: null,
             createdAt: new Date(2).toISOString(),
         })
 
@@ -1007,11 +2156,13 @@ describe('hosted billing debit two-bucket split', () => {
             id: 'u_inc_only',
             workspaceId: 'ws',
             roomId: null,
+            kind: 'provider',
             provider: 'openrouter',
             model: null,
             costMicros: null,
             billingStatus: 'pending',
             billingLedgerEntryId: null,
+            idempotencyKey: null,
             createdAt: new Date(1).toISOString(),
         })
 

@@ -10,7 +10,7 @@ import {
     supportedProviderCatalogEntry,
 } from '../provider-config'
 
-export type EffectiveProviderSource = 'app_default' | 'app_connection' | 'missing'
+export type EffectiveProviderSource = 'app_default' | 'app_connection'
 
 export interface ProviderReadiness {
     ready: boolean
@@ -97,8 +97,8 @@ export function listReadyProviders(
 }
 
 export function resolveEffectiveProvider(input: {
-    config: RoomConfigRecord
-    settings: AppSettingsRecord
+    config: Pick<RoomConfigRecord, 'providerMode' | 'providerConnectionId'>
+    settings: Pick<AppSettingsRecord, 'defaultProviderConnectionId'>
     providers: AppProviderConnectionRecord[]
     codexAuth?: CodexAppAuthStatus
 }): EffectiveProviderResolution {

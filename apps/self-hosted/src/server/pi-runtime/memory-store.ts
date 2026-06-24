@@ -3,6 +3,7 @@ import { constants as fsConstants } from 'node:fs'
 import { access, chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { createHostedRuntimeStateSync } from './hosted-runtime-state-sync'
 import { renderMemoryBrief } from './memory-brief'
 import { maintainMemory } from './memory-maintenance'
 import {
@@ -47,6 +48,10 @@ async function writeJsonAtomically(path: string, value: RoomMemory): Promise<voi
     })
     await rename(tempPath, path)
     await chmod(path, 0o600)
+}
+
+async function syncMemoryState(config: PiRuntimeConfig): Promise<void> {
+    await createHostedRuntimeStateSync(config).upsert(memoryPath(config))
 }
 
 function itemFromText(text: string, source: string, priority = 3): MemoryItem {
@@ -123,6 +128,7 @@ export async function ensureMemory(config: PiRuntimeConfig): Promise<MemorySnaps
     const path = memoryPath(config)
     if (!(await exists(path))) {
         await writeJsonAtomically(path, await migrateLegacyMarkdown(config))
+        await syncMemoryState(config)
     }
     return readMemory(config)
 }
@@ -137,6 +143,12 @@ export async function readMemory(config: PiRuntimeConfig): Promise<MemorySnapsho
     const maintained = maintainMemory(parsed.data)
     if (maintained.changed) {
         await writeJsonAtomically(path, maintained.memory)
+        try {
+            await syncMemoryState(config)
+        } catch (error) {
+            await writeJsonAtomically(path, parsed.data)
+            throw error
+        }
     }
     const memory = maintained.memory
     const json = canonicalMemoryJson(memory)
@@ -163,7 +175,14 @@ export async function replaceMemory(input: {
         throw new Error(`memory.json failed schema validation: ${parsed.error.message}`)
     }
     const maintained = maintainMemory(parsed.data).memory
-    await writeJsonAtomically(memoryPath(input.config), maintained)
+    const path = memoryPath(input.config)
+    await writeJsonAtomically(path, maintained)
+    try {
+        await syncMemoryState(input.config)
+    } catch (error) {
+        await writeJsonAtomically(path, previous.memory)
+        throw error
+    }
     return readMemory(input.config)
 }
 
@@ -185,6 +204,13 @@ export async function patchMemory(input: {
     if (!parsed.success) {
         throw new Error(`memory.json failed schema validation: ${parsed.error.message}`)
     }
-    await writeJsonAtomically(memoryPath(input.config), parsed.data)
+    const path = memoryPath(input.config)
+    await writeJsonAtomically(path, parsed.data)
+    try {
+        await syncMemoryState(input.config)
+    } catch (error) {
+        await writeJsonAtomically(path, snapshot.memory)
+        throw error
+    }
     return readMemory(input.config)
 }

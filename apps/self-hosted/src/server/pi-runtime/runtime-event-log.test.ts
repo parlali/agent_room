@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import { createRuntimeEventAppender } from './runtime-event-log'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { withToolRunContext } from './tool-run-context'
 
 function testConfig(root: string): PiRuntimeConfig {
     const roomRootDir = join(root, 'rooms', 'r-opaque')
@@ -70,6 +71,42 @@ describe('runtime event log', () => {
         const current = await readFile(config.paths.runtimeEventsPath, 'utf8')
         expect(rotated.size).toBe(5 * 1024 * 1024 + 1)
         expect(current).toContain('runtime.started')
+    })
+
+    it('writes cron job ids from the active run context', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'agent-room-events-'))
+        const append = createRuntimeEventAppender({
+            config: testConfig(root),
+            redactPayload: (payload) => payload,
+            broadcast: () => {},
+        })
+
+        await withToolRunContext(
+            {
+                sessionKey: 'thread-1',
+                runId: 'run-1',
+                jobId: 'job-1',
+                signal: new AbortController().signal,
+            },
+            () =>
+                append('tool.write', {
+                    fileChange: {
+                        kind: 'write',
+                        root: 'workspace',
+                        path: '/workspace/report.md',
+                    },
+                }),
+        )
+
+        const line = (await readFile(join(root, 'runtime-events.jsonl'), 'utf8')).trim()
+        const entry = JSON.parse(line)
+        expect(entry).toEqual(
+            expect.objectContaining({
+                sessionKey: 'thread-1',
+                runId: 'run-1',
+                jobId: 'job-1',
+            }),
+        )
     })
 
     it('broadcasts file changes for legacy absolute room-id paths', async () => {

@@ -21,6 +21,7 @@ import {
 import { sessionWindowSchema, snapshotSchema } from './runtime-schemas'
 import { createRoomThread, sendRoomThreadMessage } from './thread-operations'
 import { buildRoomSetupSnapshot } from '../room-setup-read-model'
+import { wakeRoomRuntimeWithSnapshot } from '../wake-runtime'
 import {
     elapsedPerformanceMs,
     jsonPayloadByteLength,
@@ -61,7 +62,13 @@ export async function getRoomSessionWindow(input: {
     return payload
 }
 
-export async function listRoomsWithRuntime(): Promise<RoomRuntimeOverview[]> {
+export async function listRoomsWithRuntime(input: {
+    actorUserId: string
+}): Promise<RoomRuntimeOverview[]> {
+    const actorUserId = input.actorUserId.trim()
+    if (!actorUserId) {
+        throw new Error('Room listing requires an authenticated actor')
+    }
     const rooms = await roomRepository.listRooms()
     const [runtimeRows, configs] = await Promise.all([
         Promise.all(rooms.map((room) => roomRuntimeMetadataRepository.findByRoomId(room.id))),
@@ -282,28 +289,23 @@ export async function wakeRoomRuntime(input: {
     text: string
     mode: 'now' | 'next-heartbeat'
 }): Promise<void> {
-    if (input.mode !== 'now') {
-        throw new Error('Deferred heartbeat wake is not implemented for the Pi runtime')
-    }
-
-    const text = input.text.trim()
-    if (!text) {
-        throw new Error('Wake trigger text cannot be empty')
-    }
-
-    const snapshot = await requestPiRuntime(input.roomId, '/snapshot', snapshotSchema)
-    const selectedThreadKey = snapshot.selectedThreadKey ?? snapshot.threads[0]?.key ?? null
-    if (!selectedThreadKey) {
-        await createRoomThread({
-            roomId: input.roomId,
-            firstMessage: text,
-        })
-        return
-    }
-
-    await sendRoomThreadMessage({
-        roomId: input.roomId,
-        sessionKey: selectedThreadKey,
-        message: text,
+    await wakeRoomRuntimeWithSnapshot({
+        mode: input.mode,
+        text: input.text,
+        deferredMessage: 'Deferred heartbeat wake is not implemented for the Pi runtime',
+        readSnapshot: () => requestPiRuntime(input.roomId, '/snapshot', snapshotSchema),
+        createThread: async (firstMessage) => {
+            await createRoomThread({
+                roomId: input.roomId,
+                firstMessage,
+            })
+        },
+        sendThreadMessage: async (sessionKey, message) => {
+            await sendRoomThreadMessage({
+                roomId: input.roomId,
+                sessionKey,
+                message,
+            })
+        },
     })
 }

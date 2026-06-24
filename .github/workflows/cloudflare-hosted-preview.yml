@@ -1,56 +1,51 @@
 name: Cloudflare Hosted Preview
 
 on:
+    workflow_dispatch:
+        inputs:
+            pr_number:
+                description: Preview PR number
+                required: true
+                type: string
     pull_request:
         types:
-            - opened
-            - synchronize
-            - reopened
             - closed
 
 jobs:
     deploy:
-        if: ${{ github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && vars.CLOUDFLARE_HOSTED_PREVIEWS_ENABLED == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && vars.CLOUDFLARE_HOSTED_PREVIEWS_ENABLED == 'true' }}
         runs-on: ubuntu-latest
         permissions:
             contents: read
             deployments: write
+            pull-requests: read
         environment:
-            name: hosted-preview-${{ github.event.pull_request.number }}
-            url: https://agent-room-hosted-pr-${{ github.event.pull_request.number }}.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev
-        env:
-            CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-            CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-            BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
-            BETTER_AUTH_URL: https://agent-room-hosted-pr-${{ github.event.pull_request.number }}.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev
-            GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-            GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-            STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
-            STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-            STRIPE_CREDIT_TOPUP_PRICE_ID: ${{ secrets.STRIPE_CREDIT_TOPUP_PRICE_ID }}
-            AGENT_ROOM_HOSTED_OPENROUTER_API_KEY: ${{ secrets.AGENT_ROOM_HOSTED_OPENROUTER_API_KEY }}
-            AGENT_ROOM_HOSTED_BRAVE_API_KEY: ${{ secrets.AGENT_ROOM_HOSTED_BRAVE_API_KEY }}
-            AGENT_ROOM_EMAIL_WEBHOOK_URL: ${{ secrets.AGENT_ROOM_EMAIL_WEBHOOK_URL }}
-            AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN: ${{ secrets.AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN }}
-            AGENT_ROOM_EMAIL_FROM: ${{ secrets.AGENT_ROOM_EMAIL_FROM }}
-            AGENT_ROOM_CLOUDFLARE_WORKER_NAME: agent-room-hosted-pr-${{ github.event.pull_request.number }}
-            AGENT_ROOM_CLOUDFLARE_D1_DATABASE_NAME: agent-room-hosted-pr-${{ github.event.pull_request.number }}
-            AGENT_ROOM_CLOUDFLARE_R2_BUCKET_NAME: agent-room-hosted-pr-${{ github.event.pull_request.number }}-workspaces
-            AGENT_ROOM_CLOUDFLARE_QUEUE_NAME: agent-room-hosted-pr-${{ github.event.pull_request.number }}-runtime-jobs
-            AGENT_ROOM_CLOUDFLARE_ROUTE_PATTERN: ''
+            name: hosted-preview
         steps:
-            - name: Checkout
+            - name: Checkout workflow baseline
               uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
               with:
+                  ref: ${{ github.event.repository.default_branch }}
                   persist-credentials: false
-
-            - name: Require workers.dev subdomain
-              run: test -n "${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}"
 
             - name: Setup Bun
               uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
               with:
                   bun-version: 1.3.13
+
+            - name: Resolve preview target
+              id: preview
+              env:
+                  PREVIEW_PR_NUMBER: ${{ inputs.pr_number }}
+                  CLOUDFLARE_WORKERS_SUBDOMAIN: ${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: bun run apps/self-hosted/scripts/cloudflare-hosted-preview-input.ts
+
+            - name: Checkout preview ref
+              uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+              with:
+                  ref: ${{ steps.preview.outputs.head_sha }}
+                  persist-credentials: false
 
             - name: Install dependencies
               run: bun install --frozen-lockfile
@@ -59,18 +54,54 @@ jobs:
               run: bun run self-hosted:cloudflare:build
 
             - name: Ensure preview Cloudflare resources
+              env:
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_HOSTED_PREVIEW_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_HOSTED_PREVIEW_ACCOUNT_ID }}
+                  AGENT_ROOM_CLOUDFLARE_WORKER_NAME: ${{ steps.preview.outputs.worker_name }}
+                  AGENT_ROOM_CLOUDFLARE_D1_DATABASE_NAME: ${{ steps.preview.outputs.d1_database_name }}
+                  AGENT_ROOM_CLOUDFLARE_R2_BUCKET_NAME: ${{ steps.preview.outputs.r2_bucket_name }}
+                  AGENT_ROOM_CLOUDFLARE_QUEUE_NAME: ${{ steps.preview.outputs.queue_name }}
+                  AGENT_ROOM_CLOUDFLARE_ROUTE_PATTERN: ''
               run: bun run self-hosted:cloudflare:resources
 
             - name: Apply preview D1 migrations
+              env:
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_HOSTED_PREVIEW_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_HOSTED_PREVIEW_ACCOUNT_ID }}
+                  AGENT_ROOM_CLOUDFLARE_WORKER_NAME: ${{ steps.preview.outputs.worker_name }}
+                  AGENT_ROOM_CLOUDFLARE_D1_DATABASE_NAME: ${{ steps.preview.outputs.d1_database_name }}
+                  AGENT_ROOM_CLOUDFLARE_R2_BUCKET_NAME: ${{ steps.preview.outputs.r2_bucket_name }}
+                  AGENT_ROOM_CLOUDFLARE_QUEUE_NAME: ${{ steps.preview.outputs.queue_name }}
+                  AGENT_ROOM_CLOUDFLARE_ROUTE_PATTERN: ''
               run: bun run self-hosted:cloudflare:d1:migrate
 
             - name: Deploy preview Worker and Containers
+              env:
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_HOSTED_PREVIEW_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_HOSTED_PREVIEW_ACCOUNT_ID }}
+                  BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_HOSTED_PREVIEW_SECRET }}
+                  BETTER_AUTH_URL: ${{ steps.preview.outputs.url }}
+                  GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_HOSTED_PREVIEW_CLIENT_ID }}
+                  GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_HOSTED_PREVIEW_CLIENT_SECRET }}
+                  STRIPE_SECRET_KEY: ${{ secrets.STRIPE_HOSTED_PREVIEW_SECRET_KEY }}
+                  STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_HOSTED_PREVIEW_WEBHOOK_SECRET }}
+                  STRIPE_CREDIT_TOPUP_PRICE_ID: ${{ secrets.STRIPE_HOSTED_PREVIEW_CREDIT_TOPUP_PRICE_ID }}
+                  AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64: ${{ secrets.AGENT_ROOM_HOSTED_PREVIEW_ENCRYPTION_KEY_B64 }}
+                  AGENT_ROOM_EMAIL_WEBHOOK_URL: ${{ secrets.AGENT_ROOM_HOSTED_PREVIEW_EMAIL_WEBHOOK_URL }}
+                  AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN: ${{ secrets.AGENT_ROOM_HOSTED_PREVIEW_EMAIL_WEBHOOK_BEARER_TOKEN }}
+                  AGENT_ROOM_EMAIL_FROM: ${{ secrets.AGENT_ROOM_HOSTED_PREVIEW_EMAIL_FROM }}
+                  AGENT_ROOM_HOSTED_OPENROUTER_API_KEY: ${{ secrets.AGENT_ROOM_HOSTED_PREVIEW_OPENROUTER_API_KEY }}
+                  AGENT_ROOM_CLOUDFLARE_WORKER_NAME: ${{ steps.preview.outputs.worker_name }}
+                  AGENT_ROOM_CLOUDFLARE_D1_DATABASE_NAME: ${{ steps.preview.outputs.d1_database_name }}
+                  AGENT_ROOM_CLOUDFLARE_R2_BUCKET_NAME: ${{ steps.preview.outputs.r2_bucket_name }}
+                  AGENT_ROOM_CLOUDFLARE_QUEUE_NAME: ${{ steps.preview.outputs.queue_name }}
+                  AGENT_ROOM_CLOUDFLARE_ROUTE_PATTERN: ''
               run: bun run self-hosted:cloudflare:deploy:built
 
             - name: Publish preview summary
               run: |
                   echo "### Cloudflare hosted preview" >> "$GITHUB_STEP_SUMMARY"
-                  echo "https://agent-room-hosted-pr-${{ github.event.pull_request.number }}.${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}.workers.dev" >> "$GITHUB_STEP_SUMMARY"
+                  echo "${{ steps.preview.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
 
     cleanup:
         if: ${{ github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository && vars.CLOUDFLARE_HOSTED_PREVIEWS_ENABLED == 'true' }}
@@ -78,8 +109,8 @@ jobs:
         permissions:
             contents: read
         env:
-            CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-            CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+            CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_HOSTED_PREVIEW_API_TOKEN }}
+            CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_HOSTED_PREVIEW_ACCOUNT_ID }}
             AGENT_ROOM_CLOUDFLARE_WORKER_NAME: agent-room-hosted-pr-${{ github.event.pull_request.number }}
             AGENT_ROOM_CLOUDFLARE_D1_DATABASE_NAME: agent-room-hosted-pr-${{ github.event.pull_request.number }}
             AGENT_ROOM_CLOUDFLARE_R2_BUCKET_NAME: agent-room-hosted-pr-${{ github.event.pull_request.number }}-workspaces
@@ -89,6 +120,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
               with:
+                  ref: ${{ github.event.repository.default_branch }}
                   persist-credentials: false
 
             - name: Setup Bun

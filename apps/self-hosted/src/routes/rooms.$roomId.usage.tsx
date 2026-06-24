@@ -6,7 +6,7 @@ import { RoomDashboardLayout } from '#/components/room-dashboard'
 import { EmptyState, LoadingRows, Section } from '#/components/agent-room'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import { listRoomUsageServer } from '#/routes/-room-runtime-server'
-import { UsageTimeline, UsageTotalsGrid, usageTimelineCount } from './-usage/usage-components'
+import { UsageTimeline, UsageTotalsGrid } from './-usage/usage-components'
 
 type UsageEvent = {
     id: string
@@ -59,7 +59,7 @@ function UsageContent({ roomId }: { roomId: string }) {
                         }
                     />
                 ) : (
-                    <UsageTotalsGrid activityCount={usageTimelineCount(events)} totals={totals} />
+                    <UsageTotalsGrid totals={totals} />
                 )}
             </Section>
             <Section title="Activity" description="Recent room work, summarized for operators.">

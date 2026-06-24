@@ -5,6 +5,10 @@ import { randomUUID } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import type { AgentSession, SessionEntry } from '@mariozechner/pi-coding-agent'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import {
+    hostedRuntimeManagedOpenRouterEnvKey,
+    hostedRuntimeUsageCallbackUrlEnvKey,
+} from '../rooms/pi-runtime-contract'
 import { createRuntimeRunPrompt, type ActiveThread } from './runtime-runner'
 import { memoryCaptureExpectationReasons, summarizeRunToolActivity } from './runtime-tool-activity'
 import { patchMemory, readMemory } from './memory'
@@ -303,6 +307,90 @@ function createRunner(input: {
     })
 }
 
+async function collectOpenRouterRunFinishedPayload(input: {
+    hostedUsageCallbackUrl: string | null
+    managedOpenRouter: boolean
+}): Promise<unknown> {
+    const previousHostedUsageCallbackUrl = process.env[hostedRuntimeUsageCallbackUrlEnvKey]
+    const previousManagedOpenRouter = process.env[hostedRuntimeManagedOpenRouterEnvKey]
+    if (input.hostedUsageCallbackUrl) {
+        process.env[hostedRuntimeUsageCallbackUrlEnvKey] = input.hostedUsageCallbackUrl
+    } else {
+        delete process.env[hostedRuntimeUsageCallbackUrlEnvKey]
+    }
+    if (input.managedOpenRouter) {
+        process.env[hostedRuntimeManagedOpenRouterEnvKey] = '1'
+    } else {
+        delete process.env[hostedRuntimeManagedOpenRouterEnvKey]
+    }
+    try {
+        return await withConfig(async ({ config, root }) => {
+            const record = threadRecord(root)
+            const entries: SessionEntry[] = []
+            const active = fakeActiveThread({
+                entries,
+                prompt: async () => {
+                    entries.push(
+                        messageEntry({
+                            role: 'assistant',
+                            content: [{ type: 'text', text: 'Done' }],
+                            usage: {
+                                input: 100,
+                                output: 50,
+                                totalTokens: 150,
+                                cost: {
+                                    total: 0.0123,
+                                },
+                            },
+                        }),
+                    )
+                },
+            })
+            active.session.state.model = {
+                cost: {
+                    input: 1,
+                    output: 1,
+                    cacheRead: 1,
+                    cacheWrite: 1,
+                },
+            } as never
+            const events: Array<{ event: string; payload: unknown }> = []
+            const runPrompt = createRunner({
+                config: {
+                    ...config,
+                    provider: {
+                        ...config.provider,
+                        sourceProvider: 'openrouter',
+                    },
+                },
+                record,
+                active,
+                events,
+            })
+
+            await runPrompt({
+                record,
+                message: 'Track cost',
+                runId: 'run-cost',
+                awaitCompletion: true,
+            })
+
+            return events.find((entry) => entry.event === 'run.finished')?.payload
+        })
+    } finally {
+        if (previousHostedUsageCallbackUrl === undefined) {
+            delete process.env[hostedRuntimeUsageCallbackUrlEnvKey]
+        } else {
+            process.env[hostedRuntimeUsageCallbackUrlEnvKey] = previousHostedUsageCallbackUrl
+        }
+        if (previousManagedOpenRouter === undefined) {
+            delete process.env[hostedRuntimeManagedOpenRouterEnvKey]
+        } else {
+            process.env[hostedRuntimeManagedOpenRouterEnvKey] = previousManagedOpenRouter
+        }
+    }
+}
+
 describe('runtime runner edit compaction handling', () => {
     it('edits a post-compaction user message without compacting the compaction leaf', async () => {
         await withConfig(async ({ config, root }) => {
@@ -400,6 +488,34 @@ describe('runtime runner edit compaction handling', () => {
 })
 
 describe('runtime runner memory capture audit', () => {
+    it('keeps BYOK OpenRouter session cost known outside managed hosted reservation billing', async () => {
+        await expect(
+            collectOpenRouterRunFinishedPayload({
+                hostedUsageCallbackUrl: 'https://rooms.example.test/api/usage',
+                managedOpenRouter: false,
+            }),
+        ).resolves.toMatchObject({
+            usage: {
+                estimatedCostUsd: 0.0123,
+                costKnown: true,
+            },
+        })
+    })
+
+    it('suppresses managed hosted OpenRouter estimates until actual provider charges arrive', async () => {
+        await expect(
+            collectOpenRouterRunFinishedPayload({
+                hostedUsageCallbackUrl: 'https://rooms.example.test/api/usage',
+                managedOpenRouter: true,
+            }),
+        ).resolves.toMatchObject({
+            usage: {
+                estimatedCostUsd: null,
+                costKnown: false,
+            },
+        })
+    })
+
     it('persists a pending user turn as soon as an async run is queued', async () => {
         await withConfig(async ({ config, root }) => {
             const record = threadRecord(root)

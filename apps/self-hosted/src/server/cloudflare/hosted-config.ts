@@ -26,20 +26,16 @@ export interface HostedConfig {
     runtimeStorage: 'r2'
     betterAuthSecret: string
     betterAuthUrl: string
+    encryptionKeyB64: string
     publicOrigin: string
     google: {
         clientId: string
         clientSecret: string
     } | null
-    emailWebhook: HostedEmailWebhookConfig
-    hostedProviders: {
-        openrouter: {
-            apiKey: string
-        } | null
-        brave: {
-            apiKey: string
-        } | null
+    managedProviders: {
+        openRouterApiKey: string | null
     }
+    emailWebhook: HostedEmailWebhookConfig
 }
 
 export function resolveHostedConfig(env: AgentRoomHostedEnv): HostedConfig {
@@ -82,6 +78,7 @@ export function resolveHostedConfig(env: AgentRoomHostedEnv): HostedConfig {
         runtimeStorage: data.AGENT_ROOM_RUNTIME_STORAGE,
         betterAuthSecret: data.BETTER_AUTH_SECRET,
         betterAuthUrl: data.BETTER_AUTH_URL.replace(/\/$/, ''),
+        encryptionKeyB64: data.AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64,
         publicOrigin,
         google:
             data.GOOGLE_CLIENT_ID && data.GOOGLE_CLIENT_SECRET
@@ -90,22 +87,13 @@ export function resolveHostedConfig(env: AgentRoomHostedEnv): HostedConfig {
                       clientSecret: data.GOOGLE_CLIENT_SECRET,
                   }
                 : null,
+        managedProviders: {
+            openRouterApiKey: data.AGENT_ROOM_HOSTED_OPENROUTER_API_KEY ?? null,
+        },
         emailWebhook: {
             url: data.AGENT_ROOM_EMAIL_WEBHOOK_URL,
             bearerToken: data.AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN,
             from: data.AGENT_ROOM_EMAIL_FROM,
-        },
-        hostedProviders: {
-            openrouter: data.AGENT_ROOM_HOSTED_OPENROUTER_API_KEY
-                ? {
-                      apiKey: data.AGENT_ROOM_HOSTED_OPENROUTER_API_KEY,
-                  }
-                : null,
-            brave: data.AGENT_ROOM_HOSTED_BRAVE_API_KEY
-                ? {
-                      apiKey: data.AGENT_ROOM_HOSTED_BRAVE_API_KEY,
-                  }
-                : null,
         },
     }
 }

@@ -45,11 +45,13 @@ function hostedEnv(input: { batchChanges?: number[]; countRow?: unknown }): Agen
         AGENT_ROOM_RUNTIME_STORAGE: 'r2',
         BETTER_AUTH_SECRET: 'a'.repeat(32),
         BETTER_AUTH_URL: 'https://rooms.example.test',
+        AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
         GOOGLE_CLIENT_ID: 'google-client',
         GOOGLE_CLIENT_SECRET: 'google-secret',
         AGENT_ROOM_EMAIL_WEBHOOK_URL: 'https://mail.example.test/send',
         AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN: 'b'.repeat(16),
         AGENT_ROOM_EMAIL_FROM: 'Agent Room <noreply@example.test>',
+        AGENT_ROOM_HOSTED_OPENROUTER_API_KEY: 'openrouter-platform-key',
     }
 }
 
@@ -165,7 +167,7 @@ describe('hosted runtime access room-cap self-exclusion', () => {
                     '[{"key":"standard","priceId":"price_std","monthlyCents":2000,"includedCents":1200}]',
                 STRIPE_SECRET_KEY: 'stripe-secret-test-value',
                 STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
-                STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_topup_placeholder',
+                STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_test_topup_000000',
                 AGENT_ROOM_BILLING_USAGE_MARKUP_BPS: '13000',
                 AGENT_ROOM_BILLING_TAX_MODE: 'automatic',
                 AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS: '3',
@@ -173,9 +175,12 @@ describe('hosted runtime access room-cap self-exclusion', () => {
                 AGENT_ROOM_RUNTIME_STORAGE: 'r2',
                 BETTER_AUTH_SECRET: 'a'.repeat(32),
                 BETTER_AUTH_URL: 'https://rooms.example.test',
+                AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64:
+                    'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
                 AGENT_ROOM_EMAIL_WEBHOOK_URL: 'https://mail.example.test/send',
                 AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN: 'b'.repeat(16),
                 AGENT_ROOM_EMAIL_FROM: 'Agent Room <noreply@example.test>',
+                AGENT_ROOM_HOSTED_OPENROUTER_API_KEY: 'openrouter-platform-key',
             }
         }
 

@@ -14,6 +14,9 @@ export interface AgentRoomHostedEnv {
     AGENT_ROOM_WORKSPACE_BUCKET: R2Bucket
     AGENT_ROOM_RUNTIME_JOBS: Queue<AgentRoomRuntimeJobMessage>
     AGENT_ROOM_RUNTIME: HostedRuntimeContainerNamespace
+    ASSETS?: {
+        fetch: typeof fetch
+    }
     AGENT_ROOM_AUTH_MODE: string
     AGENT_ROOM_BILLING_MODE: string
     AGENT_ROOM_BILLING_PLANS: string
@@ -24,13 +27,13 @@ export interface AgentRoomHostedEnv {
     AGENT_ROOM_RUNTIME_STORAGE: string
     BETTER_AUTH_SECRET: string
     BETTER_AUTH_URL: string
+    AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64?: string
     GOOGLE_CLIENT_ID?: string
     GOOGLE_CLIENT_SECRET?: string
     STRIPE_SECRET_KEY?: string
     STRIPE_WEBHOOK_SECRET?: string
     STRIPE_CREDIT_TOPUP_PRICE_ID?: string
     AGENT_ROOM_HOSTED_OPENROUTER_API_KEY?: string
-    AGENT_ROOM_HOSTED_BRAVE_API_KEY?: string
     AGENT_ROOM_EMAIL_WEBHOOK_URL: string
     AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN: string
     AGENT_ROOM_EMAIL_FROM: string

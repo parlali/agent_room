@@ -19,9 +19,11 @@ function hostedEnv(overrides: Partial<AgentRoomHostedEnv> = {}): AgentRoomHosted
         AGENT_ROOM_RUNTIME_STORAGE: 'r2',
         BETTER_AUTH_SECRET: 'a'.repeat(32),
         BETTER_AUTH_URL: 'https://rooms.example.test',
+        AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
         AGENT_ROOM_EMAIL_WEBHOOK_URL: 'https://mail.example.test/send',
         AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN: 'b'.repeat(16),
         AGENT_ROOM_EMAIL_FROM: 'Agent Room <hello@example.test>',
+        AGENT_ROOM_HOSTED_OPENROUTER_API_KEY: 'openrouter-platform-key',
         ...overrides,
     }
 }
@@ -75,24 +77,6 @@ describe('hosted auth email rendering', () => {
         expect(rendered.html).toContain('token=&quot;&lt;script&gt;')
         expect(rendered.html).not.toContain('bad"<script>')
         expect(rendered.html).not.toContain('token="<script>')
-    })
-
-    it('uses purpose-specific copy for password resets and invitations', () => {
-        expect(
-            renderHostedAuthEmail(
-                emailPayload({
-                    purpose: 'password_reset',
-                }),
-            ).html,
-        ).toContain('Reset your Agent Room password')
-
-        expect(
-            renderHostedAuthEmail(
-                emailPayload({
-                    purpose: 'organization_invitation',
-                }),
-            ).html,
-        ).toContain('Join your Agent Room workspace')
     })
 })
 

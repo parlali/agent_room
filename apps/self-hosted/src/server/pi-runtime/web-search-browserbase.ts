@@ -1,8 +1,8 @@
 import {
     assertNonEmptyResults,
     fetchWithTimeout,
-    isPublicHttpUrl,
     normalizeHtmlText,
+    publicHttpSearchResultFromUnknown,
     readResponseJsonWithTimeout,
     remainingTimeoutMs,
     responseError,
@@ -23,7 +23,11 @@ export class BrowserbaseSearchProvider implements SearchProvider {
 
     isConfigured(config: SearchRuntimeConfigScope): boolean {
         const envKey = config.search.browserbase.envKey
-        return config.search.browserbase.enabled && Boolean(envKey && process.env[envKey])
+        return (
+            config.search.enabled &&
+            config.search.browserbase.enabled &&
+            Boolean(envKey && process.env[envKey])
+        )
     }
 
     async search(input: SearchProviderSearchInput): Promise<SearchProviderResponse> {
@@ -100,21 +104,15 @@ export function parseBrowserbaseSearchResults(
             : null
     if (!Array.isArray(results)) return []
     return results
-        .map((entry, index): WebSearchResult | null => {
-            if (!entry || typeof entry !== 'object') return null
-            const record = entry as Record<string, unknown>
-            const title = typeof record.title === 'string' ? normalizeHtmlText(record.title) : ''
-            const url = typeof record.url === 'string' ? record.url.trim() : ''
-            if (!title || !isPublicHttpUrl(url)) return null
-            return {
-                title,
-                url,
-                snippet: browserbaseSnippet(record),
+        .map((entry, index) =>
+            publicHttpSearchResultFromUnknown({
+                entry,
+                index,
                 engine: 'browserbase',
                 fetchedAt,
-                rank: index + 1,
-            }
-        })
+                snippet: browserbaseSnippet,
+            }),
+        )
         .filter((entry): entry is WebSearchResult => entry !== null)
 }
 

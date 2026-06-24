@@ -68,9 +68,11 @@ CREATE TABLE member (
     id TEXT PRIMARY KEY NOT NULL,
     organizationId TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
     userId TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
-    role TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role = 'owner'),
     createdAt DATE NOT NULL,
-    UNIQUE(organizationId, userId)
+    UNIQUE(organizationId, userId),
+    UNIQUE(organizationId),
+    UNIQUE(userId)
 );
 
 CREATE INDEX member_organizationId_idx ON member(organizationId);
@@ -89,6 +91,74 @@ CREATE TABLE invitation (
 
 CREATE INDEX invitation_organizationId_idx ON invitation(organizationId);
 CREATE INDEX invitation_email_idx ON invitation(email);
+
+CREATE TRIGGER member_owner_only_insert
+BEFORE INSERT ON member
+WHEN NEW.role <> 'owner'
+BEGIN
+    SELECT RAISE(ABORT, 'Hosted workspaces support owner-only access');
+END;
+
+CREATE TRIGGER member_identity_replace_blocked
+BEFORE INSERT ON member
+WHEN EXISTS (
+    SELECT 1
+    FROM member
+    WHERE id = NEW.id
+      AND (
+          organizationId <> NEW.organizationId
+          OR userId <> NEW.userId
+          OR role <> NEW.role
+      )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'Hosted workspace membership identity replacement is not supported');
+END;
+
+CREATE TRIGGER member_one_member_per_workspace_insert
+BEFORE INSERT ON member
+WHEN EXISTS (
+    SELECT 1
+    FROM member
+    WHERE organizationId = NEW.organizationId
+      AND id <> NEW.id
+)
+BEGIN
+    SELECT RAISE(ABORT, 'Hosted workspaces support one member per workspace');
+END;
+
+CREATE TRIGGER member_one_workspace_per_user_insert
+BEFORE INSERT ON member
+WHEN EXISTS (
+    SELECT 1
+    FROM member
+    WHERE userId = NEW.userId
+      AND id <> NEW.id
+)
+BEGIN
+    SELECT RAISE(ABORT, 'Hosted users support one workspace');
+END;
+
+CREATE TRIGGER member_identity_update_blocked
+BEFORE UPDATE OF organizationId, userId ON member
+WHEN NEW.organizationId <> OLD.organizationId
+  OR NEW.userId <> OLD.userId
+BEGIN
+    SELECT RAISE(ABORT, 'Hosted workspace membership identity updates are not supported');
+END;
+
+CREATE TRIGGER member_role_update_blocked
+BEFORE UPDATE OF role ON member
+WHEN NEW.role <> OLD.role
+BEGIN
+    SELECT RAISE(ABORT, 'Hosted workspace role updates are not supported');
+END;
+
+CREATE TRIGGER invitation_insert_blocked
+BEFORE INSERT ON invitation
+BEGIN
+    SELECT RAISE(ABORT, 'Hosted workspace invitations are not supported');
+END;
 
 CREATE TABLE hosted_room (
     id TEXT PRIMARY KEY NOT NULL,
@@ -147,7 +217,11 @@ CREATE TABLE hosted_provider_connection (
     created_by_user_id TEXT REFERENCES "user"(id) ON DELETE SET NULL,
     created_at DATE NOT NULL,
     updated_at DATE NOT NULL,
-    UNIQUE(workspace_id, provider, label)
+    UNIQUE(workspace_id, id),
+    UNIQUE(workspace_id, provider, label),
+    FOREIGN KEY (workspace_id, credential_secret_id)
+        REFERENCES hosted_secret(workspace_id, id)
+        ON DELETE RESTRICT
 );
 
 CREATE INDEX hosted_provider_connection_workspace_id_idx ON hosted_provider_connection(workspace_id);
@@ -171,7 +245,11 @@ CREATE TABLE hosted_mcp_connection (
     created_by_user_id TEXT REFERENCES "user"(id) ON DELETE SET NULL,
     created_at DATE NOT NULL,
     updated_at DATE NOT NULL,
-    UNIQUE(workspace_id, server_key)
+    UNIQUE(workspace_id, id),
+    UNIQUE(workspace_id, server_key),
+    FOREIGN KEY (workspace_id, credential_secret_id)
+        REFERENCES hosted_secret(workspace_id, id)
+        ON DELETE RESTRICT
 );
 
 CREATE INDEX hosted_mcp_connection_workspace_id_idx ON hosted_mcp_connection(workspace_id);
@@ -194,6 +272,8 @@ CREATE TABLE hosted_room_job (
     last_error TEXT,
     created_at DATE NOT NULL,
     updated_at DATE NOT NULL,
+    UNIQUE(workspace_id, id),
+    UNIQUE(workspace_id, room_id, id),
     FOREIGN KEY (workspace_id, room_id)
         REFERENCES hosted_room(workspace_id, id)
         ON DELETE CASCADE
@@ -228,11 +308,16 @@ CREATE TABLE hosted_billing_ledger_entry (
     stripe_event_id TEXT,
     stripe_checkout_session_id TEXT,
     stripe_invoice_id TEXT,
-    usage_event_id TEXT REFERENCES hosted_usage_event(id) ON DELETE RESTRICT,
+    usage_event_id TEXT,
     idempotency_key TEXT NOT NULL,
     metadata TEXT NOT NULL DEFAULT '{}',
     created_at DATE NOT NULL,
-    UNIQUE(workspace_id, idempotency_key)
+    UNIQUE(workspace_id, id),
+    UNIQUE(workspace_id, usage_event_id, id),
+    UNIQUE(workspace_id, idempotency_key),
+    FOREIGN KEY (workspace_id, usage_event_id)
+        REFERENCES hosted_usage_event(workspace_id, id)
+        ON DELETE RESTRICT
 );
 
 CREATE INDEX hosted_billing_ledger_workspace_created_idx ON hosted_billing_ledger_entry(workspace_id, created_at);
@@ -252,7 +337,7 @@ CREATE TABLE hosted_usage_event (
     room_id TEXT,
     session_key TEXT,
     run_id TEXT,
-    job_id TEXT REFERENCES hosted_room_job(id) ON DELETE SET NULL,
+    job_id TEXT,
     kind TEXT NOT NULL CHECK (kind IN ('run', 'provider', 'tool', 'document_worker', 'image', 'job')),
     provider TEXT,
     model TEXT,
@@ -264,15 +349,62 @@ CREATE TABLE hosted_usage_event (
     billing_status TEXT NOT NULL CHECK (billing_status IN ('not_billable', 'pending', 'debited', 'blocked')) DEFAULT 'not_billable',
     billing_ledger_entry_id TEXT,
     created_at DATE NOT NULL,
+    UNIQUE(workspace_id, id),
+    UNIQUE(workspace_id, room_id, id),
     FOREIGN KEY (workspace_id, room_id)
         REFERENCES hosted_room(workspace_id, id)
         ON DELETE CASCADE,
-    FOREIGN KEY (billing_ledger_entry_id)
-        REFERENCES hosted_billing_ledger_entry(id)
-        ON DELETE SET NULL
+    FOREIGN KEY (workspace_id, job_id)
+        REFERENCES hosted_room_job(workspace_id, id)
+        ON DELETE RESTRICT,
+    FOREIGN KEY (workspace_id, room_id, job_id)
+        REFERENCES hosted_room_job(workspace_id, room_id, id)
+        ON DELETE RESTRICT,
+    FOREIGN KEY (workspace_id, billing_ledger_entry_id)
+        REFERENCES hosted_billing_ledger_entry(workspace_id, id)
+        ON DELETE RESTRICT,
+    FOREIGN KEY (workspace_id, id, billing_ledger_entry_id)
+        REFERENCES hosted_billing_ledger_entry(workspace_id, usage_event_id, id)
+        ON DELETE RESTRICT
 );
 
 CREATE INDEX hosted_usage_event_workspace_id_idx ON hosted_usage_event(workspace_id);
 CREATE INDEX hosted_usage_event_room_id_idx ON hosted_usage_event(room_id);
 CREATE INDEX hosted_usage_event_created_at_idx ON hosted_usage_event(created_at);
 CREATE INDEX hosted_usage_event_billing_status_idx ON hosted_usage_event(workspace_id, billing_status);
+
+CREATE TRIGGER hosted_room_delete_clear_usage_event_room_id
+BEFORE DELETE ON hosted_room
+BEGIN
+    UPDATE hosted_usage_event
+    SET room_id = NULL
+    WHERE workspace_id = OLD.workspace_id
+      AND room_id = OLD.id;
+END;
+
+CREATE TRIGGER hosted_room_job_delete_clear_usage_event_job_id
+BEFORE DELETE ON hosted_room_job
+BEGIN
+    UPDATE hosted_usage_event
+    SET job_id = NULL
+    WHERE workspace_id = OLD.workspace_id
+      AND job_id = OLD.id;
+END;
+
+CREATE TRIGGER hosted_billing_ledger_entry_delete_clear_usage_event_ledger_id
+BEFORE DELETE ON hosted_billing_ledger_entry
+BEGIN
+    UPDATE hosted_usage_event
+    SET billing_ledger_entry_id = NULL
+    WHERE workspace_id = OLD.workspace_id
+      AND billing_ledger_entry_id = OLD.id;
+END;
+
+CREATE TRIGGER hosted_usage_event_delete_clear_billing_ledger_usage_id
+BEFORE DELETE ON hosted_usage_event
+BEGIN
+    UPDATE hosted_billing_ledger_entry
+    SET usage_event_id = NULL
+    WHERE workspace_id = OLD.workspace_id
+      AND usage_event_id = OLD.id;
+END;

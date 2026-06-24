@@ -7,8 +7,6 @@ import {
 
 interface DeleteOptions {
     missingPattern: RegExp
-    toleratedFailurePattern?: RegExp
-    toleratedFailureMessage?: string
 }
 
 interface WranglerDeleteStep {
@@ -84,8 +82,6 @@ export function buildPreviewDeleteSteps(resourceNames: HostedResourceNames): Del
             label: resourceNames.r2BucketName,
             options: {
                 missingPattern: /specified bucket does not exist|\[code: 10006\]/i,
-                toleratedFailurePattern: /not empty|contains objects|must be empty/i,
-                toleratedFailureMessage: `Cloudflare R2 bucket ${resourceNames.r2BucketName} was not deleted because it still contains preview data`,
             },
         },
     ]
@@ -121,10 +117,6 @@ async function deleteResource(
     const output = `${result.stdout}\n${result.stderr}`
     if (options.missingPattern.test(output)) {
         console.log(`${label} does not exist`)
-        return
-    }
-    if (options.toleratedFailurePattern?.test(output)) {
-        console.warn(options.toleratedFailureMessage ?? `${label} was not deleted`)
         return
     }
 

@@ -1,8 +1,8 @@
 import {
     assertNonEmptyResults,
     fetchWithTimeout,
-    isPublicHttpUrl,
     normalizeHtmlText,
+    publicHttpSearchResultFromUnknown,
     readResponseJsonWithTimeout,
     remainingTimeoutMs,
     responseError,
@@ -13,6 +13,11 @@ import {
     type SearchRuntimeConfigScope,
     type WebSearchResult,
 } from './web-search'
+import {
+    hostedRuntimeBraveProxyUrlEnvKey,
+    piRuntimeTokenEnvKey,
+} from '../rooms/pi-runtime-contract'
+import { timingSafeEqualString } from '../security/timing-safe'
 
 const braveSearchApiUrl = 'https://api.search.brave.com/res/v1/web/search'
 
@@ -35,7 +40,7 @@ function normalizeBraveSafeSearch(value: string | null | undefined): 'off' | 'mo
 
 function buildBraveSearchUrl(input: SearchProviderSearchInput): URL {
     const config = input.config.search.brave
-    const url = new URL(braveSearchApiUrl)
+    const url = new URL(process.env[hostedRuntimeBraveProxyUrlEnvKey] ?? braveSearchApiUrl)
     url.searchParams.set('q', input.query.trim())
     url.searchParams.set('count', String(Math.min(20, input.count || config.resultCount)))
     url.searchParams.set(
@@ -58,6 +63,28 @@ function buildBraveSearchUrl(input: SearchProviderSearchInput): URL {
     return url
 }
 
+function isHostedRuntimeToken(value: string): boolean {
+    const runtimeToken = process.env[piRuntimeTokenEnvKey]?.trim()
+    return Boolean(runtimeToken && timingSafeEqualString(value, runtimeToken))
+}
+
+function braveSearchHeaders(apiKey: string): Record<string, string> {
+    const headers = {
+        accept: 'application/json',
+        'accept-language': 'en-US,en;q=0.9',
+        'user-agent': 'AgentRoom/1.0',
+    }
+    return process.env[hostedRuntimeBraveProxyUrlEnvKey]?.trim()
+        ? {
+              ...headers,
+              authorization: `Bearer ${apiKey}`,
+          }
+        : {
+              ...headers,
+              'x-subscription-token': apiKey,
+          }
+}
+
 export class BraveSearchProvider implements SearchProvider {
     id = 'brave' as const
     label = 'Brave Search'
@@ -65,7 +92,11 @@ export class BraveSearchProvider implements SearchProvider {
 
     isConfigured(config: SearchRuntimeConfigScope): boolean {
         const envKey = config.search.brave.envKey
-        return config.search.brave.enabled && Boolean(envKey && process.env[envKey])
+        return (
+            config.search.enabled &&
+            config.search.brave.enabled &&
+            Boolean(envKey && process.env[envKey])
+        )
     }
 
     async search(input: SearchProviderSearchInput): Promise<SearchProviderResponse> {
@@ -78,6 +109,16 @@ export class BraveSearchProvider implements SearchProvider {
                 message: 'Brave Search API key is not materialized',
             })
         }
+        if (
+            !process.env[hostedRuntimeBraveProxyUrlEnvKey]?.trim() &&
+            isHostedRuntimeToken(apiKey)
+        ) {
+            throw new SearchProviderError({
+                code: 'misconfigured',
+                providerId: this.id,
+                message: 'Hosted Brave proxy URL is not materialized',
+            })
+        }
 
         const timeoutMs = input.config.search.brave.timeoutMs
         const startedAt = Date.now()
@@ -87,12 +128,7 @@ export class BraveSearchProvider implements SearchProvider {
             signal: input.signal,
             url: buildBraveSearchUrl(input),
             init: {
-                headers: {
-                    accept: 'application/json',
-                    'accept-language': 'en-US,en;q=0.9',
-                    'user-agent': 'AgentRoom/1.0',
-                    'x-subscription-token': apiKey,
-                },
+                headers: braveSearchHeaders(apiKey),
             },
         })
         if (!response.ok) {
@@ -131,28 +167,26 @@ export function parseBraveSearchResults(value: unknown, fetchedAt: string): WebS
             : null
     if (!Array.isArray(results)) return []
     return results
-        .map((entry, index): WebSearchResult | null => {
-            if (!entry || typeof entry !== 'object') return null
-            const record = entry as Record<string, unknown>
-            const title = typeof record.title === 'string' ? normalizeHtmlText(record.title) : ''
-            const url = typeof record.url === 'string' ? record.url.trim() : ''
-            if (!title || !isPublicHttpUrl(url)) return null
-            const snippets = [
-                typeof record.description === 'string' ? record.description : '',
-                ...(Array.isArray(record.extra_snippets)
-                    ? record.extra_snippets.filter(
-                          (snippet): snippet is string => typeof snippet === 'string',
-                      )
-                    : []),
-            ].filter((snippet) => snippet.trim().length > 0)
-            return {
-                title,
-                url,
-                snippet: normalizeHtmlText(snippets.join(' ')),
+        .map((entry, index) =>
+            publicHttpSearchResultFromUnknown({
+                entry,
+                index,
                 engine: 'brave',
                 fetchedAt,
-                rank: index + 1,
-            }
-        })
+                snippet: braveSnippet,
+            }),
+        )
         .filter((entry): entry is WebSearchResult => entry !== null)
+}
+
+function braveSnippet(record: Record<string, unknown>): string {
+    const snippets = [
+        typeof record.description === 'string' ? record.description : '',
+        ...(Array.isArray(record.extra_snippets)
+            ? record.extra_snippets.filter(
+                  (snippet): snippet is string => typeof snippet === 'string',
+              )
+            : []),
+    ].filter((snippet) => snippet.trim().length > 0)
+    return normalizeHtmlText(snippets.join(' '))
 }

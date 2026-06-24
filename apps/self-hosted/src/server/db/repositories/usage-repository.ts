@@ -1,4 +1,4 @@
-import { and, count, desc, eq, isNull, sql, sum } from 'drizzle-orm'
+import { count, desc, eq, inArray, sql, sum } from 'drizzle-orm'
 import type { JsonValue, UsageEventKind, UsageEventRecord } from '#/domain/domain-types'
 import { usageEvents } from '../schema'
 import { mapUsageEvent } from './row-mappers'
@@ -17,6 +17,16 @@ function mapSummary(row: {
         totalTokens: row.totalTokens === null ? null : Number(row.totalTokens),
         estimatedCostUsd: row.estimatedCostUsd === null ? null : Number(row.estimatedCostUsd),
         unknownTokenEvents: Number(row.unknownTokenEvents ?? 0),
+    }
+}
+
+function emptySummary() {
+    return {
+        eventCount: 0,
+        durationMs: null,
+        totalTokens: null,
+        estimatedCostUsd: null,
+        unknownTokenEvents: 0,
     }
 }
 
@@ -100,6 +110,23 @@ export const usageRepository = {
         return rows.map(mapUsageEvent)
     },
 
+    async listRecentByRooms(input: {
+        roomIds: string[]
+        limit: number
+    }): Promise<UsageEventRecord[]> {
+        if (input.roomIds.length === 0) {
+            return []
+        }
+        const db = await repositoryDatabase()
+        const rows = await db
+            .select()
+            .from(usageEvents)
+            .where(inArray(usageEvents.roomId, input.roomIds))
+            .orderBy(desc(usageEvents.createdAt))
+            .limit(input.limit)
+        return rows.map(mapUsageEvent)
+    },
+
     async summarizeByRoom(input: { roomId: string }): Promise<{
         eventCount: number
         durationMs: number | null
@@ -127,21 +154,21 @@ export const usageRepository = {
         return mapSummary(row)
     },
 
-    async attachJobToRun(input: { roomId: string; runId: string; jobId: string }): Promise<number> {
+    async summarizeByRooms(input: { roomIds: string[] }): Promise<{
+        eventCount: number
+        durationMs: number | null
+        totalTokens: number | null
+        estimatedCostUsd: number | null
+        unknownTokenEvents: number
+    }> {
+        if (input.roomIds.length === 0) {
+            return emptySummary()
+        }
         const db = await repositoryDatabase()
-        const rows = await db
-            .update(usageEvents)
-            .set({ jobId: input.jobId })
-            .where(
-                and(
-                    eq(usageEvents.roomId, input.roomId),
-                    eq(usageEvents.runId, input.runId),
-                    isNull(usageEvents.jobId),
-                ),
-            )
-            .returning({
-                id: usageEvents.id,
-            })
-        return rows.length
+        const [row] = await db
+            .select(summarySelection)
+            .from(usageEvents)
+            .where(inArray(usageEvents.roomId, input.roomIds))
+        return mapSummary(row)
     },
 }

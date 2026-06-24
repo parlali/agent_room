@@ -1,4 +1,4 @@
-import type { ImageProviderId, JsonValue, SearchSafeSearch } from '#/domain/domain-types'
+import type { JsonValue } from '#/domain/domain-types'
 import {
     appProviderConnectionRepository,
     appSettingsRepository,
@@ -14,18 +14,19 @@ import {
 } from '../capabilities'
 import { validateMaterializedSearchProviders } from '../search-connection-validation'
 import { getAppEnv } from '../../config/env'
-import type { AppSettingsSummary } from './contracts'
+import type {
+    AppCapabilitySettingsSaveInput,
+    AppDefaultsSaveInput,
+    AppSettingsSummary,
+} from './contracts'
 import { imageConfigRecord, imageConfigSecretId, nullableText, summarizeSettings } from './helpers'
 import { decryptSecretRecord, resolveSecret, upsertEncryptedSecret } from './secrets'
 import { inspectCodexAppAuthStatusSync } from '../codex-auth'
 import { listReadyProviders } from './provider-resolution'
 
-export async function updateAppDefaults(input: {
-    defaultProviderConnectionId: string | null
-    defaultModel: string | null
-    onboardingCompleted: boolean
-    actorUserId: string
-}): Promise<AppSettingsSummary> {
+export async function updateAppDefaults(
+    input: AppDefaultsSaveInput & { actorUserId: string },
+): Promise<AppSettingsSummary> {
     const providers = await appProviderConnectionRepository.list()
     const readyProviders = listReadyProviders(providers, inspectCodexAppAuthStatusSync())
 
@@ -73,37 +74,9 @@ export async function updateAppDefaults(input: {
     return summarizeSettings(saved)
 }
 
-export async function updateAppCapabilitySettings(input: {
-    capabilityDefaults: Record<string, boolean>
-    search?: {
-        enabled: boolean
-        backendUrl: string
-        defaultResultCount: number
-        timeoutMs: number
-        maxSearchesPerRun: number
-        brave: {
-            enabled: boolean
-            country: string | null
-            searchLang: string | null
-            safeSearch: SearchSafeSearch
-            timeoutMs: number
-            resultCount: number
-            apiKey?: string
-        }
-        browserbase: {
-            enabled: boolean
-            timeoutMs: number
-            resultCount: number
-            apiKey?: string
-        }
-    }
-    image: {
-        provider: ImageProviderId | null
-        model: string | null
-        apiKey?: string
-    }
-    actorUserId: string
-}): Promise<AppSettingsSummary> {
+export async function updateAppCapabilitySettings(
+    input: AppCapabilitySettingsSaveInput & { actorUserId: string },
+): Promise<AppSettingsSummary> {
     const current = await appSettingsRepository.getOrCreate()
     const capabilities = normalizeCapabilityConfig(input.capabilityDefaults)
     const searchConfig = await resolveSearchConfigForSave({
@@ -209,30 +182,7 @@ export async function updateAppCapabilitySettings(input: {
 
 async function resolveSearchConfigForSave(input: {
     current: JsonValue
-    next:
-        | {
-              enabled: boolean
-              backendUrl: string
-              defaultResultCount: number
-              timeoutMs: number
-              maxSearchesPerRun: number
-              brave: {
-                  enabled: boolean
-                  country: string | null
-                  searchLang: string | null
-                  safeSearch: SearchSafeSearch
-                  timeoutMs: number
-                  resultCount: number
-                  apiKey?: string
-              }
-              browserbase: {
-                  enabled: boolean
-                  timeoutMs: number
-                  resultCount: number
-                  apiKey?: string
-              }
-          }
-        | undefined
+    next: AppCapabilitySettingsSaveInput['search']
 }): Promise<JsonValue> {
     if (!input.next) {
         return input.current

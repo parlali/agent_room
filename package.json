@@ -19,12 +19,12 @@
     ],
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/parlali/agent_room.git"
+        "url": "git+https://github.com/agent-room/agent-room.git"
     },
     "bugs": {
-        "url": "https://github.com/parlali/agent_room/issues"
+        "url": "https://github.com/agent-room/agent-room/issues"
     },
-    "homepage": "https://github.com/parlali/agent_room#readme",
+    "homepage": "https://github.com/agent-room/agent-room#readme",
     "scripts": {
         "dev": "turbo run dev --parallel",
         "build": "turbo run build",

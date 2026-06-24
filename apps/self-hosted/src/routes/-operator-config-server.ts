@@ -2,80 +2,35 @@ import { createServerFn } from '@tanstack/react-start'
 import { setResponseHeaders } from '@tanstack/react-start/server'
 import { z } from 'zod'
 import {
-    mcpAuthModes,
-    mcpTransports,
-    roomModes,
-    roomProviderModes,
-    userRoomSecretPurposes,
-    capabilityIds,
-    searchSafeSearchValues,
-} from '#/domain/domain-types'
-
-const providerConnectionInputSchema = z.object({
-    id: z.string().uuid().optional(),
-    label: z.string().min(1),
-    provider: z.string().min(1),
-    defaultModel: z.string().min(1),
-    fallbackModels: z.array(z.string().min(1)).default([]),
-    apiKey: z.string().optional(),
-    makeDefault: z.boolean().optional(),
-})
-
-const mcpConnectionInputSchema = z.object({
-    id: z.string().uuid().optional(),
-    name: z.string().min(1),
-    serverKey: z.string().min(1),
-    transport: z.enum(mcpTransports),
-    command: z.string().nullable().optional(),
-    argsText: z.string().optional(),
-    url: z.string().nullable().optional(),
-    headersText: z.string().optional(),
-    authMode: z.enum(mcpAuthModes),
-    bearerToken: z.string().optional(),
-    allowedToolsText: z.string().optional(),
-})
+    appCapabilitySettingsSaveSchema,
+    appDefaultsSaveSchema,
+    mcpSaveSchema,
+    providerSaveSchema,
+    roomConfigSaveSchema,
+    roomSecretSaveSchema,
+} from '#/server/configuration/operator-configuration/contracts'
+import {
+    getHostedOperatorConfigSnapshot,
+    getHostedRoomConfigSnapshot,
+    saveHostedRoomConfig,
+    saveHostedRoomSecret,
+} from '#/server/cloudflare/hosted-room-service'
+import {
+    deleteHostedMcpConnection,
+    deleteHostedProviderConnection,
+    saveHostedMcpConnection,
+    saveHostedProviderConnection,
+    updateHostedAppCapabilitySettings,
+    updateHostedAppDefaults,
+} from '#/server/cloudflare/hosted-operator-config-write-service'
+import {
+    requireHostedActor,
+    requireHostedMutationActor,
+} from '#/server/cloudflare/hosted-route-auth'
+import { requireRoomOwner } from '#/server/rooms/room-runtime-route-service'
 
 const connectionDeleteInputSchema = z.object({
     id: z.string().uuid(),
-})
-
-const appDefaultsInputSchema = z.object({
-    defaultProviderConnectionId: z.string().uuid().nullable(),
-    defaultModel: z.string().nullable(),
-    onboardingCompleted: z.boolean(),
-})
-
-const appCapabilityInputSchema = z.object({
-    capabilityDefaults: z.record(z.enum(capabilityIds), z.boolean()),
-    search: z
-        .object({
-            enabled: z.boolean(),
-            backendUrl: z.string().url(),
-            defaultResultCount: z.number().int().positive().max(20),
-            timeoutMs: z.number().int().positive().max(30000),
-            maxSearchesPerRun: z.number().int().positive().max(100),
-            brave: z.object({
-                enabled: z.boolean(),
-                country: z.string().nullable(),
-                searchLang: z.string().nullable(),
-                safeSearch: z.enum(searchSafeSearchValues),
-                timeoutMs: z.number().int().positive().max(30000),
-                resultCount: z.number().int().positive().max(20),
-                apiKey: z.string().optional(),
-            }),
-            browserbase: z.object({
-                enabled: z.boolean(),
-                timeoutMs: z.number().int().positive().max(30000),
-                resultCount: z.number().int().positive().max(20),
-                apiKey: z.string().optional(),
-            }),
-        })
-        .optional(),
-    image: z.object({
-        provider: z.enum(['openai', 'gemini']).nullable(),
-        model: z.string().nullable(),
-        apiKey: z.string().optional(),
-    }),
 })
 
 const githubAppManifestStartInputSchema = z.object({
@@ -95,32 +50,6 @@ const githubInstallationQuerySchema = z.object({
     pageSize: z.number().int().positive().max(50).optional(),
 })
 
-const roomConfigInputSchema = z.object({
-    roomId: z.string().uuid(),
-    instructions: z.string(),
-    providerMode: z.enum(roomProviderModes),
-    providerConnectionId: z.string().uuid().nullable().optional(),
-    roomMode: z.enum(roomModes),
-    capabilityOverrides: z.record(z.string(), z.boolean()).default({}),
-    imageProvider: z.enum(['openai', 'gemini']).nullable().optional(),
-    imageModel: z.string().nullable().optional(),
-    imageApiKey: z.string().optional(),
-    cronTimezone: z.string().min(1),
-    mcpConnectionIds: z.array(z.string().uuid()).default([]),
-    githubEnabled: z.boolean().default(false),
-    githubInstallationId: z.string().nullable().optional(),
-    githubRepositories: z.array(z.string().min(1)).default([]),
-})
-
-const roomSecretInputSchema = z.object({
-    roomId: z.string().uuid(),
-    label: z.string().min(1),
-    envKey: z.string().min(1),
-    purpose: z.enum(userRoomSecretPurposes),
-    provider: z.string().nullable().optional(),
-    value: z.string().min(1),
-})
-
 const roomConfigQuerySchema = z.object({
     roomId: z.string().uuid(),
 })
@@ -137,6 +66,16 @@ async function requireMutationActor() {
 }
 
 export const getOperatorConfigServer = createServerFn({ method: 'GET' }).handler(async () => {
+    const hosted = await requireHostedActor()
+    if (hosted) {
+        setResponseHeaders({
+            'cache-control': 'no-store',
+        })
+        return getHostedOperatorConfigSnapshot({
+            env: hosted.context.env,
+            actor: hosted.actor,
+        })
+    }
     await requireAuthenticatedActor()
     setResponseHeaders({
         'cache-control': 'no-store',
@@ -147,8 +86,16 @@ export const getOperatorConfigServer = createServerFn({ method: 'GET' }).handler
 })
 
 export const saveProviderConnectionServer = createServerFn({ method: 'POST' })
-    .inputValidator((input: unknown) => providerConnectionInputSchema.parse(input))
+    .inputValidator((input: unknown) => providerSaveSchema.parse(input))
     .handler(async ({ data }) => {
+        const hosted = await requireHostedMutationActor()
+        if (hosted) {
+            return saveHostedProviderConnection({
+                env: hosted.context.env,
+                actor: hosted.actor,
+                data,
+            })
+        }
         const actor = await requireMutationActor()
         const { saveProviderConnection } =
             await import('#/server/configuration/operator-configuration')
@@ -156,8 +103,16 @@ export const saveProviderConnectionServer = createServerFn({ method: 'POST' })
     })
 
 export const saveMcpConnectionServer = createServerFn({ method: 'POST' })
-    .inputValidator((input: unknown) => mcpConnectionInputSchema.parse(input))
+    .inputValidator((input: unknown) => mcpSaveSchema.parse(input))
     .handler(async ({ data }) => {
+        const hosted = await requireHostedMutationActor()
+        if (hosted) {
+            return saveHostedMcpConnection({
+                env: hosted.context.env,
+                actor: hosted.actor,
+                data,
+            })
+        }
         const actor = await requireMutationActor()
         const { saveMcpConnection } = await import('#/server/configuration/operator-configuration')
         return saveMcpConnection(data, actor.userId)
@@ -166,6 +121,14 @@ export const saveMcpConnectionServer = createServerFn({ method: 'POST' })
 export const deleteProviderConnectionServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => connectionDeleteInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const hosted = await requireHostedMutationActor()
+        if (hosted) {
+            return deleteHostedProviderConnection({
+                env: hosted.context.env,
+                actor: hosted.actor,
+                id: data.id,
+            })
+        }
         const actor = await requireMutationActor()
         const { deleteProviderConnection } =
             await import('#/server/configuration/operator-configuration')
@@ -178,6 +141,14 @@ export const deleteProviderConnectionServer = createServerFn({ method: 'POST' })
 export const deleteMcpConnectionServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => connectionDeleteInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const hosted = await requireHostedMutationActor()
+        if (hosted) {
+            return deleteHostedMcpConnection({
+                env: hosted.context.env,
+                actor: hosted.actor,
+                id: data.id,
+            })
+        }
         const actor = await requireMutationActor()
         const { deleteMcpConnection } =
             await import('#/server/configuration/operator-configuration')
@@ -188,8 +159,16 @@ export const deleteMcpConnectionServer = createServerFn({ method: 'POST' })
     })
 
 export const updateAppDefaultsServer = createServerFn({ method: 'POST' })
-    .inputValidator((input: unknown) => appDefaultsInputSchema.parse(input))
+    .inputValidator((input: unknown) => appDefaultsSaveSchema.parse(input))
     .handler(async ({ data }) => {
+        const hosted = await requireHostedMutationActor()
+        if (hosted) {
+            return updateHostedAppDefaults({
+                env: hosted.context.env,
+                actor: hosted.actor,
+                data,
+            })
+        }
         const actor = await requireMutationActor()
         const { updateAppDefaults } = await import('#/server/configuration/operator-configuration')
         return updateAppDefaults({
@@ -199,8 +178,16 @@ export const updateAppDefaultsServer = createServerFn({ method: 'POST' })
     })
 
 export const updateAppCapabilitySettingsServer = createServerFn({ method: 'POST' })
-    .inputValidator((input: unknown) => appCapabilityInputSchema.parse(input))
+    .inputValidator((input: unknown) => appCapabilitySettingsSaveSchema.parse(input))
     .handler(async ({ data }) => {
+        const hosted = await requireHostedMutationActor()
+        if (hosted) {
+            return updateHostedAppCapabilitySettings({
+                env: hosted.context.env,
+                actor: hosted.actor,
+                data,
+            })
+        }
         const actor = await requireMutationActor()
         const { updateAppCapabilitySettings } =
             await import('#/server/configuration/operator-configuration')
@@ -213,6 +200,9 @@ export const updateAppCapabilitySettingsServer = createServerFn({ method: 'POST'
 export const startGitHubAppManifestServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => githubAppManifestStartInputSchema.parse(input))
     .handler(async ({ data }) => {
+        if (await requireHostedMutationActor()) {
+            throw new Error('Hosted GitHub app setup is tracked outside issue 42')
+        }
         const actor = await requireMutationActor()
         const { startGitHubAppManifest } =
             await import('#/server/configuration/operator-configuration')
@@ -226,6 +216,9 @@ export const startGitHubAppManifestServer = createServerFn({ method: 'POST' })
 export const completeGitHubAppManifestServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => githubAppManifestCompleteInputSchema.parse(input))
     .handler(async ({ data }) => {
+        if (await requireHostedMutationActor()) {
+            throw new Error('Hosted GitHub app setup is tracked outside issue 42')
+        }
         const actor = await requireMutationActor()
         const { completeGitHubAppManifest } =
             await import('#/server/configuration/operator-configuration')
@@ -239,6 +232,9 @@ export const completeGitHubAppManifestServer = createServerFn({ method: 'POST' }
 export const completeGitHubCallbackServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => githubAppManifestCompleteInputSchema.parse(input))
     .handler(async ({ data }) => {
+        if (await requireHostedMutationActor()) {
+            throw new Error('Hosted GitHub app setup is tracked outside issue 42')
+        }
         const actor = await requireMutationActor()
         const { completeGitHubCallback } =
             await import('#/server/configuration/operator-configuration')
@@ -258,6 +254,9 @@ export const startGitHubUserAuthorizationServer = createServerFn({ method: 'POST
             .parse(input),
     )
     .handler(async ({ data }) => {
+        if (await requireHostedMutationActor()) {
+            throw new Error('Hosted GitHub app setup is tracked outside issue 42')
+        }
         const actor = await requireMutationActor()
         const { startGitHubUserAuthorization } =
             await import('#/server/configuration/operator-configuration')
@@ -269,6 +268,9 @@ export const startGitHubUserAuthorizationServer = createServerFn({ method: 'POST
 
 export const refreshGitHubInstallationsServer = createServerFn({ method: 'POST' }).handler(
     async () => {
+        if (await requireHostedMutationActor()) {
+            throw new Error('Hosted GitHub app setup is tracked outside issue 42')
+        }
         const actor = await requireMutationActor()
         const { refreshGitHubInstallations } =
             await import('#/server/configuration/operator-configuration')
@@ -279,6 +281,9 @@ export const refreshGitHubInstallationsServer = createServerFn({ method: 'POST' 
 export const disconnectGitHubUserAuthorizationServer = createServerFn({
     method: 'POST',
 }).handler(async () => {
+    if (await requireHostedMutationActor()) {
+        throw new Error('Hosted GitHub app setup is tracked outside issue 42')
+    }
     const actor = await requireMutationActor()
     const { disconnectGitHubUserAuthorization } =
         await import('#/server/configuration/operator-configuration')
@@ -287,6 +292,9 @@ export const disconnectGitHubUserAuthorizationServer = createServerFn({
 
 export const resetGitHubAppConfigurationServer = createServerFn({ method: 'POST' }).handler(
     async () => {
+        if (await requireHostedMutationActor()) {
+            throw new Error('Hosted GitHub app setup is tracked outside issue 42')
+        }
         const actor = await requireMutationActor()
         const { resetGitHubAppConfiguration } =
             await import('#/server/configuration/operator-configuration')
@@ -297,6 +305,16 @@ export const resetGitHubAppConfigurationServer = createServerFn({ method: 'POST'
 export const listGitHubInstallationRepositoriesServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => githubInstallationQuerySchema.parse(input))
     .handler(async ({ data }) => {
+        if (await requireHostedActor()) {
+            return {
+                repositories: [],
+                totalCount: 0,
+                scannedCount: 0,
+                hasMore: false,
+                nextPage: null,
+                query: data.query ?? '',
+            }
+        }
         await requireAuthenticatedActor()
         setResponseHeaders({
             'cache-control': 'no-store',
@@ -314,33 +332,83 @@ export const listGitHubInstallationRepositoriesServer = createServerFn({ method:
 export const getRoomConfigServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => roomConfigQuerySchema.parse(input))
     .handler(async ({ data }) => {
-        await requireAuthenticatedActor()
+        const hosted = await requireHostedActor()
+        if (hosted) {
+            setResponseHeaders({
+                'cache-control': 'no-store',
+            })
+            return getHostedRoomConfigSnapshot({
+                env: hosted.context.env,
+                actor: hosted.actor,
+                roomId: data.roomId,
+            })
+        }
+        const actor = await requireAuthenticatedActor()
         setResponseHeaders({
             'cache-control': 'no-store',
         })
+        await requireRoomOwner(actor, data.roomId)
         const { getRoomConfigSnapshot } =
             await import('#/server/configuration/operator-configuration')
         return getRoomConfigSnapshot(data.roomId)
     })
 
 export const saveRoomConfigServer = createServerFn({ method: 'POST' })
-    .inputValidator((input: unknown) => roomConfigInputSchema.parse(input))
+    .inputValidator((input: unknown) => roomConfigSaveSchema.parse(input))
     .handler(async ({ data }) => {
+        const hosted = await requireHostedMutationActor()
+        if (hosted) {
+            return saveHostedRoomConfig({
+                env: hosted.context.env,
+                actor: hosted.actor,
+                data,
+            })
+        }
         const actor = await requireMutationActor()
+        await requireRoomOwner(actor, data.roomId)
         const { saveRoomConfig } = await import('#/server/configuration/operator-configuration')
         return saveRoomConfig(data, actor.userId)
     })
 
 export const saveRoomSecretServer = createServerFn({ method: 'POST' })
-    .inputValidator((input: unknown) => roomSecretInputSchema.parse(input))
+    .inputValidator((input: unknown) => roomSecretSaveSchema.parse(input))
     .handler(async ({ data }) => {
+        const hosted = await requireHostedMutationActor()
+        if (hosted) {
+            return saveHostedRoomSecret({
+                env: hosted.context.env,
+                actor: hosted.actor,
+                data,
+            })
+        }
         const actor = await requireMutationActor()
+        await requireRoomOwner(actor, data.roomId)
         const { saveRoomSecret } = await import('#/server/configuration/operator-configuration')
         return saveRoomSecret(data, actor.userId)
     })
 
 export const getCodexDeviceAuthSessionServer = createServerFn({ method: 'GET' }).handler(
     async () => {
+        const hosted = await requireHostedActor()
+        if (hosted) {
+            const config = await getHostedOperatorConfigSnapshot({
+                env: hosted.context.env,
+                actor: hosted.actor,
+            })
+            return {
+                status: 'idle',
+                verificationUrl: null,
+                userCode: null,
+                message:
+                    config.codexAuth.message === 'Codex app server login is missing'
+                        ? 'Hosted Codex requires saving a Codex auth JSON credential on the Codex provider connection'
+                        : config.codexAuth.message,
+                startedAt: null,
+                updatedAt: null,
+                completedAt: null,
+                auth: config.codexAuth,
+            }
+        }
         await requireAuthenticatedActor()
         setResponseHeaders({
             'cache-control': 'no-store',
@@ -353,6 +421,11 @@ export const getCodexDeviceAuthSessionServer = createServerFn({ method: 'GET' })
 
 export const startCodexDeviceAuthSessionServer = createServerFn({ method: 'POST' }).handler(
     async () => {
+        if (await requireHostedMutationActor()) {
+            throw new Error(
+                'Hosted Codex device authorization cannot spawn a local Codex CLI process',
+            )
+        }
         const actor = await requireMutationActor()
         const { startCodexDeviceAuthSession } =
             await import('#/server/configuration/operator-configuration')
@@ -362,6 +435,23 @@ export const startCodexDeviceAuthSessionServer = createServerFn({ method: 'POST'
 
 export const cancelCodexDeviceAuthSessionServer = createServerFn({ method: 'POST' }).handler(
     async () => {
+        const hosted = await requireHostedMutationActor()
+        if (hosted) {
+            const config = await getHostedOperatorConfigSnapshot({
+                env: hosted.context.env,
+                actor: hosted.actor,
+            })
+            return {
+                status: 'cancelled',
+                verificationUrl: null,
+                userCode: null,
+                message: config.codexAuth.message,
+                startedAt: null,
+                updatedAt: new Date().toISOString(),
+                completedAt: new Date().toISOString(),
+                auth: config.codexAuth,
+            }
+        }
         const actor = await requireMutationActor()
         const { cancelCodexDeviceAuthSession } =
             await import('#/server/configuration/operator-configuration')

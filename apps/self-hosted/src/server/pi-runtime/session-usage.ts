@@ -158,3 +158,17 @@ export function sessionModelCostKnown(session: AgentSession): boolean {
         (value) => Number.isFinite(value) && value > 0,
     )
 }
+
+export function runUsageDeltaWithActualCostMicros(
+    usage: RunUsageDelta,
+    costMicros: number | null,
+): RunUsageDelta {
+    if (costMicros === null) {
+        return usage
+    }
+    return {
+        ...usage,
+        estimatedCostUsd: costMicros / 1_000_000,
+        costKnown: true,
+    }
+}

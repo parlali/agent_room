@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { createRuntimeRedactor, isRecord } from './runtime-redaction'
+import { piRuntimeRedactionSecretsEnvKey } from '../rooms/pi-runtime-contract'
 import { createTestPiRuntimeConfig } from './test-runtime-defaults'
 
 function testConfig(): PiRuntimeConfig {
@@ -91,6 +92,36 @@ describe('runtime redaction', () => {
                 delete process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY
             } else {
                 process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = previousSearchKey
+            }
+        }
+    })
+
+    it('redacts container-only provider auth secrets from the runtime env list', () => {
+        const previous = process.env[piRuntimeRedactionSecretsEnvKey]
+        process.env[piRuntimeRedactionSecretsEnvKey] = Buffer.from(
+            JSON.stringify([
+                'provider-api-key',
+                '{"openrouter":{"type":"api_key","key":"provider-api-key"}}',
+            ]),
+            'utf8',
+        ).toString('base64url')
+
+        try {
+            const { redactPayload } = createRuntimeRedactor(testConfig())
+            expect(
+                redactPayload({
+                    error: 'request failed for provider-api-key',
+                    auth: '{"openrouter":{"type":"api_key","key":"provider-api-key"}}',
+                }),
+            ).toEqual({
+                error: 'request failed for [redacted]',
+                auth: '[redacted]',
+            })
+        } finally {
+            if (previous === undefined) {
+                delete process.env[piRuntimeRedactionSecretsEnvKey]
+            } else {
+                process.env[piRuntimeRedactionSecretsEnvKey] = previous
             }
         }
     })

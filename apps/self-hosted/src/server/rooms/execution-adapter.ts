@@ -17,7 +17,7 @@ import type {
 import type { JobSchedule } from '#/domain/job-schedule'
 
 export interface RoomExecutionAdapter {
-    listRoomsWithRuntime: () => Promise<RoomRuntimeOverview[]>
+    listRoomsWithRuntime: (input: { actorUserId: string }) => Promise<RoomRuntimeOverview[]>
     getRoomExecutionSnapshot: (input: {
         roomId: string
         selectedThreadKey?: string | null

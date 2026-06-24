@@ -58,6 +58,10 @@ function providerModel(event: UsageEventLike): string | null {
     return event.model ?? event.provider
 }
 
+function formatCount(value: number | null): string {
+    return value === null ? 'Not reported' : value.toLocaleString()
+}
+
 function runTitle(event: UsageEventLike): string {
     const metadata = metadataRecord(event)
     const runKind = typeof metadata.runKind === 'string' ? metadata.runKind : null
@@ -251,10 +255,8 @@ export function UsageMetric({ label, value }: { label: string; value: string }) 
 }
 
 export function UsageTotalsGrid({
-    activityCount,
     totals,
 }: {
-    activityCount: number
     totals?: {
         eventCount?: number | null
         durationMs?: number | null
@@ -264,7 +266,7 @@ export function UsageTotalsGrid({
 }) {
     return (
         <div className="grid gap-3 sm:grid-cols-4">
-            <UsageMetric label="Activities" value={String(activityCount)} />
+            <UsageMetric label="Activities" value={formatCount(totals?.eventCount ?? null)} />
             <UsageMetric label="Runtime" value={formatDurationMs(totals?.durationMs ?? null)} />
             <UsageMetric
                 label="Tokens"

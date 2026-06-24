@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+    hostedRoomFileObjectKey,
     hostedWorkspaceFileKey,
     hostedWorkspacePrefix,
     hostedWorkspaceSnapshotKey,
@@ -53,5 +54,16 @@ describe('hosted workspace R2 keys', () => {
                 snapshotId: 'snapshot_1',
             }),
         ).toBe('workspaces/workspace_1/rooms/room_1/snapshots/snapshot_1.tar.zst')
+    })
+
+    it('builds room file object keys with the surface inside the room scope', () => {
+        expect(
+            hostedRoomFileObjectKey({
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                surface: 'store',
+                relativePath: 'uploads/report.pdf',
+            }),
+        ).toBe('workspaces/workspace_1/rooms/room_1/files/store/uploads/report.pdf')
     })
 })

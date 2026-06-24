@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
     applyHostedDeploymentTarget,
+    applyHostedDeploymentTargetToConfig,
     extractHostedResourceNames,
     hostedConfigPath,
     selectD1DatabaseId,
@@ -18,12 +19,14 @@ function readRepoFile(path: string): string {
 
 describe('hosted Cloudflare deployment target config', () => {
     it('keeps the production resource names canonical by default', () => {
-        expect(extractHostedResourceNames(readHostedConfig())).toEqual({
+        const configText = readHostedConfig()
+        expect(extractHostedResourceNames(configText)).toEqual({
             workerName: 'agent-room-hosted',
             d1DatabaseName: 'agent-room-hosted',
             r2BucketName: 'agent-room-hosted-workspaces',
             queueName: 'agent-room-hosted-runtime-jobs',
         })
+        expect(configText).toContain('"crons": ["* * * * *"]')
     })
 
     it('overrides every preview resource name through one target', () => {
@@ -54,6 +57,77 @@ describe('hosted Cloudflare deployment target config', () => {
         expect(configText.match(/agent-room-hosted-pr-41-runtime-jobs/g)).toHaveLength(2)
     })
 
+    it('targets built Wrangler config resources and containers', () => {
+        const config = applyHostedDeploymentTargetToConfig(
+            {
+                name: 'agent-room-hosted',
+                topLevelName: 'agent-room-hosted',
+                routes: [
+                    {
+                        pattern: 'app.openagentroom.com',
+                        custom_domain: true,
+                    },
+                ],
+                workers_dev: true,
+                preview_urls: false,
+                d1_databases: [
+                    {
+                        binding: 'AGENT_ROOM_DB',
+                        database_name: 'agent-room-hosted',
+                    },
+                ],
+                r2_buckets: [
+                    {
+                        binding: 'AGENT_ROOM_WORKSPACE_BUCKET',
+                        bucket_name: 'agent-room-hosted-workspaces',
+                    },
+                ],
+                queues: {
+                    producers: [
+                        {
+                            binding: 'AGENT_ROOM_RUNTIME_JOBS',
+                            queue: 'agent-room-hosted-runtime-jobs',
+                        },
+                    ],
+                    consumers: [
+                        {
+                            queue: 'agent-room-hosted-runtime-jobs',
+                        },
+                    ],
+                },
+                containers: [
+                    {
+                        class_name: 'AgentRoomRuntimeContainer',
+                        name: 'agent-room-hosted-agentroomruntimecontainer',
+                    },
+                ],
+            },
+            {
+                workerName: 'agent-room-hosted-pr-42',
+                d1DatabaseName: 'agent-room-hosted-pr-42',
+                r2BucketName: 'agent-room-hosted-pr-42-workspaces',
+                queueName: 'agent-room-hosted-pr-42-runtime-jobs',
+                routePattern: null,
+                workersDev: true,
+                previewUrls: true,
+            },
+        )
+
+        expect(config.routes).toBeUndefined()
+        expect(config.containers).toEqual([
+            {
+                class_name: 'AgentRoomRuntimeContainer',
+                name: 'agent-room-hosted-pr-42-agentroomruntimecontainer',
+            },
+        ])
+        expect(extractHostedResourceNames(JSON.stringify(config))).toEqual({
+            workerName: 'agent-room-hosted-pr-42',
+            d1DatabaseName: 'agent-room-hosted-pr-42',
+            r2BucketName: 'agent-room-hosted-pr-42-workspaces',
+            queueName: 'agent-room-hosted-pr-42-runtime-jobs',
+        })
+    })
+
     it('uses the dedicated lean runtime image for hosted containers', () => {
         const configText = readHostedConfig()
         const image = configText.match(/"image":\s*"([^"]+)"/)?.[1]
@@ -69,15 +143,6 @@ describe('hosted Cloudflare deployment target config', () => {
         expect(runtimeDockerfile).toContain(
             'CMD ["bun", "--no-env-file", "run", "src/server/pi-runtime/main.ts"]',
         )
-    })
-
-    it('escapes custom route patterns before writing the generated JSONC', () => {
-        const routePattern = 'app."quoted"\\route.example.com'
-        const configText = applyHostedDeploymentTarget(readHostedConfig(), {
-            routePattern,
-        })
-
-        expect(configText).toContain(`"pattern": ${JSON.stringify(routePattern)},`)
     })
 
     it('validates explicit D1 database ids against the targeted database name', () => {

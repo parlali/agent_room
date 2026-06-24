@@ -1,28 +1,32 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { requireApiSession } from '#/server/auth/api-session'
 import { ensureRuntimeSupervisorBoot } from '#/server/rooms/runtime-supervisor-bootstrap'
 import { createRoomEventStream } from '#/server/rooms/execution-engine'
+import { requireApiRoomOwner } from '#/server/rooms/room-runtime-route-service'
 import { instrumentReadableByteStream } from '#/server/telemetry/performance'
 
 export const Route = createFileRoute('/api/rooms/$roomId/events')({
     server: {
         handlers: {
             GET: async ({ request, params }) => {
-                if (!(await requireApiSession(request))) {
-                    return new Response('Authentication required', {
-                        status: 401,
-                    })
+                const owner = await requireApiRoomOwner({
+                    request,
+                    roomId: params.roomId,
+                })
+                if (owner instanceof Response) {
+                    return owner
                 }
 
-                await ensureRuntimeSupervisorBoot()
+                if (!owner.hosted) {
+                    await ensureRuntimeSupervisorBoot()
+                }
                 const stream = instrumentReadableByteStream({
                     stream: createRoomEventStream({
-                        roomId: params.roomId,
+                        roomId: owner.room.id,
                         abortSignal: request.signal,
                     }),
                     name: 'sse.browser',
                     attributes: {
-                        roomId: params.roomId,
+                        roomId: owner.room.id,
                         sessionKey: null,
                         streamKind: 'room',
                     },

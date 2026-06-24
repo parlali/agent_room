@@ -1,6 +1,6 @@
 import type { Cta, NavLink, RoutePath, SeoMeta } from './types'
 
-export const githubUrl = 'https://github.com/parlali/agent_room'
+export const githubUrl = 'https://github.com/agent-room/agent-room'
 
 export const brand = {
     name: 'Agent Room',

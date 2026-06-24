@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import {
+    type AgentSession,
     AuthStorage,
     createAgentSession,
     ModelRegistry,
@@ -9,21 +10,32 @@ import {
 import { extractTextFromRuntimeContent } from '#/domain/runtime-message'
 import type { RoomExecutionMessage } from '../rooms/execution-types'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { hostedRuntimeManagedOpenRouterEnvKey } from '../rooms/pi-runtime-contract'
 import type { ThreadRecord } from './thread-records'
 import { createPiResourceLoader } from './resource-loader'
 import { isRecord } from './runtime-redaction'
 import { shortText } from './session-entry-mapper'
 import {
+    runUsageDeltaWithActualCostMicros,
     sessionModelCostKnown,
     sessionUsageDelta,
     sessionUsageSnapshot,
     type RunUsageDelta,
 } from './session-usage'
+import {
+    hostedProviderReservationCollectionFromError,
+    hostedProviderUsageChargeCostMicros,
+    withHostedProviderReservationCollection,
+    type HostedProviderUsageCharge,
+} from './hosted-provider-reservation-context'
 
 interface GeneratedThreadTitle {
     title: string | null
     usage: RunUsageDelta
     durationMs: number
+    hostedProviderReservationIds: string[]
+    hostedProviderUsageCharges: HostedProviderUsageCharge[]
+    error: string | null
 }
 
 interface ThreadTitleGeneratorDependencies {
@@ -41,6 +53,12 @@ export function cleanManualThreadTitle(value: string): string {
 
 export function createThreadTitleGenerator(dependencies: ThreadTitleGeneratorDependencies) {
     const titleGenerationThreads = new Set<string>()
+
+    function modelCostKnown(session: AgentSession): boolean {
+        return process.env[hostedRuntimeManagedOpenRouterEnvKey] === '1'
+            ? false
+            : sessionModelCostKnown(session)
+    }
 
     async function generateThreadTitle(record: ThreadRecord): Promise<GeneratedThreadTitle | null> {
         const messages = dependencies.readThreadMessages(record, 20)
@@ -94,19 +112,58 @@ export function createThreadTitleGenerator(dependencies: ThreadTitleGeneratorDep
         try {
             const startedAt = Date.now()
             const usageBefore = sessionUsageSnapshot(session)
-            await session.prompt(titlePrompt(firstUser.text, firstAssistant.text), {
-                source: 'rpc',
-            })
+            let prompt: Awaited<ReturnType<typeof withHostedProviderReservationCollection>>
+            try {
+                prompt = await withHostedProviderReservationCollection(
+                    async () =>
+                        session.prompt(titlePrompt(firstUser.text, firstAssistant.text), {
+                            source: 'rpc',
+                        }),
+                    {
+                        sessionKey: record.key,
+                        runId: null,
+                        jobId: null,
+                    },
+                )
+            } catch (error) {
+                const collection = hostedProviderReservationCollectionFromError(error)
+                if (!collection || collection.reservationIds.length === 0) {
+                    throw error
+                }
+                const durationMs = Math.max(0, Date.now() - startedAt)
+                const usage = runUsageDeltaWithActualCostMicros(
+                    sessionUsageDelta(
+                        usageBefore,
+                        sessionUsageSnapshot(session),
+                        modelCostKnown(session),
+                    ),
+                    hostedProviderUsageChargeCostMicros(collection.usageCharges),
+                )
+                return {
+                    title: null,
+                    usage,
+                    durationMs,
+                    hostedProviderReservationIds: collection.reservationIds,
+                    hostedProviderUsageCharges: collection.usageCharges,
+                    error: dependencies.errorMessage(error),
+                }
+            }
             const durationMs = Math.max(0, Date.now() - startedAt)
-            const usage = sessionUsageDelta(
-                usageBefore,
-                sessionUsageSnapshot(session),
-                sessionModelCostKnown(session),
+            const usage = runUsageDeltaWithActualCostMicros(
+                sessionUsageDelta(
+                    usageBefore,
+                    sessionUsageSnapshot(session),
+                    modelCostKnown(session),
+                ),
+                hostedProviderUsageChargeCostMicros(prompt.usageCharges),
             )
             return {
                 title: cleanGeneratedTitle(latestAssistantText(session.messages)),
                 usage,
                 durationMs,
+                hostedProviderReservationIds: prompt.reservationIds,
+                hostedProviderUsageCharges: prompt.usageCharges,
+                error: null,
             }
         } finally {
             session.dispose()
@@ -130,7 +187,21 @@ export function createThreadTitleGenerator(dependencies: ThreadTitleGeneratorDep
                 model: dependencies.config.provider.sourceModel,
                 durationMs: result.durationMs,
                 usage: result.usage,
+                ...(result.hostedProviderReservationIds.length > 0
+                    ? { hostedProviderReservationIds: result.hostedProviderReservationIds }
+                    : {}),
+                ...(result.hostedProviderUsageCharges.length > 0
+                    ? { hostedProviderUsageCharges: result.hostedProviderUsageCharges }
+                    : {}),
+                ...(result.error ? { error: result.error } : {}),
             })
+            if (result.error) {
+                await dependencies.appendRuntimeEvent('thread.title_generation_failed', {
+                    sessionKey: record.key,
+                    error: result.error,
+                })
+                return
+            }
             if (!result.title || record.titleSource !== 'initial') return
             record.title = result.title
             record.titleSource = 'generated'

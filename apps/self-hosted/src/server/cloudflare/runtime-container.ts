@@ -2,6 +2,7 @@ import { Container } from '@cloudflare/containers'
 import type { AgentRoomHostedEnv } from './bindings'
 import {
     hostedRuntimeContainerPort,
+    hostedRuntimeDeniedHosts,
     hostedRuntimeEntrypoint,
     hostedRuntimeSleepAfter,
 } from './runtime-contract'
@@ -16,7 +17,7 @@ export class AgentRoomRuntimeContainer extends Container<AgentRoomHostedEnv> {
     envVars = {}
     enableInternet = false
     interceptHttps = true
-    deniedHosts = ['169.254.169.254', 'metadata.google.internal']
+    deniedHosts = hostedRuntimeDeniedHosts
 
     override onStart() {
         console.log('Agent Room hosted runtime container started')

@@ -21,9 +21,15 @@ import { SearchRouter } from './web-search-router'
 import { parseSearxngHtmlResults, SearxngSearchProvider, searxngSearch } from './web-search-searxng'
 import { createTestPiRuntimeConfig } from './test-runtime-defaults'
 import { withToolRunContext } from './tool-run-context'
+import {
+    hostedRuntimeBraveProxyUrlEnvKey,
+    piRuntimeTokenEnvKey,
+} from '../rooms/pi-runtime-contract'
 
 const originalFetch = globalThis.fetch
 const originalBraveKey = process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY
+const originalHostedBraveProxyUrl = process.env[hostedRuntimeBraveProxyUrlEnvKey]
+const originalPiRuntimeToken = process.env[piRuntimeTokenEnvKey]
 const originalBrowserbaseKey = process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY
 const originalWebSocket = globalThis.WebSocket
 
@@ -100,6 +106,16 @@ describe('web tools', () => {
             delete process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY
         } else {
             process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = originalBraveKey
+        }
+        if (originalHostedBraveProxyUrl === undefined) {
+            delete process.env[hostedRuntimeBraveProxyUrlEnvKey]
+        } else {
+            process.env[hostedRuntimeBraveProxyUrlEnvKey] = originalHostedBraveProxyUrl
+        }
+        if (originalPiRuntimeToken === undefined) {
+            delete process.env[piRuntimeTokenEnvKey]
+        } else {
+            process.env[piRuntimeTokenEnvKey] = originalPiRuntimeToken
         }
         if (originalBrowserbaseKey === undefined) {
             delete process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY
@@ -335,6 +351,128 @@ describe('web tools', () => {
                 rank: 1,
             },
         ])
+    })
+
+    it('uses runtime bearer authorization for hosted Brave proxy requests', async () => {
+        process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = 'runtime-token-value-123456'
+        process.env[hostedRuntimeBraveProxyUrlEnvKey] =
+            'https://rooms.example.test/api/hosted/runtime/provider/brave/v1/workspaces/workspace_1/rooms/room_1/search'
+        const requests: Array<{ url: string; headers: Headers }> = []
+        globalThis.fetch = (async (request, init) => {
+            const url = request instanceof Request ? request.url : String(request)
+            requests.push({
+                url,
+                headers: new Headers(
+                    init?.headers ?? (request instanceof Request ? request.headers : undefined),
+                ),
+            })
+            return new Response(
+                JSON.stringify({
+                    web: {
+                        results: [
+                            {
+                                title: 'Example Domain',
+                                url: 'https://example.com/',
+                                description: 'Result',
+                            },
+                        ],
+                    },
+                }),
+                {
+                    status: 200,
+                    headers: {
+                        'content-type': 'application/json',
+                    },
+                },
+            )
+        }) as typeof fetch
+
+        const provider = new BraveSearchProvider()
+        await provider.search({
+            config: createTestPiRuntimeConfig({
+                search: {
+                    brave: {
+                        enabled: true,
+                        envKey: 'AGENT_ROOM_SEARCH_BRAVE_API_KEY',
+                        country: null,
+                        searchLang: null,
+                        safeSearch: 'moderate',
+                        timeoutMs: 10000,
+                        resultCount: 5,
+                    },
+                },
+            }),
+            query: 'hosted brave',
+            count: 1,
+        })
+
+        expect(requests).toHaveLength(1)
+        expect(requests[0]!.url).toContain('/api/hosted/runtime/provider/brave/v1/')
+        expect(requests[0]!.headers.get('authorization')).toBe('Bearer runtime-token-value-123456')
+        expect(requests[0]!.headers.has('x-subscription-token')).toBe(false)
+    })
+
+    it('does not send hosted runtime tokens directly to Brave when proxy materialization is missing', async () => {
+        process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = 'runtime-token-value-123456'
+        process.env[piRuntimeTokenEnvKey] = 'runtime-token-value-123456'
+        delete process.env[hostedRuntimeBraveProxyUrlEnvKey]
+        let fetchCalled = false
+        globalThis.fetch = (async () => {
+            fetchCalled = true
+            throw new Error('fetch should not be called')
+        }) as typeof fetch
+
+        const provider = new BraveSearchProvider()
+        await expect(
+            provider.search({
+                config: createTestPiRuntimeConfig({
+                    search: {
+                        brave: {
+                            enabled: true,
+                            envKey: 'AGENT_ROOM_SEARCH_BRAVE_API_KEY',
+                            country: null,
+                            searchLang: null,
+                            safeSearch: 'moderate',
+                            timeoutMs: 10000,
+                            resultCount: 5,
+                        },
+                    },
+                }),
+                query: 'hosted brave',
+                count: 1,
+            }),
+        ).rejects.toMatchObject({
+            code: 'misconfigured',
+        })
+        expect(fetchCalled).toBe(false)
+    })
+
+    it('treats provider-level search config as disabled when top-level search is disabled', () => {
+        process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = 'brave-secret'
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
+        const config = createTestPiRuntimeConfig({
+            search: {
+                enabled: false,
+                brave: {
+                    enabled: true,
+                    envKey: 'AGENT_ROOM_SEARCH_BRAVE_API_KEY',
+                    country: null,
+                    searchLang: null,
+                    safeSearch: 'moderate',
+                    timeoutMs: 10000,
+                    resultCount: 5,
+                },
+                browserbase: {
+                    enabled: true,
+                    envKey: 'AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY',
+                    timeoutMs: 10000,
+                    resultCount: 5,
+                },
+            },
+        })
+
+        expect(new BraveSearchProvider().isConfigured(config)).toBe(false)
+        expect(new BrowserbaseSearchProvider().isConfigured(config)).toBe(false)
     })
 
     it('bounds provider response body stalls after headers arrive', async () => {
@@ -818,7 +956,7 @@ describe('web tools', () => {
                                 resultCount: 5,
                             },
                             backendUrl: 'http://127.0.0.1:9999',
-                            enabled: false,
+                            enabled: true,
                         },
                     }),
                     query: `failure ${entry.status}`,

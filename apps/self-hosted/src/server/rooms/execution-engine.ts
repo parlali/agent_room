@@ -16,6 +16,7 @@ import type {
 import type { JobSchedule } from '#/domain/job-schedule'
 import type { RoomExecutionAdapter } from './execution-adapter'
 import { cancelReadableStreamReaderInBackground } from '../streams/readable-stream'
+import { readHostedRequestContext } from '../cloudflare/hosted-request-context'
 
 export type {
     RoomAgentExecutionTruth,
@@ -43,12 +44,18 @@ export type {
     RoomThreadSendResult,
 } from './execution-types'
 
-const loadExecutionEngineModule = () =>
-    import('./pi-execution-adapter') as Promise<RoomExecutionAdapter>
+async function loadExecutionEngineModule(): Promise<RoomExecutionAdapter> {
+    if (readHostedRequestContext()) {
+        return import('../cloudflare/hosted-execution-adapter') as Promise<RoomExecutionAdapter>
+    }
+    return import('./pi-execution-adapter') as Promise<RoomExecutionAdapter>
+}
 
-export async function listRoomsWithRuntime(): Promise<RoomRuntimeOverview[]> {
+export async function listRoomsWithRuntime(input: {
+    actorUserId: string
+}): Promise<RoomRuntimeOverview[]> {
     const module = await loadExecutionEngineModule()
-    return module.listRoomsWithRuntime()
+    return module.listRoomsWithRuntime(input)
 }
 
 export async function getRoomExecutionSnapshot(input: {
