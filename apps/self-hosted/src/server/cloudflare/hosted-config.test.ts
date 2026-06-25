@@ -360,6 +360,9 @@ describe('hosted Cloudflare configuration', () => {
         expect(previewWorkflowConfig).toContain(
             'run: bun run apps/self-hosted/scripts/cloudflare-hosted-preview-input.ts',
         )
+        expect(previewWorkflowConfig).toContain(
+            "ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.repository.default_branch }}",
+        )
         expect(previewWorkflowConfig).toContain('ref: ${{ steps.preview.outputs.head_sha }}')
         expect(previewWorkflowConfig).not.toContain('ref: ${{ inputs.ref }}')
         expect(previewWorkflowConfig).not.toContain('self-hosted:cloudflare:preview:delete')
