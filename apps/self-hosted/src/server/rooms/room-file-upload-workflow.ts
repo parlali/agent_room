@@ -6,6 +6,7 @@ import {
     validateRoomFileUpload,
 } from '#/domain/room-file-upload-policy'
 import type { RoomRecord } from '#/domain/domain-types'
+import type { RoomFileEntry, RoomFileSurface } from '#/domain/room-file-types'
 import type { AgentRoomHostedEnv } from '#/server/cloudflare/bindings'
 import {
     deleteHostedRoomIndexedFile,
@@ -15,11 +16,10 @@ import { getHostedRuntimeState } from '#/server/cloudflare/hosted-room-service'
 import { requestHostedPiRuntime } from '#/server/cloudflare/hosted-runtime-client'
 import { logPerformanceEvent } from '#/server/telemetry/performance'
 import { publishRoomFileChanged } from './execution-engine'
-import { writeRoomUploadedFile, type RoomFileSurface } from './file-store'
 
 const roomIdSchema = z.string().uuid()
 
-type UploadedRoomFile = Awaited<ReturnType<typeof writeRoomUploadedFile>>
+type UploadedRoomFile = RoomFileEntry
 type HostedUploadedRoomFile = Awaited<ReturnType<typeof writeHostedRoomUploadedFile>>
 
 type UploadFailureStage =
@@ -226,6 +226,7 @@ async function saveUploadedFile(input: {
             content,
         }
     }
+    const { writeRoomUploadedFile } = await import('./file-store')
     return {
         file: await writeRoomUploadedFile({
             roomId: input.roomId,

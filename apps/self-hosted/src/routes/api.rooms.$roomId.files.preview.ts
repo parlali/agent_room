@@ -1,5 +1,4 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { roomFilePreviewResponse } from '#/server/rooms/room-file-preview-response'
 import { requireApiRoomOwner } from '#/server/rooms/room-runtime-route-service'
 
 export const Route = createFileRoute('/api/rooms/$roomId/files/preview')({
@@ -14,6 +13,8 @@ export const Route = createFileRoute('/api/rooms/$roomId/files/preview')({
                     return owner
                 }
 
+                const { roomFilePreviewResponse } =
+                    await import('#/server/rooms/room-file-preview-response')
                 return roomFilePreviewResponse({
                     request,
                     roomId: owner.room.id,
