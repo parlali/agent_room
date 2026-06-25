@@ -58,7 +58,6 @@ function hostedEnv(input: {
     destroy?: (name: string) => Promise<void>
     updates?: RuntimeUpdate[]
     batches?: RuntimeUpdate[][]
-    billingMode?: string
     billingAccountRow?: unknown
     activeRuntimeCountRow?: unknown
     providerRows?: unknown[]
@@ -301,7 +300,6 @@ function hostedEnv(input: {
             }),
         } as unknown as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME'],
         AGENT_ROOM_AUTH_MODE: 'better-auth',
-        AGENT_ROOM_BILLING_MODE: input.billingMode ?? 'disabled',
         AGENT_ROOM_BILLING_PLANS:
             '[{"key":"standard","priceId":"price_test_standard_000000","monthlyCents":2000,"includedCents":1200}]',
         AGENT_ROOM_BILLING_USAGE_MARKUP_BPS: '13000',
@@ -321,6 +319,7 @@ function hostedEnv(input: {
         AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN: 'b'.repeat(16),
         AGENT_ROOM_EMAIL_FROM: 'Agent Room <noreply@example.test>',
         AGENT_ROOM_HOSTED_OPENROUTER_API_KEY: 'openrouter-platform-key',
+        AGENT_ROOM_HOSTED_BRAVE_API_KEY: 'brave-platform-key',
     }
     return hosted
 }
@@ -502,7 +501,6 @@ describe('hosted runtime reconciliation', () => {
     it('marks only managed hosted OpenRouter runtimes for managed cost truth', async () => {
         const starts: Array<{ name: string; args: unknown }> = []
         const env = hostedEnv({
-            billingMode: 'stripe',
             billingAccountRow: { planStatus: 'active' },
             activeRuntimeCountRow: { activeCount: 0 },
             objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],
@@ -634,7 +632,6 @@ describe('hosted runtime reconciliation', () => {
     it('starts the container when stripe billing access allows an active subscription', async () => {
         const starts: Array<{ name: string; args: unknown }> = []
         const env = hostedEnv({
-            billingMode: 'stripe',
             billingAccountRow: { planStatus: 'active' },
             activeRuntimeCountRow: { activeCount: 0 },
             objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],
@@ -665,7 +662,6 @@ describe('hosted runtime reconciliation', () => {
             updates,
             puts,
             providerRows: [],
-            billingMode: 'stripe',
             billingAccountRow: { planStatus: 'canceled' },
             activeRuntimeCountRow: { activeCount: 0 },
             objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],
@@ -711,7 +707,6 @@ describe('hosted runtime reconciliation', () => {
         const env = hostedEnv({
             updates,
             puts,
-            billingMode: 'stripe',
             billingAccountRow: { planStatus: 'active' },
             activeRuntimeCountRow: { activeCount: 3 },
             objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],

@@ -16,6 +16,7 @@ import { hostedRuntimeUsageCallbackUrlEnvKey } from '../rooms/pi-runtime-contrac
 import { assertNoReservedRoomRuntimeEnvKeys } from '../security/process-env'
 import type { AgentRoomHostedEnv } from './bindings'
 import type { HostedActor } from './hosted-auth'
+import { resolveHostedConfig } from './hosted-config'
 import { nowIso } from './hosted-json'
 import {
     getOrCreateHostedRoomConfig,
@@ -167,9 +168,9 @@ export async function materializeHostedRuntime(input: {
                 label: 'Brave search credential',
             })
         } else {
-            throw new Error(
-                'Managed Brave search is disabled because Brave does not provide exact provider cost',
-            )
+            env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = resolveHostedConfig(
+                input.env,
+            ).managedProviders.braveApiKey
         }
     }
     const browserbaseSecretId = searchProviderSecretId({

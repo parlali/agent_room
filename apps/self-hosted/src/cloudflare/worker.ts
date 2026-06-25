@@ -37,7 +37,7 @@ function hostedHealth(env: AgentRoomHostedEnv): Response {
     return jsonResponse({
         ok: true,
         authMode: config.authMode,
-        billingMode: config.billing.mode,
+        billing: 'stripe',
         runtimeBackend: config.runtimeBackend,
         runtimeStorage: config.runtimeStorage,
         publicOrigin: config.publicOrigin,

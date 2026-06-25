@@ -43,7 +43,6 @@ function hostedEnv(overrides: Partial<AgentRoomHostedEnv> = {}): AgentRoomHosted
         AGENT_ROOM_RUNTIME_JOBS: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME_JOBS'],
         AGENT_ROOM_RUNTIME: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME'],
         AGENT_ROOM_AUTH_MODE: 'better-auth',
-        AGENT_ROOM_BILLING_MODE: 'disabled',
         AGENT_ROOM_BILLING_PLANS:
             '[{"key":"starter","priceId":"price_test_starter_000000","monthlyCents":700,"includedCents":0},{"key":"standard","priceId":"price_test_standard_000000","monthlyCents":2000,"includedCents":1200},{"key":"pro","priceId":"price_test_pro_000000","monthlyCents":5000,"includedCents":3500}]',
         AGENT_ROOM_BILLING_USAGE_MARKUP_BPS: '13000',
@@ -56,10 +55,14 @@ function hostedEnv(overrides: Partial<AgentRoomHostedEnv> = {}): AgentRoomHosted
         AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
         GOOGLE_CLIENT_ID: 'google-client',
         GOOGLE_CLIENT_SECRET: 'google-secret',
+        STRIPE_SECRET_KEY: 'stripe-secret-test-value',
+        STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
+        STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_test_topup_000000',
         AGENT_ROOM_EMAIL_WEBHOOK_URL: 'https://mail.example.test/send',
         AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN: 'b'.repeat(16),
         AGENT_ROOM_EMAIL_FROM: 'Agent Room <noreply@example.test>',
         AGENT_ROOM_HOSTED_OPENROUTER_API_KEY: 'openrouter-platform-key',
+        AGENT_ROOM_HOSTED_BRAVE_API_KEY: 'brave-platform-key',
         ...overrides,
     }
 }
@@ -152,7 +155,6 @@ describe('hosted Cloudflare configuration', () => {
             runtimeBackend: 'cloudflare-containers',
             runtimeStorage: 'r2',
             billing: {
-                mode: 'disabled',
                 plans: [
                     {
                         key: 'starter',
@@ -176,7 +178,11 @@ describe('hosted Cloudflare configuration', () => {
                 usageMarkupBps: 13000,
                 taxMode: 'automatic',
                 maxConcurrentRoomsPerWorkspace: 3,
-                stripe: null,
+                stripe: {
+                    secretKey: 'stripe-secret-test-value',
+                    webhookSecret: 'stripe-webhook-test-value',
+                    creditTopupPriceId: 'price_test_topup_000000',
+                },
             },
             publicOrigin: 'https://rooms.example.test',
             google: {
@@ -247,54 +253,34 @@ describe('hosted Cloudflare configuration', () => {
         ).toThrow(/AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN/)
     })
 
-    it('requires Stripe secrets when Stripe billing is enabled', () => {
+    it('requires Stripe secrets', () => {
         expect(() =>
             resolveHostedConfig(
                 hostedEnv({
-                    AGENT_ROOM_BILLING_MODE: 'stripe',
+                    STRIPE_SECRET_KEY: undefined,
                 }),
             ),
         ).toThrow(/STRIPE_SECRET_KEY/)
 
-        expect(
-            resolveHostedConfig(
-                hostedEnv({
-                    AGENT_ROOM_BILLING_MODE: 'stripe',
-                    STRIPE_SECRET_KEY: 'stripe-secret-test-value',
-                    STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
-                    STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_test_topup_000000',
-                }),
-            ).billing.stripe,
-        ).toMatchObject({
+        expect(resolveHostedConfig(hostedEnv()).billing.stripe).toMatchObject({
             secretKey: 'stripe-secret-test-value',
             webhookSecret: 'stripe-webhook-test-value',
             creditTopupPriceId: 'price_test_topup_000000',
         })
     })
 
-    it('resolves the configured billing plans and knobs in stripe mode', () => {
-        const config = resolveHostedConfig(
-            hostedEnv({
-                AGENT_ROOM_BILLING_MODE: 'stripe',
-                STRIPE_SECRET_KEY: 'stripe-secret-test-value',
-                STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
-                STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_test_topup_000000',
-            }),
-        )
+    it('resolves the configured billing plans and knobs', () => {
+        const config = resolveHostedConfig(hostedEnv())
         expect(config.billing.plans.map((plan) => plan.key)).toEqual(['starter', 'standard', 'pro'])
         expect(config.billing.usageMarkupBps).toBe(13000)
         expect(config.billing.taxMode).toBe('automatic')
         expect(config.billing.maxConcurrentRoomsPerWorkspace).toBe(3)
     })
 
-    it('fails closed when stripe mode has no billing plans', () => {
+    it('fails closed when there are no billing plans', () => {
         expect(() =>
             resolveHostedConfig(
                 hostedEnv({
-                    AGENT_ROOM_BILLING_MODE: 'stripe',
-                    STRIPE_SECRET_KEY: 'stripe-secret-test-value',
-                    STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
-                    STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_test_topup_000000',
                     AGENT_ROOM_BILLING_PLANS: '[]',
                 }),
             ),
@@ -380,15 +366,19 @@ describe('hosted Cloudflare configuration', () => {
         expect(previewWorkflowConfig).toContain(
             'CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_HOSTED_PREVIEW_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}',
         )
+        expect(previewWorkflowConfig).toContain(
+            'AGENT_ROOM_BILLING_PLANS: ${{ secrets.AGENT_ROOM_HOSTED_PREVIEW_BILLING_PLANS || secrets.AGENT_ROOM_BILLING_PLANS }}',
+        )
+        expect(previewWorkflowConfig).toContain(
+            'AGENT_ROOM_HOSTED_BRAVE_API_KEY: ${{ secrets.AGENT_ROOM_HOSTED_PREVIEW_BRAVE_API_KEY || secrets.AGENT_ROOM_HOSTED_BRAVE_API_KEY }}',
+        )
     })
 
     it('keeps Wrangler hosted vars aligned with the hosted config contract', () => {
         const wranglerConfig = readText(new URL('../../../wrangler.hosted.jsonc', import.meta.url))
         expect(wranglerConfig).toContain(`"AGENT_ROOM_AUTH_MODE": "${hostedConfigValues.authMode}"`)
-        expect(wranglerConfig).toContain(
-            `"AGENT_ROOM_BILLING_MODE": "${hostedConfigValues.billingMode}"`,
-        )
-        expect(wranglerConfig).toContain(`"AGENT_ROOM_BILLING_PLANS": "[]"`)
+        expect(wranglerConfig).not.toContain('AGENT_ROOM_BILLING_MODE')
+        expect(wranglerConfig).not.toContain(`"AGENT_ROOM_BILLING_PLANS": "[]"`)
         expect(wranglerConfig).not.toMatch(new RegExp('price_[^"]*place' + 'holder'))
         expect(wranglerConfig).toContain(`"AGENT_ROOM_BILLING_USAGE_MARKUP_BPS": "13000"`)
         expect(wranglerConfig).toContain(`"AGENT_ROOM_BILLING_TAX_MODE": "automatic"`)

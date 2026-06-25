@@ -85,6 +85,7 @@ jobs:
                   BETTER_AUTH_URL: ${{ steps.preview.outputs.url }}
                   GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_HOSTED_PREVIEW_CLIENT_ID || secrets.GOOGLE_CLIENT_ID }}
                   GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_HOSTED_PREVIEW_CLIENT_SECRET || secrets.GOOGLE_CLIENT_SECRET }}
+                  AGENT_ROOM_BILLING_PLANS: ${{ secrets.AGENT_ROOM_HOSTED_PREVIEW_BILLING_PLANS || secrets.AGENT_ROOM_BILLING_PLANS }}
                   STRIPE_SECRET_KEY: ${{ secrets.STRIPE_HOSTED_PREVIEW_SECRET_KEY || secrets.STRIPE_SECRET_KEY }}
                   STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_HOSTED_PREVIEW_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
                   STRIPE_CREDIT_TOPUP_PRICE_ID: ${{ secrets.STRIPE_HOSTED_PREVIEW_CREDIT_TOPUP_PRICE_ID || secrets.STRIPE_CREDIT_TOPUP_PRICE_ID }}
@@ -93,6 +94,7 @@ jobs:
                   AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN: ${{ secrets.AGENT_ROOM_HOSTED_PREVIEW_EMAIL_WEBHOOK_BEARER_TOKEN || secrets.AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN }}
                   AGENT_ROOM_EMAIL_FROM: ${{ secrets.AGENT_ROOM_HOSTED_PREVIEW_EMAIL_FROM || secrets.AGENT_ROOM_EMAIL_FROM }}
                   AGENT_ROOM_HOSTED_OPENROUTER_API_KEY: ${{ secrets.AGENT_ROOM_HOSTED_PREVIEW_OPENROUTER_API_KEY || secrets.AGENT_ROOM_HOSTED_OPENROUTER_API_KEY }}
+                  AGENT_ROOM_HOSTED_BRAVE_API_KEY: ${{ secrets.AGENT_ROOM_HOSTED_PREVIEW_BRAVE_API_KEY || secrets.AGENT_ROOM_HOSTED_BRAVE_API_KEY }}
                   AGENT_ROOM_CLOUDFLARE_WORKER_NAME: ${{ steps.preview.outputs.worker_name }}
                   AGENT_ROOM_CLOUDFLARE_D1_DATABASE_NAME: ${{ steps.preview.outputs.d1_database_name }}
                   AGENT_ROOM_CLOUDFLARE_R2_BUCKET_NAME: ${{ steps.preview.outputs.r2_bucket_name }}

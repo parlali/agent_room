@@ -675,11 +675,13 @@ export function hostedEnv(db = new FakeD1()): AgentRoomHostedEnv {
         AGENT_ROOM_RUNTIME_JOBS: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME_JOBS'],
         AGENT_ROOM_RUNTIME: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME'],
         AGENT_ROOM_AUTH_MODE: 'better-auth',
-        AGENT_ROOM_BILLING_MODE: 'disabled',
-        AGENT_ROOM_BILLING_PLANS: '[]',
+        AGENT_ROOM_BILLING_PLANS: stripePlansJson,
         AGENT_ROOM_BILLING_USAGE_MARKUP_BPS: '13000',
         AGENT_ROOM_BILLING_TAX_MODE: 'automatic',
         AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS: '3',
+        STRIPE_SECRET_KEY: 'stripe-secret-test-value',
+        STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
+        STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_test_topup_000000',
         AGENT_ROOM_RUNTIME_BACKEND: 'cloudflare-containers',
         AGENT_ROOM_RUNTIME_STORAGE: 'r2',
         BETTER_AUTH_SECRET: 'a'.repeat(32),
@@ -689,6 +691,7 @@ export function hostedEnv(db = new FakeD1()): AgentRoomHostedEnv {
         AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN: 'b'.repeat(16),
         AGENT_ROOM_EMAIL_FROM: 'Agent Room <noreply@example.test>',
         AGENT_ROOM_HOSTED_OPENROUTER_API_KEY: 'openrouter-platform-key',
+        AGENT_ROOM_HOSTED_BRAVE_API_KEY: 'brave-platform-key',
     }
 }
 
@@ -698,11 +701,6 @@ const stripePlansJson =
 export function stripeHostedEnv(db = new FakeD1()): AgentRoomHostedEnv {
     return {
         ...hostedEnv(db),
-        AGENT_ROOM_BILLING_MODE: 'stripe',
-        AGENT_ROOM_BILLING_PLANS: stripePlansJson,
-        STRIPE_SECRET_KEY: 'stripe-secret-test-value',
-        STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
-        STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_test_topup_000000',
     }
 }
 

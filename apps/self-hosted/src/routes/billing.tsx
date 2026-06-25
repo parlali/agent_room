@@ -269,7 +269,7 @@ function BillingPage() {
                         description={
                             hosted
                                 ? 'Use top-ups when included usage runs low.'
-                                : 'Self-hosted deployments can keep billing disabled or provide their own implementation behind the hosted billing contract.'
+                                : 'Hosted billing is available after the Cloudflare hosted deployment is configured.'
                         }
                         action={
                             <div className="flex flex-wrap justify-center gap-2">

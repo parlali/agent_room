@@ -30,17 +30,6 @@ export async function evaluateHostedRuntimeAccess(
     input: HostedRuntimeAccessInput,
 ): Promise<HostedRuntimeAccessDecision> {
     const config = resolveHostedConfig(input.env)
-    if (config.billing.mode !== 'stripe') {
-        if (
-            !input.codexAvailable &&
-            !input.userKeyAvailable &&
-            Boolean(config.managedProviders.openRouterApiKey)
-        ) {
-            return { allowed: false, reason: 'no_subscription' }
-        }
-        return { allowed: true }
-    }
-
     const byok = input.codexAvailable || input.userKeyAvailable
     if (!byok) {
         const account = await readHostedBillingAccount({

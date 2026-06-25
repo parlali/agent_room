@@ -33,7 +33,7 @@ The hosted runtime Container image is intentionally separate from the root self-
 
 The production workflow runs on pushes to `main` and manual dispatch. It bootstraps the production D1 database, R2 bucket, and queue if they are missing, applies D1 migrations, then deploys the same `agent-room-hosted` Worker that was used for workers.dev smoke verification. Cloudflare's native dashboard Git integration is not required; GitHub Actions is the deployment controller.
 
-The PR preview workflow is intentionally separate. Privileged preview deployment is manual-only through `workflow_dispatch`, requires `CLOUDFLARE_HOSTED_PREVIEWS_ENABLED=true` and `CLOUDFLARE_WORKERS_SUBDOMAIN`, checks out the default branch first, resolves the PR through the GitHub API, refuses fork PRs, and then checks out the verified same-repository head SHA. Preview deploys create isolated resources named `agent-room-hosted-pr-<number>`, `agent-room-hosted-pr-<number>-workspaces`, and `agent-room-hosted-pr-<number>-runtime-jobs`. Preview Workers use their workers.dev URL and do not attach `app.openagentroom.com`. Cleanup on PR close uses preview-scoped Cloudflare credentials, checks out the repository default branch, refuses to delete any resource that does not match the preview naming pattern, then deletes the Worker, D1 database, queue, and an empty R2 bucket for same-repository PRs only.
+The PR preview workflow is intentionally separate. Privileged preview deployment is manual-only through `workflow_dispatch`, requires `CLOUDFLARE_HOSTED_PREVIEWS_ENABLED=true` and `CLOUDFLARE_WORKERS_SUBDOMAIN`, checks out the default branch first, resolves the PR through the GitHub API, refuses fork PRs, and then checks out the verified same-repository head SHA. Preview deploys create isolated resources named `agent-room-hosted-pr-<number>`, `agent-room-hosted-pr-<number>-workspaces`, and `agent-room-hosted-pr-<number>-runtime-jobs`. Preview Workers use their workers.dev URL and do not attach `app.openagentroom.com`. Preview cleanup is manual through Wrangler or the Cloudflare dashboard; automated deletion is intentionally not part of the hosted workflow.
 
 ## Required CI Secrets
 
@@ -44,15 +44,17 @@ The production deployment workflow requires these GitHub Actions secrets:
 - `BETTER_AUTH_SECRET`
 - `BETTER_AUTH_URL`
 - `AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64`
+- `AGENT_ROOM_BILLING_PLANS`
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_CREDIT_TOPUP_PRICE_ID`
 - `AGENT_ROOM_EMAIL_WEBHOOK_URL`
 - `AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN`
 - `AGENT_ROOM_EMAIL_FROM`
 - `AGENT_ROOM_HOSTED_OPENROUTER_API_KEY`
-- `STRIPE_SECRET_KEY`
-- `STRIPE_WEBHOOK_SECRET`
-- `STRIPE_CREDIT_TOPUP_PRICE_ID`
+- `AGENT_ROOM_HOSTED_BRAVE_API_KEY`
 
-`BETTER_AUTH_URL` must be the deployed hosted origin. `AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64` must be a base64-encoded 32-byte key used only for hosted R2 artifact and credential encryption. The hosted OpenRouter secret backs managed OpenRouter usage, and Stripe secrets are required for the production hosted billing mode. The email webhook URL must accept a bearer-authenticated Resend-compatible JSON payload with `from`, `to`, `subject`, `html`, and `text`, then return a 2xx response only after the provider accepts the message.
+`BETTER_AUTH_URL` must be the deployed hosted origin. `AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64` must be a base64-encoded 32-byte key used only for hosted R2 artifact and credential encryption. `AGENT_ROOM_BILLING_PLANS` must contain at least one Stripe-backed plan. Hosted OpenRouter and Brave secrets back managed provider usage, and Stripe secrets are required for the hosted billing path. The email webhook URL must accept a bearer-authenticated Resend-compatible JSON payload with `from`, `to`, `subject`, `html`, and `text`, then return a 2xx response only after the provider accepts the message.
 
 Optional Google OAuth requires both `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. If either value is missing, Google sign-in is disabled rather than partially configured.
 
@@ -61,7 +63,7 @@ Manual preview deployment also needs these GitHub Actions repository variables:
 - `CLOUDFLARE_HOSTED_PREVIEWS_ENABLED=true`
 - `CLOUDFLARE_WORKERS_SUBDOMAIN`, for example the subdomain in `https://<worker>.<subdomain>.workers.dev`
 
-Preview deployment uses preview-scoped GitHub Actions secrets with the `*_HOSTED_PREVIEW_*` names from `.github/workflows/cloudflare-hosted-preview.yml`. Do not point preview deploys at production Cloudflare, Better Auth, Stripe, email, OpenRouter, Brave, or encryption-key secrets.
+Preview deployment reads preview-scoped GitHub Actions secrets with the `*_HOSTED_PREVIEW_*` names from `.github/workflows/cloudflare-hosted-preview.yml` when set, then falls back to the production secret names. Preview Cloudflare resources stay isolated by PR number, but provider, billing, auth, email, and encryption credentials can still be shared if no preview-specific secret is configured.
 
 ## Commands
 
@@ -122,7 +124,7 @@ The hosted V1 baseline covers these readiness points:
 - Hosted scheduled jobs remain disabled in this baseline; the runtime execution path does not install a Worker cron trigger or hosted job-run lease table.
 - Stop and fail-closed paths destroy the container and clean runtime artifacts before clearing authority, with stopped desired-state written before cleanup so queued reconciles cannot restart a room during stop.
 - Runtime state files, visible files, memory, and forked session state sync through canonical hosted callbacks before becoming visible in the hosted read model.
-- Managed hosted OpenRouter is enabled through a room-scoped Worker proxy backed by exact runtime-correlated billing reservations and actual provider-returned `usage.cost` values; workspace BYOK and hosted Codex remain higher-priority explicit provider paths. Hosted rooms can still use stored workspace BYOK Brave credentials through the normal runtime materialization path.
+- Managed hosted OpenRouter is enabled through a room-scoped Worker proxy backed by exact runtime-correlated billing reservations and actual provider-returned `usage.cost` values; workspace BYOK and hosted Codex remain higher-priority explicit provider paths. Managed hosted Brave is materialized into the room runtime when web search is enabled unless the workspace provides its own stored Brave credential.
 - Hosted provider and HTTP MCP saves now validate through the hosted runtime materialization inputs before reporting `ready`; hosted MCP HTTP save-time validation runs the same DNS/private-network guard before the control-plane initialize fetch, and hosted MCP stdio is saved as invalid rather than selected for rooms because it cannot be safely validated through the hosted HTTP materialization path.
 - Hosted billing credit, debit, and reservation accounting now keeps ledger evidence and account balances coupled through D1 batch writes; non-reservation debits spend only available balance, reservation-backed debits are tied to exact reservation ids, stale reservations expire before billing summaries, and included-credit expiry preserves cents backing active reservations.
 - Hosted V1 owner-only workspace membership is represented directly in the baseline D1 auth schema.

@@ -18,6 +18,7 @@ import { imageConfigSecretId } from '../configuration/operator-configuration/hel
 import { assertNoReservedRoomRuntimeEnvKeys } from '../security/process-env'
 import { appendHostedAudit } from './hosted-audit'
 import type { AgentRoomHostedEnv } from './bindings'
+import { resolveHostedConfig } from './hosted-config'
 import { upsertHostedSecret } from './hosted-secret-store'
 import { nowIso, stringifyJson, toJsonValue } from './hosted-json'
 import type { HostedActor } from './hosted-auth'
@@ -138,6 +139,9 @@ export async function getHostedRoomConfigSnapshot(input: {
         config: settings.searchConfig,
         provider: 'brave',
     })
+    const managedBraveAvailable = Boolean(
+        resolveHostedConfig(input.env).managedProviders.braveApiKey,
+    )
     const codexAuth = await resolveHostedCodexStatus({
         env: input.env,
         workspaceId: input.actor.workspaceId,
@@ -178,7 +182,12 @@ export async function getHostedRoomConfigSnapshot(input: {
             mcpConnections,
             bindings,
             capabilities,
-            searchReady: !search.enabled || !search.brave.enabled || Boolean(braveSecretId),
+            searchReady: resolveHostedRoomSearchReady({
+                searchEnabled: search.enabled,
+                braveEnabled: search.brave.enabled,
+                braveSecretId,
+                managedBraveAvailable,
+            }),
             imageReady: resolveHostedRoomImageReady({
                 roomImageProvider: config.imageProvider,
                 roomImageSecretId: config.imageSecretId,
@@ -195,6 +204,18 @@ export async function getHostedRoomConfigSnapshot(input: {
         github: emptyGithubSummary(),
         roomSecrets: roomSecrets.map(summarizeRoomSecret),
     }
+}
+
+export function resolveHostedRoomSearchReady(input: {
+    searchEnabled: boolean
+    braveEnabled: boolean
+    braveSecretId: string | null
+    managedBraveAvailable: boolean
+}): boolean {
+    if (!input.searchEnabled || !input.braveEnabled) {
+        return true
+    }
+    return Boolean(input.braveSecretId) || input.managedBraveAvailable
 }
 
 export function resolveHostedRoomImageReady(input: {

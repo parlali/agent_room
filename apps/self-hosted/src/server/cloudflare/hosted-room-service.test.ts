@@ -1,5 +1,44 @@
 import { describe, expect, it } from 'vitest'
-import { resolveHostedRoomImageReady, resolveHostedRoomImageSecret } from './hosted-room-service'
+import {
+    resolveHostedRoomImageReady,
+    resolveHostedRoomImageSecret,
+    resolveHostedRoomSearchReady,
+} from './hosted-room-service'
+
+describe('hosted room search readiness', () => {
+    it('marks Brave search ready when the hosted managed Brave key is available', () => {
+        expect(
+            resolveHostedRoomSearchReady({
+                searchEnabled: true,
+                braveEnabled: true,
+                braveSecretId: null,
+                managedBraveAvailable: true,
+            }),
+        ).toBe(true)
+    })
+
+    it('marks Brave search ready when a workspace Brave key is stored', () => {
+        expect(
+            resolveHostedRoomSearchReady({
+                searchEnabled: true,
+                braveEnabled: true,
+                braveSecretId: 'secret_brave',
+                managedBraveAvailable: false,
+            }),
+        ).toBe(true)
+    })
+
+    it('does not mark enabled Brave search ready without a managed or stored key', () => {
+        expect(
+            resolveHostedRoomSearchReady({
+                searchEnabled: true,
+                braveEnabled: true,
+                braveSecretId: null,
+                managedBraveAvailable: false,
+            }),
+        ).toBe(false)
+    })
+})
 
 describe('hosted room image secret resolution', () => {
     it('clears stale room image secrets when the room image provider changes', () => {
