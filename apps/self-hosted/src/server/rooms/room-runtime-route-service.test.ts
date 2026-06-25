@@ -194,52 +194,40 @@ describe('room runtime route ownership', () => {
         routeService = await import('./room-runtime-route-service')
     })
 
-    it('allows local room usage reads for authenticated actors in single-tenant self-host', async () => {
-        await expect(routeService.listRoomUsageForRoute({ roomId: otherRoom.id })).resolves.toEqual(
-            {
-                roomId: otherRoom.id,
-                events: [],
-                totals: {
-                    eventCount: 0,
-                    durationMs: null,
-                    totalTokens: null,
-                    estimatedCostUsd: null,
-                    unknownTokenEvents: 0,
-                },
-            },
+    it('denies local room usage reads for a different owner', async () => {
+        await expect(routeService.listRoomUsageForRoute({ roomId: otherRoom.id })).rejects.toThrow(
+            'Room access denied',
         )
 
-        expect(mocks.syncRoomRuntimeUsage).toHaveBeenCalledWith(otherRoom.id)
-        expect(mocks.usageListByRoom).toHaveBeenCalledWith({
-            roomId: otherRoom.id,
-            limit: 100,
-        })
-        expect(mocks.setResponseStatus).not.toHaveBeenCalled()
+        expect(mocks.setResponseStatus).toHaveBeenCalledWith(403, 'Forbidden')
+        expect(mocks.syncRoomRuntimeUsage).not.toHaveBeenCalled()
+        expect(mocks.usageListByRoom).not.toHaveBeenCalled()
     })
 
-    it('allows local file and memory reads for authenticated actors in single-tenant self-host', async () => {
+    it('denies local file and memory reads for a different owner', async () => {
         mocks.listRoomFiles.mockResolvedValue([{ path: 'README.md' }])
         mocks.readRoomMemory.mockResolvedValue({ content: 'memory' })
 
-        await expect(routeService.listRoomFilesForRoute({ roomId: otherRoom.id })).resolves.toEqual(
-            [{ path: 'README.md' }],
+        await expect(routeService.listRoomFilesForRoute({ roomId: otherRoom.id })).rejects.toThrow(
+            'Room access denied',
         )
-        await expect(routeService.getRoomMemoryForRoute({ roomId: otherRoom.id })).resolves.toEqual(
-            { content: 'memory' },
+        await expect(routeService.getRoomMemoryForRoute({ roomId: otherRoom.id })).rejects.toThrow(
+            'Room access denied',
         )
 
-        expect(mocks.listRoomFiles).toHaveBeenCalledWith(otherRoom.id)
-        expect(mocks.readRoomMemory).toHaveBeenCalledWith(otherRoom.id)
+        expect(mocks.listRoomFiles).not.toHaveBeenCalled()
+        expect(mocks.readRoomMemory).not.toHaveBeenCalled()
     })
 
-    it('returns the canonical local room after API access succeeds', async () => {
+    it('returns forbidden for local API access to a room owned by another user', async () => {
         const owner = await routeService.requireApiRoomOwner({
             request: new Request('https://agent-room.test/api/rooms/room-other/events'),
             roomId: otherRoom.id,
         })
 
-        expect(owner).not.toBeInstanceOf(Response)
-        expect((owner as { room: typeof otherRoom }).room).toBe(otherRoom)
+        expect(owner).toBeInstanceOf(Response)
+        expect((owner as Response).status).toBe(403)
+        await expect((owner as Response).text()).resolves.toBe('Room access denied')
     })
 
     it('returns the canonical local room after API owner access succeeds', async () => {

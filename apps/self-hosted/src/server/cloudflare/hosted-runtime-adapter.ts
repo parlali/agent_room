@@ -1,5 +1,8 @@
 import type { AgentRoomHostedEnv, AgentRoomRuntimeJobMessage } from './bindings'
-import { evaluateHostedRuntimeAccess } from './hosted-runtime-access'
+import {
+    evaluateHostedRuntimeAccess,
+    hostedRuntimeAccessDeniedMessage,
+} from './hosted-runtime-access'
 import {
     failClosedHostedRuntime,
     HostedRuntimeMaterializationConflictError,
@@ -128,10 +131,7 @@ export async function reconcileHostedRuntimeJob(
             userKeyAvailable: availability.userKeyAvailable,
         })
         if (!access.allowed) {
-            const reasonMessage =
-                access.reason === 'no_subscription'
-                    ? 'Hosted runtime access denied: workspace has no active subscription'
-                    : 'Hosted runtime access denied: workspace concurrent room limit reached'
+            const reasonMessage = hostedRuntimeAccessDeniedMessage(access.reason)
             console.error(reasonMessage, { reason: access.reason })
             await failClosedHostedRuntime({
                 env,

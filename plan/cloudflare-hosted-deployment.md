@@ -107,11 +107,11 @@ These steps require real deployment credentials and cannot be completed in the p
 - Confirm `/api/hosted/health` returns the expected D1, R2, queue, and runtime container binding truth on `https://app.openagentroom.com`
 - Sign up with email/password, receive verification mail through the webhook, verify email, sign in, request a password reset, and verify the reset mail
 - If Google OAuth is configured, sign in with Google OAuth and confirm the Better Auth user maps to an organization workspace
-- Create a workspace-backed room and verify every persisted room, provider connection, MCP connection, job, runtime state, and usage event row carries the same `workspace_id`
+- Create a workspace-backed room and verify every persisted room, provider connection, MCP connection, runtime state, and usage event row carries the same `workspace_id`
 - Enable Workers Paid before deploying Cloudflare Containers. Wrangler returns an account-level Containers authorization error until the target account has Workers Paid access.
 - Start a hosted room runtime and verify the container receives only encrypted R2-backed runtime config/token materialization, not direct D1 credentials.
 - Hydrate a workspace from R2, run a session, snapshot back to R2, stop on idle, and restart from the snapshot
-- Run scheduled jobs through the queue path and verify usage and audit rows remain workspace-scoped
+- Verify hosted scheduled jobs remain disabled until the quota/runtime-lifecycle work lands separately
 - Review Cloudflare Container isolation with untrusted multi-tenant code in the deployed account. If it does not meet the isolation bar, keep the runtime adapter path open for a stronger isolated runtime backend.
 
 ## Hosted V1 Baseline
@@ -119,15 +119,15 @@ These steps require real deployment credentials and cannot be completed in the p
 The hosted V1 baseline covers these readiness points:
 
 - Hosted runtime materialization uses encrypted R2 artifacts, canonical D1 runtime authority, queue-owned reconcile, compare-and-set version updates, and callback-authenticated state/file/usage sync.
-- Scheduled cron claims re-check enabled/due/running state atomically, use run-budget leases, dispatch without holding a Cloudflare scheduled invocation open for long agent runs, and release locks from the runtime `run.finished` callback.
+- Hosted scheduled jobs remain disabled in this baseline; the runtime execution path does not install a Worker cron trigger or hosted job-run lease table.
 - Stop and fail-closed paths destroy the container and clean runtime artifacts before clearing authority, with stopped desired-state written before cleanup so queued reconciles cannot restart a room during stop.
 - Runtime state files, visible files, memory, and forked session state sync through canonical hosted callbacks before becoming visible in the hosted read model.
-- Managed hosted OpenRouter is enabled through a room-scoped Worker proxy backed by exact runtime-correlated billing reservations and actual provider-returned `usage.cost` values; workspace BYOK and hosted Codex remain higher-priority explicit provider paths. Managed Brave search remains disabled and fails closed until Brave exposes actual provider-returned billable dollar costs; hosted rooms can still use stored workspace BYOK Brave credentials through the normal runtime materialization path.
+- Managed hosted OpenRouter is enabled through a room-scoped Worker proxy backed by exact runtime-correlated billing reservations and actual provider-returned `usage.cost` values; workspace BYOK and hosted Codex remain higher-priority explicit provider paths. Hosted rooms can still use stored workspace BYOK Brave credentials through the normal runtime materialization path.
 - Hosted provider and HTTP MCP saves now validate through the hosted runtime materialization inputs before reporting `ready`; hosted MCP HTTP save-time validation runs the same DNS/private-network guard before the control-plane initialize fetch, and hosted MCP stdio is saved as invalid rather than selected for rooms because it cannot be safely validated through the hosted HTTP materialization path.
 - Hosted billing credit, debit, and reservation accounting now keeps ledger evidence and account balances coupled through D1 batch writes; non-reservation debits spend only available balance, reservation-backed debits are tied to exact reservation ids, stale reservations expire before billing summaries, and included-credit expiry preserves cents backing active reservations.
 - Hosted V1 owner-only workspace membership is represented directly in the baseline D1 auth schema.
-- Worker runtime callbacks and managed provider proxies are split out of the Cloudflare Worker entrypoint, so `worker.ts` remains dispatch-focused while callback auth, file/state sync, usage billing, and provider proxy reservations live in the hosted runtime route module.
-- Runtime, cron, file cleanup, and upload failure logs avoid tenant, room, thread, job, and user-controlled path identifiers.
+- Worker runtime callbacks and managed provider proxies are split out of the Cloudflare Worker entrypoint, so `worker.ts` remains dispatch-focused while callback auth, file/state sync, usage billing, and OpenRouter proxy reservations live in the hosted runtime route module.
+- Runtime, file cleanup, and upload failure logs avoid tenant, room, thread, job, and user-controlled path identifiers.
 - The single-tenant Docker self-hosted path remains the local Node/Bun path and does not require hosted Cloudflare bindings or hosted secrets.
 - Production duplication is verified at 0 clone groups/0 duplicated lines by the app quality score. The stricter non-generated sensitive scan still reports small repeated test/support snippets, so large touched files and test fakes remain maintainability debt under the godfile/spaghetti review lens rather than being treated as closed quality work.
 

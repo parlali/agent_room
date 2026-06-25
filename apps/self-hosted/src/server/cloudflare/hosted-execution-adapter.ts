@@ -3,7 +3,9 @@ import type {
     RoomExecutionSnapshot,
     RoomExecutionThinkingLevel,
     RoomExecutionTruthSnapshot,
+    RoomCronJob,
     RoomFileChangedPayload,
+    RoomRunHistorySnapshot,
     RoomRuntimeOverview,
     RoomSessionWindow,
     RoomThreadAbortResult,
@@ -11,7 +13,8 @@ import type {
     RoomThreadForkResult,
     RoomThreadSendResult,
 } from '../rooms/execution-types'
-import { cancelReadableStreamReaderInBackground } from '../streams/readable-stream'
+import type { JobSchedule } from '#/domain/job-schedule'
+import { createRuntimeEventProxyStream } from '../rooms/runtime-event-proxy-stream'
 import {
     abortSchema,
     compactSchema,
@@ -49,17 +52,8 @@ import { openHostedPiRuntimeStream, requestHostedPiRuntime } from './hosted-runt
 import { assertHostedRunAllowed, requireHostedExecutionContext } from './hosted-execution-context'
 import { hostedRoomPaths, hostedRuntimePort } from './hosted-runtime-paths'
 
-export {
-    createRoomCronJob,
-    listRoomCronJobs,
-    listRoomRunHistory,
-    removeRoomCronJob,
-    runRoomCronJobNow,
-    updateRoomCronJob,
-    updateRoomCronJobEnabled,
-} from './hosted-cron-adapter'
-
 const requireHosted = requireHostedExecutionContext
+const hostedCronDisabledReason = 'Hosted scheduled jobs are not enabled'
 
 function overview(input: {
     roomId: string
@@ -84,6 +78,69 @@ function overview(input: {
         pid: null,
         lastError: input.lastError,
         lastHealthAt: input.lastHealthAt,
+    }
+}
+
+function throwHostedCronDisabled(): never {
+    throw new Error(hostedCronDisabledReason)
+}
+
+export async function listRoomCronJobs(_input: {
+    roomId: string
+    limit?: number
+}): Promise<RoomCronJob[]> {
+    return []
+}
+
+export async function createRoomCronJob(_input: {
+    roomId: string
+    name: string
+    message: string
+    schedule: JobSchedule
+}): Promise<RoomCronJob> {
+    throwHostedCronDisabled()
+}
+
+export async function updateRoomCronJob(_input: {
+    roomId: string
+    jobId: string
+    name: string
+    message: string
+    schedule: JobSchedule
+}): Promise<RoomCronJob> {
+    throwHostedCronDisabled()
+}
+
+export async function updateRoomCronJobEnabled(_input: {
+    roomId: string
+    jobId: string
+    enabled: boolean
+}): Promise<RoomCronJob> {
+    throwHostedCronDisabled()
+}
+
+export async function runRoomCronJobNow(_input: {
+    roomId: string
+    jobId: string
+}): Promise<{ ran: boolean; reason: string | null }> {
+    return {
+        ran: false,
+        reason: hostedCronDisabledReason,
+    }
+}
+
+export async function removeRoomCronJob(_input: { roomId: string; jobId: string }): Promise<void> {
+    throwHostedCronDisabled()
+}
+
+export async function listRoomRunHistory(input: {
+    roomId: string
+    limit?: number
+}): Promise<RoomRunHistorySnapshot> {
+    return {
+        roomId: input.roomId,
+        mismatchCount: 0,
+        entries: [],
     }
 }
 
@@ -414,65 +471,26 @@ export async function editRoomThreadMessage(input: {
     })
 }
 
-function proxyStream(input: {
-    roomId: string
-    path: string
-    signal?: AbortSignal
-}): ReadableStream<Uint8Array> {
-    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
-    let closed = false
-    return new ReadableStream<Uint8Array>({
-        start(controller) {
-            requireHosted()
-                .then(({ context, actor }) =>
-                    openHostedPiRuntimeStream({
-                        env: context.env,
-                        workspaceId: actor.workspaceId,
-                        roomId: input.roomId,
-                        path: input.path,
-                        signal: input.signal,
-                    }),
-                )
-                .then((stream) => {
-                    reader = stream.getReader()
-                    async function pump(): Promise<void> {
-                        try {
-                            while (!closed && reader) {
-                                const result = await reader.read()
-                                if (result.done) {
-                                    controller.close()
-                                    return
-                                }
-                                controller.enqueue(result.value)
-                            }
-                        } catch (error) {
-                            controller.error(error)
-                        }
-                    }
-                    void pump()
-                })
-                .catch((error) => controller.error(error))
-        },
-        cancel() {
-            closed = true
-            if (reader) {
-                const currentReader = reader
-                reader = null
-                cancelReadableStreamReaderInBackground(currentReader)
-            }
-        },
-    })
-}
-
 export function createRoomSessionEventStream(input: {
     roomId: string
     sessionKey: string
     abortSignal?: AbortSignal
 }): ReadableStream<Uint8Array> {
-    return proxyStream({
+    return createRuntimeEventProxyStream({
         roomId: input.roomId,
-        path: `/threads/${encodeURIComponent(input.sessionKey)}/events`,
-        signal: input.abortSignal,
+        sessionKey: input.sessionKey,
+        streamKind: 'session',
+        abortSignal: input.abortSignal,
+        open: async () => {
+            const { context, actor } = await requireHosted()
+            return openHostedPiRuntimeStream({
+                env: context.env,
+                workspaceId: actor.workspaceId,
+                roomId: input.roomId,
+                path: `/threads/${encodeURIComponent(input.sessionKey)}/events`,
+                signal: input.abortSignal,
+            })
+        },
     })
 }
 
@@ -480,10 +498,21 @@ export function createRoomEventStream(input: {
     roomId: string
     abortSignal?: AbortSignal
 }): ReadableStream<Uint8Array> {
-    return proxyStream({
+    return createRuntimeEventProxyStream({
         roomId: input.roomId,
-        path: '/events',
-        signal: input.abortSignal,
+        sessionKey: null,
+        streamKind: 'room',
+        abortSignal: input.abortSignal,
+        open: async () => {
+            const { context, actor } = await requireHosted()
+            return openHostedPiRuntimeStream({
+                env: context.env,
+                workspaceId: actor.workspaceId,
+                roomId: input.roomId,
+                path: '/events',
+                signal: input.abortSignal,
+            })
+        },
     })
 }
 

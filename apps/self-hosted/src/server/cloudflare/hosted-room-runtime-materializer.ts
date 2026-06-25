@@ -158,7 +158,6 @@ export async function materializeHostedRuntime(input: {
         config: settings.searchConfig,
         provider: 'brave',
     })
-    const managedBraveSearchEnabled = false
     if (searchEnabled && search.brave.enabled) {
         if (braveSecretId) {
             env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = await readRequiredHostedSecretPlainText({
@@ -319,6 +318,24 @@ export async function materializeHostedRuntime(input: {
             : []),
         ...persistedStateFiles,
     ])
+    const runtimeEnv = buildHostedRuntimeEnv({
+        roomConfiguration,
+        token,
+        bundle,
+        redactionSecrets: hostedRuntimeRedactionSecrets({
+            providerAuthJson: providerMaterialization.authJson,
+            env,
+            mcpServers: roomConfiguration.entitlements.mcpServers,
+        }),
+        providerCandidate: providerMaterialization.candidate,
+        workspaceId: input.actor.workspaceId,
+        roomId: input.roomId,
+        publicOrigin,
+    })
+    const egressAllowedHosts = await hostedRuntimeAllowedHosts({
+        runtimeConfig: piConfig,
+        usageCallbackUrl: runtimeEnv[hostedRuntimeUsageCallbackUrlEnvKey],
+    })
     const configObjectKey = hostedRuntimeConfigKey({
         workspaceId: input.actor.workspaceId,
         roomId: input.roomId,
@@ -370,17 +387,16 @@ export async function materializeHostedRuntime(input: {
                 token_object_key = ?2,
                 runtime_bundle_object_key = ?3,
                 provider_candidate = ?4,
-                managed_brave_search_enabled = ?5,
-                config_version = ?6,
-                token_version = ?7,
+                config_version = ?5,
+                token_version = ?6,
                 health_status = 'unknown',
                 last_health_at = NULL,
                 last_error = NULL,
-                updated_at = ?8
-            WHERE workspace_id = ?9
-              AND room_id = ?10
-              AND config_version = ?11
-              AND token_version = ?12
+                updated_at = ?7
+            WHERE workspace_id = ?8
+              AND room_id = ?9
+              AND config_version = ?10
+              AND token_version = ?11
               AND EXISTS (
                   SELECT 1
                   FROM hosted_room
@@ -395,7 +411,6 @@ export async function materializeHostedRuntime(input: {
             tokenObjectKey,
             bundleObjectKey,
             providerMaterialization.candidate,
-            managedBraveSearchEnabled ? 1 : 0,
             nextConfigVersion,
             nextTokenVersion,
             nowIso(),
@@ -415,25 +430,7 @@ export async function materializeHostedRuntime(input: {
         runtimeState.row.runtimeBundleObjectKey,
         previousTokenObjectKey,
     ].filter((key): key is string => key !== null && !currentObjectKeys.has(key))
-    await deleteHostedWorkspaceObjects({ env: input.env, keys: staleObjectKeys })
-    const runtimeEnv = buildHostedRuntimeEnv({
-        roomConfiguration,
-        token,
-        bundle,
-        redactionSecrets: hostedRuntimeRedactionSecrets({
-            providerAuthJson: providerMaterialization.authJson,
-            env,
-            mcpServers: roomConfiguration.entitlements.mcpServers,
-        }),
-        providerCandidate: providerMaterialization.candidate,
-        workspaceId: input.actor.workspaceId,
-        roomId: input.roomId,
-        publicOrigin,
-    })
-    const egressAllowedHosts = await hostedRuntimeAllowedHosts({
-        runtimeConfig: piConfig,
-        usageCallbackUrl: runtimeEnv[hostedRuntimeUsageCallbackUrlEnvKey],
-    })
+    await deleteSupersededRuntimeArtifacts({ env: input.env, keys: staleObjectKeys })
     return {
         configObjectKey,
         tokenObjectKey,

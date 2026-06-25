@@ -1,5 +1,6 @@
-import { isAbsolute, relative, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import type { RoomDirectoryListing } from '#/domain/room-file-types'
+import { assertPathInsideRoot } from '../security/path-boundary'
 
 export function roomFilePathParts(relativePath: string): string[] {
     return relativePath.split(/[\\/]+/).filter(Boolean)
@@ -47,9 +48,9 @@ export function resolveRoomFilePathInsideRoot(input: {
 }): string {
     const root = resolve(input.root)
     const target = resolve(root, input.relativePath)
-    const relativePath = relative(root, target)
-    if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
-        throw new Error(input.boundaryErrorMessage ?? 'File path escapes the room boundary')
-    }
-    return target
+    return assertPathInsideRoot(
+        target,
+        root,
+        input.boundaryErrorMessage ?? 'File path escapes the room boundary',
+    )
 }

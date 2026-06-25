@@ -113,7 +113,6 @@ export async function getHostedRuntimeState(input: {
                 token_object_key AS tokenObjectKey,
                 runtime_bundle_object_key AS runtimeBundleObjectKey,
                 provider_candidate AS providerCandidate,
-                managed_brave_search_enabled AS managedBraveSearchEnabled,
                 workspace_snapshot_key AS workspaceSnapshotKey,
                 config_version AS configVersion,
                 token_version AS tokenVersion,
@@ -160,7 +159,6 @@ export async function getHostedRuntimeEndpointState(input: {
                 runtime.token_object_key AS tokenObjectKey,
                 runtime.runtime_bundle_object_key AS runtimeBundleObjectKey,
                 runtime.provider_candidate AS providerCandidate,
-                runtime.managed_brave_search_enabled AS managedBraveSearchEnabled,
                 runtime.workspace_snapshot_key AS workspaceSnapshotKey,
                 runtime.config_version AS configVersion,
                 runtime.token_version AS tokenVersion,
@@ -197,7 +195,6 @@ export async function getHostedRuntimeEndpointState(input: {
                   tokenObjectKey: row.tokenObjectKey,
                   runtimeBundleObjectKey: row.runtimeBundleObjectKey,
                   providerCandidate: row.providerCandidate,
-                  managedBraveSearchEnabled: row.managedBraveSearchEnabled === 1,
                   workspaceSnapshotKey: row.workspaceSnapshotKey,
                   configVersion: row.configVersion,
                   tokenVersion: row.tokenVersion,
@@ -222,17 +219,6 @@ interface HostedRoomRow {
     updatedAt: string
 }
 
-type HostedRuntimeSqlRow = Omit<HostedRuntimeRow, 'managedBraveSearchEnabled'> & {
-    managedBraveSearchEnabled: number
-}
-
-function mapRuntimeRow(row: HostedRuntimeSqlRow): HostedRuntimeRow {
-    return {
-        ...row,
-        managedBraveSearchEnabled: row.managedBraveSearchEnabled === 1,
-    }
-}
-
 export interface HostedRuntimeRow {
     roomId: string
     workspaceId: string
@@ -241,7 +227,6 @@ export interface HostedRuntimeRow {
     tokenObjectKey: string | null
     runtimeBundleObjectKey: string | null
     providerCandidate: HostedProviderCandidate | null
-    managedBraveSearchEnabled: boolean
     workspaceSnapshotKey: string | null
     configVersion: number
     tokenVersion: number
@@ -255,4 +240,10 @@ export interface HostedRuntimeRow {
 export interface HostedRuntimeState {
     row: HostedRuntimeRow
     metadata: RoomRuntimeMetadataRecord | null
+}
+
+type HostedRuntimeSqlRow = HostedRuntimeRow
+
+function mapRuntimeRow(row: HostedRuntimeSqlRow): HostedRuntimeRow {
+    return row
 }

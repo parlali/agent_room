@@ -206,8 +206,8 @@ describe('runtime room listing ownership', () => {
         mocks.roomConfigRepository.getOrCreate.mockReset()
     })
 
-    it('lists all local rooms after the authenticated self-host actor is present', async () => {
-        mocks.roomRepository.listRooms.mockResolvedValue([
+    it('lists local rooms scoped to the authenticated self-host actor', async () => {
+        mocks.roomRepository.listRoomsByOwner.mockResolvedValue([
             {
                 id: roomId,
                 slug: 'ops',
@@ -232,8 +232,8 @@ describe('runtime room listing ownership', () => {
             actorUserId: ' user-1 ',
         })
 
-        expect(mocks.roomRepository.listRooms).toHaveBeenCalled()
-        expect(mocks.roomRepository.listRoomsByOwner).not.toHaveBeenCalled()
+        expect(mocks.roomRepository.listRoomsByOwner).toHaveBeenCalledWith('user-1')
+        expect(mocks.roomRepository.listRooms).not.toHaveBeenCalled()
         expect(rooms).toEqual([
             expect.objectContaining({
                 roomId,

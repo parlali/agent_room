@@ -5,14 +5,10 @@ import {
     type SearchProviderResponse,
 } from './web-search'
 import { createTestPiRuntimeConfig } from './test-runtime-defaults'
-import {
-    hostedRuntimeBraveProxyUrlEnvKey,
-    piRuntimeTokenEnvKey,
-} from '../rooms/pi-runtime-contract'
+import { piRuntimeTokenEnvKey } from '../rooms/pi-runtime-contract'
 
 const originalFetch = globalThis.fetch
 const originalBraveKey = process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY
-const originalHostedBraveProxyUrl = process.env[hostedRuntimeBraveProxyUrlEnvKey]
 const originalPiRuntimeToken = process.env[piRuntimeTokenEnvKey]
 const originalBrowserbaseKey = process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY
 const originalWebSocket = globalThis.WebSocket
@@ -89,11 +85,6 @@ export function resetWebToolTestGlobals() {
         delete process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY
     } else {
         process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = originalBraveKey
-    }
-    if (originalHostedBraveProxyUrl === undefined) {
-        delete process.env[hostedRuntimeBraveProxyUrlEnvKey]
-    } else {
-        process.env[hostedRuntimeBraveProxyUrlEnvKey] = originalHostedBraveProxyUrl
     }
     if (originalPiRuntimeToken === undefined) {
         delete process.env[piRuntimeTokenEnvKey]

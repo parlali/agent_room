@@ -143,6 +143,14 @@ export async function resolveRoomOwnerAccess(
             message: 'Room not found',
         }
     }
+    if (room.createdByUserId !== actor.userId) {
+        return {
+            ok: false,
+            status: 403,
+            statusText: 'Forbidden',
+            message: 'Room access denied',
+        }
+    }
     return {
         ok: true,
         room,
@@ -246,6 +254,9 @@ export async function createRoomForRoute(data: {
 }) {
     const hosted = await requireCurrentHostedMutationActor()
     if (hosted) {
+        if (data.initialCron) {
+            throw new Error('Hosted scheduled jobs are not enabled')
+        }
         const room = await createHostedRoom({
             env: hosted.context.env,
             actor: hosted.actor,
@@ -259,15 +270,6 @@ export async function createRoomForRoute(data: {
             cronTimezone: data.cronTimezone,
             mcpConnectionIds: data.mcpConnectionIds,
         })
-        if (data.initialCron) {
-            const { createRoomCronJob } = await import('#/server/rooms/execution-engine')
-            await createRoomCronJob({
-                roomId: room.id,
-                name: data.initialCron.name,
-                message: data.initialCron.message,
-                schedule: data.initialCron.schedule,
-            })
-        }
         return room
     }
     const actor = await requireMutationActor()

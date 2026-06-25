@@ -3,7 +3,6 @@ PRAGMA foreign_keys = ON;
 ALTER TABLE hosted_room_runtime_state ADD COLUMN token_object_key TEXT;
 ALTER TABLE hosted_room_runtime_state ADD COLUMN runtime_bundle_object_key TEXT;
 ALTER TABLE hosted_room_runtime_state ADD COLUMN provider_candidate TEXT CHECK (provider_candidate IS NULL OR provider_candidate IN ('user_key', 'codex', 'hosted_openrouter'));
-ALTER TABLE hosted_room_runtime_state ADD COLUMN managed_brave_search_enabled INTEGER NOT NULL DEFAULT 0 CHECK (managed_brave_search_enabled IN (0, 1));
 
 ALTER TABLE hosted_usage_event ADD COLUMN reasoning_tokens INTEGER;
 ALTER TABLE hosted_usage_event ADD COLUMN total_tokens INTEGER;
@@ -13,59 +12,8 @@ ALTER TABLE hosted_usage_event ADD COLUMN idle_duration_ms INTEGER;
 ALTER TABLE hosted_usage_event ADD COLUMN estimated_cost_usd TEXT;
 ALTER TABLE hosted_usage_event ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}';
 ALTER TABLE hosted_usage_event ADD COLUMN idempotency_key TEXT;
-ALTER TABLE hosted_room_job ADD COLUMN heartbeat_at DATE;
-ALTER TABLE hosted_room_job ADD COLUMN last_renewed_at DATE;
-ALTER TABLE hosted_room_job ADD COLUMN run_budget_ms INTEGER;
-ALTER TABLE hosted_room_job ADD COLUMN recovery_reason TEXT;
-ALTER TABLE hosted_room_job ADD COLUMN last_duration_ms INTEGER;
-ALTER TABLE hosted_room_job ADD COLUMN provider TEXT;
-ALTER TABLE hosted_room_job ADD COLUMN model TEXT;
-ALTER TABLE hosted_room_job ADD COLUMN config_version INTEGER;
 
 CREATE UNIQUE INDEX hosted_usage_event_workspace_id_idempotency_key_idx ON hosted_usage_event(workspace_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
-
-CREATE TABLE hosted_room_job_run (
-    id TEXT PRIMARY KEY NOT NULL,
-    workspace_id TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
-    room_id TEXT NOT NULL,
-    job_id TEXT,
-    job_name TEXT,
-    attempt INTEGER NOT NULL DEFAULT 1 CHECK (attempt > 0),
-    status TEXT NOT NULL CHECK (status IN ('running', 'complete', 'failed', 'skipped')),
-    summary TEXT,
-    error TEXT,
-    lock_token TEXT,
-    session_key TEXT,
-    session_id TEXT,
-    provider TEXT,
-    model TEXT,
-    config_version INTEGER,
-    started_at DATE NOT NULL,
-    finished_at DATE,
-    duration_ms INTEGER,
-    next_run_at DATE,
-    FOREIGN KEY (workspace_id, room_id)
-        REFERENCES hosted_room(workspace_id, id)
-        ON DELETE CASCADE,
-    FOREIGN KEY (workspace_id, job_id)
-        REFERENCES hosted_room_job(workspace_id, id)
-        ON DELETE RESTRICT,
-    FOREIGN KEY (workspace_id, room_id, job_id)
-        REFERENCES hosted_room_job(workspace_id, room_id, id)
-        ON DELETE RESTRICT
-);
-
-CREATE INDEX hosted_room_job_run_room_started_idx ON hosted_room_job_run(workspace_id, room_id, started_at);
-CREATE INDEX hosted_room_job_run_job_started_idx ON hosted_room_job_run(job_id, started_at);
-
-CREATE TRIGGER hosted_room_job_delete_clear_job_run_job_id
-BEFORE DELETE ON hosted_room_job
-BEGIN
-    UPDATE hosted_room_job_run
-    SET job_id = NULL
-    WHERE workspace_id = OLD.workspace_id
-      AND job_id = OLD.id;
-END;
 
 CREATE TABLE hosted_secret (
     id TEXT PRIMARY KEY NOT NULL,

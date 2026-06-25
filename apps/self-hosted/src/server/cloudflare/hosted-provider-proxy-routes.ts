@@ -1,8 +1,3 @@
-import {
-    mergeCapabilities,
-    normalizeSearchConfig,
-    searchProviderSecretId,
-} from '../configuration/capabilities'
 import type { AgentRoomHostedEnv } from './bindings'
 import { hostedProviderBillingGateCents } from './hosted-billing-types'
 import {
@@ -15,14 +10,10 @@ import {
 } from './hosted-billing-repository'
 import { resolveHostedConfig } from './hosted-config'
 import { objectRecord, nullableObjectRecord } from './hosted-json'
-import { hostedSearchDefaults } from './hosted-operator-config-service'
-import { listRoomMcpBindings, readHostedRoomConfig } from './hosted-room-config-store'
 import {
     openRouterCostMicrosFromProviderText,
-    parseHostedBraveProxyPath,
     parseHostedOpenRouterProxyPath,
 } from './hosted-provider-proxy'
-import { getHostedWorkspaceSettings } from './hosted-room-service'
 import {
     boundedHeaderToken,
     requireHostedRuntimeProviderProxy,
@@ -489,101 +480,4 @@ export async function hostedOpenRouterProxy(
         statusText: response.statusText,
         headers: responseHeaders,
     })
-}
-
-export async function hostedBraveProxy(
-    env: AgentRoomHostedEnv,
-    request: Request,
-    url: URL,
-): Promise<Response> {
-    const proxyPath = parseHostedBraveProxyPath(url.pathname)
-    if (request.method !== 'GET' || !proxyPath) {
-        return hostedJsonResponse(
-            {
-                ok: false,
-                code: 'runtime_provider_proxy_path_not_allowed',
-            },
-            {
-                status: 403,
-            },
-        )
-    }
-    const runtime = await requireHostedRuntimeProviderProxy({
-        env,
-        request,
-        workspaceId: proxyPath.workspaceId,
-        roomId: proxyPath.roomId,
-    })
-    if (runtime instanceof Response) {
-        return runtime
-    }
-    if (!runtime.runtime.managedBraveSearchEnabled) {
-        return hostedJsonResponse(
-            {
-                ok: false,
-                code: 'runtime_provider_not_authorized',
-            },
-            {
-                status: 403,
-            },
-        )
-    }
-    const settings = await getHostedWorkspaceSettings({
-        env,
-        workspaceId: proxyPath.workspaceId,
-    })
-    const [roomConfig, bindings] = await Promise.all([
-        readHostedRoomConfig({
-            env,
-            workspaceId: proxyPath.workspaceId,
-            roomId: proxyPath.roomId,
-        }),
-        listRoomMcpBindings({
-            env,
-            workspaceId: proxyPath.workspaceId,
-            roomId: proxyPath.roomId,
-        }),
-    ])
-    if (!roomConfig) {
-        return hostedJsonResponse(
-            {
-                ok: false,
-                code: 'runtime_provider_not_authorized',
-            },
-            {
-                status: 403,
-            },
-        )
-    }
-    const capabilities = mergeCapabilities({
-        defaults: settings.capabilityDefaults,
-        overrides: roomConfig.capabilityOverrides,
-        roomMode: roomConfig.roomMode,
-        mcpConnectionCount: bindings.filter((binding) => binding.enabled).length,
-    })
-    const search = normalizeSearchConfig(settings.searchConfig, hostedSearchDefaults)
-    const braveSecretId = searchProviderSecretId({
-        config: settings.searchConfig,
-        provider: 'brave',
-    })
-    if (!capabilities.webSearch || !search.enabled || !search.brave.enabled || braveSecretId) {
-        return hostedJsonResponse(
-            {
-                ok: false,
-                code: 'runtime_provider_not_authorized',
-            },
-            {
-                status: 403,
-            },
-        )
-    }
-    return hostedJsonResponse(
-        {
-            ok: false,
-            code: 'managed_provider_cost_unavailable',
-        },
-        {
-            status: 503,
-        },
-    )
 }

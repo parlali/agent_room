@@ -1,9 +1,7 @@
 import { nullableObjectRecord } from './hosted-json'
 
 export const hostedOpenRouterProxyPathPrefix = '/api/hosted/runtime/provider/openrouter/v1'
-export const hostedBraveProxyPathPrefix = '/api/hosted/runtime/provider/brave/v1'
 const hostedOpenRouterProxyAllowedPaths = new Set(['/chat/completions'])
-const hostedBraveProxyAllowedPaths = new Set(['/search'])
 
 export interface HostedOpenRouterProxyPath {
     workspaceId: string
@@ -18,15 +16,6 @@ export function hostedOpenRouterProxyBaseUrl(input: {
 }): string {
     const origin = input.publicOrigin.replace(/\/$/, '')
     return `${origin}${hostedOpenRouterProxyPathPrefix}/workspaces/${encodeURIComponent(input.workspaceId)}/rooms/${encodeURIComponent(input.roomId)}`
-}
-
-export function hostedBraveProxyBaseUrl(input: {
-    publicOrigin: string
-    workspaceId: string
-    roomId: string
-}): string {
-    const origin = input.publicOrigin.replace(/\/$/, '')
-    return `${origin}${hostedBraveProxyPathPrefix}/workspaces/${encodeURIComponent(input.workspaceId)}/rooms/${encodeURIComponent(input.roomId)}/search`
 }
 
 export function hostedOpenRouterProxyTargetPath(suffix: string): string | null {
@@ -45,26 +34,6 @@ export function parseHostedOpenRouterProxyPath(pathname: string): HostedOpenRout
     }
     const targetPath = hostedOpenRouterProxyTargetPath(match[3]!)
     if (!targetPath) {
-        return null
-    }
-    return {
-        workspaceId: decodeURIComponent(match[1]!),
-        roomId: decodeURIComponent(match[2]!),
-        targetPath,
-    }
-}
-
-export function parseHostedBraveProxyPath(pathname: string): HostedOpenRouterProxyPath | null {
-    if (!pathname.startsWith(hostedBraveProxyPathPrefix)) {
-        return null
-    }
-    const suffix = pathname.slice(hostedBraveProxyPathPrefix.length)
-    const match = suffix.match(/^\/workspaces\/([^/]+)\/rooms\/([^/]+)(\/.*)$/)
-    if (!match) {
-        return null
-    }
-    const targetPath = match[3]!.startsWith('/') ? match[3]! : `/${match[3]!}`
-    if (!hostedBraveProxyAllowedPaths.has(targetPath)) {
         return null
     }
     return {

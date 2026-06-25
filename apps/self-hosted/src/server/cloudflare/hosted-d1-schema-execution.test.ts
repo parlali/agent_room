@@ -6,7 +6,6 @@ import {
     insertHostedBillingReservation,
     insertHostedRoom,
     insertHostedRoomJob,
-    insertHostedRoomJobRun,
     insertHostedUsageEvent,
 } from './hosted-d1-schema-contract-support'
 
@@ -144,36 +143,6 @@ describe('hosted D1 schema contract', () => {
                             created_at
                         )
                         VALUES ('usage_cross_job', 'workspace_1', 'room_1', NULL, 'run_cross', 'job_2', 'job', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'not_billable', NULL, ?1)
-                    `,
-                    args: [now],
-                }),
-            ).rejects.toThrow(/FOREIGN KEY/)
-
-            await expect(
-                db.execute({
-                    sql: `
-                        INSERT INTO hosted_room_job_run (
-                            id,
-                            workspace_id,
-                            room_id,
-                            job_id,
-                            job_name,
-                            attempt,
-                            status,
-                            summary,
-                            error,
-                            lock_token,
-                            session_key,
-                            session_id,
-                            provider,
-                            model,
-                            config_version,
-                            started_at,
-                            finished_at,
-                            duration_ms,
-                            next_run_at
-                        )
-                        VALUES ('run_cross_job', 'workspace_1', 'room_1', 'job_2', 'Job 2', 1, 'running', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?1, NULL, NULL, NULL)
                     `,
                     args: [now],
                 }),
@@ -367,17 +336,6 @@ describe('hosted D1 schema contract', () => {
             ).rejects.toThrow(/FOREIGN KEY/)
 
             await expect(
-                insertHostedRoomJobRun({
-                    db,
-                    workspaceId: 'workspace_1',
-                    roomId: 'room_1',
-                    runId: 'run_wrong_job',
-                    jobId: 'job_2',
-                    now,
-                }),
-            ).rejects.toThrow(/FOREIGN KEY/)
-
-            await expect(
                 insertHostedUsageEvent({
                     db,
                     workspaceId: 'workspace_1',
@@ -446,14 +404,6 @@ describe('hosted D1 schema contract', () => {
                 db,
                 workspaceId: 'workspace_1',
                 roomId: 'room_1',
-                jobId: 'job_1',
-                now,
-            })
-            await insertHostedRoomJobRun({
-                db,
-                workspaceId: 'workspace_1',
-                roomId: 'room_1',
-                runId: 'run_1',
                 jobId: 'job_1',
                 now,
             })

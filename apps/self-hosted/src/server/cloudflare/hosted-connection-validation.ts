@@ -19,10 +19,7 @@ import {
     withIsolatedWebSearchProviderEnv,
     validateWebSearchRuntimeProviders,
 } from '../pi-runtime/web-search-validation'
-import {
-    hostedRuntimeBraveProxyUrlEnvKey,
-    piRuntimeTokenEnvKey,
-} from '../rooms/pi-runtime-contract'
+import { piRuntimeTokenEnvKey } from '../rooms/pi-runtime-contract'
 import type { ProviderSelectionConfig } from './hosted-runtime-materialization'
 import {
     materializeHostedMcpServers,
@@ -166,11 +163,7 @@ export async function validateHostedSearchCredential(input: {
     apiKey: string
 }): Promise<ConnectionValidationResult> {
     const envKey = searchProviderEnvKey(input.provider)
-    const isolatedEnvKeys = new Set([
-        envKey,
-        hostedRuntimeBraveProxyUrlEnvKey,
-        piRuntimeTokenEnvKey,
-    ])
+    const isolatedEnvKeys = new Set([envKey, piRuntimeTokenEnvKey])
     const search = {
         ...input.search,
         enabled: true,

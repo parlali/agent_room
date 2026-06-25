@@ -29,11 +29,6 @@ function mapConfig(row: HostedRoomConfigRow): RoomConfigRecord {
     }
 }
 
-export type ProviderSelectionConfig = Pick<
-    RoomConfigRecord,
-    'providerMode' | 'providerConnectionId'
->
-
 export async function readHostedRoomConfig(input: {
     env: AgentRoomHostedEnv
     workspaceId: string

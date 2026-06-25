@@ -13,10 +13,6 @@ import { parseSearxngHtmlResults, SearxngSearchProvider, searxngSearch } from '.
 import { createTestPiRuntimeConfig } from './test-runtime-defaults'
 import { withToolRunContext } from './tool-run-context'
 import {
-    hostedRuntimeBraveProxyUrlEnvKey,
-    piRuntimeTokenEnvKey,
-} from '../rooms/pi-runtime-contract'
-import {
     FakeSearchProvider,
     executeWebTool,
     resetWebToolTestGlobals,
@@ -254,10 +250,8 @@ describe('web tools', () => {
         ])
     })
 
-    it('uses runtime bearer authorization for hosted Brave proxy requests', async () => {
-        process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = 'runtime-token-value-123456'
-        process.env[hostedRuntimeBraveProxyUrlEnvKey] =
-            'https://rooms.example.test/api/hosted/runtime/provider/brave/v1/workspaces/workspace_1/rooms/room_1/search'
+    it('uses the configured Brave subscription token for direct BYOK search requests', async () => {
+        process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = 'brave-secret'
         const requests: Array<{ url: string; headers: Headers }> = []
         globalThis.fetch = (async (request, init) => {
             const url = request instanceof Request ? request.url : String(request)
@@ -303,49 +297,14 @@ describe('web tools', () => {
                     },
                 },
             }),
-            query: 'hosted brave',
+            query: 'brave search',
             count: 1,
         })
 
         expect(requests).toHaveLength(1)
-        expect(requests[0]!.url).toContain('/api/hosted/runtime/provider/brave/v1/')
-        expect(requests[0]!.headers.get('authorization')).toBe('Bearer runtime-token-value-123456')
-        expect(requests[0]!.headers.has('x-subscription-token')).toBe(false)
-    })
-
-    it('does not send hosted runtime tokens directly to Brave when proxy materialization is missing', async () => {
-        process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = 'runtime-token-value-123456'
-        process.env[piRuntimeTokenEnvKey] = 'runtime-token-value-123456'
-        delete process.env[hostedRuntimeBraveProxyUrlEnvKey]
-        let fetchCalled = false
-        globalThis.fetch = (async () => {
-            fetchCalled = true
-            throw new Error('fetch should not be called')
-        }) as typeof fetch
-
-        const provider = new BraveSearchProvider()
-        await expect(
-            provider.search({
-                config: createTestPiRuntimeConfig({
-                    search: {
-                        brave: {
-                            enabled: true,
-                            envKey: 'AGENT_ROOM_SEARCH_BRAVE_API_KEY',
-                            country: null,
-                            searchLang: null,
-                            safeSearch: 'moderate',
-                            timeoutMs: 10000,
-                            resultCount: 5,
-                        },
-                    },
-                }),
-                query: 'hosted brave',
-                count: 1,
-            }),
-        ).rejects.toMatchObject({
-            code: 'misconfigured',
-        })
-        expect(fetchCalled).toBe(false)
+        expect(requests[0]!.url).toContain('https://api.search.brave.com/res/v1/web/search')
+        expect(requests[0]!.headers.get('x-subscription-token')).toBe('brave-secret')
+        expect(requests[0]!.headers.has('authorization')).toBe(false)
     })
 
     it('treats provider-level search config as disabled when top-level search is disabled', () => {

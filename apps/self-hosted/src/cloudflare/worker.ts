@@ -1,11 +1,10 @@
 import { ContainerProxy } from '@cloudflare/containers'
-import type { ExecutionContext, MessageBatch, ScheduledController } from '@cloudflare/workers-types'
+import type { ExecutionContext, MessageBatch } from '@cloudflare/workers-types'
 import serverEntry from '@tanstack/react-start/server-entry'
 import type { AgentRoomHostedEnv, AgentRoomRuntimeJobMessage } from '#/server/cloudflare/bindings'
 import { getHostedAuth, readHostedActorFromRequest } from '#/server/cloudflare/hosted-auth'
 import { hostedBillingCheckoutKindSchema } from '#/server/cloudflare/hosted-billing-types'
 import { resolveHostedConfig } from '#/server/cloudflare/hosted-config'
-import { runDueHostedRoomCronJobs } from '#/server/cloudflare/hosted-cron-adapter'
 import { runWithHostedRequestContext } from '#/server/cloudflare/hosted-request-context'
 import { hostedRouteSameOriginResponse } from '#/server/cloudflare/hosted-route-auth'
 import { reconcileHostedRuntimeJob } from '#/server/cloudflare/hosted-runtime-adapter'
@@ -220,7 +219,6 @@ interface HostedWorkerHandler {
         batch: MessageBatch<AgentRoomRuntimeJobMessage>,
         env: AgentRoomHostedEnv,
     ) => Promise<void>
-    scheduled: (controller: ScheduledController, env: AgentRoomHostedEnv) => Promise<void>
 }
 
 export default {
@@ -260,13 +258,6 @@ export default {
                 )
                 message.retry()
             }
-        }
-    },
-
-    async scheduled(_controller: ScheduledController, env: AgentRoomHostedEnv) {
-        const results = await runDueHostedRoomCronJobs(env)
-        if (results.length) {
-            console.log(`Hosted scheduled jobs processed: ${results.length}`)
         }
     },
 } satisfies HostedWorkerHandler

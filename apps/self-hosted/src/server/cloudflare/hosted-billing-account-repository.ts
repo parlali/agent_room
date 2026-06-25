@@ -1,5 +1,5 @@
-import type { D1Result } from '@cloudflare/workers-types'
 import type { AgentRoomHostedEnv } from './bindings'
+import { assertChanged } from './hosted-d1'
 import type { HostedBillingAccountSnapshot, HostedBillingPlanStatus } from './hosted-billing-types'
 import { nowIso } from './hosted-json'
 
@@ -39,12 +39,6 @@ function mapAccount(row: BillingAccountRow): HostedBillingAccountSnapshot {
         includedMonthlyCreditCents: row.includedMonthlyCreditCents,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
-    }
-}
-
-function assertChanged(result: D1Result<unknown>, message: string): void {
-    if ((result.meta.changes ?? 0) < 1) {
-        throw new Error(message)
     }
 }
 

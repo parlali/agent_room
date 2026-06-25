@@ -10,11 +10,15 @@ import type { HostedActor } from './hosted-auth'
 import { appendHostedAudit } from './hosted-audit'
 import { assertChanged } from './hosted-d1'
 import { nowIso } from './hosted-json'
-import { evaluateHostedRuntimeAccess } from './hosted-runtime-access'
+import {
+    evaluateHostedRuntimeAccess,
+    hostedRuntimeAccessDeniedMessage,
+} from './hosted-runtime-access'
 import { enqueueHostedRuntimeReconcile } from './hosted-runtime-jobs'
 import { releaseAuthorizedHostedBillingReservationsForRoom } from './hosted-billing-repository'
 import {
     assertHostedProviderSelectionReady,
+    type ProviderSelectionConfig,
     resolveHostedProviderSelection,
 } from './hosted-runtime-materialization'
 import { hostedRuntimeContainerName } from './runtime-contract'
@@ -23,7 +27,6 @@ import {
     assertHostedMcpConnectionIdsExist,
     getOrCreateHostedRoomConfig,
     replaceRoomMcpBindings,
-    type ProviderSelectionConfig,
 } from './hosted-room-config-store'
 import { getHostedRoom, getHostedRuntimeState } from './hosted-room-store'
 import {
@@ -45,6 +48,24 @@ function normalizeSlug(value: string): string {
         .replace(/^-+|-+$/g, '')
 }
 
+function normalizeHostedRoomIdentity(input: { displayName: string; slug?: string | null }): {
+    displayName: string
+    slug: string
+} {
+    const displayName = input.displayName.trim()
+    if (!displayName) {
+        throw new Error('Room display name cannot be empty')
+    }
+    const slug = input.slug ? normalizeSlug(input.slug) : normalizeSlug(displayName)
+    if (!slug) {
+        throw new Error('Room slug cannot be empty')
+    }
+    return {
+        displayName,
+        slug,
+    }
+}
+
 export async function createHostedRoom(input: {
     env: AgentRoomHostedEnv
     actor: HostedActor
@@ -58,14 +79,7 @@ export async function createHostedRoom(input: {
     cronTimezone?: string
     mcpConnectionIds?: string[]
 }): Promise<RoomRecord> {
-    const displayName = input.displayName.trim()
-    if (!displayName) {
-        throw new Error('Room display name cannot be empty')
-    }
-    const slug = input.slug ? normalizeSlug(input.slug) : normalizeSlug(displayName)
-    if (!slug) {
-        throw new Error('Room slug cannot be empty')
-    }
+    const { displayName, slug } = normalizeHostedRoomIdentity(input)
     const roomId = randomUUID()
     const now = nowIso()
     const desiredState = input.startImmediately === false ? 'stopped' : 'running'
@@ -340,7 +354,6 @@ async function stopHostedRuntime(input: {
                 token_object_key = NULL,
                 runtime_bundle_object_key = NULL,
                 provider_candidate = NULL,
-                managed_brave_search_enabled = 0,
                 health_status = 'unknown',
                 started_at = NULL,
                 last_health_at = NULL,
@@ -400,7 +413,6 @@ export async function failClosedHostedRuntime(input: {
                     token_object_key = NULL,
                     runtime_bundle_object_key = NULL,
                     provider_candidate = NULL,
-                    managed_brave_search_enabled = 0,
                     health_status = 'unhealthy',
                     started_at = NULL,
                     last_health_at = NULL,
@@ -434,8 +446,7 @@ export async function updateHostedRoomIdentity(input: {
     displayName: string
     slug?: string | null
 }): Promise<RoomRecord> {
-    const displayName = input.displayName.trim()
-    const slug = input.slug ? normalizeSlug(input.slug) : normalizeSlug(displayName)
+    const { displayName, slug } = normalizeHostedRoomIdentity(input)
     const result = await input.env.AGENT_ROOM_DB.prepare(
         `
             UPDATE hosted_room
@@ -629,12 +640,6 @@ export async function resolveHostedRuntimeProviderAvailability(input: {
         config,
         requireSelectionReady: false,
     })
-}
-
-function hostedRuntimeAccessDeniedMessage(reason: 'no_subscription' | 'room_limit'): string {
-    return reason === 'no_subscription'
-        ? 'Hosted runtime access denied: workspace has no active subscription'
-        : 'Hosted runtime access denied: workspace concurrent room limit reached'
 }
 
 async function assertHostedRuntimeStartAllowed(input: {

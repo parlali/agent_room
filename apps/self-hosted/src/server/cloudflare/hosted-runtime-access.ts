@@ -15,6 +15,17 @@ export type HostedRuntimeAccessDecision =
     | { allowed: true }
     | { allowed: false; reason: 'no_subscription' | 'room_limit' }
 
+type HostedRuntimeAccessDeniedReason = Extract<
+    HostedRuntimeAccessDecision,
+    { allowed: false }
+>['reason']
+
+export function hostedRuntimeAccessDeniedMessage(reason: HostedRuntimeAccessDeniedReason): string {
+    return reason === 'no_subscription'
+        ? 'Hosted runtime access denied: workspace has no active subscription'
+        : 'Hosted runtime access denied: workspace concurrent room limit reached'
+}
+
 export async function evaluateHostedRuntimeAccess(
     input: HostedRuntimeAccessInput,
 ): Promise<HostedRuntimeAccessDecision> {

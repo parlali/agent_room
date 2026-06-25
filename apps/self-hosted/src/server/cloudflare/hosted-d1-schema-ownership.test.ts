@@ -151,15 +151,6 @@ describe('hosted D1 schema contract', () => {
         })
         expectTableConstraint({
             sql,
-            tableName: 'hosted_room_job_run',
-            constraint: `
-                FOREIGN KEY (workspace_id, job_id)
-                    REFERENCES hosted_room_job(workspace_id, id)
-                    ON DELETE RESTRICT
-            `,
-        })
-        expectTableConstraint({
-            sql,
             tableName: 'hosted_billing_ledger_entry',
             constraint: `
                 FOREIGN KEY (workspace_id, usage_event_id)
@@ -204,7 +195,6 @@ describe('hosted D1 schema contract', () => {
             'hosted_room_job_delete_clear_usage_event_job_id',
             'hosted_billing_ledger_entry_delete_clear_usage_event_ledger_id',
             'hosted_usage_event_delete_clear_billing_ledger_usage_id',
-            'hosted_room_job_delete_clear_job_run_job_id',
             'hosted_room_delete_clear_billing_reservation_room_id',
             'hosted_room_job_delete_clear_billing_reservation_job_id',
             'hosted_usage_event_delete_clear_billing_reservation_usage_id',

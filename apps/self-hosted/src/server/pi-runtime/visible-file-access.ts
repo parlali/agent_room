@@ -1,17 +1,18 @@
 import { constants } from 'node:fs'
 import { lstat, mkdir, open, unlink } from 'node:fs/promises'
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
+import { assertPathInsideRoot as assertBoundaryPathInsideRoot } from '../security/path-boundary'
 
 function assertPathInsideRoot(input: { root: string; path: string }): {
     root: string
     path: string
 } {
     const root = resolve(input.root)
-    const path = resolve(input.path)
-    const relativePath = relative(root, path)
-    if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
-        throw new Error('Visible file path escapes the room boundary')
-    }
+    const path = assertBoundaryPathInsideRoot(
+        input.path,
+        root,
+        'Visible file path escapes the room boundary',
+    )
     return { root, path }
 }
 

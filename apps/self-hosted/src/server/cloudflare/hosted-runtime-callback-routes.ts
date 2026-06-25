@@ -1,6 +1,5 @@
 import { Buffer } from 'node:buffer'
 import type { AgentRoomHostedEnv } from './bindings'
-import { finishHostedCronRunFromRuntimeEvent } from './hosted-cron-management'
 import { upsertHostedRoomRuntimeFile } from './hosted-file-store'
 import { objectRecord } from './hosted-json'
 import {
@@ -55,17 +54,6 @@ function stableHash(value: string): string {
     return (hash >>> 0).toString(36)
 }
 
-function runtimeRunFinishedPayload(entry: unknown): {
-    status: string | null
-    error: string | null
-} {
-    const payload = objectRecord(objectRecord(entry).payload)
-    return {
-        status: typeof payload.status === 'string' ? payload.status : null,
-        error: typeof payload.error === 'string' ? payload.error : null,
-    }
-}
-
 export async function hostedRuntimeUsageCallback(
     env: AgentRoomHostedEnv,
     request: Request,
@@ -115,39 +103,17 @@ export async function hostedRuntimeUsageCallback(
             persisted: false,
         })
     }
-    const finished = event.kind === 'job' ? runtimeRunFinishedPayload(record.entry) : null
-    let result: Awaited<ReturnType<typeof recordHostedRuntimeUsageEvent>> | null = null
-    try {
-        result = await recordHostedRuntimeUsageEvent({
-            env,
+    const result = await recordHostedRuntimeUsageEvent({
+        env,
+        workspaceId: callback.workspaceId,
+        providerCandidate,
+        event,
+        idempotencyKey: runtimeUsageIdempotencyKey({
             workspaceId: callback.workspaceId,
-            providerCandidate,
-            event,
-            idempotencyKey: runtimeUsageIdempotencyKey({
-                workspaceId: callback.workspaceId,
-                roomId: callback.roomId,
-                entry: record.entry,
-            }),
-        })
-    } finally {
-        if (finished) {
-            await finishHostedCronRunFromRuntimeEvent({
-                env,
-                workspaceId: callback.workspaceId,
-                roomId: callback.roomId,
-                runId: event.runId,
-                jobId: event.jobId,
-                status: finished.status,
-                error: finished.error,
-                provider: event.provider,
-                model: event.model,
-                configVersion: callback.runtime.runtime.configVersion,
-            })
-        }
-    }
-    if (!result) {
-        throw new Error('Hosted runtime usage was not recorded')
-    }
+            roomId: callback.roomId,
+            entry: record.entry,
+        }),
+    })
     return hostedJsonResponse({
         ok: true,
         persisted: result.persisted,

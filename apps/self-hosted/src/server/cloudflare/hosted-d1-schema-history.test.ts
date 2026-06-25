@@ -6,7 +6,6 @@ import {
     insertHostedBillingReservation,
     insertHostedRoom,
     insertHostedRoomJob,
-    insertHostedRoomJobRun,
     insertHostedUsageEvent,
 } from './hosted-d1-schema-contract-support'
 
@@ -32,14 +31,6 @@ describe('hosted D1 schema contract', () => {
                 db,
                 workspaceId: 'workspace_1',
                 roomId: 'room_1',
-                jobId: 'job_1',
-                now,
-            })
-            await insertHostedRoomJobRun({
-                db,
-                workspaceId: 'workspace_1',
-                roomId: 'room_1',
-                runId: 'run_1',
                 jobId: 'job_1',
                 now,
             })
@@ -89,11 +80,6 @@ describe('hosted D1 schema contract', () => {
                 sql: `
                     SELECT (
                         SELECT job_id
-                        FROM hosted_room_job_run
-                        WHERE id = 'run_1'
-                    ) AS runJobId,
-                    (
-                        SELECT job_id
                         FROM hosted_usage_event
                         WHERE id = 'usage_1'
                     ) AS usageJobId,
@@ -106,7 +92,6 @@ describe('hosted D1 schema contract', () => {
             })
 
             expect(jobRefs.rows[0]).toMatchObject({
-                runJobId: null,
                 usageJobId: null,
                 reservationJobId: null,
             })

@@ -34,6 +34,28 @@ interface ExpiredReservationRow {
     workspaceId: string
 }
 
+const reservationSelectProjection = `
+    id,
+    workspace_id AS workspaceId,
+    room_id AS roomId,
+    session_key AS sessionKey,
+    run_id AS runId,
+    job_id AS jobId,
+    provider,
+    status,
+    reserved_cents AS reservedCents,
+    included_reserved_cents AS includedReservedCents,
+    purchased_reserved_cents AS purchasedReservedCents,
+    settled_cents AS settledCents,
+    usage_event_id AS usageEventId,
+    billing_ledger_entry_id AS billingLedgerEntryId,
+    idempotency_key AS idempotencyKey,
+    metadata,
+    expires_at AS expiresAt,
+    created_at AS createdAt,
+    updated_at AS updatedAt
+`
+
 export class HostedBillingReservationAlreadyExistsError extends Error {
     constructor() {
         super('Hosted billing reservation idempotency key already exists')
@@ -95,25 +117,7 @@ export async function findHostedBillingReservationByIdempotencyKey(input: {
     const row = await input.env.AGENT_ROOM_DB.prepare(
         `
             SELECT
-                id,
-                workspace_id AS workspaceId,
-                room_id AS roomId,
-                session_key AS sessionKey,
-                run_id AS runId,
-                job_id AS jobId,
-                provider,
-                status,
-                reserved_cents AS reservedCents,
-                included_reserved_cents AS includedReservedCents,
-                purchased_reserved_cents AS purchasedReservedCents,
-                settled_cents AS settledCents,
-                usage_event_id AS usageEventId,
-                billing_ledger_entry_id AS billingLedgerEntryId,
-                idempotency_key AS idempotencyKey,
-                metadata,
-                expires_at AS expiresAt,
-                created_at AS createdAt,
-                updated_at AS updatedAt
+                ${reservationSelectProjection}
             FROM hosted_billing_reservation
             WHERE workspace_id = ?1
               AND idempotency_key = ?2
@@ -133,25 +137,7 @@ async function findReservationById(input: {
     const row = await input.env.AGENT_ROOM_DB.prepare(
         `
             SELECT
-                id,
-                workspace_id AS workspaceId,
-                room_id AS roomId,
-                session_key AS sessionKey,
-                run_id AS runId,
-                job_id AS jobId,
-                provider,
-                status,
-                reserved_cents AS reservedCents,
-                included_reserved_cents AS includedReservedCents,
-                purchased_reserved_cents AS purchasedReservedCents,
-                settled_cents AS settledCents,
-                usage_event_id AS usageEventId,
-                billing_ledger_entry_id AS billingLedgerEntryId,
-                idempotency_key AS idempotencyKey,
-                metadata,
-                expires_at AS expiresAt,
-                created_at AS createdAt,
-                updated_at AS updatedAt
+                ${reservationSelectProjection}
             FROM hosted_billing_reservation
             WHERE workspace_id = ?1
               AND id = ?2

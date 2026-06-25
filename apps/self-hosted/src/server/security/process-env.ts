@@ -1,7 +1,6 @@
 import { basename } from 'node:path'
 import {
     hostedRuntimeFileCallbackUrlEnvKey,
-    hostedRuntimeBraveProxyUrlEnvKey,
     hostedRuntimeManagedOpenRouterEnvKey,
     hostedRuntimeRoomIdEnvKey,
     hostedRuntimeStateCallbackUrlEnvKey,
@@ -34,7 +33,6 @@ export const reservedRoomRuntimeEnvKeys = new Set([
     hostedRuntimeStateCallbackUrlEnvKey,
     hostedRuntimeUsageCallbackTokenEnvKey,
     hostedRuntimeUsageCallbackUrlEnvKey,
-    hostedRuntimeBraveProxyUrlEnvKey,
     hostedRuntimeManagedOpenRouterEnvKey,
     hostedRuntimeRoomIdEnvKey,
     hostedRuntimeWorkspaceIdEnvKey,

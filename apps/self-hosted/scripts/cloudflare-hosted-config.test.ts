@@ -26,7 +26,8 @@ describe('hosted Cloudflare deployment target config', () => {
             r2BucketName: 'agent-room-hosted-workspaces',
             queueName: 'agent-room-hosted-runtime-jobs',
         })
-        expect(configText).toContain('"crons": ["* * * * *"]')
+        expect(configText).not.toContain('"triggers"')
+        expect(configText).not.toContain('"crons"')
     })
 
     it('overrides every preview resource name through one target', () => {

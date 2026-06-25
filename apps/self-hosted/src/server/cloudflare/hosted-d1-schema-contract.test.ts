@@ -160,7 +160,7 @@ describe('hosted D1 schema contract', () => {
         expect(normalizeSqlFragment(sql)).toContain(
             normalizeSqlFragment('INSERT INTO hosted_room_config'),
         )
-        expect(normalizeSqlFragment(sql)).toContain(
+        expect(normalizeSqlFragment(sql)).not.toContain(
             normalizeSqlFragment('CREATE TABLE hosted_room_job_run'),
         )
         expect(normalizeSqlFragment(sql)).not.toContain(

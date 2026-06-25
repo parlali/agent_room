@@ -129,9 +129,16 @@ export function createRuntimeEventAppender(input: RuntimeEventAppenderInput) {
                 await callbackPromise
             } else {
                 pendingHostedUsageCallbacks.add(callbackPromise)
-                void callbackPromise.finally(() => {
-                    pendingHostedUsageCallbacks.delete(callbackPromise)
-                })
+                void callbackPromise
+                    .catch((error) => {
+                        console.warn(
+                            'Hosted runtime usage callback failed',
+                            error instanceof Error ? error.message : error,
+                        )
+                    })
+                    .finally(() => {
+                        pendingHostedUsageCallbacks.delete(callbackPromise)
+                    })
             }
         }
         if (fileChanged) {

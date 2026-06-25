@@ -12,7 +12,6 @@ function runtimeStateRow() {
         tokenObjectKey: 'token-key',
         runtimeBundleObjectKey: 'bundle-key',
         providerCandidate: 'user_key',
-        managedBraveSearchEnabled: false,
         workspaceSnapshotKey: null,
         configVersion: 1,
         tokenVersion: 1,

@@ -12,7 +12,6 @@ export const hostedRuntimeFileCallbackUrlEnvKey = 'AGENT_ROOM_HOSTED_FILE_CALLBA
 export const hostedRuntimeStateCallbackUrlEnvKey = 'AGENT_ROOM_HOSTED_STATE_CALLBACK_URL'
 export const hostedRuntimeWorkspaceIdEnvKey = 'AGENT_ROOM_HOSTED_WORKSPACE_ID'
 export const hostedRuntimeRoomIdEnvKey = 'AGENT_ROOM_HOSTED_ROOM_ID'
-export const hostedRuntimeBraveProxyUrlEnvKey = 'AGENT_ROOM_HOSTED_BRAVE_PROXY_URL'
 export const hostedRuntimeManagedOpenRouterEnvKey = 'AGENT_ROOM_HOSTED_MANAGED_OPENROUTER'
 
 export function buildPiRuntimeEntrypoint(mainPath = piRuntimeMainRelativePath): string[] {

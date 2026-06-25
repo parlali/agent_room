@@ -178,6 +178,32 @@ describe('hosted room lifecycle audit coverage', () => {
         })
     })
 
+    it('rejects empty hosted room identity updates before writing state', async () => {
+        const fixture = hostedEnv()
+
+        await expect(
+            updateHostedRoomIdentity({
+                env: fixture.env,
+                actor: hostedActor(),
+                roomId: 'room_1',
+                displayName: '   ',
+                slug: 'room-1',
+            }),
+        ).rejects.toThrow('Room display name cannot be empty')
+
+        await expect(
+            updateHostedRoomIdentity({
+                env: fixture.env,
+                actor: hostedActor(),
+                roomId: 'room_1',
+                displayName: 'Room 1',
+                slug: '---',
+            }),
+        ).rejects.toThrow('Room slug cannot be empty')
+
+        expect(fixture.statements).toHaveLength(0)
+    })
+
     it('audits deletes before removing room state and room-scoped secrets', async () => {
         const fixture = hostedEnv()
 

@@ -18,7 +18,6 @@ const mocks = vi.hoisted(() => ({
     recordHostedRuntimeUsageEvent: vi.fn(),
     recordHostedProviderUsage: vi.fn(),
     recordHostedProviderUsageBlocked: vi.fn(),
-    finishHostedCronRunFromRuntimeEvent: vi.fn(),
     upsertHostedRoomRuntimeFile: vi.fn(),
     putHostedRuntimeStateFile: vi.fn(),
     deleteHostedRuntimeStateFile: vi.fn(),
@@ -44,10 +43,6 @@ vi.mock('./hosted-usage-billing', () => ({
     recordHostedRuntimeUsageEvent: mocks.recordHostedRuntimeUsageEvent,
     recordHostedProviderUsage: mocks.recordHostedProviderUsage,
     recordHostedProviderUsageBlocked: mocks.recordHostedProviderUsageBlocked,
-}))
-
-vi.mock('./hosted-cron-management', () => ({
-    finishHostedCronRunFromRuntimeEvent: mocks.finishHostedCronRunFromRuntimeEvent,
 }))
 
 vi.mock('./hosted-file-store', () => ({
@@ -115,7 +110,6 @@ function runtimeEndpoint(
         status?: string
         tokenObjectKey?: string | null
         providerCandidate?: 'user_key' | 'codex' | 'hosted_openrouter' | null
-        managedBraveSearchEnabled?: boolean
     } = {},
 ) {
     const now = new Date(0).toISOString()
@@ -133,7 +127,6 @@ function runtimeEndpoint(
                 input.providerCandidate === undefined
                     ? 'hosted_openrouter'
                     : input.providerCandidate,
-            managedBraveSearchEnabled: input.managedBraveSearchEnabled ?? false,
             workspaceSnapshotKey: null,
             configVersion: 1,
             tokenVersion: 1,
@@ -712,144 +705,6 @@ describe('hosted runtime worker route security gates', () => {
 
         await expectJsonCode(response, 502, 'provider_billing_settlement_failed')
         expect(mocks.releaseHostedBillingReservation).not.toHaveBeenCalled()
-    })
-
-    it('fails closed for managed hosted Brave proxy requests with the runtime bearer token', async () => {
-        const fetchMock = vi.fn(async () => new Response('{"ok":true}'))
-        vi.stubGlobal('fetch', fetchMock)
-        mocks.getHostedRuntimeEndpointState.mockResolvedValue(
-            runtimeEndpoint({
-                managedBraveSearchEnabled: true,
-            }),
-        )
-        mocks.getHostedWorkspaceSettings.mockResolvedValue({
-            searchConfig: {
-                enabled: true,
-                brave: {
-                    enabled: true,
-                    country: null,
-                    searchLang: null,
-                    safeSearch: 'moderate',
-                    timeoutMs: 10000,
-                    resultCount: 5,
-                    secretId: null,
-                },
-                browserbase: {
-                    enabled: false,
-                    timeoutMs: 10000,
-                    resultCount: 5,
-                    secretId: null,
-                },
-            },
-        })
-
-        const response = await callRoute({
-            path: '/api/hosted/runtime/provider/brave/v1/workspaces/workspace_1/rooms/room_1/search?q=hosted',
-            method: 'GET',
-        })
-
-        await expectJsonCode(response, 503, 'managed_provider_cost_unavailable')
-        expect(fetchMock).not.toHaveBeenCalled()
-        expect(mocks.authorizeHostedBillingReservation).not.toHaveBeenCalled()
-        expect(mocks.releaseHostedBillingReservation).not.toHaveBeenCalled()
-    })
-
-    it('rejects hosted Brave proxy requests when workspace search is disabled', async () => {
-        const fetchMock = vi.fn(async () => new Response('{"ok":true}'))
-        vi.stubGlobal('fetch', fetchMock)
-        mocks.getHostedRuntimeEndpointState.mockResolvedValue(
-            runtimeEndpoint({
-                managedBraveSearchEnabled: true,
-            }),
-        )
-        mocks.getHostedWorkspaceSettings.mockResolvedValue({
-            searchConfig: {
-                enabled: false,
-                brave: {
-                    enabled: true,
-                    country: null,
-                    searchLang: null,
-                    safeSearch: 'moderate',
-                    timeoutMs: 10000,
-                    resultCount: 5,
-                    secretId: null,
-                },
-                browserbase: {
-                    enabled: false,
-                    timeoutMs: 10000,
-                    resultCount: 5,
-                    secretId: null,
-                },
-            },
-        })
-
-        const response = await callRoute({
-            path: '/api/hosted/runtime/provider/brave/v1/workspaces/workspace_1/rooms/room_1/search?q=hosted',
-            method: 'GET',
-        })
-
-        await expectJsonCode(response, 403, 'runtime_provider_not_authorized')
-        expect(fetchMock).not.toHaveBeenCalled()
-        expect(mocks.authorizeHostedBillingReservation).not.toHaveBeenCalled()
-    })
-
-    it('rejects hosted Brave proxy requests when current room web search capability is disabled', async () => {
-        const fetchMock = vi.fn(async () => new Response('{"ok":true}'))
-        vi.stubGlobal('fetch', fetchMock)
-        mocks.getHostedRuntimeEndpointState.mockResolvedValue(
-            runtimeEndpoint({
-                managedBraveSearchEnabled: true,
-            }),
-        )
-        mocks.getHostedWorkspaceSettings.mockResolvedValue({
-            capabilityDefaults: {
-                web_search: true,
-            },
-            searchConfig: {
-                enabled: true,
-                brave: {
-                    enabled: true,
-                    country: null,
-                    searchLang: null,
-                    safeSearch: 'moderate',
-                    timeoutMs: 10000,
-                    resultCount: 5,
-                    secretId: null,
-                },
-                browserbase: {
-                    enabled: false,
-                    timeoutMs: 10000,
-                    resultCount: 5,
-                    secretId: null,
-                },
-            },
-        })
-        mocks.readHostedRoomConfig.mockResolvedValue({
-            roomId: 'room_1',
-            instructions: '',
-            providerMode: 'app_default',
-            providerConnectionId: null,
-            roomMode: 'coworker',
-            capabilityOverrides: {
-                web_search: false,
-            },
-            imageProvider: null,
-            imageModel: null,
-            imageSecretId: null,
-            cronTimezone: 'UTC',
-            browserActionBudget: 50,
-            createdAt: new Date(0),
-            updatedAt: new Date(0),
-        })
-
-        const response = await callRoute({
-            path: '/api/hosted/runtime/provider/brave/v1/workspaces/workspace_1/rooms/room_1/search?q=hosted',
-            method: 'GET',
-        })
-
-        await expectJsonCode(response, 403, 'runtime_provider_not_authorized')
-        expect(fetchMock).not.toHaveBeenCalled()
-        expect(mocks.authorizeHostedBillingReservation).not.toHaveBeenCalled()
     })
 
     it('rejects malformed state callbacks before writing runtime state', async () => {

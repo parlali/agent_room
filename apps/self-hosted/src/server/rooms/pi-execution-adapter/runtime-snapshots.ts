@@ -69,7 +69,7 @@ export async function listRoomsWithRuntime(input: {
     if (!actorUserId) {
         throw new Error('Room listing requires an authenticated actor')
     }
-    const rooms = await roomRepository.listRooms()
+    const rooms = await roomRepository.listRoomsByOwner(actorUserId)
     const [runtimeRows, configs] = await Promise.all([
         Promise.all(rooms.map((room) => roomRuntimeMetadataRepository.findByRoomId(room.id))),
         Promise.all(rooms.map((room) => roomConfigRepository.getOrCreate(room.id))),

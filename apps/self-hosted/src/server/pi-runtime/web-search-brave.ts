@@ -13,11 +13,6 @@ import {
     type SearchRuntimeConfigScope,
     type WebSearchResult,
 } from './web-search'
-import {
-    hostedRuntimeBraveProxyUrlEnvKey,
-    piRuntimeTokenEnvKey,
-} from '../rooms/pi-runtime-contract'
-import { timingSafeEqualString } from '../security/timing-safe'
 
 const braveSearchApiUrl = 'https://api.search.brave.com/res/v1/web/search'
 
@@ -40,7 +35,7 @@ function normalizeBraveSafeSearch(value: string | null | undefined): 'off' | 'mo
 
 function buildBraveSearchUrl(input: SearchProviderSearchInput): URL {
     const config = input.config.search.brave
-    const url = new URL(process.env[hostedRuntimeBraveProxyUrlEnvKey] ?? braveSearchApiUrl)
+    const url = new URL(braveSearchApiUrl)
     url.searchParams.set('q', input.query.trim())
     url.searchParams.set('count', String(Math.min(20, input.count || config.resultCount)))
     url.searchParams.set(
@@ -63,26 +58,13 @@ function buildBraveSearchUrl(input: SearchProviderSearchInput): URL {
     return url
 }
 
-function isHostedRuntimeToken(value: string): boolean {
-    const runtimeToken = process.env[piRuntimeTokenEnvKey]?.trim()
-    return Boolean(runtimeToken && timingSafeEqualString(value, runtimeToken))
-}
-
 function braveSearchHeaders(apiKey: string): Record<string, string> {
-    const headers = {
+    return {
         accept: 'application/json',
         'accept-language': 'en-US,en;q=0.9',
         'user-agent': 'AgentRoom/1.0',
+        'x-subscription-token': apiKey,
     }
-    return process.env[hostedRuntimeBraveProxyUrlEnvKey]?.trim()
-        ? {
-              ...headers,
-              authorization: `Bearer ${apiKey}`,
-          }
-        : {
-              ...headers,
-              'x-subscription-token': apiKey,
-          }
 }
 
 export class BraveSearchProvider implements SearchProvider {
@@ -107,16 +89,6 @@ export class BraveSearchProvider implements SearchProvider {
                 code: 'misconfigured',
                 providerId: this.id,
                 message: 'Brave Search API key is not materialized',
-            })
-        }
-        if (
-            !process.env[hostedRuntimeBraveProxyUrlEnvKey]?.trim() &&
-            isHostedRuntimeToken(apiKey)
-        ) {
-            throw new SearchProviderError({
-                code: 'misconfigured',
-                providerId: this.id,
-                message: 'Hosted Brave proxy URL is not materialized',
             })
         }
 

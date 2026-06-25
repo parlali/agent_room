@@ -82,7 +82,6 @@ function hostedEnv(input: {
         tokenObjectKey: null,
         runtimeBundleObjectKey: null,
         providerCandidate: 'hosted_openrouter',
-        managedBraveSearchEnabled: false,
         workspaceSnapshotKey: null,
         configVersion: 1,
         tokenVersion: 1,

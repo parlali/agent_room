@@ -141,44 +141,6 @@ export async function insertHostedRoomJob(input: {
     })
 }
 
-export async function insertHostedRoomJobRun(input: {
-    db: Client
-    workspaceId: string
-    roomId: string
-    runId: string
-    jobId?: string | null
-    now?: string
-}): Promise<void> {
-    const now = input.now ?? new Date(0).toISOString()
-    await input.db.execute({
-        sql: `
-            INSERT INTO hosted_room_job_run (
-                id,
-                workspace_id,
-                room_id,
-                job_id,
-                job_name,
-                attempt,
-                status,
-                summary,
-                error,
-                lock_token,
-                session_key,
-                session_id,
-                provider,
-                model,
-                config_version,
-                started_at,
-                finished_at,
-                duration_ms,
-                next_run_at
-            )
-            VALUES (?1, ?2, ?3, ?4, ?4, 1, 'running', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?5, NULL, NULL, NULL)
-        `,
-        args: [input.runId, input.workspaceId, input.roomId, input.jobId ?? null, now],
-    })
-}
-
 export async function insertHostedUsageEvent(input: {
     db: Client
     workspaceId: string
