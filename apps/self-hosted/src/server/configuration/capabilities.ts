@@ -246,6 +246,10 @@ function normalizeBrowserbaseSearchConfig(
     return {
         enabled: typeof record.enabled === 'boolean' ? record.enabled : false,
         envKey: null,
+        baseUrl:
+            typeof record.baseUrl === 'string' && record.baseUrl.trim()
+                ? record.baseUrl.trim().replace(/\/$/, '')
+                : null,
         timeoutMs: normalizeSearchTimeout(record.timeoutMs, defaults.timeoutMs),
         resultCount: normalizeSearchResultCount(record.resultCount, defaults.defaultResultCount),
     }

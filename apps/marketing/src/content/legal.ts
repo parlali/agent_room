@@ -46,8 +46,8 @@ export const terms: LegalDocument = {
         {
             heading: 'Credits and billing',
             body: [
-                'Pricing is not finalized. We expect the hosted service to use a subscription plus model credits or top-ups, but the structure and amounts are still being decided.',
-                'There is no billing during the current early-access stage, and you will not be charged until a billing system exists, pricing is published, and you have agreed to it. We will not begin charging an account without first presenting the applicable terms and obtaining your agreement.',
+                'Hosted pricing uses a subscription plus managed usage credits or top-ups. Managed provider calls draw from included credits first, then purchased credits.',
+                'You are charged only after choosing a paid hosted plan or purchasing credits through the hosted checkout flow. Bring-your-own-key usage is billed by the provider account connected by you.',
             ],
         },
         {

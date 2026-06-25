@@ -66,6 +66,11 @@ function buildValidationRoomConfiguration(
             shellCoding: false,
         },
         search: normalizeSearchConfig(null),
+        urlFetch: {
+            mode: 'direct',
+            proxyUrl: null,
+            tokenEnvKey: null,
+        },
         image: {
             enabled: false,
             provider: null,

@@ -302,7 +302,7 @@ CREATE TABLE hosted_billing_ledger_entry (
     id TEXT PRIMARY KEY NOT NULL,
     workspace_id TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
     direction TEXT NOT NULL CHECK (direction IN ('credit', 'debit')),
-    source TEXT NOT NULL CHECK (source IN ('subscription_included_credit', 'included_credit_expiry', 'stripe_topup', 'hosted_openrouter_usage', 'hosted_brave_usage', 'manual_adjustment')),
+    source TEXT NOT NULL CHECK (source IN ('subscription_included_credit', 'included_credit_expiry', 'stripe_topup', 'hosted_openrouter_usage', 'hosted_brave_usage', 'hosted_browserbase_usage', 'hosted_fetch_url_usage', 'manual_adjustment')),
     amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
     balance_after_cents INTEGER NOT NULL CHECK (balance_after_cents >= 0),
     stripe_event_id TEXT,

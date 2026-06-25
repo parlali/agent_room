@@ -18,6 +18,8 @@ export const hostedBillingLedgerSources = [
     'stripe_topup',
     'hosted_openrouter_usage',
     'hosted_brave_usage',
+    'hosted_browserbase_usage',
+    'hosted_fetch_url_usage',
     'manual_adjustment',
 ] as const
 
@@ -28,9 +30,17 @@ export const hostedBillingReservationStatuses = [
     'released',
     'expired',
 ] as const
-export const hostedBillingReservationProviders = ['openrouter', 'brave'] as const
+export const hostedBillingReservationProviders = [
+    'openrouter',
+    'brave',
+    'browserbase',
+    'fetch_url',
+] as const
 export const hostedProviderBillingGateCents = 1
 export const hostedBraveSearchCostMicros = 10000
+export const hostedBrowserbaseSearchCostMicros = 10000
+export const hostedBrowserbaseSessionCostMicros = 50000
+export const hostedFetchUrlCostMicros = 10000
 
 export type HostedBillingPlanStatus = (typeof hostedBillingPlanStatuses)[number]
 export type HostedBillingLedgerDirection = (typeof hostedBillingLedgerDirections)[number]
@@ -77,7 +87,7 @@ export interface HostedBillableUsageEvent {
     id: string
     workspaceId: string
     roomId: string | null
-    provider: 'openrouter' | 'brave'
+    provider: HostedBillingReservationProvider
     model: string | null
     costMicros: number
     billingStatus: HostedUsageBillingStatus
@@ -145,4 +155,25 @@ export function assertPositiveCents(amountCents: number): void {
 
 export function isHostedBillingPlanStatusActive(status: HostedBillingPlanStatus): boolean {
     return status === 'active' || status === 'trialing'
+}
+
+export function hostedBillingLedgerSourceForProvider(
+    provider: HostedBillingReservationProvider,
+): Extract<
+    HostedBillingLedgerSource,
+    | 'hosted_openrouter_usage'
+    | 'hosted_brave_usage'
+    | 'hosted_browserbase_usage'
+    | 'hosted_fetch_url_usage'
+> {
+    switch (provider) {
+        case 'openrouter':
+            return 'hosted_openrouter_usage'
+        case 'brave':
+            return 'hosted_brave_usage'
+        case 'browserbase':
+            return 'hosted_browserbase_usage'
+        case 'fetch_url':
+            return 'hosted_fetch_url_usage'
+    }
 }

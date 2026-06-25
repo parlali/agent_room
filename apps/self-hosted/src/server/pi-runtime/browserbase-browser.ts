@@ -125,6 +125,7 @@ export class BrowserbaseBrowserAutomationManager implements BrowserAutomationCon
                 const apiKey = this.apiKey()
                 const session = await createBrowserbaseSession({
                     apiKey,
+                    baseUrl: this.config.search.browserbase.baseUrl,
                     timeoutSeconds: browserbaseTimeoutSeconds(this.config.budgets.idleTimeoutMs),
                     signal: context.signal,
                 })
@@ -858,6 +859,7 @@ export class BrowserbaseBrowserAutomationManager implements BrowserAutomationCon
         try {
             await releaseBrowserbaseSession({
                 apiKey: this.apiKey(),
+                baseUrl: this.config.search.browserbase.baseUrl,
                 sessionId: input.sessionId,
                 requestTimeoutMs: input.releaseRequestTimeoutMs,
             })

@@ -6,10 +6,17 @@ import {
     runtimeUsageIdempotencyKey,
 } from './hosted-runtime-callback-routes'
 import {
+    hostedBrowserbaseProxyPathPrefix,
     hostedBraveProxyPathPrefix,
+    hostedManagedFetchPathPrefix,
     hostedOpenRouterProxyPathPrefix,
 } from './hosted-provider-proxy'
-import { hostedBraveProxy, hostedOpenRouterProxy } from './hosted-provider-proxy-routes'
+import {
+    hostedBraveProxy,
+    hostedBrowserbaseProxy,
+    hostedManagedFetchProxy,
+    hostedOpenRouterProxy,
+} from './hosted-provider-proxy-routes'
 
 export { runtimeUsageIdempotencyKey }
 
@@ -38,6 +45,18 @@ export async function hostedRuntimeWorkerRoute(input: {
         input.url.pathname.startsWith(`${hostedBraveProxyPathPrefix}/`)
     ) {
         return hostedBraveProxy(input.env, input.request, input.url)
+    }
+    if (
+        input.url.pathname === hostedBrowserbaseProxyPathPrefix ||
+        input.url.pathname.startsWith(`${hostedBrowserbaseProxyPathPrefix}/`)
+    ) {
+        return hostedBrowserbaseProxy(input.env, input.request, input.url)
+    }
+    if (
+        input.url.pathname === hostedManagedFetchPathPrefix ||
+        input.url.pathname.startsWith(`${hostedManagedFetchPathPrefix}/`)
+    ) {
+        return hostedManagedFetchProxy(input.env, input.request, input.url)
     }
     return null
 }

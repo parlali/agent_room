@@ -42,6 +42,7 @@ export const testSearch: SearchRuntimeConfig = {
     browserbase: {
         enabled: false,
         envKey: null,
+        baseUrl: null,
         timeoutMs: 10000,
         resultCount: 5,
     },
@@ -86,6 +87,7 @@ export interface TestPiRuntimeConfigOptions {
     roomMode?: PiRuntimeConfig['roomMode']
     capabilities?: Partial<CapabilityConfig>
     search?: TestSearchRuntimeConfigOptions
+    urlFetch?: Partial<PiRuntimeConfig['urlFetch']>
     image?: Partial<ImageRuntimeConfig>
     github?: Partial<PiRuntimeConfig['github']>
     budgets?: Partial<RunBudgetConfig>
@@ -171,6 +173,12 @@ export function createTestPiRuntimeConfig(
                 ...testSearch.browserbase,
                 ...options.search?.browserbase,
             },
+        },
+        urlFetch: {
+            mode: 'direct',
+            proxyUrl: null,
+            tokenEnvKey: null,
+            ...options.urlFetch,
         },
         image: {
             ...testImage,

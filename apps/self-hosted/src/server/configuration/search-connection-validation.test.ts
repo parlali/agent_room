@@ -21,6 +21,7 @@ vi.mock('./operator-configuration/materialization', () => ({
             browserbase: {
                 enabled: true,
                 envKey: 'AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY',
+                baseUrl: null,
                 timeoutMs: 10000,
                 resultCount: 5,
             },

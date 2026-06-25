@@ -280,7 +280,13 @@ async function repairExistingHostedBillingDebitReservation(
 export async function debitHostedBalance(input: {
     env: AgentRoomHostedEnv
     workspaceId: string
-    source: Extract<HostedBillingLedgerSource, 'hosted_openrouter_usage' | 'hosted_brave_usage'>
+    source: Extract<
+        HostedBillingLedgerSource,
+        | 'hosted_openrouter_usage'
+        | 'hosted_brave_usage'
+        | 'hosted_browserbase_usage'
+        | 'hosted_fetch_url_usage'
+    >
     amountCents: number
     usageEventId: string
     idempotencyKey: string

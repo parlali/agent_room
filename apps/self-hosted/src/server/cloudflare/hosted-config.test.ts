@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import type { D1Database, R2Bucket } from '@cloudflare/workers-types'
+import { hostedBillingPlans, hostedCreditTopupPriceId } from '@agent-room/billing'
 import { describe, expect, it } from 'vitest'
 import type { AgentRoomHostedEnv } from './bindings'
 import {
@@ -47,8 +48,6 @@ function hostedEnv(overrides: Partial<AgentRoomHostedEnv> = {}): AgentRoomHosted
         AGENT_ROOM_RUNTIME_JOBS: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME_JOBS'],
         AGENT_ROOM_RUNTIME: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME'],
         AGENT_ROOM_AUTH_MODE: 'better-auth',
-        AGENT_ROOM_BILLING_PLANS:
-            '[{"key":"starter","priceId":"price_test_starter_000000","monthlyCents":700,"includedCents":0},{"key":"standard","priceId":"price_test_standard_000000","monthlyCents":2000,"includedCents":1200},{"key":"pro","priceId":"price_test_pro_000000","monthlyCents":5000,"includedCents":3500}]',
         AGENT_ROOM_BILLING_USAGE_MARKUP_BPS: '13000',
         AGENT_ROOM_BILLING_TAX_MODE: 'automatic',
         AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS: '3',
@@ -61,12 +60,12 @@ function hostedEnv(overrides: Partial<AgentRoomHostedEnv> = {}): AgentRoomHosted
         GOOGLE_CLIENT_SECRET: 'google-secret',
         STRIPE_SECRET_KEY: 'stripe-secret-test-value',
         STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
-        STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_test_topup_000000',
         AGENT_ROOM_EMAIL_WEBHOOK_URL: 'https://mail.example.test/send',
         AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN: 'b'.repeat(16),
         AGENT_ROOM_EMAIL_FROM: 'Agent Room <noreply@example.test>',
         AGENT_ROOM_HOSTED_OPENROUTER_API_KEY: 'openrouter-platform-key',
         AGENT_ROOM_HOSTED_BRAVE_API_KEY: 'brave-platform-key',
+        AGENT_ROOM_HOSTED_BROWSERBASE_API_KEY: 'browserbase-platform-key',
         ...overrides,
     }
 }
@@ -159,39 +158,23 @@ describe('hosted Cloudflare configuration', () => {
             runtimeBackend: 'cloudflare-containers',
             runtimeStorage: 'r2',
             billing: {
-                plans: [
-                    {
-                        key: 'starter',
-                        priceId: 'price_test_starter_000000',
-                        monthlyCents: 700,
-                        includedCents: 0,
-                    },
-                    {
-                        key: 'standard',
-                        priceId: 'price_test_standard_000000',
-                        monthlyCents: 2000,
-                        includedCents: 1200,
-                    },
-                    {
-                        key: 'pro',
-                        priceId: 'price_test_pro_000000',
-                        monthlyCents: 5000,
-                        includedCents: 3500,
-                    },
-                ],
+                plans: hostedBillingPlans(),
                 usageMarkupBps: 13000,
                 taxMode: 'automatic',
                 maxConcurrentRoomsPerWorkspace: 3,
                 stripe: {
                     secretKey: 'stripe-secret-test-value',
                     webhookSecret: 'stripe-webhook-test-value',
-                    creditTopupPriceId: 'price_test_topup_000000',
+                    creditTopupPriceId: hostedCreditTopupPriceId(),
                 },
             },
             publicOrigin: 'https://rooms.example.test',
             google: {
                 clientId: 'google-client',
                 clientSecret: 'google-secret',
+            },
+            managedProviders: {
+                browserbaseApiKey: 'browserbase-platform-key',
             },
         })
     })
@@ -269,7 +252,7 @@ describe('hosted Cloudflare configuration', () => {
         expect(resolveHostedConfig(hostedEnv()).billing.stripe).toMatchObject({
             secretKey: 'stripe-secret-test-value',
             webhookSecret: 'stripe-webhook-test-value',
-            creditTopupPriceId: 'price_test_topup_000000',
+            creditTopupPriceId: hostedCreditTopupPriceId(),
         })
     })
 
@@ -281,25 +264,14 @@ describe('hosted Cloudflare configuration', () => {
         expect(config.billing.maxConcurrentRoomsPerWorkspace).toBe(3)
     })
 
-    it('fails closed when there are no billing plans', () => {
+    it('requires the managed Browserbase platform key', () => {
         expect(() =>
             resolveHostedConfig(
                 hostedEnv({
-                    AGENT_ROOM_BILLING_PLANS: '[]',
+                    AGENT_ROOM_HOSTED_BROWSERBASE_API_KEY: undefined,
                 }),
             ),
-        ).toThrow(/AGENT_ROOM_BILLING_PLANS/)
-    })
-
-    it('fails closed when a plan includes more usage than its monthly price', () => {
-        expect(() =>
-            resolveHostedConfig(
-                hostedEnv({
-                    AGENT_ROOM_BILLING_PLANS:
-                        '[{"key":"bad","priceId":"price_bad","monthlyCents":700,"includedCents":1200}]',
-                }),
-            ),
-        ).toThrow(/Invalid hosted Cloudflare configuration/)
+        ).toThrow(/AGENT_ROOM_HOSTED_BROWSERBASE_API_KEY/)
     })
 
     it('requires HTTPS URLs for auth and email delivery endpoints', () => {
@@ -371,10 +343,10 @@ describe('hosted Cloudflare configuration', () => {
             'CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_HOSTED_PREVIEW_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}',
         )
         expect(previewWorkflowConfig).toContain(
-            'AGENT_ROOM_BILLING_PLANS: ${{ secrets.AGENT_ROOM_HOSTED_PREVIEW_BILLING_PLANS || secrets.AGENT_ROOM_BILLING_PLANS }}',
+            'AGENT_ROOM_HOSTED_BRAVE_API_KEY: ${{ secrets.AGENT_ROOM_HOSTED_PREVIEW_BRAVE_API_KEY || secrets.AGENT_ROOM_HOSTED_BRAVE_API_KEY }}',
         )
         expect(previewWorkflowConfig).toContain(
-            'AGENT_ROOM_HOSTED_BRAVE_API_KEY: ${{ secrets.AGENT_ROOM_HOSTED_PREVIEW_BRAVE_API_KEY || secrets.AGENT_ROOM_HOSTED_BRAVE_API_KEY }}',
+            'AGENT_ROOM_HOSTED_BROWSERBASE_API_KEY: ${{ secrets.AGENT_ROOM_HOSTED_PREVIEW_BROWSERBASE_API_KEY || secrets.AGENT_ROOM_HOSTED_BROWSERBASE_API_KEY }}',
         )
     })
 
@@ -382,7 +354,8 @@ describe('hosted Cloudflare configuration', () => {
         const wranglerConfig = readText(new URL('../../../wrangler.hosted.jsonc', import.meta.url))
         expect(wranglerConfig).toContain(`"AGENT_ROOM_AUTH_MODE": "${hostedConfigValues.authMode}"`)
         expect(wranglerConfig).not.toContain('AGENT_ROOM_BILLING_MODE')
-        expect(wranglerConfig).not.toContain(`"AGENT_ROOM_BILLING_PLANS": "[]"`)
+        expect(wranglerConfig).not.toContain('AGENT_ROOM_BILLING_PLANS')
+        expect(wranglerConfig).not.toContain('STRIPE_CREDIT_TOPUP_PRICE_ID')
         expect(wranglerConfig).not.toMatch(new RegExp('price_[^"]*place' + 'holder'))
         expect(wranglerConfig).toContain(`"AGENT_ROOM_BILLING_USAGE_MARKUP_BPS": "13000"`)
         expect(wranglerConfig).toContain(`"AGENT_ROOM_BILLING_TAX_MODE": "automatic"`)

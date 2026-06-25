@@ -85,8 +85,6 @@ function hostedEnv(): AgentRoomHostedEnv {
         AGENT_ROOM_RUNTIME_JOBS: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME_JOBS'],
         AGENT_ROOM_RUNTIME: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME'],
         AGENT_ROOM_AUTH_MODE: 'better-auth',
-        AGENT_ROOM_BILLING_PLANS:
-            '[{"key":"starter","priceId":"price_test_starter_000000","monthlyCents":700,"includedCents":0}]',
         AGENT_ROOM_BILLING_USAGE_MARKUP_BPS: '13000',
         AGENT_ROOM_BILLING_TAX_MODE: 'automatic',
         AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS: '3',
@@ -97,9 +95,9 @@ function hostedEnv(): AgentRoomHostedEnv {
         AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
         AGENT_ROOM_HOSTED_OPENROUTER_API_KEY: 'openrouter-test-key',
         AGENT_ROOM_HOSTED_BRAVE_API_KEY: 'brave-platform-key',
+        AGENT_ROOM_HOSTED_BROWSERBASE_API_KEY: 'browserbase-platform-key',
         STRIPE_SECRET_KEY: 'stripe-secret-test-value',
         STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
-        STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_test_topup_000000',
         AGENT_ROOM_EMAIL_WEBHOOK_URL: 'https://mail.example.test/send',
         AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN: 'b'.repeat(16),
         AGENT_ROOM_EMAIL_FROM: 'Agent Room <noreply@example.test>',
@@ -200,6 +198,14 @@ function braveRuntimeHeaders(headers: Record<string, string> = {}): Record<strin
     }
 }
 
+function browserbaseRuntimeHeaders(headers: Record<string, string> = {}): Record<string, string> {
+    return {
+        ...openRouterRuntimeHeaders(),
+        'x-bb-api-key': validToken,
+        ...headers,
+    }
+}
+
 describe('hosted runtime usage idempotency keys', () => {
     it('does not persist callback payload JSON when runtime seq is missing', () => {
         const first = runtimeUsageIdempotencyKey({
@@ -253,6 +259,12 @@ describe('hosted runtime worker route security gates', () => {
             ledgerEntryId: 'ledger_1',
         })
         mocks.recordHostedProviderUsageBlocked.mockResolvedValue('usage_blocked_1')
+        mocks.ensureHostedBillingAccount.mockResolvedValue({
+            workspaceId: 'workspace_1',
+            planKey: 'pro',
+            planStatus: 'active',
+            availableBalanceCents: 100,
+        })
         mocks.findHostedBillingReservationByIdempotencyKey.mockResolvedValue(null)
         mocks.readHostedProviderUsageSettlementByIdempotencyKey.mockResolvedValue(null)
         mocks.authorizeHostedBillingReservation.mockResolvedValue({
@@ -941,6 +953,146 @@ describe('hosted runtime worker route security gates', () => {
             }),
         )
         expect(mocks.recordHostedProviderUsage).not.toHaveBeenCalled()
+    })
+
+    it('settles managed Browserbase session usage before returning the provider body', async () => {
+        const fetchMock = vi.fn(
+            async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) =>
+                new Response(
+                    JSON.stringify({
+                        id: 'bb-session-1',
+                        connectUrl: 'wss://connect.browserbase.com/session',
+                    }),
+                    {
+                        headers: {
+                            'content-type': 'application/json',
+                        },
+                    },
+                ),
+        )
+        vi.stubGlobal('fetch', fetchMock)
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/provider/browserbase/v1/workspaces/workspace_1/rooms/room_1/sessions',
+            headers: browserbaseRuntimeHeaders(),
+            token: null,
+            body: {
+                keepAlive: true,
+            },
+        })
+
+        expect(response.status).toBe(200)
+        await expect(response.json()).resolves.toMatchObject({
+            id: 'bb-session-1',
+        })
+        const providerUrl = fetchMock.mock.calls[0]![0] as URL
+        expect(providerUrl.toString()).toBe('https://api.browserbase.com/v1/sessions')
+        const providerHeaders = new Headers((fetchMock.mock.calls[0]![1] as RequestInit).headers)
+        expect(providerHeaders.get('x-bb-api-key')).toBe('browserbase-platform-key')
+        expect(mocks.authorizeHostedBillingReservation).toHaveBeenCalledWith(
+            expect.objectContaining({
+                provider: 'browserbase',
+                amountCents: 7,
+                idempotencyKey: 'browserbase:workspace_1:room_1:usage-request-123456',
+            }),
+        )
+        expect(mocks.recordHostedProviderUsage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                provider: 'browserbase',
+                model: 'browserbase-session',
+                costMicros: 50000,
+                idempotencyKey:
+                    'provider_proxy:browserbase:workspace_1:room_1:usage-request-123456',
+            }),
+        )
+    })
+
+    it('blocks managed Browserbase for non-Pro billing plans before using the platform key', async () => {
+        const fetchMock = vi.fn(async () => new Response('{}'))
+        vi.stubGlobal('fetch', fetchMock)
+        mocks.ensureHostedBillingAccount.mockResolvedValue({
+            workspaceId: 'workspace_1',
+            planKey: 'standard',
+            planStatus: 'active',
+            availableBalanceCents: 100,
+        })
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/provider/browserbase/v1/workspaces/workspace_1/rooms/room_1/sessions',
+            headers: browserbaseRuntimeHeaders(),
+            token: null,
+            body: {
+                keepAlive: true,
+            },
+        })
+
+        await expectJsonCode(response, 403, 'managed_browserbase_requires_pro')
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect(mocks.authorizeHostedBillingReservation).not.toHaveBeenCalled()
+    })
+
+    it('settles managed fetch usage through the worker proxy', async () => {
+        const fetchMock = vi.fn(
+            async (input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) => {
+                const url = String(input)
+                if (url.startsWith('https://cloudflare-dns.com/dns-query')) {
+                    return new Response(
+                        JSON.stringify({
+                            Answer: [
+                                {
+                                    type: url.includes('type=AAAA') ? 28 : 1,
+                                    data: url.includes('type=AAAA')
+                                        ? '2606:2800:220:1:248:1893:25c8:1946'
+                                        : '93.184.216.34',
+                                },
+                            ],
+                        }),
+                        {
+                            headers: {
+                                'content-type': 'application/json',
+                            },
+                        },
+                    )
+                }
+                return new Response('<title>Example</title><main>Hello</main>', {
+                    headers: {
+                        'content-type': 'text/html',
+                    },
+                })
+            },
+        )
+        vi.stubGlobal('fetch', fetchMock)
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/fetch/workspaces/workspace_1/rooms/room_1',
+            headers: openRouterRuntimeHeaders(),
+            body: {
+                url: 'https://example.com/page',
+                timeoutMs: 5000,
+            },
+        })
+
+        expect(response.status).toBe(200)
+        await expect(response.json()).resolves.toMatchObject({
+            finalUrl: 'https://example.com/page',
+            title: 'Example',
+            text: 'Example Hello',
+        })
+        expect(mocks.authorizeHostedBillingReservation).toHaveBeenCalledWith(
+            expect.objectContaining({
+                provider: 'fetch_url',
+                amountCents: 2,
+                idempotencyKey: 'fetch_url:workspace_1:room_1:usage-request-123456',
+            }),
+        )
+        expect(mocks.recordHostedProviderUsage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                provider: 'fetch_url',
+                model: 'fetch_url',
+                costMicros: 10000,
+                idempotencyKey: 'provider_proxy:fetch_url:workspace_1:room_1:usage-request-123456',
+            }),
+        )
     })
 
     it('rejects malformed state callbacks before writing runtime state', async () => {

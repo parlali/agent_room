@@ -24,12 +24,13 @@ interface BrowserbaseDebugPage {
 
 export async function createBrowserbaseSession(input: {
     apiKey: string
+    baseUrl?: string | null
     timeoutSeconds: number
     signal?: AbortSignal
 }): Promise<BrowserbaseSessionResponse> {
     const json = await browserbaseJsonRequest({
         apiKey: input.apiKey,
-        url: `${browserbaseApiBaseUrl}/sessions`,
+        url: `${browserbaseClientBaseUrl(input.baseUrl)}/sessions`,
         method: 'POST',
         body: {
             keepAlive: true,
@@ -53,12 +54,13 @@ export async function createBrowserbaseSession(input: {
 
 export async function getBrowserbaseDebugUrls(input: {
     apiKey: string
+    baseUrl?: string | null
     sessionId: string
     signal?: AbortSignal
 }): Promise<BrowserbaseDebugResponse> {
     const json = await browserbaseJsonRequest({
         apiKey: input.apiKey,
-        url: `${browserbaseApiBaseUrl}/sessions/${encodeURIComponent(input.sessionId)}/debug`,
+        url: `${browserbaseClientBaseUrl(input.baseUrl)}/sessions/${encodeURIComponent(input.sessionId)}/debug`,
         method: 'GET',
         signal: input.signal,
     })
@@ -77,13 +79,14 @@ export async function getBrowserbaseDebugUrls(input: {
 
 export async function releaseBrowserbaseSession(input: {
     apiKey: string
+    baseUrl?: string | null
     sessionId: string
     requestTimeoutMs?: number
     signal?: AbortSignal
 }): Promise<void> {
     await browserbaseJsonRequest({
         apiKey: input.apiKey,
-        url: `${browserbaseApiBaseUrl}/sessions/${encodeURIComponent(input.sessionId)}`,
+        url: `${browserbaseClientBaseUrl(input.baseUrl)}/sessions/${encodeURIComponent(input.sessionId)}`,
         method: 'POST',
         body: {
             status: 'REQUEST_RELEASE',
@@ -95,6 +98,10 @@ export async function releaseBrowserbaseSession(input: {
 
 export function browserbaseTimeoutSeconds(idleTimeoutMs: number): number {
     return Math.min(21600, Math.max(60, Math.ceil(idleTimeoutMs / 1000) + 60))
+}
+
+function browserbaseClientBaseUrl(baseUrl: string | null | undefined): string {
+    return (baseUrl?.trim() || browserbaseApiBaseUrl).replace(/\/$/, '')
 }
 
 export function bestLiveUrl(debug: BrowserbaseDebugResponse): string | null {

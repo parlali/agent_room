@@ -14,6 +14,7 @@ import type {
     RuntimeSandboxHardening,
     RuntimeSandboxIdentity,
     SearchRuntimeConfig,
+    UrlFetchRuntimeConfig,
 } from '#/domain/domain-types'
 import {
     assertSupportedProvider,
@@ -100,6 +101,7 @@ export interface PiRuntimeConfig {
     sandboxHardening: RuntimeSandboxHardening
     capabilities: CapabilityConfig
     search: SearchRuntimeConfig
+    urlFetch: UrlFetchRuntimeConfig
     image: ImageRuntimeConfig
     github: MaterializedGitHubBinding
     budgets: RunBudgetConfig
@@ -247,6 +249,7 @@ export function buildPiRuntimeConfig(input: {
         sandboxHardening: input.sandboxHardening,
         capabilities: input.roomConfiguration.capabilities,
         search: input.roomConfiguration.search,
+        urlFetch: input.roomConfiguration.urlFetch,
         image: input.roomConfiguration.image,
         github,
         budgets: input.roomConfiguration.budgets,

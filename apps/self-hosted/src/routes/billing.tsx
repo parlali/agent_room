@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { hostedBillingCatalog } from '@agent-room/billing'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
     CreditCardIcon,
@@ -44,7 +45,7 @@ interface HostedBillingSummary {
     plans: HostedBillingPlan[]
     usage: Array<{
         id: string
-        provider: 'openrouter' | 'brave'
+        provider: 'openrouter' | 'brave' | 'browserbase' | 'fetch_url'
         model: string | null
         costMicros: number
         billingStatus: string
@@ -73,29 +74,13 @@ function hostedBillingSummaryFromPayload(
     return isRecord(payload.billing) ? (payload.billing as unknown as HostedBillingSummary) : null
 }
 
-const placeholderPlans: PlaceholderPlan[] = [
-    {
-        key: 'starter',
-        name: 'Starter',
-        monthlyCents: 700,
-        includedCents: 0,
-        summary: 'Subscription access with no included managed usage.',
-    },
-    {
-        key: 'standard',
-        name: 'Standard',
-        monthlyCents: 2000,
-        includedCents: 1200,
-        summary: 'Includes monthly hosted usage that resets each cycle.',
-    },
-    {
-        key: 'pro',
-        name: 'Pro',
-        monthlyCents: 5000,
-        includedCents: 3500,
-        summary: 'More included monthly hosted usage for heavier workloads.',
-    },
-]
+const placeholderPlans: PlaceholderPlan[] = hostedBillingCatalog.plans.map((plan) => ({
+    key: plan.key,
+    name: plan.name,
+    monthlyCents: plan.monthlyCents,
+    includedCents: plan.includedCents,
+    summary: plan.summary,
+}))
 
 export const Route = createFileRoute('/billing')({
     beforeLoad: () => requireRouteUser({ requireHostedSubscription: false }),
@@ -194,7 +179,7 @@ function BillingPage() {
         includedCents: plan.includedCents,
         summary:
             plan.includedCents > 0
-                ? 'Includes monthly managed OpenRouter and Brave usage.'
+                ? 'Includes monthly managed provider usage.'
                 : 'Subscription access with no included managed usage.',
     }))
     const plans = livePlans?.length ? livePlans : placeholderPlans
@@ -223,7 +208,7 @@ function BillingPage() {
         <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
             <PageHeader
                 title="Billing"
-                subtitle="Managed OpenRouter and Brave usage draws included credits first, then purchased credits."
+                subtitle="Managed OpenRouter, Brave, Browserbase, and fetch usage draws included credits first, then purchased credits."
             />
 
             {subscriptionCheckoutReturned && !hosted?.active ? (
@@ -240,7 +225,7 @@ function BillingPage() {
 
             <Section
                 title="Plans"
-                description="Placeholder tiers. Final pricing and included usage are configured in the hosted deployment."
+                description="Hosted tiers are shared with Stripe checkout and the public pricing page."
             >
                 <div className="grid gap-3 sm:grid-cols-3">
                     {plans.map((plan) => (
@@ -261,8 +246,8 @@ function BillingPage() {
                 <div className="mt-4 rounded-lg border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">
                     Included usage resets monthly and is spent first; it does not carry over.
                     Purchased credits persist and are spent after included usage runs out. Hosted
-                    OpenRouter and Brave usage is billed against this balance. VAT is added at
-                    checkout where required.
+                    managed provider usage is billed against this balance. VAT is added at checkout
+                    where required.
                 </div>
             </Section>
 
@@ -386,7 +371,7 @@ function BillingPage() {
 
                 <Section
                     title="Recent billable usage"
-                    description="Managed OpenRouter and Brave usage appears here after it is debited."
+                    description="Managed provider usage appears here after it is debited."
                 >
                     {hosted?.usage.length ? (
                         <div className="divide-y rounded-lg border border-border/70">
@@ -414,7 +399,7 @@ function BillingPage() {
                         <EmptyState
                             icon={CreditCardIcon}
                             title="No hosted billable usage"
-                            description="Managed OpenRouter and Brave usage will appear here after runs complete."
+                            description="Managed provider usage will appear here after runs complete."
                         />
                     )}
                 </Section>

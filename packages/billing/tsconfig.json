@@ -1,0 +1,4 @@
+{
+    "extends": "@agent-room/typescript-config/base",
+    "include": ["src"]
+}

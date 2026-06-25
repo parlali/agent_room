@@ -2,10 +2,15 @@ import type { AgentRoomHostedEnv } from './bindings'
 import {
     applyUsageMarkupMicros,
     centsFromMicrosCeil,
+    hostedBrowserbaseSearchCostMicros,
+    hostedBrowserbaseSessionCostMicros,
     hostedBraveSearchCostMicros,
+    hostedFetchUrlCostMicros,
     hostedProviderBillingGateCents,
+    isHostedBillingPlanStatusActive,
     type HostedBillingReservationProvider,
 } from './hosted-billing-types'
+import { hostedPlanAllowsManagedBrowserbase } from '@agent-room/billing'
 import {
     authorizeHostedBillingReservation,
     ensureHostedBillingAccount,
@@ -17,12 +22,18 @@ import {
 import { resolveHostedConfig } from './hosted-config'
 import { objectRecord, nullableObjectRecord } from './hosted-json'
 import {
+    parseHostedBrowserbaseProxyPath,
     openRouterCostMicrosFromProviderText,
     parseHostedBraveProxyPath,
+    parseHostedManagedFetchPath,
     parseHostedOpenRouterProxyPath,
+    type HostedBrowserbaseProxyPath,
     type HostedBraveProxyPath,
+    type HostedManagedFetchPath,
     type HostedOpenRouterProxyPath,
 } from './hosted-provider-proxy'
+import { fetchPublicTextUrl } from '../web/web-fetch-core'
+import { assertHostedRuntimeEgressDestination } from './hosted-runtime-egress-policy'
 import {
     boundedHeaderToken,
     requireHostedRuntimeProviderProxy,
@@ -32,12 +43,22 @@ import {
 import { recordHostedProviderUsage, recordHostedProviderUsageBlocked } from './hosted-usage-billing'
 import { hostedJsonResponse } from './hosted-worker-response'
 
+type HostedProviderProxyBillingAuthority =
+    | 'hosted_openrouter_proxy'
+    | 'hosted_brave_proxy'
+    | 'hosted_browserbase_proxy'
+    | 'hosted_fetch_url_proxy'
+
 interface HostedOpenRouterProviderRequest {
     body: BodyInit | null
     model: string | null
 }
 
-type HostedProviderProxyPath = HostedOpenRouterProxyPath | HostedBraveProxyPath
+type HostedProviderProxyPath =
+    | HostedOpenRouterProxyPath
+    | HostedBraveProxyPath
+    | HostedBrowserbaseProxyPath
+    | HostedManagedFetchPath
 
 interface HostedProviderProxyUsageRequest {
     usageRequestId: string
@@ -197,11 +218,11 @@ async function repairExistingProviderUsageSettlement(input: {
     roomId: string
     provider: HostedBillingReservationProvider
     model: string
-    billedBy: 'hosted_openrouter_proxy' | 'hosted_brave_proxy'
+    billedBy: HostedProviderProxyBillingAuthority
     usageIdempotencyKey: string
     reservationIdempotencyKey: string
     usageRequestId: string
-    targetPath: string
+    targetPath: string | null
 }): Promise<boolean> {
     const [usage, reservation] = await Promise.all([
         readHostedProviderUsageSettlementByIdempotencyKey({
@@ -251,7 +272,7 @@ async function repairExistingProviderUsageSettlement(input: {
                 providerProxyBillingAuthority: 'worker_proxy',
                 reservationId: settlementReservation?.id ?? null,
                 usageRequestId: input.usageRequestId,
-                targetPath: input.targetPath,
+                ...(input.targetPath ? { targetPath: input.targetPath } : {}),
                 settlementRepair: true,
             },
             idempotencyKey: input.usageIdempotencyKey,
@@ -278,10 +299,18 @@ function hostedProviderResponseHeaders(response: Response): Headers {
     return headers
 }
 
+function hostedFixedCostReservationCents(input: {
+    costMicros: number
+    usageMarkupBps: number
+}): number {
+    return centsFromMicrosCeil(applyUsageMarkupMicros(input.costMicros, input.usageMarkupBps))
+}
+
 function hostedBraveSearchReservationCents(input: { usageMarkupBps: number }): number {
-    return centsFromMicrosCeil(
-        applyUsageMarkupMicros(hostedBraveSearchCostMicros, input.usageMarkupBps),
-    )
+    return hostedFixedCostReservationCents({
+        costMicros: hostedBraveSearchCostMicros,
+        usageMarkupBps: input.usageMarkupBps,
+    })
 }
 
 export async function hostedOpenRouterProxy(
@@ -803,5 +832,548 @@ export async function hostedBraveProxy(
         status: response.status,
         statusText: response.statusText,
         headers: responseHeaders,
+    })
+}
+
+function browserbaseOperation(proxyPath: HostedBrowserbaseProxyPath): {
+    model: string
+    costMicros: number | null
+    billable: boolean
+} {
+    if (proxyPath.targetPath === '/search') {
+        return {
+            model: 'browserbase-search',
+            costMicros: hostedBrowserbaseSearchCostMicros,
+            billable: true,
+        }
+    }
+    if (proxyPath.targetPath === '/sessions') {
+        return {
+            model: 'browserbase-session',
+            costMicros: hostedBrowserbaseSessionCostMicros,
+            billable: true,
+        }
+    }
+    return {
+        model: 'browserbase-session',
+        costMicros: null,
+        billable: false,
+    }
+}
+
+function browserbaseMethodAllowed(
+    request: Request,
+    proxyPath: HostedBrowserbaseProxyPath,
+): boolean {
+    if (proxyPath.targetPath === '/search' || proxyPath.targetPath === '/sessions') {
+        return request.method === 'POST'
+    }
+    if (proxyPath.targetPath.endsWith('/debug')) {
+        return request.method === 'GET'
+    }
+    return request.method === 'POST'
+}
+
+async function assertManagedBrowserbasePlan(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+}): Promise<Response | null> {
+    const account = await ensureHostedBillingAccount({
+        env: input.env,
+        workspaceId: input.workspaceId,
+    })
+    if (
+        !isHostedBillingPlanStatusActive(account.planStatus) ||
+        !hostedPlanAllowsManagedBrowserbase(account.planKey)
+    ) {
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'managed_browserbase_requires_pro',
+            },
+            {
+                status: 403,
+            },
+        )
+    }
+    return null
+}
+
+async function authorizeFixedProviderReservation(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+    usageContext: HostedRuntimeUsageContext
+    provider: HostedBillingReservationProvider
+    amountCents: number
+    idempotencyKey: string
+    targetPath: string | null
+    usageRequestId: string
+}): Promise<string | Response> {
+    try {
+        const reservation = await authorizeHostedBillingReservation({
+            env: input.env,
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            sessionKey: input.usageContext.sessionKey,
+            runId: input.usageContext.runId,
+            jobId: input.usageContext.jobId,
+            provider: input.provider,
+            amountCents: input.amountCents,
+            idempotencyKey: input.idempotencyKey,
+            metadata: {
+                ...(input.targetPath ? { targetPath: input.targetPath } : {}),
+                usageRequestId: input.usageRequestId,
+                sessionKey: input.usageContext.sessionKey,
+                runId: input.usageContext.runId,
+                jobId: input.usageContext.jobId,
+                reservationPurpose: 'provider_preflight',
+            },
+            expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+            allowExisting: false,
+        })
+        return reservation.id
+    } catch (error) {
+        if (error instanceof HostedBillingReservationAlreadyExistsError) {
+            return hostedJsonResponse(
+                {
+                    ok: false,
+                    code: 'runtime_usage_request_already_in_flight',
+                },
+                {
+                    status: 409,
+                },
+            )
+        }
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'hosted_billing_balance_exhausted',
+                message:
+                    error instanceof Error ? error.message : 'Hosted billing balance is exhausted',
+            },
+            {
+                status: 402,
+            },
+        )
+    }
+}
+
+async function recordFixedProviderUsage(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+    usageContext: HostedRuntimeUsageContext
+    provider: HostedBillingReservationProvider
+    model: string
+    costMicros: number
+    reservationId: string | null
+    usageRequestId: string
+    targetPath: string | null
+    billedBy: HostedProviderProxyBillingAuthority
+    idempotencyKey: string
+    metadata?: Record<string, unknown>
+}): Promise<Response | null> {
+    try {
+        await recordHostedProviderUsage({
+            env: input.env,
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            sessionKey: input.usageContext.sessionKey,
+            runId: input.usageContext.runId,
+            jobId: input.usageContext.jobId,
+            provider: input.provider,
+            model: input.model,
+            inputTokens: null,
+            outputTokens: null,
+            cachedTokens: null,
+            estimatedCostUsd: input.costMicros / 1_000_000,
+            costMicros: input.costMicros,
+            billingReservationId: input.reservationId,
+            metadata: {
+                billedBy: input.billedBy,
+                providerProxyBillingAuthority: 'worker_proxy',
+                reservationId: input.reservationId,
+                usageRequestId: input.usageRequestId,
+                sessionKey: input.usageContext.sessionKey,
+                runId: input.usageContext.runId,
+                jobId: input.usageContext.jobId,
+                ...(input.targetPath ? { targetPath: input.targetPath } : {}),
+                ...input.metadata,
+            },
+            idempotencyKey: input.idempotencyKey,
+        })
+        return null
+    } catch {
+        await releaseHostedProviderSettlementFailureReservation({
+            env: input.env,
+            workspaceId: input.workspaceId,
+            reservationId: input.reservationId,
+        })
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'provider_billing_settlement_failed',
+            },
+            {
+                status: 502,
+            },
+        )
+    }
+}
+
+export async function hostedBrowserbaseProxy(
+    env: AgentRoomHostedEnv,
+    request: Request,
+    url: URL,
+): Promise<Response> {
+    const proxyPath = parseHostedBrowserbaseProxyPath(url.pathname)
+    if (!proxyPath || !browserbaseMethodAllowed(request, proxyPath)) {
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'runtime_provider_proxy_path_not_allowed',
+            },
+            {
+                status: 403,
+            },
+        )
+    }
+    const config = resolveHostedConfig(env)
+    const apiKey = config.managedProviders.browserbaseApiKey
+    if (!apiKey) {
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'managed_provider_unconfigured',
+            },
+            {
+                status: 503,
+            },
+        )
+    }
+    const runtime = await requireHostedRuntimeProviderProxy({
+        env,
+        request,
+        workspaceId: proxyPath.workspaceId,
+        roomId: proxyPath.roomId,
+        tokenHeaderName: 'x-bb-api-key',
+    })
+    if (runtime instanceof Response) {
+        return runtime
+    }
+    const planError = await assertManagedBrowserbasePlan({
+        env,
+        workspaceId: proxyPath.workspaceId,
+    })
+    if (planError) {
+        return planError
+    }
+
+    const operation = browserbaseOperation(proxyPath)
+    let usageRequest: HostedProviderProxyUsageRequest | null = null
+    let usageIdempotencyKey: string | null = null
+    let reservationId: string | null = null
+    if (operation.billable && operation.costMicros !== null) {
+        const usageRequestResult = await hostedProviderProxyUsageRequest({
+            env,
+            request,
+            proxyPath,
+        })
+        if (usageRequestResult instanceof Response) {
+            return usageRequestResult
+        }
+        usageRequest = usageRequestResult
+        usageIdempotencyKey = `provider_proxy:browserbase:${proxyPath.workspaceId}:${proxyPath.roomId}:${usageRequest.usageRequestId}`
+        const existingUsage = await readHostedProviderUsageSettlementByIdempotencyKey({
+            env,
+            workspaceId: proxyPath.workspaceId,
+            idempotencyKey: usageIdempotencyKey,
+        })
+        if (existingUsage) {
+            return hostedJsonResponse(
+                {
+                    ok: false,
+                    code: 'runtime_usage_request_already_recorded',
+                },
+                {
+                    status: 409,
+                },
+            )
+        }
+        await ensureHostedBillingAccount({
+            env,
+            workspaceId: proxyPath.workspaceId,
+        })
+        const reservation = await authorizeFixedProviderReservation({
+            env,
+            workspaceId: proxyPath.workspaceId,
+            roomId: proxyPath.roomId,
+            usageContext: usageRequest.usageContext,
+            provider: 'browserbase',
+            amountCents: hostedFixedCostReservationCents({
+                costMicros: operation.costMicros,
+                usageMarkupBps: config.billing.usageMarkupBps,
+            }),
+            idempotencyKey: `browserbase:${proxyPath.workspaceId}:${proxyPath.roomId}:${usageRequest.usageRequestId}`,
+            targetPath: proxyPath.targetPath,
+            usageRequestId: usageRequest.usageRequestId,
+        })
+        if (reservation instanceof Response) {
+            return reservation
+        }
+        reservationId = reservation
+    }
+
+    const headers = new Headers()
+    const accept = request.headers.get('accept')
+    const contentType = request.headers.get('content-type')
+    if (accept) {
+        headers.set('accept', accept)
+    }
+    if (contentType) {
+        headers.set('content-type', contentType)
+    }
+    headers.set('user-agent', 'AgentRoom/1.0')
+    headers.set('x-bb-api-key', apiKey)
+
+    const providerUrl = new URL(`https://api.browserbase.com/v1${proxyPath.targetPath}`)
+    providerUrl.search = url.search
+    let response: Response
+    try {
+        response = await fetch(providerUrl, {
+            method: request.method,
+            headers,
+            body: request.method === 'GET' ? null : await request.text(),
+        })
+    } catch (error) {
+        await releaseHostedProviderPreflightReservation({
+            env,
+            workspaceId: proxyPath.workspaceId,
+            reservationId,
+        })
+        throw error
+    }
+    const responseHeaders = hostedProviderResponseHeaders(response)
+    const responseText = await response.text()
+    if (!response.ok) {
+        await releaseHostedProviderPreflightReservation({
+            env,
+            workspaceId: proxyPath.workspaceId,
+            reservationId,
+        })
+        return new Response(responseText, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: responseHeaders,
+        })
+    }
+    if (
+        operation.billable &&
+        operation.costMicros !== null &&
+        usageRequest &&
+        usageIdempotencyKey
+    ) {
+        const billingError = await recordFixedProviderUsage({
+            env,
+            workspaceId: proxyPath.workspaceId,
+            roomId: proxyPath.roomId,
+            usageContext: usageRequest.usageContext,
+            provider: 'browserbase',
+            model: operation.model,
+            costMicros: operation.costMicros,
+            reservationId,
+            usageRequestId: usageRequest.usageRequestId,
+            targetPath: proxyPath.targetPath,
+            billedBy: 'hosted_browserbase_proxy',
+            idempotencyKey: usageIdempotencyKey,
+            metadata: {
+                browserbaseOperation: proxyPath.targetPath,
+            },
+        })
+        if (billingError) {
+            return billingError
+        }
+    }
+    if (reservationId) {
+        responseHeaders.set('x-agent-room-billing-reservation-id', reservationId)
+    }
+    return new Response(responseText, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: responseHeaders,
+    })
+}
+
+function parseManagedFetchBody(value: unknown): { url: string; timeoutMs: number } | null {
+    const record = nullableObjectRecord(value)
+    if (!record || typeof record.url !== 'string') {
+        return null
+    }
+    const timeoutMs =
+        typeof record.timeoutMs === 'number' && Number.isFinite(record.timeoutMs)
+            ? Math.max(1000, Math.min(15000, Math.trunc(record.timeoutMs)))
+            : 15000
+    return {
+        url: record.url,
+        timeoutMs,
+    }
+}
+
+export async function hostedManagedFetchProxy(
+    env: AgentRoomHostedEnv,
+    request: Request,
+    url: URL,
+): Promise<Response> {
+    const proxyPath = parseHostedManagedFetchPath(url.pathname)
+    if (request.method !== 'POST' || !proxyPath) {
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'runtime_fetch_proxy_path_not_allowed',
+            },
+            {
+                status: 403,
+            },
+        )
+    }
+    const runtime = await requireHostedRuntimeProviderProxy({
+        env,
+        request,
+        workspaceId: proxyPath.workspaceId,
+        roomId: proxyPath.roomId,
+    })
+    if (runtime instanceof Response) {
+        return runtime
+    }
+    const usageRequest = await hostedProviderProxyUsageRequest({
+        env,
+        request,
+        proxyPath,
+    })
+    if (usageRequest instanceof Response) {
+        return usageRequest
+    }
+    let body: unknown
+    try {
+        body = await request.json()
+    } catch {
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'runtime_fetch_request_invalid',
+            },
+            {
+                status: 400,
+            },
+        )
+    }
+    const fetchInput = parseManagedFetchBody(body)
+    if (!fetchInput) {
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'runtime_fetch_request_invalid',
+            },
+            {
+                status: 400,
+            },
+        )
+    }
+    const config = resolveHostedConfig(env)
+    const usageIdempotencyKey = `provider_proxy:fetch_url:${proxyPath.workspaceId}:${proxyPath.roomId}:${usageRequest.usageRequestId}`
+    const existingUsage = await readHostedProviderUsageSettlementByIdempotencyKey({
+        env,
+        workspaceId: proxyPath.workspaceId,
+        idempotencyKey: usageIdempotencyKey,
+    })
+    if (existingUsage) {
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'runtime_usage_request_already_recorded',
+            },
+            {
+                status: 409,
+            },
+        )
+    }
+    await ensureHostedBillingAccount({
+        env,
+        workspaceId: proxyPath.workspaceId,
+    })
+    const reservation = await authorizeFixedProviderReservation({
+        env,
+        workspaceId: proxyPath.workspaceId,
+        roomId: proxyPath.roomId,
+        usageContext: usageRequest.usageContext,
+        provider: 'fetch_url',
+        amountCents: hostedFixedCostReservationCents({
+            costMicros: hostedFetchUrlCostMicros,
+            usageMarkupBps: config.billing.usageMarkupBps,
+        }),
+        idempotencyKey: `fetch_url:${proxyPath.workspaceId}:${proxyPath.roomId}:${usageRequest.usageRequestId}`,
+        targetPath: null,
+        usageRequestId: usageRequest.usageRequestId,
+    })
+    if (reservation instanceof Response) {
+        return reservation
+    }
+    let result: Awaited<ReturnType<typeof fetchPublicTextUrl>>
+    try {
+        result = await fetchPublicTextUrl({
+            url: fetchInput.url,
+            timeoutMs: fetchInput.timeoutMs,
+            assertSafeUrl: async (targetUrl) => {
+                await assertHostedRuntimeEgressDestination({
+                    value: targetUrl.toString(),
+                    label: 'Managed fetch URL',
+                })
+            },
+        })
+    } catch (error) {
+        await releaseHostedProviderPreflightReservation({
+            env,
+            workspaceId: proxyPath.workspaceId,
+            reservationId: reservation,
+        })
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'runtime_fetch_failed',
+                message: error instanceof Error ? error.message : 'Managed URL fetch failed',
+            },
+            {
+                status: 400,
+            },
+        )
+    }
+    const billingError = await recordFixedProviderUsage({
+        env,
+        workspaceId: proxyPath.workspaceId,
+        roomId: proxyPath.roomId,
+        usageContext: usageRequest.usageContext,
+        provider: 'fetch_url',
+        model: 'fetch_url',
+        costMicros: hostedFetchUrlCostMicros,
+        reservationId: reservation,
+        usageRequestId: usageRequest.usageRequestId,
+        targetPath: null,
+        billedBy: 'hosted_fetch_url_proxy',
+        idempotencyKey: usageIdempotencyKey,
+        metadata: {
+            finalStatus: result.status,
+            contentType: result.contentType,
+            byteLength: result.byteLength,
+            truncated: result.truncated,
+        },
+    })
+    if (billingError) {
+        return billingError
+    }
+    return hostedJsonResponse(result, {
+        headers: {
+            'x-agent-room-billing-reservation-id': reservation,
+        },
     })
 }

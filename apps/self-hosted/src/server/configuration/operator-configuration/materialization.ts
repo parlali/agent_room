@@ -514,6 +514,11 @@ export async function materializeRoomConfiguration(input: {
         roomMode: config.roomMode,
         capabilities,
         search: searchMaterialization.search,
+        urlFetch: {
+            mode: 'direct',
+            proxyUrl: null,
+            tokenEnvKey: null,
+        },
         image,
         budgets: {
             ...normalizeBudgets(),

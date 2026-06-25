@@ -5,11 +5,15 @@ import {
     type SearchProviderResponse,
 } from './web-search'
 import { createTestPiRuntimeConfig } from './test-runtime-defaults'
-import { piRuntimeTokenEnvKey } from '../rooms/pi-runtime-contract'
+import {
+    hostedRuntimeUsageCallbackTokenEnvKey,
+    piRuntimeTokenEnvKey,
+} from '../rooms/pi-runtime-contract'
 
 const originalFetch = globalThis.fetch
 const originalBraveKey = process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY
 const originalPiRuntimeToken = process.env[piRuntimeTokenEnvKey]
+const originalHostedUsageCallbackToken = process.env[hostedRuntimeUsageCallbackTokenEnvKey]
 const originalBrowserbaseKey = process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY
 const originalWebSocket = globalThis.WebSocket
 
@@ -90,6 +94,11 @@ export function resetWebToolTestGlobals() {
         delete process.env[piRuntimeTokenEnvKey]
     } else {
         process.env[piRuntimeTokenEnvKey] = originalPiRuntimeToken
+    }
+    if (originalHostedUsageCallbackToken === undefined) {
+        delete process.env[hostedRuntimeUsageCallbackTokenEnvKey]
+    } else {
+        process.env[hostedRuntimeUsageCallbackTokenEnvKey] = originalHostedUsageCallbackToken
     }
     if (originalBrowserbaseKey === undefined) {
         delete process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY

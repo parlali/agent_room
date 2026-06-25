@@ -478,9 +478,16 @@ export interface SearchRuntimeConfig {
     browserbase: {
         enabled: boolean
         envKey: string | null
+        baseUrl: string | null
         timeoutMs: number
         resultCount: number
     }
+}
+
+export interface UrlFetchRuntimeConfig {
+    mode: 'direct' | 'managed'
+    proxyUrl: string | null
+    tokenEnvKey: string | null
 }
 
 export interface ImageRuntimeConfig {
@@ -618,6 +625,7 @@ export interface MaterializedRoomConfiguration {
     roomMode: RoomMode
     capabilities: CapabilityConfig
     search: SearchRuntimeConfig
+    urlFetch: UrlFetchRuntimeConfig
     image: ImageRuntimeConfig
     budgets: RunBudgetConfig
     provider: MaterializedProviderConfig

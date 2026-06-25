@@ -17,6 +17,7 @@
       "name": "@agent-room/marketing",
       "version": "0.1.0",
       "dependencies": {
+        "@agent-room/billing": "workspace:*",
         "@agent-room/brand": "workspace:*",
         "@fontsource-variable/geist": "^5.2.8",
         "@fontsource-variable/jetbrains-mono": "^5.2.5",
@@ -39,6 +40,7 @@
     "apps/self-hosted": {
       "name": "@agent-room/self-hosted",
       "dependencies": {
+        "@agent-room/billing": "workspace:*",
         "@agent-room/brand": "workspace:*",
         "@cloudflare/containers": "^0.3.7",
         "@fontsource-variable/geist": "^5.2.8",
@@ -94,6 +96,14 @@
         "vitest": "^3.0.5",
       },
     },
+    "packages/billing": {
+      "name": "@agent-room/billing",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@agent-room/typescript-config": "workspace:*",
+        "typescript": "^5.7.2",
+      },
+    },
     "packages/brand": {
       "name": "@agent-room/brand",
       "version": "0.0.0",
@@ -114,6 +124,8 @@
   },
   "packages": {
     "@acemir/cssom": ["@acemir/cssom@0.9.31", "", {}, "sha512-ZnR3GSaH+/vJ0YlHau21FjfLYjMpYVIzTD8M8vIEQvIGxeOXyXdzCI140rrCY862p/C/BbzWsjc1dgnM9mkoTA=="],
+
+    "@agent-room/billing": ["@agent-room/billing@workspace:packages/billing"],
 
     "@agent-room/brand": ["@agent-room/brand@workspace:packages/brand"],
 

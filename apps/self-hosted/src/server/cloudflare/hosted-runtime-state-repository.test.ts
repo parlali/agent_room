@@ -36,8 +36,6 @@ function hostedEnv(input: { batchChanges?: number[]; countRow?: unknown }): Agen
         AGENT_ROOM_RUNTIME_JOBS: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME_JOBS'],
         AGENT_ROOM_RUNTIME: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME'],
         AGENT_ROOM_AUTH_MODE: 'better-auth',
-        AGENT_ROOM_BILLING_PLANS:
-            '[{"key":"starter","priceId":"price_test_starter_000000","monthlyCents":700,"includedCents":0}]',
         AGENT_ROOM_BILLING_USAGE_MARKUP_BPS: '13000',
         AGENT_ROOM_BILLING_TAX_MODE: 'automatic',
         AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS: '3',
@@ -50,12 +48,12 @@ function hostedEnv(input: { batchChanges?: number[]; countRow?: unknown }): Agen
         GOOGLE_CLIENT_SECRET: 'google-secret',
         STRIPE_SECRET_KEY: 'stripe-secret-test-value',
         STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
-        STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_test_topup_000000',
         AGENT_ROOM_EMAIL_WEBHOOK_URL: 'https://mail.example.test/send',
         AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN: 'b'.repeat(16),
         AGENT_ROOM_EMAIL_FROM: 'Agent Room <noreply@example.test>',
         AGENT_ROOM_HOSTED_OPENROUTER_API_KEY: 'openrouter-platform-key',
         AGENT_ROOM_HOSTED_BRAVE_API_KEY: 'brave-platform-key',
+        AGENT_ROOM_HOSTED_BROWSERBASE_API_KEY: 'browserbase-platform-key',
     }
 }
 
@@ -164,11 +162,8 @@ describe('hosted runtime access room-cap self-exclusion', () => {
             AGENT_ROOM_RUNTIME_JOBS: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME_JOBS'],
             AGENT_ROOM_RUNTIME: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME'],
             AGENT_ROOM_AUTH_MODE: 'better-auth',
-            AGENT_ROOM_BILLING_PLANS:
-                '[{"key":"standard","priceId":"price_std","monthlyCents":2000,"includedCents":1200}]',
             STRIPE_SECRET_KEY: 'stripe-secret-test-value',
             STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
-            STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_test_topup_000000',
             AGENT_ROOM_BILLING_USAGE_MARKUP_BPS: '13000',
             AGENT_ROOM_BILLING_TAX_MODE: 'automatic',
             AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS: '3',
@@ -182,6 +177,7 @@ describe('hosted runtime access room-cap self-exclusion', () => {
             AGENT_ROOM_EMAIL_FROM: 'Agent Room <noreply@example.test>',
             AGENT_ROOM_HOSTED_OPENROUTER_API_KEY: 'openrouter-platform-key',
             AGENT_ROOM_HOSTED_BRAVE_API_KEY: 'brave-platform-key',
+            AGENT_ROOM_HOSTED_BROWSERBASE_API_KEY: 'browserbase-platform-key',
         }
     }
 

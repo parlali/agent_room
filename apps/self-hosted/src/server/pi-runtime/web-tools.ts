@@ -3,7 +3,7 @@ import { Type } from '@mariozechner/pi-ai'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { boundToolOutput, type ToolOutputArtifact } from './tool-output-bounds'
 import { clampPositiveInteger, textToolResult } from './tool-helpers'
-import { fetchUrl } from './web-fetch'
+import { fetchManagedUrl, fetchUrl, type FetchResult } from './web-fetch'
 import {
     filterResultsByDomain,
     formatSearchResults,
@@ -134,13 +134,15 @@ function createFetchUrlTool(ctx: WebToolContext): ToolDefinition {
         }),
         execute: async (_toolCallId, input, signal) => {
             try {
-                const result = await fetchUrl({
+                const timeoutMs = clampPositiveInteger(
+                    input.timeoutMs,
+                    ctx.config.budgets.webFetchMs,
+                    ctx.config.budgets.webFetchMs,
+                )
+                const result = await fetchUrlForRuntimeConfig({
+                    config: ctx.config,
                     url: input.url,
-                    timeoutMs: clampPositiveInteger(
-                        input.timeoutMs,
-                        ctx.config.budgets.webFetchMs,
-                        ctx.config.budgets.webFetchMs,
-                    ),
+                    timeoutMs,
                     signal,
                 })
                 const loggedUrl = sanitizeUrlForAudit(result.url)
@@ -152,6 +154,8 @@ function createFetchUrlTool(ctx: WebToolContext): ToolDefinition {
                     contentType: result.contentType,
                     byteLength: result.byteLength,
                     truncated: result.truncated,
+                    provider: ctx.config.urlFetch.mode === 'managed' ? 'fetch_url' : null,
+                    source: ctx.config.urlFetch.mode,
                 })
                 const header = [
                     `URL: ${loggedUrl}`,
@@ -188,11 +192,38 @@ function createFetchUrlTool(ctx: WebToolContext): ToolDefinition {
                 await ctx.audit('tool.fetch_url', {
                     url: sanitizeUrlForAudit(input.url),
                     status: 'failed',
+                    provider: ctx.config.urlFetch.mode === 'managed' ? 'fetch_url' : null,
+                    source: ctx.config.urlFetch.mode,
                     error: error instanceof Error ? error.message : 'Unknown URL fetch error',
                 })
                 throw error
             }
         },
+    })
+}
+
+function fetchUrlForRuntimeConfig(input: {
+    config: WebToolContext['config']
+    url: string
+    timeoutMs: number
+    signal?: AbortSignal
+}): Promise<FetchResult> {
+    if (input.config.urlFetch.mode === 'managed') {
+        if (!input.config.urlFetch.proxyUrl || !input.config.urlFetch.tokenEnvKey) {
+            throw new Error('Managed URL fetch is not fully materialized')
+        }
+        return fetchManagedUrl({
+            proxyUrl: input.config.urlFetch.proxyUrl,
+            tokenEnvKey: input.config.urlFetch.tokenEnvKey,
+            url: input.url,
+            timeoutMs: input.timeoutMs,
+            signal: input.signal,
+        })
+    }
+    return fetchUrl({
+        url: input.url,
+        timeoutMs: input.timeoutMs,
+        signal: input.signal,
     })
 }
 

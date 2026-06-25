@@ -12,6 +12,7 @@ import {
     normalizeSearchConfig,
     searchProviderSecretId,
 } from '../configuration/capabilities'
+import { hostedPlanAllowsManagedBrowserbase } from '@agent-room/billing'
 import { upperSnake } from '../configuration/provider-config'
 import type { RoomConfigSnapshot, RoomSecretSummary } from '../configuration/operator-configuration'
 import { imageConfigSecretId } from '../configuration/operator-configuration/helpers'
@@ -19,6 +20,8 @@ import { assertNoReservedRoomRuntimeEnvKeys } from '../security/process-env'
 import { appendHostedAudit } from './hosted-audit'
 import type { AgentRoomHostedEnv } from './bindings'
 import { resolveHostedConfig } from './hosted-config'
+import { readHostedBillingAccount } from './hosted-billing-repository'
+import { isHostedBillingPlanStatusActive } from './hosted-billing-types'
 import { upsertHostedSecret } from './hosted-secret-store'
 import { nowIso, stringifyJson, toJsonValue } from './hosted-json'
 import type { HostedActor } from './hosted-auth'
@@ -139,8 +142,21 @@ export async function getHostedRoomConfigSnapshot(input: {
         config: settings.searchConfig,
         provider: 'brave',
     })
-    const managedBraveAvailable = Boolean(
-        resolveHostedConfig(input.env).managedProviders.braveApiKey,
+    const browserbaseSecretId = searchProviderSecretId({
+        config: settings.searchConfig,
+        provider: 'browserbase',
+    })
+    const hostedConfig = resolveHostedConfig(input.env)
+    const managedBraveAvailable = Boolean(hostedConfig.managedProviders.braveApiKey)
+    const billingAccount = await readHostedBillingAccount({
+        env: input.env,
+        workspaceId: input.actor.workspaceId,
+    }).catch(() => null)
+    const managedBrowserbaseAvailable = Boolean(
+        hostedConfig.managedProviders.browserbaseApiKey &&
+        billingAccount &&
+        isHostedBillingPlanStatusActive(billingAccount.planStatus) &&
+        hostedPlanAllowsManagedBrowserbase(billingAccount.planKey),
     )
     const codexAuth = await resolveHostedCodexStatus({
         env: input.env,
@@ -187,6 +203,9 @@ export async function getHostedRoomConfigSnapshot(input: {
                 braveEnabled: search.brave.enabled,
                 braveSecretId,
                 managedBraveAvailable,
+                browserbaseEnabled: search.browserbase.enabled,
+                browserbaseSecretId,
+                managedBrowserbaseAvailable,
             }),
             imageReady: resolveHostedRoomImageReady({
                 roomImageProvider: config.imageProvider,
@@ -211,11 +230,24 @@ export function resolveHostedRoomSearchReady(input: {
     braveEnabled: boolean
     braveSecretId: string | null
     managedBraveAvailable: boolean
+    browserbaseEnabled: boolean
+    browserbaseSecretId: string | null
+    managedBrowserbaseAvailable: boolean
 }): boolean {
-    if (!input.searchEnabled || !input.braveEnabled) {
+    if (!input.searchEnabled) {
         return true
     }
-    return Boolean(input.braveSecretId) || input.managedBraveAvailable
+    if (input.braveEnabled && !input.braveSecretId && !input.managedBraveAvailable) {
+        return false
+    }
+    if (
+        input.browserbaseEnabled &&
+        !input.browserbaseSecretId &&
+        !input.managedBrowserbaseAvailable
+    ) {
+        return false
+    }
+    return true
 }
 
 export function resolveHostedRoomImageReady(input: {
