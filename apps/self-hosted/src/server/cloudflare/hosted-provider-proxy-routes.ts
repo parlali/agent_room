@@ -167,7 +167,6 @@ async function repairExistingOpenRouterUsageSettlement(input: {
         estimatedCostUsd: usage.costMicros / 1_000_000,
         costMicros: usage.costMicros,
         billingReservationId: reservation.id,
-        releaseReservationOnDebitFailure: false,
         metadata: {
             billedBy: 'hosted_openrouter_proxy',
             providerProxyBillingAuthority: 'worker_proxy',
@@ -448,7 +447,6 @@ export async function hostedOpenRouterProxy(
             estimatedCostUsd: costMicros / 1_000_000,
             costMicros,
             billingReservationId: reservationId,
-            releaseReservationOnDebitFailure: false,
             metadata: {
                 billedBy: 'hosted_openrouter_proxy',
                 providerProxyBillingAuthority: 'worker_proxy',

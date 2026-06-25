@@ -67,6 +67,7 @@ function hostedEnv(input: {
     persistPuts?: boolean
     puts?: string[]
     tokenValue?: string
+    desiredState?: () => string
 }): AgentRoomHostedEnv {
     const updates = input.updates ?? []
     const batches = input.batches ?? []
@@ -92,6 +93,11 @@ function hostedEnv(input: {
         updatedAt: now,
         ...(input.runtimeRow as Record<string, unknown>),
     }
+    const currentDesiredState = () => input.desiredState?.() ?? String(runtimeRow.desiredState)
+    const runtimeRowSnapshot = () => ({
+        ...runtimeRow,
+        desiredState: currentDesiredState(),
+    })
     const billingAccountRow = {
         workspaceId: 'workspace_1',
         stripeCustomerId: null,
@@ -126,10 +132,10 @@ function hostedEnv(input: {
                                 sql,
                             )
                         ) {
-                            return runtimeRow
+                            return runtimeRowSnapshot()
                         }
                         if (/FROM\s+hosted_room_runtime_state/.test(sql)) {
-                            return runtimeRow
+                            return runtimeRowSnapshot()
                         }
                         if (/FROM\s+hosted_room_config/.test(sql)) {
                             return {
@@ -169,7 +175,7 @@ function hostedEnv(input: {
                                 slug: 'room-1',
                                 displayName: 'Room 1',
                                 status: 'starting',
-                                desiredState: runtimeRow.desiredState,
+                                desiredState: currentDesiredState(),
                                 createdByUserId: 'user_1',
                                 createdAt: now,
                                 updatedAt: now,
@@ -232,7 +238,13 @@ function hostedEnv(input: {
                 return batch.map(() => ({
                     success: true,
                     meta: {
-                        changes: 1,
+                        changes:
+                            currentDesiredState() === 'running' ||
+                            !batch.some((statement) =>
+                                /desired_state\s+=\s+'running'/.test(statement.sql),
+                            )
+                                ? 1
+                                : 0,
                     },
                     results: [],
                 }))
@@ -393,6 +405,96 @@ describe('hosted runtime reconciliation', () => {
                     batch.length === 2 &&
                     batch.some((update) => /UPDATE\s+hosted_room_runtime_state/.test(update.sql)) &&
                     batch.some((update) => /UPDATE\s+hosted_room\s/.test(update.sql)),
+            ),
+        ).toBe(true)
+    })
+
+    it('does not start the container when a stop wins before container start', async () => {
+        let desiredState = 'running'
+        const updates: RuntimeUpdate[] = []
+        const starts: Array<{ name: string; args: unknown }> = []
+        const destroys: string[] = []
+        const env = hostedEnv({
+            updates,
+            desiredState: () => desiredState,
+            objectKeys: [
+                'workspaces/workspace_1/rooms/room_1/runtime/config.json',
+                'workspaces/workspace_1/rooms/room_1/snapshots/snapshot_1.tar.zst',
+            ],
+            runtimeRow: {
+                roomId: 'room_1',
+                workspaceId: 'workspace_1',
+                desiredState: 'running',
+                containerName: 'workspace:workspace_1:room:room_1',
+                configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
+                workspaceSnapshotKey:
+                    'workspaces/workspace_1/rooms/room_1/snapshots/snapshot_1.tar.zst',
+            },
+            setAllowedHosts: async () => {
+                desiredState = 'stopped'
+            },
+            start: async (name, args) => {
+                starts.push({ name, args })
+            },
+            destroy: async (name) => {
+                destroys.push(name)
+            },
+        })
+
+        await reconcileHostedRuntimeJob(env, runtimeMessage())
+
+        expect(starts).toHaveLength(0)
+        expect(destroys).toEqual(['workspace:workspace_1:room:room_1'])
+        expect(updates.some((update) => update.args.includes('running'))).toBe(false)
+        expect(updates.some((update) => /last_error = 'Runtime stopped'/.test(update.sql))).toBe(
+            true,
+        )
+    })
+
+    it('destroys a started container when stop wins before the running transition', async () => {
+        let desiredState = 'running'
+        const updates: RuntimeUpdate[] = []
+        const batches: RuntimeUpdate[][] = []
+        const starts: Array<{ name: string; args: unknown }> = []
+        const destroys: string[] = []
+        const env = hostedEnv({
+            updates,
+            batches,
+            desiredState: () => desiredState,
+            objectKeys: [
+                'workspaces/workspace_1/rooms/room_1/runtime/config.json',
+                'workspaces/workspace_1/rooms/room_1/snapshots/snapshot_1.tar.zst',
+            ],
+            runtimeRow: {
+                roomId: 'room_1',
+                workspaceId: 'workspace_1',
+                desiredState: 'running',
+                containerName: 'workspace:workspace_1:room:room_1',
+                configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
+                workspaceSnapshotKey:
+                    'workspaces/workspace_1/rooms/room_1/snapshots/snapshot_1.tar.zst',
+            },
+            start: async (name, args) => {
+                starts.push({ name, args })
+                desiredState = 'stopped'
+            },
+            destroy: async (name) => {
+                destroys.push(name)
+            },
+        })
+
+        await reconcileHostedRuntimeJob(env, runtimeMessage())
+
+        expect(starts).toHaveLength(1)
+        expect(destroys).toEqual(['workspace:workspace_1:room:room_1'])
+        expect(updates.some((update) => /status = 'failed'/.test(update.sql))).toBe(false)
+        expect(
+            batches.some((batch) =>
+                batch.some(
+                    (update) =>
+                        update.args.includes('running') &&
+                        /desired_state\s+=\s+'running'/.test(update.sql),
+                ),
             ),
         ).toBe(true)
     })

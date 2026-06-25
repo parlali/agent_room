@@ -40,7 +40,6 @@ export interface HostedProviderUsageInput {
     idempotencyKey?: string | null
     costMicros: number
     billingReservationId?: string | null
-    releaseReservationOnDebitFailure?: boolean
     now?: Date
 }
 

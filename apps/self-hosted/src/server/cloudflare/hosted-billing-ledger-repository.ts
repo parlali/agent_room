@@ -579,55 +579,57 @@ export async function expireIncludedBalance(input: {
 
     const id = crypto.randomUUID()
     const now = nowIso(input.now)
-    const account = await input.env.AGENT_ROOM_DB.prepare(
-        `
-            UPDATE hosted_billing_account
-            SET included_balance_cents = included_reserved_cents,
-                updated_at = ?3
-            WHERE workspace_id = ?1
-              AND included_balance_cents = ?2
-              AND included_reserved_cents = ?4
-            RETURNING included_balance_cents + purchased_balance_cents AS currentBalanceCents
-        `,
-    )
-        .bind(input.workspaceId, before.includedBalanceCents, now, before.includedReservedCents)
-        .first<{ currentBalanceCents: number }>()
-    if (!account) {
-        throw new Error('Hosted included balance changed while expiring leftover credit')
-    }
-
-    await input.env.AGENT_ROOM_DB.prepare(
-        `
-            INSERT INTO hosted_billing_ledger_entry (
-                id,
-                workspace_id,
-                direction,
-                source,
-                amount_cents,
-                balance_after_cents,
-                stripe_event_id,
-                stripe_checkout_session_id,
-                stripe_invoice_id,
-                usage_event_id,
-                idempotency_key,
-                metadata,
-                created_at
-            )
-            VALUES (?1, ?2, 'debit', 'included_credit_expiry', ?3, ?4, ?5, NULL, ?6, NULL, ?7, ?8, ?9)
-        `,
-    )
-        .bind(
+    const balanceAfterCents = before.includedReservedCents + before.purchasedBalanceCents
+    const results = await input.env.AGENT_ROOM_DB.batch([
+        input.env.AGENT_ROOM_DB.prepare(
+            `
+                UPDATE hosted_billing_account
+                SET included_balance_cents = included_reserved_cents,
+                    updated_at = ?3
+                WHERE workspace_id = ?1
+                  AND included_balance_cents = ?2
+                  AND included_reserved_cents = ?4
+            `,
+        ).bind(input.workspaceId, before.includedBalanceCents, now, before.includedReservedCents),
+        input.env.AGENT_ROOM_DB.prepare(
+            `
+                INSERT INTO hosted_billing_ledger_entry (
+                    id,
+                    workspace_id,
+                    direction,
+                    source,
+                    amount_cents,
+                    balance_after_cents,
+                    stripe_event_id,
+                    stripe_checkout_session_id,
+                    stripe_invoice_id,
+                    usage_event_id,
+                    idempotency_key,
+                    metadata,
+                    created_at
+                )
+                VALUES (?1, ?2, 'debit', 'included_credit_expiry', ?3, ?4, ?5, NULL, ?6, NULL, ?7, ?8, ?9)
+            `,
+        ).bind(
             id,
             input.workspaceId,
             clearedCents,
-            account.currentBalanceCents,
+            balanceAfterCents,
             input.stripeEventId ?? null,
             input.stripeInvoiceId ?? null,
             input.idempotencyKey,
             JSON.stringify(input.metadata ?? {}),
             now,
-        )
-        .run()
+        ),
+    ])
+    const updated = results[0]
+    const inserted = results[1]
+    if ((updated.meta.changes ?? 0) < 1) {
+        throw new Error('Hosted included balance changed while expiring leftover credit')
+    }
+    if ((inserted.meta.changes ?? 0) < 1) {
+        throw new Error('Hosted included credit expiry ledger entry was not inserted')
+    }
     const entry = await findLedgerEntryByIdempotencyKey(input)
     if (!entry) {
         throw new Error('Hosted included credit expiry ledger entry was not persisted')

@@ -8,9 +8,13 @@ import {
     HostedRuntimeMaterializationConflictError,
     materializeHostedRuntime,
     resolveHostedRuntimeProviderAvailability,
+    stopHostedRuntime,
 } from './hosted-room-service'
 import { listHostedRoomFileMaterializations } from './hosted-file-read-store'
-import { writeHostedRuntimeStateTransition } from './hosted-runtime-state-repository'
+import {
+    HostedRuntimeDesiredStateChangedError,
+    writeHostedRuntimeStateTransition,
+} from './hosted-runtime-state-repository'
 import {
     buildHostedRuntimeStartOptions,
     hostedRuntimeDeniedHosts,
@@ -71,6 +75,26 @@ async function assertObjectExists(input: {
     const object = await input.bucket.head(input.key)
     if (!object) {
         throw new Error(`${input.label} object ${input.key} was not found in R2`)
+    }
+}
+
+async function assertHostedRuntimeStillDesiredRunning(
+    env: AgentRoomHostedEnv,
+    runtime: Pick<HostedRuntimeRow, 'workspaceId' | 'roomId'>,
+): Promise<void> {
+    const row = await env.AGENT_ROOM_DB.prepare(
+        `
+            SELECT desired_state AS desiredState
+            FROM hosted_room
+            WHERE workspace_id = ?1
+              AND id = ?2
+            LIMIT 1
+        `,
+    )
+        .bind(runtime.workspaceId, runtime.roomId)
+        .first<{ desiredState: string }>()
+    if (row?.desiredState !== 'running') {
+        throw new HostedRuntimeDesiredStateChangedError()
     }
 }
 
@@ -199,6 +223,7 @@ export async function reconcileHostedRuntimeJob(
             transition: {
                 kind: 'starting',
             },
+            requireDesiredRunning: true,
         })
 
         const startOptions = buildHostedRuntimeStartOptions({
@@ -211,6 +236,7 @@ export async function reconcileHostedRuntimeJob(
         const container = env.AGENT_ROOM_RUNTIME.getByName(runtime.containerName)
         await container.setAllowedHosts(materialization.egressAllowedHosts)
         await container.setDeniedHosts(hostedRuntimeDeniedHosts)
+        await assertHostedRuntimeStillDesiredRunning(env, runtime)
         await container.startAndWaitForPorts({
             ports: hostedRuntimeContainerPort,
             startOptions,
@@ -234,10 +260,20 @@ export async function reconcileHostedRuntimeJob(
             transition: {
                 kind: 'running',
             },
+            requireDesiredRunning: true,
         })
     } catch (error) {
         if (error instanceof HostedRuntimeMaterializationConflictError) {
             console.warn('Hosted runtime reconcile skipped because materialization was superseded')
+            return
+        }
+        if (error instanceof HostedRuntimeDesiredStateChangedError) {
+            console.warn('Hosted runtime reconcile skipped because room desired state changed')
+            await stopHostedRuntime({
+                env,
+                workspaceId: runtime.workspaceId,
+                roomId: runtime.roomId,
+            })
             return
         }
         await failClosedHostedRuntime({

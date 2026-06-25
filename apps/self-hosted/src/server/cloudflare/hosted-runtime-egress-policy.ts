@@ -6,6 +6,11 @@ import {
 
 export type HostedRuntimeDnsResolver = (hostname: string) => Promise<string[]>
 
+export interface HostedRuntimeEgressDestination {
+    hostname: string
+    resolvedAddresses: string[]
+}
+
 interface DnsJsonAnswer {
     type: number
     data: string
@@ -65,16 +70,19 @@ export function assertHostedRuntimeEgressUrlLiteral(value: string, label: string
     return normalizedUrlHostname(url)
 }
 
-export async function assertHostedRuntimeEgressUrl(input: {
+export async function assertHostedRuntimeEgressDestination(input: {
     value: string
     label: string
     resolveHostnameAddresses?: HostedRuntimeDnsResolver
-}): Promise<string> {
+}): Promise<HostedRuntimeEgressDestination> {
     const url = parseHostedRuntimeEgressUrl(input.value, input.label)
     assertHostedRuntimeEgressUrlLiteralSafe(url, input.label)
     const hostname = normalizedUrlHostname(url)
     if (hostname.includes(':') || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
-        return hostname
+        return {
+            hostname,
+            resolvedAddresses: [],
+        }
     }
     let addresses: string[]
     try {
@@ -90,8 +98,21 @@ export async function assertHostedRuntimeEgressUrl(input: {
             `${input.label} URL hostname could not be verified for hosted runtime egress`,
         )
     }
-    if (addresses.some((address) => isBlockedNetworkAddress(address))) {
+    const resolvedAddresses = [...new Set(addresses)]
+    if (resolvedAddresses.some((address) => isBlockedNetworkAddress(address))) {
         throw new Error(`${input.label} URL resolves to a local or private network address`)
     }
-    return hostname
+    return {
+        hostname,
+        resolvedAddresses,
+    }
+}
+
+export async function assertHostedRuntimeEgressUrl(input: {
+    value: string
+    label: string
+    resolveHostnameAddresses?: HostedRuntimeDnsResolver
+}): Promise<string> {
+    const destination = await assertHostedRuntimeEgressDestination(input)
+    return destination.hostname
 }

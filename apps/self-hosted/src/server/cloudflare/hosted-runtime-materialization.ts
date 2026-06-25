@@ -37,7 +37,7 @@ import {
 import { shellVisibleStoreDirEnvKey, shellVisibleWorkspaceDirEnvKey } from '../security/process-env'
 import type { AgentRoomHostedEnv } from './bindings'
 import {
-    assertHostedRuntimeEgressUrl,
+    assertHostedRuntimeEgressDestination,
     assertHostedRuntimeEgressUrlLiteral,
     type HostedRuntimeDnsResolver,
 } from './hosted-runtime-egress-policy'
@@ -485,13 +485,18 @@ async function addTenantUrlHost(
         resolveHostnameAddresses?: HostedRuntimeDnsResolver
     },
 ): Promise<void> {
-    hosts.add(
-        await assertHostedRuntimeEgressUrl({
-            value: input.url,
-            label: input.label,
-            resolveHostnameAddresses: input.resolveHostnameAddresses,
-        }),
-    )
+    const destination = await assertHostedRuntimeEgressDestination({
+        value: input.url,
+        label: input.label,
+        resolveHostnameAddresses: input.resolveHostnameAddresses,
+    })
+    const pinnedHosts =
+        destination.resolvedAddresses.length > 0
+            ? destination.resolvedAddresses
+            : [destination.hostname]
+    for (const host of pinnedHosts) {
+        hosts.add(host)
+    }
 }
 
 export async function hostedRuntimeAllowedHosts(input: {

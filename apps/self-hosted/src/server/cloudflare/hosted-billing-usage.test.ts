@@ -101,7 +101,6 @@ describe('hosted billing usage markup', () => {
             cachedTokens: null,
             costMicros: 0,
             billingReservationId: reservation.id,
-            releaseReservationOnDebitFailure: false,
             idempotencyKey: 'zero_cost_usage',
             now: new Date(3),
         })

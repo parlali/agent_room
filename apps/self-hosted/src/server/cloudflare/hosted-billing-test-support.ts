@@ -439,7 +439,18 @@ export class FakeD1 {
             }
         }
         if (sql.includes('UPDATE hosted_billing_account') && !sql.includes('RETURNING')) {
-            if (
+            if (sql.includes('included_balance_cents = included_reserved_cents')) {
+                const account = this.accounts.get(String(args[0]))
+                if (
+                    account &&
+                    account.includedBalanceCents === Number(args[1]) &&
+                    account.includedReservedCents === Number(args[3])
+                ) {
+                    account.includedBalanceCents = account.includedReservedCents
+                    account.updatedAt = String(args[2])
+                    changes = 1
+                }
+            } else if (
                 sql.includes('included_reserved_cents = included_reserved_cents + ?2') &&
                 sql.includes('purchased_reserved_cents = purchased_reserved_cents + ?3')
             ) {

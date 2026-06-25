@@ -71,6 +71,7 @@ export {
     rematerializeRunningHostedRooms,
     resolveHostedRuntimeProviderAvailability,
     setHostedRoomDesiredState,
+    stopHostedRuntime,
     updateHostedRoomIdentity,
 } from './hosted-room-lifecycle-service'
 

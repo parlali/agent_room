@@ -328,7 +328,7 @@ export async function setHostedRoomDesiredState(input: {
     })
 }
 
-async function stopHostedRuntime(input: {
+export async function stopHostedRuntime(input: {
     env: AgentRoomHostedEnv
     workspaceId: string
     roomId: string

@@ -608,7 +608,6 @@ describe('hosted runtime worker route security gates', () => {
                 costMicros: 123456,
                 estimatedCostUsd: 0.123456,
                 billingReservationId: 'reservation_1',
-                releaseReservationOnDebitFailure: false,
                 idempotencyKey: 'provider_proxy:openrouter:workspace_1:room_1:usage-request-123456',
             }),
         )
