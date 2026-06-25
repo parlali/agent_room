@@ -3,37 +3,11 @@ import { setResponseHeaders } from '@tanstack/react-start/server'
 import { z } from 'zod'
 import { roomModes, roomDesiredStates, roomProviderModes } from '#/domain/domain-types'
 import { maxSessionComposerDraftLength } from '#/domain/session-composer-draft'
-import {
-    createRoomForRoute,
-    createThreadForRoute,
-    deleteRoomForRoute,
-    deleteSessionForRoute,
-    ensureRuntimeSupervisorBoot,
-    getRoomMemoryForRoute,
-    getRoomPersonalityForRoute,
-    getRoomSetupReadinessForRoute,
-    getSessionComposerDraftForRoute,
-    listRoomDirectoryForRoute,
-    listRoomFilesForRoute,
-    listRoomFileTreeForRoute,
-    listRoomUsageForRoute,
-    listUsageForRoute,
-    readRoomFileForRoute,
-    requireAuthenticatedActor,
-    requireMutationActor,
-    requireRoomOwner,
-    saveRoomPersonalityForRoute,
-    saveSessionComposerDraftForRoute,
-    sendMessageForRoute,
-    setRoomDesiredStateForRoute,
-    updateRoomIdentityForRoute,
-    updateRoomMemoryForRoute,
-} from '#/server/rooms/room-runtime-route-service'
-import {
-    getRoomExecutionForRoute,
-    getRoomSessionShellForRoute,
-    getRoomSidebarForRoute,
-} from '#/server/rooms/room-runtime-snapshot-route-service'
+
+const loadRoomRuntimeRouteService = () => import('#/server/rooms/room-runtime-route-service')
+
+const loadRoomRuntimeSnapshotRouteService = () =>
+    import('#/server/rooms/room-runtime-snapshot-route-service')
 
 const roomIdSchema = z.string().uuid()
 
@@ -278,6 +252,8 @@ const updateRoomIdentityInputSchema = z.object({
 })
 
 export const listRoomsServer = createServerFn({ method: 'GET' }).handler(async () => {
+    const { requireAuthenticatedActor, ensureRuntimeSupervisorBoot } =
+        await loadRoomRuntimeRouteService()
     const actor = await requireAuthenticatedActor()
     setResponseHeaders({
         'cache-control': 'no-store',
@@ -290,36 +266,42 @@ export const listRoomsServer = createServerFn({ method: 'GET' }).handler(async (
 })
 
 export const getRoomSetupReadinessServer = createServerFn({ method: 'GET' }).handler(async () => {
+    const { getRoomSetupReadinessForRoute } = await loadRoomRuntimeRouteService()
     return getRoomSetupReadinessForRoute()
 })
 
 export const createRoomServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => createRoomInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { createRoomForRoute } = await loadRoomRuntimeRouteService()
         return createRoomForRoute(data)
     })
 
 export const setRoomDesiredStateServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => setRoomDesiredStateInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { setRoomDesiredStateForRoute } = await loadRoomRuntimeRouteService()
         return setRoomDesiredStateForRoute(data)
     })
 
 export const updateRoomIdentityServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => updateRoomIdentityInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { updateRoomIdentityForRoute } = await loadRoomRuntimeRouteService()
         return updateRoomIdentityForRoute(data)
     })
 
 export const getRoomExecutionServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => roomExecutionInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { getRoomExecutionForRoute } = await loadRoomRuntimeSnapshotRouteService()
         return getRoomExecutionForRoute(data)
     })
 
 export const getRoomSidebarServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => roomExecutionTruthInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { getRoomSidebarForRoute } = await loadRoomRuntimeSnapshotRouteService()
         return getRoomSidebarForRoute(data)
     })
 
@@ -333,12 +315,15 @@ export const getRoomSessionShellServer = createServerFn({ method: 'GET' })
             .parse(input),
     )
     .handler(async ({ data }) => {
+        const { getRoomSessionShellForRoute } = await loadRoomRuntimeSnapshotRouteService()
         return getRoomSessionShellForRoute(data)
     })
 
 export const getRoomSessionWindowServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => sessionWindowInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { requireAuthenticatedActor, requireRoomOwner, ensureRuntimeSupervisorBoot } =
+            await loadRoomRuntimeRouteService()
         const actor = await requireAuthenticatedActor()
         setResponseHeaders({
             'cache-control': 'no-store',
@@ -358,6 +343,7 @@ export const getRoomSessionWindowServer = createServerFn({ method: 'GET' })
 export const clearSessionCompletedBadgeServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => sessionBadgeInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { requireMutationActor, requireRoomOwner } = await loadRoomRuntimeRouteService()
         const actor = await requireMutationActor()
         await requireRoomOwner(actor, data.roomId)
         const { clearSessionCompletedBadge } = await import('#/server/rooms/execution-engine')
@@ -374,18 +360,21 @@ export const clearSessionCompletedBadgeServer = createServerFn({ method: 'POST' 
 export const getSessionComposerDraftServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => sessionComposerDraftInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { getSessionComposerDraftForRoute } = await loadRoomRuntimeRouteService()
         return getSessionComposerDraftForRoute(data)
     })
 
 export const saveSessionComposerDraftServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => saveSessionComposerDraftInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { saveSessionComposerDraftForRoute } = await loadRoomRuntimeRouteService()
         return saveSessionComposerDraftForRoute(data)
     })
 
 export const recordClientPerformanceServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => clientPerformanceInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { requireAuthenticatedActor, requireRoomOwner } = await loadRoomRuntimeRouteService()
         const actor = await requireAuthenticatedActor()
         if (data.roomId) {
             await requireRoomOwner(actor, data.roomId)
@@ -410,6 +399,7 @@ export const recordClientPerformanceServer = createServerFn({ method: 'POST' })
 export const sendMessageServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => sendMessageInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { sendMessageForRoute } = await loadRoomRuntimeRouteService()
         return sendMessageForRoute(data)
     })
 
@@ -420,6 +410,7 @@ const roomIdInputSchema = z.object({
 export const getRoomPersonalityServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => roomIdInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { getRoomPersonalityForRoute } = await loadRoomRuntimeRouteService()
         return getRoomPersonalityForRoute(data)
     })
 
@@ -431,12 +422,15 @@ const savePersonalityInputSchema = z.object({
 export const saveRoomPersonalityServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => savePersonalityInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { saveRoomPersonalityForRoute } = await loadRoomRuntimeRouteService()
         return saveRoomPersonalityForRoute(data)
     })
 
 export const editMessageServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => editMessageInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { requireMutationActor, requireRoomOwner, ensureRuntimeSupervisorBoot } =
+            await loadRoomRuntimeRouteService()
         const actor = await requireMutationActor()
         await requireRoomOwner(actor, data.roomId)
         await ensureRuntimeSupervisorBoot()
@@ -452,6 +446,8 @@ export const editMessageServer = createServerFn({ method: 'POST' })
 export const updateThreadModelServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => updateThreadModelInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { requireMutationActor, requireRoomOwner, ensureRuntimeSupervisorBoot } =
+            await loadRoomRuntimeRouteService()
         const actor = await requireMutationActor()
         await requireRoomOwner(actor, data.roomId)
         await ensureRuntimeSupervisorBoot()
@@ -469,6 +465,8 @@ export const updateThreadModelServer = createServerFn({ method: 'POST' })
 export const abortMessageServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => abortMessageInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { requireMutationActor, requireRoomOwner, ensureRuntimeSupervisorBoot } =
+            await loadRoomRuntimeRouteService()
         const actor = await requireMutationActor()
         await requireRoomOwner(actor, data.roomId)
         await ensureRuntimeSupervisorBoot()
@@ -483,12 +481,15 @@ export const abortMessageServer = createServerFn({ method: 'POST' })
 export const createThreadServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => createThreadInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { createThreadForRoute } = await loadRoomRuntimeRouteService()
         return createThreadForRoute(data)
     })
 
 export const listCronJobsServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => listCronJobsInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { requireAuthenticatedActor, requireRoomOwner, ensureRuntimeSupervisorBoot } =
+            await loadRoomRuntimeRouteService()
         const actor = await requireAuthenticatedActor()
         setResponseHeaders({
             'cache-control': 'no-store',
@@ -504,6 +505,8 @@ export const listCronJobsServer = createServerFn({ method: 'GET' })
 export const createCronJobServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => createCronJobInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { requireMutationActor, requireRoomOwner, ensureRuntimeSupervisorBoot } =
+            await loadRoomRuntimeRouteService()
         const actor = await requireMutationActor()
         await requireRoomOwner(actor, data.roomId)
         await ensureRuntimeSupervisorBoot()
@@ -519,6 +522,8 @@ export const createCronJobServer = createServerFn({ method: 'POST' })
 export const updateCronJobServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => updateCronJobInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { requireMutationActor, requireRoomOwner, ensureRuntimeSupervisorBoot } =
+            await loadRoomRuntimeRouteService()
         const actor = await requireMutationActor()
         await requireRoomOwner(actor, data.roomId)
         await ensureRuntimeSupervisorBoot()
@@ -535,6 +540,8 @@ export const updateCronJobServer = createServerFn({ method: 'POST' })
 export const setCronEnabledServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => setCronEnabledInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { requireMutationActor, requireRoomOwner, ensureRuntimeSupervisorBoot } =
+            await loadRoomRuntimeRouteService()
         const actor = await requireMutationActor()
         await requireRoomOwner(actor, data.roomId)
         await ensureRuntimeSupervisorBoot()
@@ -549,6 +556,8 @@ export const setCronEnabledServer = createServerFn({ method: 'POST' })
 export const runCronJobServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => runCronJobInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { requireMutationActor, requireRoomOwner, ensureRuntimeSupervisorBoot } =
+            await loadRoomRuntimeRouteService()
         const actor = await requireMutationActor()
         await requireRoomOwner(actor, data.roomId)
         await ensureRuntimeSupervisorBoot()
@@ -562,6 +571,8 @@ export const runCronJobServer = createServerFn({ method: 'POST' })
 export const removeCronJobServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => removeCronJobInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { requireMutationActor, requireRoomOwner, ensureRuntimeSupervisorBoot } =
+            await loadRoomRuntimeRouteService()
         const actor = await requireMutationActor()
         await requireRoomOwner(actor, data.roomId)
         await ensureRuntimeSupervisorBoot()
@@ -575,6 +586,8 @@ export const removeCronJobServer = createServerFn({ method: 'POST' })
 export const wakeRoomServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => wakeRoomInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { requireMutationActor, requireRoomOwner, ensureRuntimeSupervisorBoot } =
+            await loadRoomRuntimeRouteService()
         const actor = await requireMutationActor()
         await requireRoomOwner(actor, data.roomId)
         await ensureRuntimeSupervisorBoot()
@@ -589,6 +602,8 @@ export const wakeRoomServer = createServerFn({ method: 'POST' })
 export const getRoomExecutionTruthServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => roomExecutionTruthInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { requireAuthenticatedActor, requireRoomOwner, ensureRuntimeSupervisorBoot } =
+            await loadRoomRuntimeRouteService()
         const actor = await requireAuthenticatedActor()
         setResponseHeaders({
             'cache-control': 'no-store',
@@ -604,6 +619,8 @@ export const getRoomExecutionTruthServer = createServerFn({ method: 'GET' })
 export const listRoomRunHistoryServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => roomRunHistoryInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { requireAuthenticatedActor, requireRoomOwner, ensureRuntimeSupervisorBoot } =
+            await loadRoomRuntimeRouteService()
         const actor = await requireAuthenticatedActor()
         setResponseHeaders({
             'cache-control': 'no-store',
@@ -620,66 +637,78 @@ export const listRoomRunHistoryServer = createServerFn({ method: 'GET' })
 export const listRoomUsageServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => roomUsageInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { listRoomUsageForRoute } = await loadRoomRuntimeRouteService()
         return listRoomUsageForRoute(data)
     })
 
 export const listUsageServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => usageInputSchema.parse(input ?? {}))
     .handler(async ({ data }) => {
+        const { listUsageForRoute } = await loadRoomRuntimeRouteService()
         return listUsageForRoute(data)
     })
 
 export const listRoomFilesServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => roomFilesInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { listRoomFilesForRoute } = await loadRoomRuntimeRouteService()
         return listRoomFilesForRoute(data)
     })
 
 export const listRoomFileTreeServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => roomFilesInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { listRoomFileTreeForRoute } = await loadRoomRuntimeRouteService()
         return listRoomFileTreeForRoute(data)
     })
 
 export const listRoomDirectoryServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => listRoomDirectoryInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { listRoomDirectoryForRoute } = await loadRoomRuntimeRouteService()
         return listRoomDirectoryForRoute(data)
     })
 
 export const readRoomFileServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => readRoomFileInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { readRoomFileForRoute } = await loadRoomRuntimeRouteService()
         return readRoomFileForRoute(data)
     })
 
 export const getRoomMemoryServer = createServerFn({ method: 'GET' })
     .inputValidator((input: unknown) => roomMemoryInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { getRoomMemoryForRoute } = await loadRoomRuntimeRouteService()
         return getRoomMemoryForRoute(data)
     })
 
 export const updateRoomMemoryServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => updateRoomMemoryInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { updateRoomMemoryForRoute } = await loadRoomRuntimeRouteService()
         return updateRoomMemoryForRoute(data)
     })
 
 export const deleteRoomServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => deleteRoomInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { deleteRoomForRoute } = await loadRoomRuntimeRouteService()
         return deleteRoomForRoute(data)
     })
 
 export const deleteSessionServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => deleteSessionInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { deleteSessionForRoute } = await loadRoomRuntimeRouteService()
         return deleteSessionForRoute(data)
     })
 
 export const renameSessionServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => renameSessionInputSchema.parse(input))
     .handler(async ({ data }) => {
+        const { requireMutationActor, requireRoomOwner, ensureRuntimeSupervisorBoot } =
+            await loadRoomRuntimeRouteService()
         const actor = await requireMutationActor()
         await requireRoomOwner(actor, data.roomId)
         await ensureRuntimeSupervisorBoot()

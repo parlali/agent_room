@@ -1,13 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { ensureRuntimeSupervisorBoot } from '#/server/rooms/runtime-supervisor-bootstrap'
-import { createRoomSessionEventStream } from '#/server/rooms/execution-engine'
-import { requireApiRoomOwner } from '#/server/rooms/room-runtime-route-service'
 import { instrumentReadableByteStream } from '#/server/telemetry/performance'
 
 export const Route = createFileRoute('/api/rooms/$roomId/sessions/$sessionKey/events')({
     server: {
         handlers: {
             GET: async ({ request, params }) => {
+                const { requireApiRoomOwner } =
+                    await import('#/server/rooms/room-runtime-route-service')
                 const owner = await requireApiRoomOwner({
                     request,
                     roomId: params.roomId,
@@ -17,8 +16,12 @@ export const Route = createFileRoute('/api/rooms/$roomId/sessions/$sessionKey/ev
                 }
 
                 if (!owner.hosted) {
+                    const { ensureRuntimeSupervisorBoot } =
+                        await import('#/server/rooms/runtime-supervisor-bootstrap')
                     await ensureRuntimeSupervisorBoot()
                 }
+                const { createRoomSessionEventStream } =
+                    await import('#/server/rooms/execution-engine')
                 const stream = instrumentReadableByteStream({
                     stream: createRoomSessionEventStream({
                         roomId: owner.room.id,

@@ -27,7 +27,6 @@ import {
     requireHostedActor,
     requireHostedMutationActor,
 } from '#/server/cloudflare/hosted-route-auth'
-import { requireRoomOwner } from '#/server/rooms/room-runtime-route-service'
 
 const connectionDeleteInputSchema = z.object({
     id: z.string().uuid(),
@@ -339,6 +338,7 @@ export const getRoomConfigServer = createServerFn({ method: 'GET' })
         setResponseHeaders({
             'cache-control': 'no-store',
         })
+        const { requireRoomOwner } = await import('#/server/rooms/room-runtime-route-service')
         await requireRoomOwner(actor, data.roomId)
         const { getRoomConfigSnapshot } =
             await import('#/server/configuration/operator-configuration')
@@ -357,6 +357,7 @@ export const saveRoomConfigServer = createServerFn({ method: 'POST' })
             })
         }
         const actor = await requireMutationActor()
+        const { requireRoomOwner } = await import('#/server/rooms/room-runtime-route-service')
         await requireRoomOwner(actor, data.roomId)
         const { saveRoomConfig } = await import('#/server/configuration/operator-configuration')
         return saveRoomConfig(data, actor.userId)
@@ -374,6 +375,7 @@ export const saveRoomSecretServer = createServerFn({ method: 'POST' })
             })
         }
         const actor = await requireMutationActor()
+        const { requireRoomOwner } = await import('#/server/rooms/room-runtime-route-service')
         await requireRoomOwner(actor, data.roomId)
         const { saveRoomSecret } = await import('#/server/configuration/operator-configuration')
         return saveRoomSecret(data, actor.userId)
