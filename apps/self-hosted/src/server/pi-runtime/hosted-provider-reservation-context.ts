@@ -1,8 +1,13 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { openRouterCostMicrosFromProviderText } from '../cloudflare/hosted-provider-proxy'
+import {
+    hostedBraveProxyPathPrefix,
+    hostedOpenRouterProxyPathPrefix,
+    openRouterCostMicrosFromProviderText,
+} from '../cloudflare/hosted-provider-proxy'
 import { currentToolRunContext } from './tool-run-context'
 
-const hostedOpenRouterProxyMarker = '/api/hosted/runtime/provider/openrouter/v1/'
+const hostedOpenRouterProxyMarker = `${hostedOpenRouterProxyPathPrefix}/`
+const hostedBraveProxyMarker = `${hostedBraveProxyPathPrefix}/`
 const usageRequestIdHeader = 'x-agent-room-usage-request-id'
 const billingReservationIdHeader = 'x-agent-room-billing-reservation-id'
 const usageSessionKeyHeader = 'x-agent-room-session-key'
@@ -50,6 +55,18 @@ function requestUrl(input: Parameters<typeof fetch>[0]): string | null {
 }
 
 function shouldTrackProviderRequest(url: string): boolean {
+    try {
+        const pathname = new URL(url).pathname
+        return (
+            pathname.includes(hostedOpenRouterProxyMarker) ||
+            pathname.includes(hostedBraveProxyMarker)
+        )
+    } catch {
+        return false
+    }
+}
+
+function shouldCollectOpenRouterUsageCharge(url: string): boolean {
     try {
         return new URL(url).pathname.includes(hostedOpenRouterProxyMarker)
     } catch {
@@ -142,12 +159,14 @@ export function installHostedProviderReservationFetchRecorder(): () => void {
         const reservationId = response.headers.get(billingReservationIdHeader)
         if (reservationId) {
             store.reservationIds.add(reservationId)
-            const chargePromise = collectOpenRouterUsageCharge({
-                response: response.clone(),
-                reservationId,
-                store,
-            }).catch(() => undefined)
-            store.usageChargePromises.add(chargePromise)
+            if (shouldCollectOpenRouterUsageCharge(url)) {
+                const chargePromise = collectOpenRouterUsageCharge({
+                    response: response.clone(),
+                    reservationId,
+                    store,
+                }).catch(() => undefined)
+                store.usageChargePromises.add(chargePromise)
+            }
         }
         return response
     }) as typeof fetch

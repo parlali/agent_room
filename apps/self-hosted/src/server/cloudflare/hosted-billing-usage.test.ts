@@ -689,6 +689,7 @@ describe('hosted billing service API', () => {
         expect(summary.usageMarkupBps).toBe(13000)
         expect(summary.taxMode).toBe('automatic')
         expect(summary.activePlanKey).toBe('none')
+        expect(summary.active).toBe(false)
         expect(summary.plans.map((plan) => plan.key)).toEqual(['starter', 'standard', 'pro'])
         expect(summary.actions.some((action) => action.kind === 'credit_topup')).toBe(true)
         expect(
@@ -715,6 +716,9 @@ describe('hosted billing service API', () => {
         })
         expect(String(init?.body)).toContain('metadata%5Bworkspace_id%5D=workspace_1')
         expect(String(init?.body)).toContain('line_items%5B0%5D%5Bprice%5D=price_test_topup_000000')
+        expect(String(init?.body)).toContain(
+            'success_url=https%3A%2F%2Frooms.example.test%2Fbilling%3Fcheckout%3Dtopup_success',
+        )
         expect(String(init?.body)).toContain('automatic_tax%5Benabled%5D=true')
 
         await createHostedStripeCheckout({
@@ -726,6 +730,9 @@ describe('hosted billing service API', () => {
         const [, subscriptionInit] = fetchMock.mock.calls[1] ?? []
         expect(String(subscriptionInit?.body)).toContain(
             'line_items%5B0%5D%5Bprice%5D=price_test_standard_000000',
+        )
+        expect(String(subscriptionInit?.body)).toContain(
+            'success_url=https%3A%2F%2Frooms.example.test%2Fbilling%3Fcheckout%3Dsubscription_success',
         )
         expect(String(subscriptionInit?.body)).toContain('metadata%5Bplan_key%5D=standard')
         expect(String(subscriptionInit?.body)).toContain(

@@ -192,6 +192,14 @@ function openRouterRuntimeHeaders(headers: Record<string, string> = {}): Record<
     }
 }
 
+function braveRuntimeHeaders(headers: Record<string, string> = {}): Record<string, string> {
+    return {
+        ...openRouterRuntimeHeaders(),
+        'x-subscription-token': validToken,
+        ...headers,
+    }
+}
+
 describe('hosted runtime usage idempotency keys', () => {
     it('does not persist callback payload JSON when runtime seq is missing', () => {
         const first = runtimeUsageIdempotencyKey({
@@ -499,6 +507,57 @@ describe('hosted runtime worker route security gates', () => {
         expect(mocks.ensureHostedBillingAccount).not.toHaveBeenCalled()
     })
 
+    it('repairs duplicate Brave proxy settlement without calling the provider again', async () => {
+        const fetchMock = vi.fn(async () => new Response('{}'))
+        vi.stubGlobal('fetch', fetchMock)
+        mocks.readHostedProviderUsageSettlementByIdempotencyKey.mockResolvedValue({
+            id: 'usage_existing',
+            roomId: 'room_1',
+            sessionKey: 'thread_1',
+            runId: 'run_1',
+            jobId: 'job_1',
+            provider: 'brave',
+            model: 'brave-search',
+            costMicros: 10000,
+            billingStatus: 'debited',
+            billingLedgerEntryId: 'ledger_1',
+        })
+        mocks.findHostedBillingReservationByIdempotencyKey.mockResolvedValue({
+            id: 'reservation_1',
+            roomId: 'room_1',
+            provider: 'brave',
+            status: 'authorized',
+        })
+
+        const response = await callRoute({
+            method: 'GET',
+            path: '/api/hosted/runtime/provider/brave/v1/workspaces/workspace_1/rooms/room_1/res/v1/web/search?q=agent',
+            headers: braveRuntimeHeaders(),
+            token: null,
+        })
+
+        await expectJsonCode(response, 409, 'runtime_usage_request_already_recorded')
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect(mocks.recordHostedProviderUsage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                sessionKey: 'thread_1',
+                runId: 'run_1',
+                jobId: 'job_1',
+                provider: 'brave',
+                model: 'brave-search',
+                costMicros: 10000,
+                billingReservationId: 'reservation_1',
+                idempotencyKey: 'provider_proxy:brave:workspace_1:room_1:usage-request-123456',
+                metadata: expect.objectContaining({
+                    settlementRepair: true,
+                }),
+            }),
+        )
+        expect(mocks.ensureHostedBillingAccount).not.toHaveBeenCalled()
+    })
+
     it('rejects OpenRouter proxy job context that does not belong to the room', async () => {
         const fetchMock = vi.fn(async () => new Response('{}'))
         vi.stubGlobal('fetch', fetchMock)
@@ -707,7 +766,181 @@ describe('hosted runtime worker route security gates', () => {
         })
 
         await expectJsonCode(response, 502, 'provider_billing_settlement_failed')
-        expect(mocks.releaseHostedBillingReservation).not.toHaveBeenCalled()
+        expect(mocks.releaseHostedBillingReservation).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                reservationId: 'reservation_1',
+            }),
+        )
+    })
+
+    it('settles managed Brave proxy usage before returning the body', async () => {
+        const fetchMock = vi.fn(
+            async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) =>
+                new Response(
+                    JSON.stringify({
+                        web: {
+                            results: [],
+                        },
+                    }),
+                    {
+                        headers: {
+                            'content-type': 'application/json',
+                        },
+                    },
+                ),
+        )
+        vi.stubGlobal('fetch', fetchMock)
+        mocks.getHostedRuntimeEndpointState.mockResolvedValue(
+            runtimeEndpoint({
+                providerCandidate: 'user_key',
+            }),
+        )
+
+        const response = await callRoute({
+            method: 'GET',
+            path: '/api/hosted/runtime/provider/brave/v1/workspaces/workspace_1/rooms/room_1/res/v1/web/search?q=agent&count=5',
+            headers: braveRuntimeHeaders(),
+            token: null,
+        })
+
+        expect(response.status).toBe(200)
+        await expect(response.json()).resolves.toMatchObject({
+            web: {
+                results: [],
+            },
+        })
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        const providerUrl = fetchMock.mock.calls[0]![0] as URL
+        expect(providerUrl.toString()).toBe(
+            'https://api.search.brave.com/res/v1/web/search?q=agent&count=5',
+        )
+        const providerInit = fetchMock.mock.calls[0]![1] as RequestInit
+        const providerHeaders = new Headers(providerInit.headers)
+        expect(providerHeaders.get('x-subscription-token')).toBe('brave-platform-key')
+        expect(providerHeaders.get('authorization')).toBeNull()
+        expect(mocks.authorizeHostedBillingReservation).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                sessionKey: 'thread_1',
+                runId: 'run_1',
+                jobId: 'job_1',
+                provider: 'brave',
+                amountCents: 2,
+                idempotencyKey: 'brave:workspace_1:room_1:usage-request-123456',
+            }),
+        )
+        expect(mocks.recordHostedProviderUsage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                sessionKey: 'thread_1',
+                runId: 'run_1',
+                jobId: 'job_1',
+                provider: 'brave',
+                model: 'brave-search',
+                costMicros: 10000,
+                estimatedCostUsd: 0.01,
+                billingReservationId: 'reservation_1',
+                idempotencyKey: 'provider_proxy:brave:workspace_1:room_1:usage-request-123456',
+            }),
+        )
+        expect(response.headers.get('x-agent-room-billing-reservation-id')).toBe('reservation_1')
+    })
+
+    it('does not return Brave provider bodies when settlement fails', async () => {
+        const fetchMock = vi.fn(
+            async () =>
+                new Response(
+                    JSON.stringify({
+                        web: {
+                            results: [],
+                        },
+                    }),
+                    {
+                        headers: {
+                            'content-type': 'application/json',
+                        },
+                    },
+                ),
+        )
+        vi.stubGlobal('fetch', fetchMock)
+        mocks.recordHostedProviderUsage.mockRejectedValue(new Error('settlement failed'))
+
+        const response = await callRoute({
+            method: 'GET',
+            path: '/api/hosted/runtime/provider/brave/v1/workspaces/workspace_1/rooms/room_1/res/v1/web/search?q=agent',
+            headers: braveRuntimeHeaders(),
+            token: null,
+        })
+
+        await expectJsonCode(response, 502, 'provider_billing_settlement_failed')
+        expect(mocks.releaseHostedBillingReservation).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                reservationId: 'reservation_1',
+            }),
+        )
+    })
+
+    it('requires the runtime token in the Brave subscription header', async () => {
+        const fetchMock = vi.fn(async () => new Response('{}'))
+        vi.stubGlobal('fetch', fetchMock)
+
+        const response = await callRoute({
+            method: 'GET',
+            path: '/api/hosted/runtime/provider/brave/v1/workspaces/workspace_1/rooms/room_1/res/v1/web/search?q=agent',
+            headers: braveRuntimeHeaders({
+                'x-subscription-token': 'wrong-runtime-token-123456',
+            }),
+            token: null,
+        })
+
+        await expectJsonCode(response, 403, 'runtime_token_invalid')
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect(mocks.ensureHostedBillingAccount).not.toHaveBeenCalled()
+    })
+
+    it('blocks managed Brave proxy calls before the provider when balance is exhausted', async () => {
+        const fetchMock = vi.fn(async () => new Response('{}'))
+        vi.stubGlobal('fetch', fetchMock)
+        mocks.authorizeHostedBillingReservation.mockRejectedValue(
+            new Error('Hosted billing balance is exhausted'),
+        )
+
+        const response = await callRoute({
+            method: 'GET',
+            path: '/api/hosted/runtime/provider/brave/v1/workspaces/workspace_1/rooms/room_1/res/v1/web/search?q=agent',
+            headers: braveRuntimeHeaders(),
+            token: null,
+        })
+
+        await expectJsonCode(response, 402, 'hosted_billing_balance_exhausted')
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect(mocks.recordHostedProviderUsage).not.toHaveBeenCalled()
+    })
+
+    it('releases managed Brave reservations when the provider rejects the request', async () => {
+        const fetchMock = vi.fn(async () => new Response('rate limited', { status: 429 }))
+        vi.stubGlobal('fetch', fetchMock)
+
+        const response = await callRoute({
+            method: 'GET',
+            path: '/api/hosted/runtime/provider/brave/v1/workspaces/workspace_1/rooms/room_1/res/v1/web/search?q=agent',
+            headers: braveRuntimeHeaders(),
+            token: null,
+        })
+
+        expect(response.status).toBe(429)
+        await expect(response.text()).resolves.toBe('rate limited')
+        expect(mocks.releaseHostedBillingReservation).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                reservationId: 'reservation_1',
+            }),
+        )
+        expect(mocks.recordHostedProviderUsage).not.toHaveBeenCalled()
     })
 
     it('rejects malformed state callbacks before writing runtime state', async () => {

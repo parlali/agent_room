@@ -2,7 +2,11 @@ import { readFileSync } from 'node:fs'
 import type { D1Database, R2Bucket } from '@cloudflare/workers-types'
 import { describe, expect, it } from 'vitest'
 import type { AgentRoomHostedEnv } from './bindings'
-import { ensureHostedSessionWorkspace, mapHostedSessionToActor } from './hosted-auth'
+import {
+    ensureHostedSessionWorkspace,
+    hostedVerifiedEmailBillingUrl,
+    mapHostedSessionToActor,
+} from './hosted-auth'
 import {
     hostedConfigValues,
     hostedRequiredSecretNames,
@@ -393,6 +397,18 @@ describe('hosted Cloudflare configuration', () => {
 })
 
 describe('hosted auth actor mapping', () => {
+    it('normalizes hosted email verification callbacks to billing', () => {
+        expect(
+            hostedVerifiedEmailBillingUrl({
+                verificationUrl:
+                    'https://rooms.example.test/api/auth/verify-email?token=abc&callbackURL=https%3A%2F%2Frooms.example.test%2F',
+                publicOrigin: 'https://rooms.example.test',
+            }),
+        ).toBe(
+            'https://rooms.example.test/api/auth/verify-email?token=abc&callbackURL=https%3A%2F%2Frooms.example.test%2Fbilling',
+        )
+    })
+
     it('maps a Better Auth session with an active organization without trusting session role', () => {
         expect(
             mapHostedSessionToActor({

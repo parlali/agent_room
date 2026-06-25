@@ -20,6 +20,13 @@ function bearerToken(request: Request): string | null {
     return authorization.startsWith(prefix) ? authorization.slice(prefix.length).trim() : null
 }
 
+function runtimeAuthToken(input: { request: Request; tokenHeaderName?: string }): string | null {
+    if (input.tokenHeaderName) {
+        return input.request.headers.get(input.tokenHeaderName)?.trim() || null
+    }
+    return bearerToken(input.request)
+}
+
 export function boundedHeaderToken(value: string | null): string | null {
     const trimmed = value?.trim() ?? ''
     return /^[a-zA-Z0-9_-]{16,128}$/.test(trimmed) ? trimmed : null
@@ -160,6 +167,7 @@ export async function requireHostedRuntimeProviderProxy(input: {
     workspaceId: string
     roomId: string
     providerCandidate?: 'hosted_openrouter'
+    tokenHeaderName?: string
 }): Promise<HostedRuntimeEndpointState | Response> {
     const runtime = await getHostedRuntimeEndpointState({
         env: input.env,
@@ -193,7 +201,10 @@ export async function requireHostedRuntimeProviderProxy(input: {
             },
         )
     }
-    const token = bearerToken(input.request)
+    const token = runtimeAuthToken({
+        request: input.request,
+        tokenHeaderName: input.tokenHeaderName,
+    })
     const expectedToken = await readHostedRuntimeToken({
         env: input.env,
         tokenObjectKey: runtime.runtime.tokenObjectKey,

@@ -138,55 +138,54 @@ describe('hosted runtime state repository', () => {
 })
 
 describe('hosted runtime access room-cap self-exclusion', () => {
-    it('allows a room at the cap when excludeRoomId removes it from the active count', async () => {
-        function envWithCounts(input: {
-            billingAccountRow: unknown
-            countRow: unknown
-        }): AgentRoomHostedEnv {
-            return {
-                AGENT_ROOM_DB: {
-                    prepare: (sql: string) => ({
-                        bind: (...args: unknown[]) => ({
-                            sql,
-                            args,
-                            first: async () => {
-                                if (/FROM\s+hosted_billing_account/.test(sql)) {
-                                    return input.billingAccountRow
-                                }
-                                if (/COUNT/.test(sql)) {
-                                    return input.countRow
-                                }
-                                return null
-                            },
-                        }),
+    function envWithCounts(input: {
+        billingAccountRow: unknown
+        countRow: unknown
+    }): AgentRoomHostedEnv {
+        return {
+            AGENT_ROOM_DB: {
+                prepare: (sql: string) => ({
+                    bind: (...args: unknown[]) => ({
+                        sql,
+                        args,
+                        first: async () => {
+                            if (/FROM\s+hosted_billing_account/.test(sql)) {
+                                return input.billingAccountRow
+                            }
+                            if (/COUNT/.test(sql)) {
+                                return input.countRow
+                            }
+                            return null
+                        },
                     }),
-                } as unknown as D1Database,
-                AGENT_ROOM_WORKSPACE_BUCKET: {} as R2Bucket,
-                AGENT_ROOM_RUNTIME_JOBS: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME_JOBS'],
-                AGENT_ROOM_RUNTIME: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME'],
-                AGENT_ROOM_AUTH_MODE: 'better-auth',
-                AGENT_ROOM_BILLING_PLANS:
-                    '[{"key":"standard","priceId":"price_std","monthlyCents":2000,"includedCents":1200}]',
-                STRIPE_SECRET_KEY: 'stripe-secret-test-value',
-                STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
-                STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_test_topup_000000',
-                AGENT_ROOM_BILLING_USAGE_MARKUP_BPS: '13000',
-                AGENT_ROOM_BILLING_TAX_MODE: 'automatic',
-                AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS: '3',
-                AGENT_ROOM_RUNTIME_BACKEND: 'cloudflare-containers',
-                AGENT_ROOM_RUNTIME_STORAGE: 'r2',
-                BETTER_AUTH_SECRET: 'a'.repeat(32),
-                BETTER_AUTH_URL: 'https://rooms.example.test',
-                AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64:
-                    'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
-                AGENT_ROOM_EMAIL_WEBHOOK_URL: 'https://mail.example.test/send',
-                AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN: 'b'.repeat(16),
-                AGENT_ROOM_EMAIL_FROM: 'Agent Room <noreply@example.test>',
-                AGENT_ROOM_HOSTED_OPENROUTER_API_KEY: 'openrouter-platform-key',
-                AGENT_ROOM_HOSTED_BRAVE_API_KEY: 'brave-platform-key',
-            }
+                }),
+            } as unknown as D1Database,
+            AGENT_ROOM_WORKSPACE_BUCKET: {} as R2Bucket,
+            AGENT_ROOM_RUNTIME_JOBS: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME_JOBS'],
+            AGENT_ROOM_RUNTIME: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME'],
+            AGENT_ROOM_AUTH_MODE: 'better-auth',
+            AGENT_ROOM_BILLING_PLANS:
+                '[{"key":"standard","priceId":"price_std","monthlyCents":2000,"includedCents":1200}]',
+            STRIPE_SECRET_KEY: 'stripe-secret-test-value',
+            STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
+            STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_test_topup_000000',
+            AGENT_ROOM_BILLING_USAGE_MARKUP_BPS: '13000',
+            AGENT_ROOM_BILLING_TAX_MODE: 'automatic',
+            AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS: '3',
+            AGENT_ROOM_RUNTIME_BACKEND: 'cloudflare-containers',
+            AGENT_ROOM_RUNTIME_STORAGE: 'r2',
+            BETTER_AUTH_SECRET: 'a'.repeat(32),
+            BETTER_AUTH_URL: 'https://rooms.example.test',
+            AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+            AGENT_ROOM_EMAIL_WEBHOOK_URL: 'https://mail.example.test/send',
+            AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN: 'b'.repeat(16),
+            AGENT_ROOM_EMAIL_FROM: 'Agent Room <noreply@example.test>',
+            AGENT_ROOM_HOSTED_OPENROUTER_API_KEY: 'openrouter-platform-key',
+            AGENT_ROOM_HOSTED_BRAVE_API_KEY: 'brave-platform-key',
         }
+    }
 
+    it('allows a room at the cap when excludeRoomId removes it from the active count', async () => {
         const atCapWithSelf = await evaluateHostedRuntimeAccess({
             env: envWithCounts({
                 billingAccountRow: {
@@ -205,8 +204,6 @@ describe('hosted runtime access room-cap self-exclusion', () => {
             }),
             workspaceId: 'workspace_1',
             roomId: 'room_x',
-            codexAvailable: false,
-            userKeyAvailable: false,
         })
         expect(atCapWithSelf.allowed).toBe(true)
 
@@ -228,10 +225,33 @@ describe('hosted runtime access room-cap self-exclusion', () => {
             }),
             workspaceId: 'workspace_1',
             roomId: 'room_x',
-            codexAvailable: false,
-            userKeyAvailable: false,
         })
         expect(atCapWithoutSelf.allowed).toBe(false)
         expect(atCapWithoutSelf.allowed === false && atCapWithoutSelf.reason).toBe('room_limit')
+    })
+
+    it('denies runtime access when a workspace has no active subscription', async () => {
+        const decision = await evaluateHostedRuntimeAccess({
+            env: envWithCounts({
+                billingAccountRow: {
+                    planStatus: 'none',
+                    planKey: 'starter',
+                    workspaceId: 'workspace_1',
+                    stripeCustomerId: null,
+                    stripeSubscriptionId: null,
+                    includedBalanceCents: 0,
+                    purchasedBalanceCents: 2000,
+                    includedMonthlyCreditCents: 0,
+                    createdAt: '',
+                    updatedAt: '',
+                },
+                countRow: { activeCount: 0 },
+            }),
+            workspaceId: 'workspace_1',
+            roomId: 'room_x',
+        })
+
+        expect(decision.allowed).toBe(false)
+        expect(decision.allowed === false && decision.reason).toBe('no_subscription')
     })
 })

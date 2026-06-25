@@ -92,7 +92,14 @@ export function UserMenu({ user }: { user: AuthUserSnapshot | null }) {
                 </DropdownMenuItem>
                 <DropdownMenuItem
                     className="h-8 px-2 text-sm"
-                    onSelect={() => navigate({ to: '/billing' })}
+                    onSelect={() =>
+                        navigate({
+                            to: '/billing',
+                            search: {
+                                checkout: null,
+                            },
+                        })
+                    }
                 >
                     <CreditCardIcon className="size-4" />
                     Billing

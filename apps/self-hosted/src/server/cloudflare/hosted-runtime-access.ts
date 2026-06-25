@@ -2,13 +2,12 @@ import type { AgentRoomHostedEnv } from './bindings'
 import { resolveHostedConfig } from './hosted-config'
 import { readHostedBillingAccount } from './hosted-billing-repository'
 import { countActiveHostedRuntimesForWorkspace } from './hosted-runtime-state-repository'
+import { isHostedBillingPlanStatusActive } from './hosted-billing-types'
 
 export interface HostedRuntimeAccessInput {
     env: AgentRoomHostedEnv
     workspaceId: string
     roomId: string
-    codexAvailable: boolean
-    userKeyAvailable: boolean
 }
 
 export type HostedRuntimeAccessDecision =
@@ -30,17 +29,12 @@ export async function evaluateHostedRuntimeAccess(
     input: HostedRuntimeAccessInput,
 ): Promise<HostedRuntimeAccessDecision> {
     const config = resolveHostedConfig(input.env)
-    const byok = input.codexAvailable || input.userKeyAvailable
-    if (!byok) {
-        const account = await readHostedBillingAccount({
-            env: input.env,
-            workspaceId: input.workspaceId,
-        })
-        const subscriptionActive =
-            account.planStatus === 'active' || account.planStatus === 'trialing'
-        if (!subscriptionActive) {
-            return { allowed: false, reason: 'no_subscription' }
-        }
+    const account = await readHostedBillingAccount({
+        env: input.env,
+        workspaceId: input.workspaceId,
+    })
+    if (!isHostedBillingPlanStatusActive(account.planStatus)) {
+        return { allowed: false, reason: 'no_subscription' }
     }
 
     const activeRuntimes = await countActiveHostedRuntimesForWorkspace({

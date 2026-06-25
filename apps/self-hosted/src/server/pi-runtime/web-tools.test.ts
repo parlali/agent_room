@@ -307,6 +307,63 @@ describe('web tools', () => {
         expect(requests[0]!.headers.has('authorization')).toBe(false)
     })
 
+    it('uses the configured Brave proxy URL for managed search requests', async () => {
+        process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = 'runtime-token-value-123456'
+        const requests: Array<{ url: string; headers: Headers }> = []
+        globalThis.fetch = (async (request, init) => {
+            const url = request instanceof Request ? request.url : String(request)
+            requests.push({
+                url,
+                headers: new Headers(
+                    init?.headers ?? (request instanceof Request ? request.headers : undefined),
+                ),
+            })
+            return new Response(
+                JSON.stringify({
+                    web: {
+                        results: [
+                            {
+                                title: 'Example Domain',
+                                url: 'https://example.com/',
+                                description: 'Result',
+                            },
+                        ],
+                    },
+                }),
+                {
+                    status: 200,
+                    headers: {
+                        'content-type': 'application/json',
+                    },
+                },
+            )
+        }) as typeof fetch
+
+        const provider = new BraveSearchProvider()
+        await provider.search({
+            config: createTestPiRuntimeConfig({
+                search: {
+                    brave: {
+                        enabled: true,
+                        envKey: 'AGENT_ROOM_SEARCH_BRAVE_API_KEY',
+                        baseUrl:
+                            'https://rooms.example.test/api/hosted/runtime/provider/brave/v1/workspaces/workspace_1/rooms/room_1/res/v1/web/search',
+                    },
+                },
+            }),
+            query: 'managed brave search',
+            count: 1,
+        })
+
+        expect(requests).toHaveLength(1)
+        expect(requests[0]!.url).toContain(
+            'https://rooms.example.test/api/hosted/runtime/provider/brave/v1/workspaces/workspace_1/rooms/room_1/res/v1/web/search',
+        )
+        expect(requests[0]!.url).toContain('q=managed+brave+search')
+        expect(requests[0]!.headers.get('x-subscription-token')).toBe('runtime-token-value-123456')
+        expect(requests[0]!.headers.has('authorization')).toBe(false)
+    })
+
     it('treats provider-level search config as disabled when top-level search is disabled', () => {
         process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = 'brave-secret'
         process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'

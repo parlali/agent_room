@@ -1,12 +1,14 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
     CreditCardIcon,
     GaugeIcon,
     KeyRoundIcon,
+    Loader2Icon,
     ShieldCheckIcon,
     WalletCardsIcon,
 } from 'lucide-react'
+import { useEffect } from 'react'
 import { toast } from 'sonner'
 
 import { EmptyState, PageHeader, Section } from '#/components/agent-room'
@@ -30,6 +32,8 @@ interface HostedBillingPlan {
 
 interface HostedBillingSummary {
     account: {
+        stripeCustomerId: string | null
+        stripeSubscriptionId: string | null
         planKey: string
         planStatus: string
         includedBalanceCents: number
@@ -47,7 +51,26 @@ interface HostedBillingSummary {
         createdAt: string
     }>
     remainingUsageCents: number
+    active: boolean
     providerPriority: string[]
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+async function readJsonRecord(response: Response): Promise<Record<string, unknown>> {
+    if (!response.headers.get('content-type')?.toLowerCase().includes('application/json')) {
+        return {}
+    }
+    const payload = (await response.json()) as unknown
+    return isRecord(payload) ? payload : {}
+}
+
+function hostedBillingSummaryFromPayload(
+    payload: Record<string, unknown>,
+): HostedBillingSummary | null {
+    return isRecord(payload.billing) ? (payload.billing as unknown as HostedBillingSummary) : null
 }
 
 const placeholderPlans: PlaceholderPlan[] = [
@@ -56,7 +79,7 @@ const placeholderPlans: PlaceholderPlan[] = [
         name: 'Starter',
         monthlyCents: 700,
         includedCents: 0,
-        summary: 'Bring your own provider keys. No included hosted usage.',
+        summary: 'Subscription access with no included managed usage.',
     },
     {
         key: 'standard',
@@ -75,7 +98,15 @@ const placeholderPlans: PlaceholderPlan[] = [
 ]
 
 export const Route = createFileRoute('/billing')({
-    beforeLoad: requireRouteUser,
+    beforeLoad: () => requireRouteUser({ requireHostedSubscription: false }),
+    validateSearch: (search: Record<string, unknown>) => ({
+        checkout:
+            search.checkout === 'subscription_success' ||
+            search.checkout === 'topup_success' ||
+            search.checkout === 'cancel'
+                ? search.checkout
+                : null,
+    }),
     component: BillingPage,
 })
 
@@ -87,6 +118,8 @@ function formatUsd(cents: number): string {
 }
 
 function BillingPage() {
+    const search = Route.useSearch()
+    const navigate = useNavigate()
     const billingQuery = useQuery<HostedBillingSummary | null>({
         queryKey: ['hosted-billing'],
         retry: false,
@@ -99,8 +132,7 @@ function BillingPage() {
             if (!response.ok) {
                 return null
             }
-            const payload = (await response.json()) as unknown
-            return payload && typeof payload === 'object' ? (payload as HostedBillingSummary) : null
+            return hostedBillingSummaryFromPayload(await readJsonRecord(response))
         },
     })
     const checkoutMutation = useMutation({
@@ -114,14 +146,13 @@ function BillingPage() {
                 },
                 body: JSON.stringify(input),
             })
-            const payload = (await response.json()) as {
-                checkout?: { url?: string }
-                message?: string
+            const payload = await readJsonRecord(response)
+            const checkout = isRecord(payload.checkout) ? payload.checkout : {}
+            const message = typeof payload.message === 'string' ? payload.message : null
+            if (!response.ok || typeof checkout.url !== 'string') {
+                throw new Error(message ?? 'Checkout is not available')
             }
-            if (!response.ok || typeof payload.checkout?.url !== 'string') {
-                throw new Error(payload.message ?? 'Checkout is not available')
-            }
-            return payload.checkout.url
+            return checkout.url
         },
         onSuccess: (url) => {
             window.location.href = url
@@ -130,7 +161,32 @@ function BillingPage() {
             toast.error(error instanceof Error ? error.message : 'Checkout is not available')
         },
     })
+    const portalMutation = useMutation({
+        mutationFn: async () => {
+            const response = await fetch('/api/hosted/billing/portal', {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                },
+                body: '{}',
+            })
+            const payload = await readJsonRecord(response)
+            const portal = isRecord(payload.portal) ? payload.portal : {}
+            const message = typeof payload.message === 'string' ? payload.message : null
+            if (!response.ok || typeof portal.url !== 'string') {
+                throw new Error(message ?? 'Billing portal is not available')
+            }
+            return portal.url
+        },
+        onSuccess: (url) => {
+            window.location.href = url
+        },
+        onError: (error) => {
+            toast.error(error instanceof Error ? error.message : 'Billing portal is not available')
+        },
+    })
     const hosted = billingQuery.data
+    const subscriptionCheckoutReturned = search.checkout === 'subscription_success'
     const livePlans = hosted?.plans.map((plan) => ({
         key: plan.key,
         name: plan.key,
@@ -139,9 +195,29 @@ function BillingPage() {
         summary:
             plan.includedCents > 0
                 ? 'Includes monthly managed OpenRouter and Brave usage.'
-                : 'Bring your own provider keys. No included hosted usage.',
+                : 'Subscription access with no included managed usage.',
     }))
     const plans = livePlans?.length ? livePlans : placeholderPlans
+
+    useEffect(() => {
+        if (!subscriptionCheckoutReturned || hosted?.active) {
+            return
+        }
+        const interval = window.setInterval(() => {
+            void billingQuery.refetch()
+        }, 1500)
+        return () => window.clearInterval(interval)
+    }, [billingQuery, hosted?.active, subscriptionCheckoutReturned])
+
+    useEffect(() => {
+        if (!subscriptionCheckoutReturned || !hosted?.active) {
+            return
+        }
+        void navigate({
+            to: '/onboarding',
+            replace: true,
+        })
+    }, [hosted?.active, navigate, subscriptionCheckoutReturned])
 
     return (
         <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
@@ -149,6 +225,18 @@ function BillingPage() {
                 title="Billing"
                 subtitle="Managed OpenRouter and Brave usage draws included credits first, then purchased credits."
             />
+
+            {subscriptionCheckoutReturned && !hosted?.active ? (
+                <Section
+                    title="Activating subscription"
+                    description="Stripe checkout completed. Waiting for Stripe to confirm the subscription before opening onboarding."
+                >
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2Icon className="size-4 animate-spin" />
+                        Activating subscription
+                    </div>
+                </Section>
+            ) : null}
 
             <Section
                 title="Plans"
@@ -173,8 +261,8 @@ function BillingPage() {
                 <div className="mt-4 rounded-lg border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">
                     Included usage resets monthly and is spent first; it does not carry over.
                     Purchased credits persist and are spent after included usage runs out. Hosted
-                    provider usage is billed at a managed rate, while bring-your-own providers pay
-                    provider cost directly. VAT is added at checkout where required.
+                    OpenRouter and Brave usage is billed against this balance. VAT is added at
+                    checkout where required.
                 </div>
             </Section>
 
@@ -237,11 +325,11 @@ function BillingPage() {
                             <KeyRoundIcon className="mt-0.5 size-4 shrink-0 text-foreground" />
                             <div>
                                 <div className="text-sm font-medium">
-                                    BYO providers stay available
+                                    Provider choice stays available
                                 </div>
                                 <p className="mt-0.5 text-sm text-muted-foreground">
-                                    Provider priority remains user key, Codex, then hosted
-                                    OpenRouter when balance is available.
+                                    A paid subscription unlocks hosted runtime access. Provider
+                                    priority remains user key, Codex, then hosted OpenRouter.
                                 </p>
                             </div>
                         </div>
@@ -273,7 +361,14 @@ function BillingPage() {
                         }
                         action={
                             <div className="flex flex-wrap justify-center gap-2">
-                                <Button variant="outline" disabled={!hosted}>
+                                <Button
+                                    variant="outline"
+                                    disabled={
+                                        !hosted?.account.stripeCustomerId ||
+                                        portalMutation.isPending
+                                    }
+                                    onClick={() => portalMutation.mutate()}
+                                >
                                     Manage subscription
                                 </Button>
                                 <Button
@@ -291,7 +386,7 @@ function BillingPage() {
 
                 <Section
                     title="Recent billable usage"
-                    description="Hosted usage is billed at a managed rate; BYO providers pay provider cost directly."
+                    description="Managed OpenRouter and Brave usage appears here after it is debited."
                 >
                     {hosted?.usage.length ? (
                         <div className="divide-y rounded-lg border border-border/70">
@@ -342,7 +437,7 @@ function PlanCard({
     const includedLabel =
         plan.includedCents > 0
             ? `${formatUsd(plan.includedCents)} included usage / month`
-            : 'No included usage (bring your own keys)'
+            : 'No included managed usage'
     return (
         <div className="flex flex-col rounded-lg border border-border/70 bg-background p-4">
             <div className="flex items-center justify-between gap-2">

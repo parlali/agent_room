@@ -468,6 +468,7 @@ export interface SearchRuntimeConfig {
     brave: {
         enabled: boolean
         envKey: string | null
+        baseUrl: string | null
         country: string | null
         searchLang: string | null
         safeSearch: SearchSafeSearch

@@ -66,7 +66,7 @@ export function normalizeHostedSearchBackendUrl(value: string): string {
 const defaultSearchConfig = {
     ...hostedSearchDefaults,
     brave: {
-        enabled: false,
+        enabled: true,
         country: null,
         searchLang: null,
         safeSearch: 'moderate',
@@ -307,6 +307,7 @@ export function materializedSearchConfig(input: {
     settings: AppSettingsRecord
     enabled: boolean
     braveApiKeyAvailable: boolean
+    braveBaseUrl?: string | null
     browserbaseApiKeyAvailable: boolean
 }): MaterializedRoomConfiguration['search'] {
     const search = normalizeSearchConfig(input.settings.searchConfig, hostedSearchDefaults)
@@ -319,6 +320,7 @@ export function materializedSearchConfig(input: {
             brave: {
                 ...search.brave,
                 enabled: enabled && search.brave.enabled,
+                baseUrl: input.braveBaseUrl ?? search.brave.baseUrl,
             },
             browserbase: {
                 ...search.browserbase,
@@ -659,6 +661,9 @@ export async function getHostedOperatorConfigSnapshot(input: {
         providers,
     })
     const readyProviders = listReadyProviders(providers, codexAuth)
+    const managedOpenRouterAvailable = Boolean(
+        input.env.AGENT_ROOM_HOSTED_OPENROUTER_API_KEY?.trim(),
+    )
     return {
         settings: summarizeHostedSettings(settings, input.env),
         codexAuth,
@@ -670,6 +675,7 @@ export async function getHostedOperatorConfigSnapshot(input: {
             completed: settings.onboardingCompletedAt !== null,
             hasProvider: readyProviders.length > 0,
             hasDefaultProvider: settings.defaultProviderConnectionId !== null,
+            managedOpenRouterAvailable,
         },
     }
 }

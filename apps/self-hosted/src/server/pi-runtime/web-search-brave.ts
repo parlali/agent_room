@@ -35,7 +35,7 @@ function normalizeBraveSafeSearch(value: string | null | undefined): 'off' | 'mo
 
 function buildBraveSearchUrl(input: SearchProviderSearchInput): URL {
     const config = input.config.search.brave
-    const url = new URL(braveSearchApiUrl)
+    const url = new URL(config.baseUrl ?? braveSearchApiUrl)
     url.searchParams.set('q', input.query.trim())
     url.searchParams.set('count', String(Math.min(20, input.count || config.resultCount)))
     url.searchParams.set(

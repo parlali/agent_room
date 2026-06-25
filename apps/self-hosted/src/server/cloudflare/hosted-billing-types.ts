@@ -30,6 +30,7 @@ export const hostedBillingReservationStatuses = [
 ] as const
 export const hostedBillingReservationProviders = ['openrouter', 'brave'] as const
 export const hostedProviderBillingGateCents = 1
+export const hostedBraveSearchCostMicros = 10000
 
 export type HostedBillingPlanStatus = (typeof hostedBillingPlanStatuses)[number]
 export type HostedBillingLedgerDirection = (typeof hostedBillingLedgerDirections)[number]
@@ -140,4 +141,8 @@ export function assertPositiveCents(amountCents: number): void {
     if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
         throw new Error('Billing amount must be a positive integer cent value')
     }
+}
+
+export function isHostedBillingPlanStatusActive(status: HostedBillingPlanStatus): boolean {
+    return status === 'active' || status === 'trialing'
 }

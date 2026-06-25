@@ -19,7 +19,6 @@ import { cn } from '#/lib/utils'
 import { roomQueryKey } from '#/lib/room-query-keys'
 import { markChatSelection } from '#/lib/browser-performance'
 
-import { currentUserServer } from './-auth-server'
 import { friendlyNotice } from './-notice-copy'
 import { getOperatorConfigServer, updateAppDefaultsServer } from './-operator-config-server'
 import {
@@ -27,9 +26,10 @@ import {
     createThreadServer,
     getRoomSetupReadinessServer,
 } from './-room-runtime-server'
+import { requireRouteUser } from './-route-auth'
 
 interface ConfiguredProvider {
-    id: string
+    id: string | null
     label: string
     defaultModel: string
 }
@@ -39,8 +39,7 @@ type StepState = 'complete' | 'active' | 'pending'
 
 export const Route = createFileRoute('/onboarding')({
     beforeLoad: async () => {
-        const user = await currentUserServer()
-        if (!user) throw redirect({ to: '/login' })
+        await requireRouteUser()
         const config = await getOperatorConfigServer()
         if (config.onboarding.completed) throw redirect({ to: '/' })
     },
@@ -87,13 +86,20 @@ function OnboardingPage() {
         ) ?? null
     const configuredProvider =
         defaultProvider ?? (readyProviders.length === 1 ? readyProviders[0] : null)
+    const managedOpenRouterReady = configQuery.data?.onboarding.managedOpenRouterAvailable === true
     const configuredProviderSummary: ConfiguredProvider | null = configuredProvider
         ? {
               id: configuredProvider.id,
               label: configuredProvider.label,
               defaultModel: configuredProvider.defaultModel,
           }
-        : null
+        : managedOpenRouterReady
+          ? {
+                id: null,
+                label: 'Hosted OpenRouter',
+                defaultModel: configQuery.data?.settings.defaultModel?.trim() || 'openrouter/auto',
+            }
+          : null
     const providerReady = configuredProviderSummary !== null
 
     useEffect(() => {
@@ -151,7 +157,9 @@ function OnboardingPage() {
             await updateAppDefaultsServer({
                 data: {
                     defaultProviderConnectionId: configuredProviderSummary.id,
-                    defaultModel: configuredProviderSummary.defaultModel,
+                    defaultModel: configuredProviderSummary.id
+                        ? configuredProviderSummary.defaultModel
+                        : null,
                     onboardingCompleted: true,
                 },
             })

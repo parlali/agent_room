@@ -17,6 +17,7 @@ import {
     hostedBillingCheckoutKindSchema,
     type HostedBillingCheckoutKind,
     type HostedBillingPlan,
+    isHostedBillingPlanStatusActive,
 } from './hosted-billing-types'
 import type { HostedActor } from './hosted-auth'
 import { hostedProviderPriorityOrder } from './hosted-provider-priority'
@@ -44,6 +45,14 @@ interface StripeInvoice {
     id: string
     customer: string | null
     subscription: string | null
+    status: string | null
+    linePriceId: string | null
+    metadata: Record<string, string> | null
+}
+
+interface StripeSubscription {
+    id: string
+    customer: string | null
     status: string | null
     linePriceId: string | null
     metadata: Record<string, string> | null
@@ -105,6 +114,17 @@ function extractInvoiceLinePriceId(record: Record<string, unknown>): string | nu
     return null
 }
 
+function extractSubscriptionLinePriceId(record: Record<string, unknown>): string | null {
+    const items = jsonRecord(record.items)
+    if (!items) return null
+    const data = items.data
+    if (!Array.isArray(data) || data.length === 0) return null
+    const firstItem = jsonRecord(data[0])
+    if (!firstItem) return null
+    const price = jsonRecord(firstItem.price)
+    return price ? stringField(price, 'id') : null
+}
+
 function parseCheckoutSession(value: unknown): StripeCheckoutSession {
     const record = jsonRecord(value)
     if (!record) {
@@ -133,6 +153,20 @@ function parseInvoice(value: unknown): StripeInvoice {
         subscription: stringField(record, 'subscription'),
         status: stringField(record, 'status'),
         linePriceId: extractInvoiceLinePriceId(record),
+        metadata: metadataField(record),
+    }
+}
+
+function parseSubscription(value: unknown): StripeSubscription {
+    const record = jsonRecord(value)
+    if (!record) {
+        throw new Error('Stripe subscription payload was invalid')
+    }
+    return {
+        id: stringField(record, 'id') ?? '',
+        customer: stringField(record, 'customer'),
+        status: stringField(record, 'status'),
+        linePriceId: extractSubscriptionLinePriceId(record),
         metadata: metadataField(record),
     }
 }
@@ -219,7 +253,9 @@ export async function verifyStripeWebhookPayload(input: {
     }
 }
 
-function hostedBillingReturnUrl(origin: string, state: 'success' | 'cancel'): string {
+type HostedBillingReturnState = 'subscription_success' | 'topup_success' | 'cancel'
+
+function hostedBillingReturnUrl(origin: string, state: HostedBillingReturnState): string {
     const url = new URL('/billing', origin)
     url.searchParams.set('checkout', state)
     return url.toString()
@@ -231,6 +267,40 @@ function resolvePlanByKey(plans: HostedBillingPlan[], planKey: string): HostedBi
         throw new Error(`Hosted billing plan ${planKey} is not configured`)
     }
     return plan
+}
+
+function nullablePlanByKey(
+    plans: HostedBillingPlan[],
+    planKey: string | null,
+): HostedBillingPlan | null {
+    return planKey ? (plans.find((candidate) => candidate.key === planKey) ?? null) : null
+}
+
+function nullablePlanByPriceId(
+    plans: HostedBillingPlan[],
+    priceId: string | null,
+): HostedBillingPlan | null {
+    return priceId ? (plans.find((candidate) => candidate.priceId === priceId) ?? null) : null
+}
+
+function planStatusFromStripeSubscription(
+    status: string | null,
+): 'incomplete' | 'trialing' | 'active' | 'past_due' | 'canceled' | 'unpaid' {
+    switch (status) {
+        case 'trialing':
+        case 'active':
+        case 'past_due':
+        case 'canceled':
+        case 'unpaid':
+        case 'incomplete':
+            return status
+        case 'incomplete_expired':
+            return 'incomplete'
+        case 'paused':
+            return 'unpaid'
+        default:
+            return 'incomplete'
+    }
 }
 
 export type HostedStripeCheckoutInput =
@@ -267,7 +337,10 @@ export async function createHostedStripeCheckout(
 
     const form = new URLSearchParams({
         mode: input.kind === 'subscription' ? 'subscription' : 'payment',
-        success_url: hostedBillingReturnUrl(config.publicOrigin, 'success'),
+        success_url: hostedBillingReturnUrl(
+            config.publicOrigin,
+            input.kind === 'subscription' ? 'subscription_success' : 'topup_success',
+        ),
         cancel_url: hostedBillingReturnUrl(config.publicOrigin, 'cancel'),
         'line_items[0][price]': price,
         'line_items[0][quantity]': '1',
@@ -303,6 +376,39 @@ export async function createHostedStripeCheckout(
     }
 }
 
+export async function createHostedStripePortalSession(input: {
+    env: AgentRoomHostedEnv
+    actor: HostedActor
+}): Promise<{ url: string }> {
+    const config = resolveHostedConfig(input.env)
+    const account = await ensureHostedBillingAccount({
+        env: input.env,
+        workspaceId: input.actor.workspaceId,
+    })
+    if (!account.stripeCustomerId) {
+        throw new Error('Hosted billing customer is not available yet')
+    }
+    const form = new URLSearchParams({
+        customer: account.stripeCustomerId,
+        return_url: new URL('/billing', config.publicOrigin).toString(),
+    })
+    const response = await fetch('https://api.stripe.com/v1/billing_portal/sessions', {
+        method: 'POST',
+        headers: {
+            authorization: `Bearer ${config.billing.stripe.secretKey}`,
+            'content-type': 'application/x-www-form-urlencoded',
+        },
+        body: form,
+    })
+    const payload = (await response.json()) as { url?: unknown; error?: { message?: string } }
+    if (!response.ok || typeof payload.url !== 'string') {
+        throw new Error(payload.error?.message ?? 'Stripe billing portal session creation failed')
+    }
+    return {
+        url: payload.url,
+    }
+}
+
 export async function readHostedBillingSummary(input: {
     env: AgentRoomHostedEnv
     actor: HostedActor
@@ -311,6 +417,7 @@ export async function readHostedBillingSummary(input: {
     ledger: Awaited<ReturnType<typeof listHostedBillingLedger>>
     usage: Awaited<ReturnType<typeof listRecentHostedBillableUsage>>
     remainingUsageCents: number
+    active: boolean
     plans: HostedBillingPlan[]
     usageMarkupBps: number
     taxMode: 'none' | 'automatic'
@@ -361,6 +468,7 @@ export async function readHostedBillingSummary(input: {
         ledger,
         usage,
         remainingUsageCents: account.availableBalanceCents,
+        active: isHostedBillingPlanStatusActive(account.planStatus),
         plans: config.billing.plans,
         usageMarkupBps: config.billing.usageMarkupBps,
         taxMode: config.billing.taxMode,
@@ -415,6 +523,18 @@ export async function processHostedStripeWebhook(input: {
             plans: config.billing.plans,
         })
     }
+    if (
+        event.type === 'customer.subscription.created' ||
+        event.type === 'customer.subscription.updated' ||
+        event.type === 'customer.subscription.deleted'
+    ) {
+        await processSubscriptionChanged({
+            env: input.env,
+            subscription: parseSubscription(event.data.object),
+            plans: config.billing.plans,
+            deleted: event.type === 'customer.subscription.deleted',
+        })
+    }
 
     await recordHostedStripeEvent({
         env: input.env,
@@ -427,6 +547,46 @@ export async function processHostedStripeWebhook(input: {
         eventId: event.id,
         type: event.type,
     }
+}
+
+async function processSubscriptionChanged(input: {
+    env: AgentRoomHostedEnv
+    subscription: StripeSubscription
+    plans: HostedBillingPlan[]
+    deleted: boolean
+}): Promise<void> {
+    if (!input.subscription.customer || !input.subscription.id) {
+        throw new Error('Stripe subscription is missing hosted billing metadata')
+    }
+    const existingAccount = await findHostedBillingAccountByStripeIds({
+        env: input.env,
+        stripeCustomerId: input.subscription.customer,
+        stripeSubscriptionId: input.subscription.id,
+    })
+    const workspaceId = input.subscription.metadata?.workspace_id ?? existingAccount?.workspaceId
+    if (!workspaceId) {
+        throw new Error('Stripe subscription could not be matched to a hosted workspace')
+    }
+    await ensureHostedBillingAccount({
+        env: input.env,
+        workspaceId,
+    })
+    const existingPlan = nullablePlanByKey(input.plans, existingAccount?.planKey ?? null)
+    const plan =
+        nullablePlanByKey(input.plans, input.subscription.metadata?.plan_key ?? null) ??
+        nullablePlanByPriceId(input.plans, input.subscription.linePriceId) ??
+        existingPlan
+    await upsertHostedStripeCustomer({
+        env: input.env,
+        workspaceId,
+        stripeCustomerId: input.subscription.customer,
+        stripeSubscriptionId: input.subscription.id,
+        planStatus: input.deleted
+            ? 'canceled'
+            : planStatusFromStripeSubscription(input.subscription.status),
+        planKey: plan?.key,
+        includedMonthlyCreditCents: plan?.includedCents,
+    })
 }
 
 async function processCheckoutCompleted(input: {

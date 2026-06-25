@@ -55,4 +55,29 @@ describe('hosted runtime egress policy', () => {
             }),
         ).rejects.toThrow('resolves to a local or private network address')
     })
+
+    it('allowlists the hosted Brave proxy origin when managed search is materialized', async () => {
+        const runtimeConfig = runtimeConfigWithMcp('https://mcp.example.test/sse')
+        runtimeConfig.search.enabled = true
+        runtimeConfig.search.brave = {
+            enabled: true,
+            envKey: 'AGENT_ROOM_SEARCH_BRAVE_API_KEY',
+            baseUrl:
+                'https://rooms.example.test/api/hosted/runtime/provider/brave/v1/workspaces/workspace_1/rooms/room_1/res/v1/web/search',
+            country: null,
+            searchLang: null,
+            safeSearch: 'moderate',
+            timeoutMs: 10000,
+            resultCount: 5,
+        }
+
+        const hosts = await hostedRuntimeAllowedHosts({
+            runtimeConfig,
+            usageCallbackUrl: 'https://rooms.example.test/api/hosted/runtime/usage',
+            resolveTenantHostnameAddresses: async () => ['93.184.216.34'],
+        })
+
+        expect(hosts).toContain('rooms.example.test')
+        expect(hosts).not.toContain('api.search.brave.com')
+    })
 })
