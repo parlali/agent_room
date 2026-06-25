@@ -344,17 +344,16 @@ describe('hosted Cloudflare configuration', () => {
             [...hostedRequiredSecretNames].sort(),
         )
         expect(extractWorkflowSecretEnvNames(workflowConfig)).toEqual([...hostedSecretNames].sort())
-        expect(workflowConfig).toContain('Reset stale hosted Cloudflare resources')
-        expect(workflowConfig).toContain(
-            "AGENT_ROOM_CLOUDFLARE_ALLOW_HOSTED_PRODUCTION_RESET: 'true'",
-        )
+        expect(workflowConfig).not.toContain('self-hosted:cloudflare:preview:delete')
+        expect(workflowConfig).not.toContain('AGENT_ROOM_CLOUDFLARE_ALLOW_HOSTED_PRODUCTION_RESET')
         expect(extractWorkflowSecretEnvNames(previewWorkflowConfig)).toEqual(
             hostedSecretNames.filter((name) => name !== 'BETTER_AUTH_URL').sort(),
         )
         expect(previewWorkflowConfig).toContain('- opened')
         expect(previewWorkflowConfig).toContain('- synchronize')
         expect(previewWorkflowConfig).toContain('- reopened')
-        expect(previewWorkflowConfig).toContain("github.event.action != 'closed'")
+        expect(previewWorkflowConfig).not.toContain('- closed')
+        expect(previewWorkflowConfig).not.toContain("github.event.action != 'closed'")
         expect(previewWorkflowConfig).toContain(
             'github.event.pull_request.head.repo.full_name == github.repository',
         )
@@ -363,10 +362,7 @@ describe('hosted Cloudflare configuration', () => {
         )
         expect(previewWorkflowConfig).toContain('ref: ${{ steps.preview.outputs.head_sha }}')
         expect(previewWorkflowConfig).not.toContain('ref: ${{ inputs.ref }}')
-        expect(previewWorkflowConfig).toContain('Reset stale preview Cloudflare resources')
-        expect(previewWorkflowConfig).toContain(
-            'run: bun run self-hosted:cloudflare:preview:delete',
-        )
+        expect(previewWorkflowConfig).not.toContain('self-hosted:cloudflare:preview:delete')
         expect(previewWorkflowConfig).toContain('BETTER_AUTH_URL: ${{ steps.preview.outputs.url }}')
         expect(previewWorkflowConfig).toContain(
             'BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_HOSTED_PREVIEW_SECRET }}',
