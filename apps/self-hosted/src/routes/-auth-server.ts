@@ -105,9 +105,8 @@ export const loginServer = createServerFn({ method: 'POST' })
                 role: 'operator',
             })
         }
-        const { assertSameOriginMutation, writeSessionCookie } = await import(
-            '#/server/auth/session-auth'
-        )
+        const { assertSameOriginMutation, writeSessionCookie } =
+            await import('#/server/auth/session-auth')
         const { loginWithPassword } = await import('#/server/auth/auth-service')
         assertSameOriginMutation()
         const request = getRequest()
