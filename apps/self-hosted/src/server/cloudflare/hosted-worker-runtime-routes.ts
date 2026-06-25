@@ -11,12 +11,8 @@ import {
     hostedManagedFetchPathPrefix,
     hostedOpenRouterProxyPathPrefix,
 } from './hosted-provider-proxy'
-import {
-    hostedBraveProxy,
-    hostedBrowserbaseProxy,
-    hostedManagedFetchProxy,
-    hostedOpenRouterProxy,
-} from './hosted-provider-proxy-routes'
+import { hostedBrowserbaseProxy, hostedManagedFetchProxy } from './hosted-managed-web-proxy-routes'
+import { hostedBraveProxy, hostedOpenRouterProxy } from './hosted-provider-proxy-routes'
 
 export { runtimeUsageIdempotencyKey }
 

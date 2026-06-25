@@ -1,3 +1,4 @@
+import { createClient } from '@libsql/client'
 import { describe, expect, it } from 'vitest'
 import {
     createHostedFullDb,
@@ -7,6 +8,7 @@ import {
     insertHostedRoom,
     insertHostedRoomJob,
     insertHostedUsageEvent,
+    readHostedMigrationFile,
 } from './hosted-d1-schema-contract-support'
 
 describe('hosted D1 schema contract', () => {
@@ -455,6 +457,121 @@ describe('hosted D1 schema contract', () => {
                 jobId: 'job_1',
                 usageEventId: 'usage_1',
                 billingLedgerEntryId: 'ledger_1',
+            })
+        } finally {
+            db.close()
+        }
+    })
+
+    it('migrates existing billing enum constraints for managed web usage without writable schema', async () => {
+        const db = createClient({ url: 'file::memory:' })
+        try {
+            const oldControlPlaneMigration = readHostedMigrationFile(
+                '0001_hosted_control_plane.sql',
+            ).replace(", 'hosted_browserbase_usage', 'hosted_fetch_url_usage'", '')
+            const oldReservationMigration = readHostedMigrationFile(
+                '0003_hosted_billing_reservations.sql',
+            ).replace(", 'browserbase', 'fetch_url'", '')
+            const managedWebMigration = readHostedMigrationFile(
+                '0004_hosted_managed_web_billing.sql',
+            )
+
+            expect(managedWebMigration).not.toMatch(/writable_schema/i)
+
+            await db.executeMultiple(oldControlPlaneMigration)
+            await db.executeMultiple(readHostedMigrationFile('0002_hosted_runtime_execution.sql'))
+            await db.executeMultiple(oldReservationMigration)
+
+            const now = new Date(0).toISOString()
+            await insertHostedAuthRow({
+                db,
+                userId: 'user_1',
+                organizationId: 'workspace_1',
+                memberId: 'member_1',
+            })
+            await insertHostedRoom({
+                db,
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                userId: 'user_1',
+                now,
+            })
+            await insertHostedBillingLedgerEntry({
+                db,
+                workspaceId: 'workspace_1',
+                ledgerId: 'ledger_existing',
+                now,
+            })
+            await insertHostedBillingReservation({
+                db,
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                reservationId: 'reservation_existing',
+                now,
+            })
+
+            await db.executeMultiple(managedWebMigration)
+
+            await db.execute({
+                sql: `
+                    INSERT INTO hosted_billing_ledger_entry (
+                        id,
+                        workspace_id,
+                        direction,
+                        source,
+                        amount_cents,
+                        balance_after_cents,
+                        stripe_event_id,
+                        stripe_checkout_session_id,
+                        stripe_invoice_id,
+                        usage_event_id,
+                        idempotency_key,
+                        metadata,
+                        created_at
+                    )
+                    VALUES ('ledger_browserbase', 'workspace_1', 'debit', 'hosted_browserbase_usage', 1, 0, NULL, NULL, NULL, NULL, 'ledger_browserbase', '{}', ?1)
+                `,
+                args: [now],
+            })
+            await db.execute({
+                sql: `
+                    INSERT INTO hosted_billing_reservation (
+                        id,
+                        workspace_id,
+                        room_id,
+                        session_key,
+                        run_id,
+                        job_id,
+                        provider,
+                        status,
+                        reserved_cents,
+                        included_reserved_cents,
+                        purchased_reserved_cents,
+                        settled_cents,
+                        usage_event_id,
+                        billing_ledger_entry_id,
+                        idempotency_key,
+                        metadata,
+                        expires_at,
+                        created_at,
+                        updated_at
+                    )
+                    VALUES ('reservation_fetch', 'workspace_1', 'room_1', NULL, NULL, NULL, 'fetch_url', 'authorized', 1, 1, 0, 0, NULL, NULL, 'reservation_fetch', '{}', ?1, ?1, ?1)
+                `,
+                args: [now],
+            })
+
+            const counts = await db.execute({
+                sql: `
+                    SELECT
+                        (SELECT COUNT(*) FROM hosted_billing_ledger_entry) AS ledgerCount,
+                        (SELECT COUNT(*) FROM hosted_billing_reservation) AS reservationCount
+                `,
+            })
+
+            expect(counts.rows[0]).toMatchObject({
+                ledgerCount: 2,
+                reservationCount: 2,
             })
         } finally {
             db.close()

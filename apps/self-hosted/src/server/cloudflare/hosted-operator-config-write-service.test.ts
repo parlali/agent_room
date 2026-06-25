@@ -194,7 +194,7 @@ describe('hosted operator config writes', () => {
                     },
                 }),
             }),
-        ).rejects.toThrow('Hosted search backend URL is fixed by the hosted deployment')
+        ).rejects.toThrow('Hosted SearXNG search backend is disabled')
 
         expect(store.secretWrites).toEqual([])
     })
