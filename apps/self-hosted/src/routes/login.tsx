@@ -52,7 +52,9 @@ function LoginPage() {
             signupServer({ data: payload }),
         onSuccess: (result) => {
             setError(null)
-            setNotice(`Check ${result.email} for the verification link, then sign in.`)
+            setNotice(
+                `Check ${result.email} for the verification link. You will continue to billing after verifying.`,
+            )
             setMode('sign-in')
             setPassword('')
         },

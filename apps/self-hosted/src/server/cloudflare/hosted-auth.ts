@@ -13,6 +13,15 @@ export interface HostedActor {
     workspaceId: string
 }
 
+export function hostedVerifiedEmailBillingUrl(input: {
+    verificationUrl: string
+    publicOrigin: string
+}): string {
+    const url = new URL(input.verificationUrl)
+    url.searchParams.set('callbackURL', new URL('/billing', input.publicOrigin).toString())
+    return url.toString()
+}
+
 export function createHostedAuth(env: AgentRoomHostedEnv) {
     const config = resolveHostedConfig(env)
     const socialProviders = config.google
@@ -47,13 +56,16 @@ export function createHostedAuth(env: AgentRoomHostedEnv) {
         },
         emailVerification: {
             sendOnSignUp: true,
-            autoSignInAfterVerification: false,
+            autoSignInAfterVerification: true,
             sendVerificationEmail: async ({ user, url }) => {
                 await sendHostedAuthEmail(env, {
                     purpose: 'email_verification',
                     to: user.email,
                     subject: 'Verify your Agent Room email',
-                    actionUrl: url,
+                    actionUrl: hostedVerifiedEmailBillingUrl({
+                        verificationUrl: url,
+                        publicOrigin: config.publicOrigin,
+                    }),
                     metadata: {
                         userId: user.id,
                     },

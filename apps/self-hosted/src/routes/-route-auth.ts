@@ -28,6 +28,9 @@ export async function requireRouteUser(input?: unknown) {
     if (billing && !billing.active) {
         throw redirect({
             to: '/billing',
+            search: {
+                checkout: null,
+            },
         })
     }
     return user

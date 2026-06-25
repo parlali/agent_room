@@ -205,6 +205,7 @@ export const signupServer = createServerFn({ method: 'POST' })
                     email: data.email.trim().toLowerCase(),
                     password: data.password,
                     name: data.name.trim(),
+                    callbackURL: new URL('/billing', hosted.request.url).toString(),
                 }),
             }),
         )

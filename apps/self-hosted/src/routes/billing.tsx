@@ -1,12 +1,14 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
     CreditCardIcon,
     GaugeIcon,
     KeyRoundIcon,
+    Loader2Icon,
     ShieldCheckIcon,
     WalletCardsIcon,
 } from 'lucide-react'
+import { useEffect } from 'react'
 import { toast } from 'sonner'
 
 import { EmptyState, PageHeader, Section } from '#/components/agent-room'
@@ -49,6 +51,7 @@ interface HostedBillingSummary {
         createdAt: string
     }>
     remainingUsageCents: number
+    active: boolean
     providerPriority: string[]
 }
 
@@ -96,6 +99,14 @@ const placeholderPlans: PlaceholderPlan[] = [
 
 export const Route = createFileRoute('/billing')({
     beforeLoad: () => requireRouteUser({ requireHostedSubscription: false }),
+    validateSearch: (search: Record<string, unknown>) => ({
+        checkout:
+            search.checkout === 'subscription_success' ||
+            search.checkout === 'topup_success' ||
+            search.checkout === 'cancel'
+                ? search.checkout
+                : null,
+    }),
     component: BillingPage,
 })
 
@@ -107,6 +118,8 @@ function formatUsd(cents: number): string {
 }
 
 function BillingPage() {
+    const search = Route.useSearch()
+    const navigate = useNavigate()
     const billingQuery = useQuery<HostedBillingSummary | null>({
         queryKey: ['hosted-billing'],
         retry: false,
@@ -173,6 +186,7 @@ function BillingPage() {
         },
     })
     const hosted = billingQuery.data
+    const subscriptionCheckoutReturned = search.checkout === 'subscription_success'
     const livePlans = hosted?.plans.map((plan) => ({
         key: plan.key,
         name: plan.key,
@@ -185,12 +199,44 @@ function BillingPage() {
     }))
     const plans = livePlans?.length ? livePlans : placeholderPlans
 
+    useEffect(() => {
+        if (!subscriptionCheckoutReturned || hosted?.active) {
+            return
+        }
+        const interval = window.setInterval(() => {
+            void billingQuery.refetch()
+        }, 1500)
+        return () => window.clearInterval(interval)
+    }, [billingQuery, hosted?.active, subscriptionCheckoutReturned])
+
+    useEffect(() => {
+        if (!subscriptionCheckoutReturned || !hosted?.active) {
+            return
+        }
+        void navigate({
+            to: '/onboarding',
+            replace: true,
+        })
+    }, [hosted?.active, navigate, subscriptionCheckoutReturned])
+
     return (
         <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
             <PageHeader
                 title="Billing"
                 subtitle="Managed OpenRouter and Brave usage draws included credits first, then purchased credits."
             />
+
+            {subscriptionCheckoutReturned && !hosted?.active ? (
+                <Section
+                    title="Activating subscription"
+                    description="Stripe checkout completed. Waiting for Stripe to confirm the subscription before opening onboarding."
+                >
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2Icon className="size-4 animate-spin" />
+                        Activating subscription
+                    </div>
+                </Section>
+            ) : null}
 
             <Section
                 title="Plans"

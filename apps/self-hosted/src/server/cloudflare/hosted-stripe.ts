@@ -17,6 +17,7 @@ import {
     hostedBillingCheckoutKindSchema,
     type HostedBillingCheckoutKind,
     type HostedBillingPlan,
+    isHostedBillingPlanStatusActive,
 } from './hosted-billing-types'
 import type { HostedActor } from './hosted-auth'
 import { hostedProviderPriorityOrder } from './hosted-provider-priority'
@@ -252,7 +253,9 @@ export async function verifyStripeWebhookPayload(input: {
     }
 }
 
-function hostedBillingReturnUrl(origin: string, state: 'success' | 'cancel'): string {
+type HostedBillingReturnState = 'subscription_success' | 'topup_success' | 'cancel'
+
+function hostedBillingReturnUrl(origin: string, state: HostedBillingReturnState): string {
     const url = new URL('/billing', origin)
     url.searchParams.set('checkout', state)
     return url.toString()
@@ -334,7 +337,10 @@ export async function createHostedStripeCheckout(
 
     const form = new URLSearchParams({
         mode: input.kind === 'subscription' ? 'subscription' : 'payment',
-        success_url: hostedBillingReturnUrl(config.publicOrigin, 'success'),
+        success_url: hostedBillingReturnUrl(
+            config.publicOrigin,
+            input.kind === 'subscription' ? 'subscription_success' : 'topup_success',
+        ),
         cancel_url: hostedBillingReturnUrl(config.publicOrigin, 'cancel'),
         'line_items[0][price]': price,
         'line_items[0][quantity]': '1',
@@ -411,6 +417,7 @@ export async function readHostedBillingSummary(input: {
     ledger: Awaited<ReturnType<typeof listHostedBillingLedger>>
     usage: Awaited<ReturnType<typeof listRecentHostedBillableUsage>>
     remainingUsageCents: number
+    active: boolean
     plans: HostedBillingPlan[]
     usageMarkupBps: number
     taxMode: 'none' | 'automatic'
@@ -461,6 +468,7 @@ export async function readHostedBillingSummary(input: {
         ledger,
         usage,
         remainingUsageCents: account.availableBalanceCents,
+        active: isHostedBillingPlanStatusActive(account.planStatus),
         plans: config.billing.plans,
         usageMarkupBps: config.billing.usageMarkupBps,
         taxMode: config.billing.taxMode,
