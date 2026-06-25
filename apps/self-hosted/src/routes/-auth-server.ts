@@ -6,14 +6,6 @@ import {
     setResponseHeaders,
 } from '@tanstack/react-start/server'
 import { z } from 'zod'
-import { loginWithPassword, revokeSession } from '#/server/auth/auth-service'
-import {
-    assertSameOriginMutation,
-    clearSessionCookie,
-    getSessionTokenFromCookie,
-    readAuthenticatedActor,
-    writeSessionCookie,
-} from '#/server/auth/session-auth'
 import { getHostedAuth } from '#/server/cloudflare/hosted-auth'
 import { readHostedRequestContext } from '#/server/cloudflare/hosted-request-context'
 import {
@@ -60,6 +52,7 @@ export const currentUserServer = createServerFn({ method: 'GET' }).handler(async
             role: 'operator',
         })
     }
+    const { readAuthenticatedActor } = await import('#/server/auth/session-auth')
     const actor = await readAuthenticatedActor()
     if (!actor) {
         return null
@@ -112,6 +105,10 @@ export const loginServer = createServerFn({ method: 'POST' })
                 role: 'operator',
             })
         }
+        const { assertSameOriginMutation, writeSessionCookie } = await import(
+            '#/server/auth/session-auth'
+        )
+        const { loginWithPassword } = await import('#/server/auth/auth-service')
         assertSameOriginMutation()
         const request = getRequest()
         const session = await loginWithPassword({
@@ -144,6 +141,9 @@ export const logoutServer = createServerFn({ method: 'POST' }).handler(async () 
             ok: true,
         }
     }
+    const { assertSameOriginMutation, clearSessionCookie, getSessionTokenFromCookie } =
+        await import('#/server/auth/session-auth')
+    const { revokeSession } = await import('#/server/auth/auth-service')
     assertSameOriginMutation()
     const token = getSessionTokenFromCookie()
     if (token) {
