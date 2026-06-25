@@ -44,6 +44,7 @@ import {
     hostedRuntimeConfigPath,
     hostedRuntimePort,
 } from './hosted-runtime-paths'
+import { hostedBraveProxyBaseUrl } from './hosted-provider-proxy'
 import {
     getHostedWorkspaceSettings,
     hostedSearchDefaults,
@@ -159,6 +160,7 @@ export async function materializeHostedRuntime(input: {
         config: settings.searchConfig,
         provider: 'brave',
     })
+    const managedBraveSearch = searchEnabled && search.brave.enabled && !braveSecretId
     if (searchEnabled && search.brave.enabled) {
         if (braveSecretId) {
             env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = await readRequiredHostedSecretPlainText({
@@ -168,9 +170,11 @@ export async function materializeHostedRuntime(input: {
                 label: 'Brave search credential',
             })
         } else {
-            env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = resolveHostedConfig(
-                input.env,
-            ).managedProviders.braveApiKey
+            const managedBraveApiKey = resolveHostedConfig(input.env).managedProviders.braveApiKey
+            if (!managedBraveApiKey) {
+                throw new Error('Managed Brave search is not configured')
+            }
+            env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = token
         }
     }
     const browserbaseSecretId = searchProviderSecretId({
@@ -247,6 +251,13 @@ export async function materializeHostedRuntime(input: {
             settings,
             enabled: searchEnabled,
             braveApiKeyAvailable: Boolean(env.AGENT_ROOM_SEARCH_BRAVE_API_KEY),
+            braveBaseUrl: managedBraveSearch
+                ? hostedBraveProxyBaseUrl({
+                      publicOrigin,
+                      workspaceId: input.actor.workspaceId,
+                      roomId: input.roomId,
+                  })
+                : null,
             browserbaseApiKeyAvailable: Boolean(env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY),
         }),
         image: materializedImageConfig({

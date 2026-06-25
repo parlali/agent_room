@@ -7,7 +7,6 @@ import {
     failClosedHostedRuntime,
     HostedRuntimeMaterializationConflictError,
     materializeHostedRuntime,
-    resolveHostedRuntimeProviderAvailability,
     stopHostedRuntime,
 } from './hosted-room-service'
 import { listHostedRoomFileMaterializations } from './hosted-file-read-store'
@@ -142,17 +141,10 @@ export async function reconcileHostedRuntimeJob(
     }
 
     try {
-        const availability = await resolveHostedRuntimeProviderAvailability({
-            env,
-            workspaceId: runtime.workspaceId,
-            roomId: runtime.roomId,
-        })
         const access = await evaluateHostedRuntimeAccess({
             env,
             workspaceId: runtime.workspaceId,
             roomId: runtime.roomId,
-            codexAvailable: availability.codexAvailable,
-            userKeyAvailable: availability.userKeyAvailable,
         })
         if (!access.allowed) {
             const reasonMessage = hostedRuntimeAccessDeniedMessage(access.reason)

@@ -653,7 +653,7 @@ describe('hosted runtime reconciliation', () => {
         expect(starts).toHaveLength(1)
     })
 
-    it('fails closed without materializing when stripe billing has no active subscription or BYOK provider', async () => {
+    it('fails closed without materializing when stripe billing has no active subscription even with BYOK', async () => {
         const updates: RuntimeUpdate[] = []
         const starts: Array<{ name: string; args: unknown }> = []
         const destroys: string[] = []
@@ -661,7 +661,6 @@ describe('hosted runtime reconciliation', () => {
         const env = hostedEnv({
             updates,
             puts,
-            providerRows: [],
             billingAccountRow: { planStatus: 'canceled' },
             activeRuntimeCountRow: { activeCount: 0 },
             objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],

@@ -226,6 +226,10 @@ function normalizeBraveSearchConfig(
     return {
         enabled: typeof record.enabled === 'boolean' ? record.enabled : false,
         envKey: null,
+        baseUrl:
+            typeof record.baseUrl === 'string' && record.baseUrl.trim()
+                ? record.baseUrl.trim().replace(/\/$/, '')
+                : null,
         country: normalizeOptionalString(record.country),
         searchLang: normalizeOptionalString(record.searchLang),
         safeSearch: normalizeSearchSafeSearch(record.safeSearch),

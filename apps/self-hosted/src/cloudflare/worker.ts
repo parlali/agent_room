@@ -9,6 +9,7 @@ import { runWithHostedRequestContext } from '#/server/cloudflare/hosted-request-
 import { hostedRouteSameOriginResponse } from '#/server/cloudflare/hosted-route-auth'
 import { reconcileHostedRuntimeJob } from '#/server/cloudflare/hosted-runtime-adapter'
 import {
+    createHostedStripePortalSession,
     createHostedStripeCheckout,
     HostedStripeWebhookError,
     processHostedStripeWebhook,
@@ -169,6 +170,35 @@ async function hostedBillingCheckout(env: AgentRoomHostedEnv, request: Request):
     })
 }
 
+async function hostedBillingPortal(env: AgentRoomHostedEnv, request: Request): Promise<Response> {
+    const originFailure = hostedRouteSameOriginResponse({
+        env,
+        request,
+    })
+    if (originFailure) {
+        return jsonResponse(
+            {
+                ok: false,
+                code: 'forbidden',
+                message: 'Cross-origin mutation request blocked',
+            },
+            {
+                status: 403,
+            },
+        )
+    }
+    const actor = await requireHostedActor(env, request)
+    if (actor instanceof Response) return actor
+    const portal = await createHostedStripePortalSession({
+        env,
+        actor,
+    })
+    return jsonResponse({
+        ok: true,
+        portal,
+    })
+}
+
 async function hostedStripeWebhook(env: AgentRoomHostedEnv, request: Request): Promise<Response> {
     const signatureHeader = request.headers.get('stripe-signature')
     if (!signatureHeader) {
@@ -232,6 +262,9 @@ export default {
         }
         if (url.pathname === '/api/hosted/billing/checkout' && request.method === 'POST') {
             return hostedBillingCheckout(env, request)
+        }
+        if (url.pathname === '/api/hosted/billing/portal' && request.method === 'POST') {
+            return hostedBillingPortal(env, request)
         }
         if (url.pathname === '/api/hosted/stripe/webhook' && request.method === 'POST') {
             return hostedStripeWebhook(env, request)

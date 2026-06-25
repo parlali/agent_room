@@ -5,8 +5,11 @@ import {
     hostedRuntimeUsageCallback,
     runtimeUsageIdempotencyKey,
 } from './hosted-runtime-callback-routes'
-import { hostedOpenRouterProxyPathPrefix } from './hosted-provider-proxy'
-import { hostedOpenRouterProxy } from './hosted-provider-proxy-routes'
+import {
+    hostedBraveProxyPathPrefix,
+    hostedOpenRouterProxyPathPrefix,
+} from './hosted-provider-proxy'
+import { hostedBraveProxy, hostedOpenRouterProxy } from './hosted-provider-proxy-routes'
 
 export { runtimeUsageIdempotencyKey }
 
@@ -29,6 +32,12 @@ export async function hostedRuntimeWorkerRoute(input: {
         input.url.pathname.startsWith(`${hostedOpenRouterProxyPathPrefix}/`)
     ) {
         return hostedOpenRouterProxy(input.env, input.request, input.url)
+    }
+    if (
+        input.url.pathname === hostedBraveProxyPathPrefix ||
+        input.url.pathname.startsWith(`${hostedBraveProxyPathPrefix}/`)
+    ) {
+        return hostedBraveProxy(input.env, input.request, input.url)
     }
     return null
 }

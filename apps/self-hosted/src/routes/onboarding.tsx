@@ -19,7 +19,6 @@ import { cn } from '#/lib/utils'
 import { roomQueryKey } from '#/lib/room-query-keys'
 import { markChatSelection } from '#/lib/browser-performance'
 
-import { currentUserServer } from './-auth-server'
 import { friendlyNotice } from './-notice-copy'
 import { getOperatorConfigServer, updateAppDefaultsServer } from './-operator-config-server'
 import {
@@ -27,6 +26,7 @@ import {
     createThreadServer,
     getRoomSetupReadinessServer,
 } from './-room-runtime-server'
+import { requireRouteUser } from './-route-auth'
 
 interface ConfiguredProvider {
     id: string
@@ -39,8 +39,7 @@ type StepState = 'complete' | 'active' | 'pending'
 
 export const Route = createFileRoute('/onboarding')({
     beforeLoad: async () => {
-        const user = await currentUserServer()
-        if (!user) throw redirect({ to: '/login' })
+        await requireRouteUser()
         const config = await getOperatorConfigServer()
         if (config.onboarding.completed) throw redirect({ to: '/' })
     },

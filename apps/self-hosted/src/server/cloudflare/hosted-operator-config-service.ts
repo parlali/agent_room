@@ -307,6 +307,7 @@ export function materializedSearchConfig(input: {
     settings: AppSettingsRecord
     enabled: boolean
     braveApiKeyAvailable: boolean
+    braveBaseUrl?: string | null
     browserbaseApiKeyAvailable: boolean
 }): MaterializedRoomConfiguration['search'] {
     const search = normalizeSearchConfig(input.settings.searchConfig, hostedSearchDefaults)
@@ -319,6 +320,7 @@ export function materializedSearchConfig(input: {
             brave: {
                 ...search.brave,
                 enabled: enabled && search.brave.enabled,
+                baseUrl: input.braveBaseUrl ?? search.brave.baseUrl,
             },
             browserbase: {
                 ...search.browserbase,

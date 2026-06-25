@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ensureHostedBillingAccount } from './hosted-billing-repository'
-import { verifyStripeWebhookPayload } from './hosted-stripe'
+import { createHostedStripePortalSession, verifyStripeWebhookPayload } from './hosted-stripe'
 import {
     FakeD1,
     deliverStripeEvent,
@@ -192,6 +192,154 @@ describe('hosted billing stripe webhooks', () => {
         )
         expect(creditEntries).toHaveLength(1)
         expect(creditEntries[0].amountCents).toBe(1200)
+    })
+
+    it('updates hosted plan access from Stripe subscription status events', async () => {
+        const db = new FakeD1()
+        const env = stripeHostedEnv(db)
+        await ensureHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+            now: new Date(0),
+        })
+
+        await deliverStripeEvent({
+            env,
+            secret: 'stripe-webhook-test-value',
+            event: {
+                id: 'evt_subscription_updated',
+                type: 'customer.subscription.updated',
+                livemode: false,
+                data: {
+                    object: {
+                        id: 'sub_1',
+                        customer: 'cus_1',
+                        status: 'past_due',
+                        metadata: {
+                            workspace_id: 'workspace_1',
+                            plan_key: 'pro',
+                        },
+                        items: {
+                            data: [
+                                {
+                                    price: {
+                                        id: 'price_test_pro_000000',
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                },
+            },
+        })
+
+        const account = db.accounts.get('workspace_1')!
+        expect(account.stripeCustomerId).toBe('cus_1')
+        expect(account.stripeSubscriptionId).toBe('sub_1')
+        expect(account.planKey).toBe('pro')
+        expect(account.planStatus).toBe('past_due')
+        expect(account.includedMonthlyCreditCents).toBe(3500)
+    })
+
+    it('cancels hosted runtime access from Stripe subscription deleted events', async () => {
+        const db = new FakeD1()
+        const env = stripeHostedEnv(db)
+        await ensureHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+            now: new Date(0),
+        })
+        const account = db.accounts.get('workspace_1')!
+        account.stripeCustomerId = 'cus_1'
+        account.stripeSubscriptionId = 'sub_1'
+        account.planKey = 'standard'
+        account.planStatus = 'active'
+        account.includedMonthlyCreditCents = 1200
+
+        await deliverStripeEvent({
+            env,
+            secret: 'stripe-webhook-test-value',
+            event: {
+                id: 'evt_subscription_deleted',
+                type: 'customer.subscription.deleted',
+                livemode: false,
+                data: {
+                    object: {
+                        id: 'sub_1',
+                        customer: 'cus_1',
+                        status: 'canceled',
+                        metadata: {},
+                        items: {
+                            data: [
+                                {
+                                    price: {
+                                        id: 'price_test_standard_000000',
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                },
+            },
+        })
+
+        const updated = db.accounts.get('workspace_1')!
+        expect(updated.planStatus).toBe('canceled')
+        expect(updated.planKey).toBe('standard')
+        expect(updated.includedMonthlyCreditCents).toBe(1200)
+    })
+})
+
+describe('hosted billing Stripe portal', () => {
+    it('creates a customer portal session for the hosted billing account', async () => {
+        const db = new FakeD1()
+        const env = stripeHostedEnv(db)
+        await ensureHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+            now: new Date(0),
+        })
+        const account = db.accounts.get('workspace_1')!
+        account.stripeCustomerId = 'cus_1'
+        const fetchMock = vi.fn(
+            async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) =>
+                new Response(
+                    JSON.stringify({
+                        url: 'https://billing.stripe.com/p/session_1',
+                    }),
+                    {
+                        status: 200,
+                        headers: {
+                            'content-type': 'application/json',
+                        },
+                    },
+                ),
+        )
+        vi.stubGlobal('fetch', fetchMock)
+
+        const result = await createHostedStripePortalSession({
+            env,
+            actor: {
+                authProvider: 'better-auth',
+                userId: 'user_1',
+                sessionId: 'session_1',
+                email: 'user@example.test',
+                workspaceId: 'workspace_1',
+            },
+        })
+
+        expect(result.url).toBe('https://billing.stripe.com/p/session_1')
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        const [url, init] = fetchMock.mock.calls[0]!
+        expect(String(url)).toBe('https://api.stripe.com/v1/billing_portal/sessions')
+        expect((init as RequestInit).method).toBe('POST')
+        expect(new Headers((init as RequestInit).headers).get('authorization')).toBe(
+            'Bearer stripe-secret-test-value',
+        )
+        expect(String((init as RequestInit).body)).toContain('customer=cus_1')
+        expect(String((init as RequestInit).body)).toContain(
+            'return_url=https%3A%2F%2Frooms.example.test%2Fbilling',
+        )
     })
 })
 

@@ -648,7 +648,7 @@ async function assertHostedRuntimeStartAllowed(input: {
     roomId: string
     config: ProviderSelectionConfig
 }): Promise<void> {
-    const availability = await resolveHostedRuntimeProviderAvailabilityForSelection({
+    await resolveHostedRuntimeProviderAvailabilityForSelection({
         env: input.env,
         workspaceId: input.workspaceId,
         config: input.config,
@@ -658,8 +658,6 @@ async function assertHostedRuntimeStartAllowed(input: {
         env: input.env,
         workspaceId: input.workspaceId,
         roomId: input.roomId,
-        codexAvailable: availability.codexAvailable,
-        userKeyAvailable: availability.userKeyAvailable,
     })
     if (!access.allowed) {
         throw new Error(hostedRuntimeAccessDeniedMessage(access.reason))

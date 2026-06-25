@@ -30,6 +30,7 @@ export const hostedBillingReservationStatuses = [
 ] as const
 export const hostedBillingReservationProviders = ['openrouter', 'brave'] as const
 export const hostedProviderBillingGateCents = 1
+export const hostedBraveSearchCostMicros = 10000
 
 export type HostedBillingPlanStatus = (typeof hostedBillingPlanStatuses)[number]
 export type HostedBillingLedgerDirection = (typeof hostedBillingLedgerDirections)[number]

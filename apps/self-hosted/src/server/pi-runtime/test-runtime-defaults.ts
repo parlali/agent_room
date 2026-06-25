@@ -32,6 +32,7 @@ export const testSearch: SearchRuntimeConfig = {
     brave: {
         enabled: false,
         envKey: null,
+        baseUrl: null,
         country: null,
         searchLang: null,
         safeSearch: 'moderate',
@@ -70,6 +71,13 @@ export const testBudgets: RunBudgetConfig = {
     browserActionsPerTurn: 50,
 }
 
+type TestSearchRuntimeConfigOptions = Partial<
+    Omit<SearchRuntimeConfig, 'brave' | 'browserbase'>
+> & {
+    brave?: Partial<SearchRuntimeConfig['brave']>
+    browserbase?: Partial<SearchRuntimeConfig['browserbase']>
+}
+
 export interface TestPiRuntimeConfigOptions {
     root?: string
     runtime?: Partial<PiRuntimeConfig['runtime']>
@@ -77,7 +85,7 @@ export interface TestPiRuntimeConfigOptions {
     provider?: Partial<PiRuntimeConfig['provider']>
     roomMode?: PiRuntimeConfig['roomMode']
     capabilities?: Partial<CapabilityConfig>
-    search?: Partial<SearchRuntimeConfig>
+    search?: TestSearchRuntimeConfigOptions
     image?: Partial<ImageRuntimeConfig>
     github?: Partial<PiRuntimeConfig['github']>
     budgets?: Partial<RunBudgetConfig>
@@ -155,6 +163,14 @@ export function createTestPiRuntimeConfig(
         search: {
             ...testSearch,
             ...options.search,
+            brave: {
+                ...testSearch.brave,
+                ...options.search?.brave,
+            },
+            browserbase: {
+                ...testSearch.browserbase,
+                ...options.search?.browserbase,
+            },
         },
         image: {
             ...testImage,

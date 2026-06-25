@@ -511,7 +511,13 @@ export async function hostedRuntimeAllowedHosts(input: {
         addUrlHost(hosts, input.runtimeConfig.search.backendUrl, 'Hosted search backend')
     }
     if (input.runtimeConfig.search.brave.enabled && input.runtimeConfig.search.brave.envKey) {
-        addUrlHost(hosts, 'https://api.search.brave.com', 'Brave Search API')
+        addUrlHost(
+            hosts,
+            input.runtimeConfig.search.brave.baseUrl ?? 'https://api.search.brave.com',
+            input.runtimeConfig.search.brave.baseUrl
+                ? 'Hosted Brave Search proxy'
+                : 'Brave Search API',
+        )
     }
     if (
         input.runtimeConfig.search.browserbase.enabled &&
