@@ -6,7 +6,7 @@ import { EmptyState, LoadingRows, PageHeader, Section } from '#/components/agent
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import { listRoomsServer, listUsageServer } from './-room-runtime-server'
 import { requireRouteUser } from './-route-auth'
-import { UsageTimeline, UsageTotalsGrid, usageTimelineCount } from './-usage/usage-components'
+import { UsageTimeline, UsageTotalsGrid } from './-usage/usage-components'
 
 export const Route = createFileRoute('/usage')({
     beforeLoad: requireRouteUser,
@@ -41,10 +41,7 @@ function UsagePage() {
                     {usageQuery.isLoading ? (
                         <LoadingRows count={2} />
                     ) : (
-                        <UsageTotalsGrid
-                            activityCount={usageTimelineCount(events)}
-                            totals={totals}
-                        />
+                        <UsageTotalsGrid totals={totals} />
                     )}
                 </Section>
 

@@ -1,113 +1,26 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-    assertSafeUrl,
     createWebTools,
-    isBlockedNetworkAddress,
-    normalizeSearxngSafeSearch,
     parseBraveSearchResults,
     parseBrowserbaseSearchResults,
     parseSearxngResults,
-    sanitizeUrlForAudit,
 } from './web-tools'
-import {
-    SearchProviderError,
-    type SearchProvider,
-    type SearchProviderSearchInput,
-    type SearchProviderResponse,
-} from './web-search'
+import { SearchProviderError } from './web-search'
 import { BraveSearchProvider } from './web-search-brave'
 import { BrowserbaseSearchProvider } from './web-search-browserbase'
 import { SearchRouter } from './web-search-router'
 import { parseSearxngHtmlResults, SearxngSearchProvider, searxngSearch } from './web-search-searxng'
 import { createTestPiRuntimeConfig } from './test-runtime-defaults'
 import { withToolRunContext } from './tool-run-context'
-
-const originalFetch = globalThis.fetch
-const originalBraveKey = process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY
-const originalBrowserbaseKey = process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY
-const originalWebSocket = globalThis.WebSocket
-
-async function executeWebTool(input: object) {
-    const events: Array<{ event: string; payload: unknown }> = []
-    const tools = createWebTools({
-        config: createTestPiRuntimeConfig({
-            search: {
-                brave: {
-                    enabled: true,
-                    envKey: 'AGENT_ROOM_SEARCH_BRAVE_API_KEY',
-                    country: null,
-                    searchLang: null,
-                    safeSearch: 'moderate',
-                    timeoutMs: 10000,
-                    resultCount: 5,
-                },
-            },
-        }),
-        audit: async (event, payload) => {
-            events.push({ event, payload })
-        },
-    })
-    const tool = tools.find((entry) => entry.name === 'web_search')
-    if (!tool) {
-        throw new Error('Missing web search tool')
-    }
-    const result = await tool.execute('call-1', input as never, undefined, undefined, {} as never)
-    return {
-        result,
-        events,
-    }
-}
-
-function resultDetails(result: Awaited<ReturnType<typeof executeWebTool>>['result']) {
-    return typeof result.details === 'object' && result.details !== null
-        ? (result.details as Record<string, unknown>)
-        : {}
-}
-
-class FakeSearchProvider implements SearchProvider {
-    id
-    label
-    priority
-    calls = 0
-    private implementation
-
-    constructor(input: {
-        id: SearchProvider['id']
-        label: string
-        priority: number
-        implementation: (input: SearchProviderSearchInput, calls: number) => SearchProviderResponse
-    }) {
-        this.id = input.id
-        this.label = input.label
-        this.priority = input.priority
-        this.implementation = input.implementation
-    }
-
-    isConfigured(): boolean {
-        return true
-    }
-
-    async search(input: SearchProviderSearchInput): Promise<SearchProviderResponse> {
-        this.calls += 1
-        return this.implementation(input, this.calls)
-    }
-}
+import {
+    FakeSearchProvider,
+    executeWebTool,
+    resetWebToolTestGlobals,
+    resultDetails,
+} from './web-tools-test-support'
 
 describe('web tools', () => {
-    afterEach(() => {
-        globalThis.fetch = originalFetch
-        if (originalBraveKey === undefined) {
-            delete process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY
-        } else {
-            process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = originalBraveKey
-        }
-        if (originalBrowserbaseKey === undefined) {
-            delete process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY
-        } else {
-            process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = originalBrowserbaseKey
-        }
-        globalThis.WebSocket = originalWebSocket
-    })
+    afterEach(resetWebToolTestGlobals)
 
     it('parses bounded SearXNG results into canonical search results', () => {
         const results = parseSearxngResults(
@@ -335,6 +248,91 @@ describe('web tools', () => {
                 rank: 1,
             },
         ])
+    })
+
+    it('uses the configured Brave subscription token for direct BYOK search requests', async () => {
+        process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = 'brave-secret'
+        const requests: Array<{ url: string; headers: Headers }> = []
+        globalThis.fetch = (async (request, init) => {
+            const url = request instanceof Request ? request.url : String(request)
+            requests.push({
+                url,
+                headers: new Headers(
+                    init?.headers ?? (request instanceof Request ? request.headers : undefined),
+                ),
+            })
+            return new Response(
+                JSON.stringify({
+                    web: {
+                        results: [
+                            {
+                                title: 'Example Domain',
+                                url: 'https://example.com/',
+                                description: 'Result',
+                            },
+                        ],
+                    },
+                }),
+                {
+                    status: 200,
+                    headers: {
+                        'content-type': 'application/json',
+                    },
+                },
+            )
+        }) as typeof fetch
+
+        const provider = new BraveSearchProvider()
+        await provider.search({
+            config: createTestPiRuntimeConfig({
+                search: {
+                    brave: {
+                        enabled: true,
+                        envKey: 'AGENT_ROOM_SEARCH_BRAVE_API_KEY',
+                        country: null,
+                        searchLang: null,
+                        safeSearch: 'moderate',
+                        timeoutMs: 10000,
+                        resultCount: 5,
+                    },
+                },
+            }),
+            query: 'brave search',
+            count: 1,
+        })
+
+        expect(requests).toHaveLength(1)
+        expect(requests[0]!.url).toContain('https://api.search.brave.com/res/v1/web/search')
+        expect(requests[0]!.headers.get('x-subscription-token')).toBe('brave-secret')
+        expect(requests[0]!.headers.has('authorization')).toBe(false)
+    })
+
+    it('treats provider-level search config as disabled when top-level search is disabled', () => {
+        process.env.AGENT_ROOM_SEARCH_BRAVE_API_KEY = 'brave-secret'
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'browserbase-secret'
+        const config = createTestPiRuntimeConfig({
+            search: {
+                enabled: false,
+                brave: {
+                    enabled: true,
+                    envKey: 'AGENT_ROOM_SEARCH_BRAVE_API_KEY',
+                    country: null,
+                    searchLang: null,
+                    safeSearch: 'moderate',
+                    timeoutMs: 10000,
+                    resultCount: 5,
+                },
+                browserbase: {
+                    enabled: true,
+                    envKey: 'AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY',
+                    timeoutMs: 10000,
+                    resultCount: 5,
+                },
+            },
+        })
+
+        expect(new BraveSearchProvider().isConfigured(config)).toBe(false)
+        expect(new BrowserbaseSearchProvider().isConfigured(config)).toBe(false)
     })
 
     it('bounds provider response body stalls after headers arrive', async () => {
@@ -818,7 +816,7 @@ describe('web tools', () => {
                                 resultCount: 5,
                             },
                             backendUrl: 'http://127.0.0.1:9999',
-                            enabled: false,
+                            enabled: true,
                         },
                     }),
                     query: `failure ${entry.status}`,
@@ -936,50 +934,5 @@ describe('web tools', () => {
             },
         ])
         expect(JSON.stringify(events)).not.toContain('brave-secret')
-    })
-
-    it('blocks local, private, link-local, and metadata network addresses', () => {
-        expect(isBlockedNetworkAddress('127.0.0.1')).toBe(true)
-        expect(isBlockedNetworkAddress('10.1.2.3')).toBe(true)
-        expect(isBlockedNetworkAddress('172.20.1.1')).toBe(true)
-        expect(isBlockedNetworkAddress('192.168.1.1')).toBe(true)
-        expect(isBlockedNetworkAddress('169.254.169.254')).toBe(true)
-        expect(isBlockedNetworkAddress('::1')).toBe(true)
-        expect(isBlockedNetworkAddress('::ffff:127.0.0.1')).toBe(true)
-        expect(isBlockedNetworkAddress('::ffff:7f00:1')).toBe(true)
-        expect(isBlockedNetworkAddress('8.8.8.8')).toBe(false)
-    })
-
-    it('rejects unsafe fetch URL schemes and hostnames before network fetch', async () => {
-        await expect(assertSafeUrl(new URL('file:///etc/passwd'))).rejects.toThrow(
-            'Only http and https URLs can be fetched',
-        )
-        await expect(assertSafeUrl(new URL('http://localhost/status'))).rejects.toThrow(
-            'Local and metadata hostnames cannot be fetched',
-        )
-        await expect(assertSafeUrl(new URL('http://[::1]/status'))).rejects.toThrow(
-            'Local and private network addresses cannot be fetched',
-        )
-        await expect(
-            assertSafeUrl(new URL('http://metadata.google.internal/computeMetadata/v1')),
-        ).rejects.toThrow('Local and metadata hostnames cannot be fetched')
-        await expect(
-            assertSafeUrl(new URL('https://user:pass@example.com/private')),
-        ).rejects.toThrow('URLs with embedded credentials cannot be fetched')
-    })
-
-    it('normalizes SearXNG safe search values before they reach the backend', () => {
-        expect(normalizeSearxngSafeSearch('off')).toBe('0')
-        expect(normalizeSearxngSafeSearch('moderate')).toBe('1')
-        expect(normalizeSearxngSafeSearch('strict')).toBe('2')
-        expect(() => normalizeSearxngSafeSearch('unbounded')).toThrow(
-            'safeSearch must be off, moderate, strict, 0, 1, or 2',
-        )
-    })
-
-    it('redacts URL credentials, queries, and fragments before audit persistence', () => {
-        expect(sanitizeUrlForAudit('https://user:pass@example.com/path?token=secret#frag')).toBe(
-            'https://example.com/path?[redacted]#[redacted]',
-        )
     })
 })

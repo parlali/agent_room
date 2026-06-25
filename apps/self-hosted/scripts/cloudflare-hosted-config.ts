@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
     type HostedSecretName,
@@ -11,6 +11,9 @@ import {
 
 export const selfHostedDirectory = fileURLToPath(new URL('..', import.meta.url))
 export const hostedConfigPath = join(selfHostedDirectory, 'wrangler.hosted.jsonc')
+export const hostedDeployConfigPath = join(selfHostedDirectory, '.wrangler/deploy/config.json')
+
+type HostedConfigSource = 'source' | 'built'
 
 interface ResolvedHostedConfig {
     path: string
@@ -54,6 +57,10 @@ export interface WranglerResult {
     exitCode: number
     stdout: string
     stderr: string
+}
+
+interface BuiltDeployConfig {
+    configPath: string
 }
 
 export async function runWrangler(args: string[], options: CommandOptions = {}): Promise<void> {
@@ -132,14 +139,21 @@ export async function readWrangler(args: string[]): Promise<string> {
     return Buffer.concat(chunks).toString('utf8')
 }
 
-export async function createResolvedHostedConfig(): Promise<ResolvedHostedConfig> {
-    const configText = await readTargetedHostedConfigText()
+export async function createResolvedHostedConfig(
+    input: {
+        source?: HostedConfigSource
+    } = {},
+): Promise<ResolvedHostedConfig> {
+    const builtConfigPath = input.source === 'built' ? await readBuiltHostedConfigPath() : null
+    const configText = builtConfigPath
+        ? await readTargetedBuiltHostedConfigTextAtPath(builtConfigPath)
+        : await readTargetedHostedConfigText()
     const resourceNames = extractHostedResourceNames(configText)
     const databaseName = resourceNames.d1DatabaseName
     const databaseId = await resolveD1DatabaseId(resourceNames.d1DatabaseName)
     const resolvedConfigText = addD1DatabaseId(configText, databaseName, databaseId)
     const path = join(
-        selfHostedDirectory,
+        builtConfigPath ? dirname(builtConfigPath) : selfHostedDirectory,
         `.wrangler.hosted.resolved.${process.pid}.${Date.now()}.jsonc`,
     )
     await writeFile(path, resolvedConfigText)
@@ -155,6 +169,29 @@ export async function createResolvedHostedConfig(): Promise<ResolvedHostedConfig
 export async function readTargetedHostedConfigText(): Promise<string> {
     const configText = await readFile(hostedConfigPath, 'utf8')
     return applyHostedDeploymentTarget(configText, readHostedDeploymentTargetFromEnvironment())
+}
+
+export async function readTargetedBuiltHostedConfigText(): Promise<string> {
+    const builtConfigPath = await readBuiltHostedConfigPath()
+    return readTargetedBuiltHostedConfigTextAtPath(builtConfigPath)
+}
+
+async function readTargetedBuiltHostedConfigTextAtPath(builtConfigPath: string): Promise<string> {
+    const config = parseObjectRecord(JSON.parse(await readFile(builtConfigPath, 'utf8')))
+    return `${JSON.stringify(
+        applyHostedDeploymentTargetToConfig(config, readHostedDeploymentTargetFromEnvironment()),
+        null,
+        4,
+    )}\n`
+}
+
+export async function readBuiltHostedConfigPath(): Promise<string> {
+    const deployConfig = parseBuiltDeployConfig(
+        JSON.parse(await readFile(hostedDeployConfigPath, 'utf8')),
+    )
+    return isAbsolute(deployConfig.configPath)
+        ? deployConfig.configPath
+        : resolvePath(dirname(hostedDeployConfigPath), deployConfig.configPath)
 }
 
 export function readHostedDeploymentTargetFromEnvironment(): HostedDeploymentTarget {
@@ -211,6 +248,66 @@ export function applyHostedDeploymentTarget(
     return nextConfigText
 }
 
+export function applyHostedDeploymentTargetToConfig(
+    config: Record<string, unknown>,
+    target: HostedDeploymentTarget,
+): Record<string, unknown> {
+    const next = structuredClone(config)
+    const previousWorkerName = typeof next.name === 'string' ? next.name : null
+    if (target.workerName) {
+        next.name = target.workerName
+        if (typeof next.topLevelName === 'string') {
+            next.topLevelName = target.workerName
+        }
+        for (const container of objectArray(next.containers, 'containers')) {
+            if (typeof container.name === 'string') {
+                container.name =
+                    previousWorkerName && container.name.startsWith(previousWorkerName)
+                        ? `${target.workerName}${container.name.slice(previousWorkerName.length)}`
+                        : `${target.workerName}-${container.name}`
+            }
+        }
+    }
+    if (target.d1DatabaseName) {
+        for (const database of objectArray(next.d1_databases, 'd1_databases')) {
+            database.database_name = target.d1DatabaseName
+        }
+    }
+    if (target.r2BucketName) {
+        for (const bucket of objectArray(next.r2_buckets, 'r2_buckets')) {
+            bucket.bucket_name = target.r2BucketName
+        }
+    }
+    if (target.queueName) {
+        const queues = objectField(next, 'queues')
+        for (const producer of objectArray(queues.producers, 'queues.producers')) {
+            producer.queue = target.queueName
+        }
+        for (const consumer of objectArray(queues.consumers, 'queues.consumers')) {
+            consumer.queue = target.queueName
+        }
+    }
+    if (target.workersDev !== undefined) {
+        next.workers_dev = target.workersDev
+    }
+    if (target.previewUrls !== undefined) {
+        next.preview_urls = target.previewUrls
+    }
+    if (target.routePattern !== undefined) {
+        if (target.routePattern) {
+            next.routes = [
+                {
+                    pattern: target.routePattern,
+                    custom_domain: true,
+                },
+            ]
+        } else {
+            delete next.routes
+        }
+    }
+    return next
+}
+
 export function extractHostedResourceNames(configText: string): HostedResourceNames {
     const queueNames = Array.from(configText.matchAll(/"queue"\s*:\s*"([^"]+)"/g)).map(
         (match) => match[1],
@@ -264,6 +361,41 @@ function waitForSubprocess(subprocess: ReturnType<typeof spawn>): Promise<number
             resolve(code ?? 1)
         })
     })
+}
+
+function parseBuiltDeployConfig(value: unknown): BuiltDeployConfig {
+    const record = parseObjectRecord(value)
+    if (typeof record.configPath !== 'string' || !record.configPath.trim()) {
+        throw new Error('Cloudflare build output is missing .wrangler/deploy configPath')
+    }
+    return {
+        configPath: record.configPath,
+    }
+}
+
+function parseObjectRecord(value: unknown): Record<string, unknown> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error('Expected JSON object')
+    }
+    return value as Record<string, unknown>
+}
+
+function objectField(record: Record<string, unknown>, field: string): Record<string, unknown> {
+    const value = record[field]
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`Hosted Wrangler config is missing ${field}`)
+    }
+    return value as Record<string, unknown>
+}
+
+function objectArray(value: unknown, field: string): Record<string, unknown>[] {
+    if (
+        !Array.isArray(value) ||
+        !value.every((entry) => entry && typeof entry === 'object' && !Array.isArray(entry))
+    ) {
+        throw new Error(`Hosted Wrangler config is missing ${field}`)
+    }
+    return value as Record<string, unknown>[]
 }
 
 function extractFirstStringProperty(configText: string, propertyName: string): string {

@@ -18,7 +18,17 @@ import {
     sessionMutationSchema,
     threadModelSchema,
 } from './runtime-schemas'
-import { syncRuntimeUsageEvents } from './usage-sync'
+import {
+    abortThreadRuntimeRequest,
+    compactThreadRuntimeRequest,
+    createThreadRuntimeRequest,
+    deleteThreadRuntimeRequest,
+    editThreadMessageRuntimeRequest,
+    forkThreadRuntimeRequest,
+    renameThreadRuntimeRequest,
+    sendThreadRuntimeRequest,
+    updateThreadModelRuntimeRequest,
+} from './thread-requests'
 
 export async function createRoomThread(input: {
     roomId: string
@@ -29,16 +39,10 @@ export async function createRoomThread(input: {
     internalInstruction?: string | null
     kind?: ThreadKind
 }): Promise<{ key: string }> {
-    return requestPiRuntime(input.roomId, '/threads', createThreadSchema, {
-        method: 'POST',
-        body: {
-            firstMessage: input.firstMessage ?? null,
-            title: input.title ?? null,
-            hideUserMessage: input.hideUserMessage === true,
-            awaitInitialRun: input.awaitInitialRun === true,
-            internalInstruction: input.internalInstruction ?? null,
-            kind: input.kind ?? 'main',
-        },
+    const request = createThreadRuntimeRequest(input)
+    return requestPiRuntime(input.roomId, request.path, createThreadSchema, {
+        method: request.method,
+        body: request.body,
     })
 }
 
@@ -51,35 +55,13 @@ export async function sendRoomThreadMessage(input: {
     jobId?: string | null
     hideUserMessage?: boolean
 }): Promise<RoomThreadSendResult> {
-    const message = input.message.trim()
-    if (!message) {
-        throw new Error('Message cannot be empty')
-    }
-
+    const request = sendThreadRuntimeRequest(input)
     const startedAt = Date.now()
     try {
-        const result = await requestPiRuntime(
-            input.roomId,
-            `/threads/${encodeURIComponent(input.sessionKey)}/send`,
-            sendSchema,
-            {
-                method: 'POST',
-                body: {
-                    message,
-                    awaitCompletion: input.awaitCompletion === true,
-                    runKind: input.runKind ?? 'manual',
-                    hideUserMessage: input.hideUserMessage === true,
-                },
-            },
-        )
-        if (input.jobId && result.runId) {
-            await syncRuntimeUsageEvents(input.roomId)
-            await usageRepository.attachJobToRun({
-                roomId: input.roomId,
-                runId: result.runId,
-                jobId: input.jobId,
-            })
-        }
+        const result = await requestPiRuntime(input.roomId, request.path, sendSchema, {
+            method: request.method,
+            body: request.body,
+        })
         return result
     } catch (error) {
         await usageRepository.appendEvent({
@@ -119,20 +101,11 @@ export async function updateRoomThreadModel(input: {
     thinkingLevel?: RoomExecutionThinkingLevel | null
     speedMode?: RoomExecutionModelState['speedMode']
 }): Promise<RoomExecutionModelState> {
-    return requestPiRuntime(
-        input.roomId,
-        `/threads/${encodeURIComponent(input.sessionKey)}/model`,
-        threadModelSchema,
-        {
-            method: 'POST',
-            body: {
-                provider: input.provider,
-                model: input.model,
-                thinkingLevel: input.thinkingLevel ?? null,
-                speedMode: input.speedMode ?? null,
-            },
-        },
-    )
+    const request = updateThreadModelRuntimeRequest(input)
+    return requestPiRuntime(input.roomId, request.path, threadModelSchema, {
+        method: request.method,
+        body: request.body,
+    })
 }
 
 export async function abortRoomThreadMessage(input: {
@@ -140,17 +113,11 @@ export async function abortRoomThreadMessage(input: {
     sessionKey: string
     runId?: string | null
 }): Promise<RoomThreadAbortResult> {
-    return requestPiRuntime(
-        input.roomId,
-        `/threads/${encodeURIComponent(input.sessionKey)}/abort`,
-        abortSchema,
-        {
-            method: 'POST',
-            body: {
-                runId: input.runId ?? null,
-            },
-        },
-    )
+    const request = abortThreadRuntimeRequest(input)
+    return requestPiRuntime(input.roomId, request.path, abortSchema, {
+        method: request.method,
+        body: request.body,
+    })
 }
 
 export async function compactRoomThread(input: {
@@ -158,17 +125,11 @@ export async function compactRoomThread(input: {
     sessionKey: string
     instructions?: string | null
 }): Promise<PiRuntimeCompactPayload> {
-    return requestPiRuntime(
-        input.roomId,
-        `/threads/${encodeURIComponent(input.sessionKey)}/compact`,
-        compactSchema,
-        {
-            method: 'POST',
-            body: {
-                instructions: input.instructions ?? null,
-            },
-        },
-    )
+    const request = compactThreadRuntimeRequest(input)
+    return requestPiRuntime(input.roomId, request.path, compactSchema, {
+        method: request.method,
+        body: request.body,
+    })
 }
 
 export async function forkRoomThread(input: {
@@ -177,18 +138,11 @@ export async function forkRoomThread(input: {
     title?: string | null
     entryId?: string | null
 }): Promise<PiRuntimeForkPayload> {
-    return requestPiRuntime(
-        input.roomId,
-        `/threads/${encodeURIComponent(input.sessionKey)}/fork`,
-        forkSchema,
-        {
-            method: 'POST',
-            body: {
-                title: input.title ?? null,
-                entryId: input.entryId ?? null,
-            },
-        },
-    )
+    const request = forkThreadRuntimeRequest(input)
+    return requestPiRuntime(input.roomId, request.path, forkSchema, {
+        method: request.method,
+        body: request.body,
+    })
 }
 
 export async function editRoomThreadMessage(input: {
@@ -197,25 +151,13 @@ export async function editRoomThreadMessage(input: {
     messageId: string
     message: string
 }): Promise<RoomThreadSendResult> {
-    const message = input.message.trim()
-    if (!message) {
-        throw new Error('Message cannot be empty')
-    }
-
+    const request = editThreadMessageRuntimeRequest(input)
     const startedAt = Date.now()
     try {
-        const result = await requestPiRuntime(
-            input.roomId,
-            `/threads/${encodeURIComponent(input.sessionKey)}/messages/${encodeURIComponent(input.messageId)}/edit`,
-            sendSchema,
-            {
-                method: 'POST',
-                body: {
-                    message,
-                    awaitCompletion: false,
-                },
-            },
-        )
+        const result = await requestPiRuntime(input.roomId, request.path, sendSchema, {
+            method: request.method,
+            body: request.body,
+        })
         return result
     } catch (error) {
         await usageRepository.appendEvent({
@@ -252,12 +194,10 @@ export async function deleteRoomSession(input: {
     roomId: string
     sessionKey: string
 }): Promise<void> {
-    await requestPiRuntime(
-        input.roomId,
-        `/threads/${encodeURIComponent(input.sessionKey)}`,
-        sessionMutationSchema,
-        { method: 'DELETE' },
-    )
+    const request = deleteThreadRuntimeRequest(input)
+    await requestPiRuntime(input.roomId, request.path, sessionMutationSchema, {
+        method: request.method,
+    })
 }
 
 export async function renameRoomSession(input: {
@@ -265,13 +205,9 @@ export async function renameRoomSession(input: {
     sessionKey: string
     title: string
 }): Promise<void> {
-    await requestPiRuntime(
-        input.roomId,
-        `/threads/${encodeURIComponent(input.sessionKey)}/rename`,
-        sessionMutationSchema,
-        {
-            method: 'POST',
-            body: { title: input.title },
-        },
-    )
+    const request = renameThreadRuntimeRequest(input)
+    await requestPiRuntime(input.roomId, request.path, sessionMutationSchema, {
+        method: request.method,
+        body: request.body,
+    })
 }

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as ExecutionEngine from './execution-engine'
 
 const mocks = vi.hoisted(() => ({
+    listRoomsWithRuntime: vi.fn(),
     getRoomExecutionSnapshot: vi.fn(),
     sendRoomThreadMessage: vi.fn(),
     updateRoomThreadModel: vi.fn(),
@@ -15,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('./pi-execution-adapter', () => ({
-    listRoomsWithRuntime: vi.fn(),
+    listRoomsWithRuntime: mocks.listRoomsWithRuntime,
     getRoomExecutionSnapshot: mocks.getRoomExecutionSnapshot,
     sendRoomThreadMessage: mocks.sendRoomThreadMessage,
     updateRoomThreadModel: mocks.updateRoomThreadModel,
@@ -44,6 +45,7 @@ describe('runtime-neutral execution engine facade', () => {
 
     beforeEach(async () => {
         vi.resetModules()
+        mocks.listRoomsWithRuntime.mockReset()
         mocks.getRoomExecutionSnapshot.mockReset()
         mocks.sendRoomThreadMessage.mockReset()
         mocks.updateRoomThreadModel.mockReset()
@@ -58,6 +60,7 @@ describe('runtime-neutral execution engine facade', () => {
     })
 
     it('routes snapshot, message, thread, and job calls through the adapter contract', async () => {
+        mocks.listRoomsWithRuntime.mockResolvedValue([{ roomId: 'room-1' }])
         mocks.getRoomExecutionSnapshot.mockResolvedValue({ selectedThreadKey: 'thread-1' })
         mocks.sendRoomThreadMessage.mockResolvedValue({ status: 'accepted' })
         mocks.updateRoomThreadModel.mockResolvedValue({
@@ -78,6 +81,11 @@ describe('runtime-neutral execution engine facade', () => {
         mocks.listRoomCronJobs.mockResolvedValue([])
         mocks.updateRoomCronJob.mockResolvedValue({ id: 'job-1' })
 
+        await expect(
+            engine.listRoomsWithRuntime({
+                actorUserId: 'user-1',
+            }),
+        ).resolves.toEqual([{ roomId: 'room-1' }])
         await expect(
             engine.getRoomExecutionSnapshot({
                 roomId: 'room-1',
@@ -151,6 +159,9 @@ describe('runtime-neutral execution engine facade', () => {
             }),
         ).resolves.toEqual({ id: 'job-1' })
 
+        expect(mocks.listRoomsWithRuntime).toHaveBeenCalledWith({
+            actorUserId: 'user-1',
+        })
         expect(mocks.getRoomExecutionSnapshot).toHaveBeenCalledWith({
             roomId: 'room-1',
             selectedThreadKey: 'thread-1',

@@ -47,7 +47,6 @@
         "self-hosted:cloudflare:deploy": "bun run --filter @agent-room/self-hosted deploy:cloudflare",
         "self-hosted:cloudflare:deploy:built": "bun run --filter @agent-room/self-hosted deploy:cloudflare:built",
         "self-hosted:cloudflare:resources": "bun run --filter @agent-room/self-hosted resources:cloudflare",
-        "self-hosted:cloudflare:preview:delete": "bun run --filter @agent-room/self-hosted preview:cloudflare:delete",
         "self-hosted:cloudflare:secrets": "bun run --filter @agent-room/self-hosted secrets:cloudflare",
         "self-hosted:cloudflare:typegen": "bun run --filter @agent-room/self-hosted types:cloudflare",
         "self-hosted:cloudflare:d1:migrate": "bun run --filter @agent-room/self-hosted d1:migrate:cloudflare",

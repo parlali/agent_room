@@ -10,6 +10,7 @@ import {
     listRecentHostedBillableUsage,
     recordHostedStripeEvent,
     readHostedBillingAccount,
+    releaseExpiredHostedBillingReservations,
     upsertHostedStripeCustomer,
 } from './hosted-billing-repository'
 import {
@@ -18,6 +19,8 @@ import {
     type HostedBillingPlan,
 } from './hosted-billing-types'
 import type { HostedActor } from './hosted-auth'
+import { hostedProviderPriorityOrder } from './hosted-provider-priority'
+import { timingSafeEqualHex } from '../security/timing-safe'
 
 export class HostedStripeWebhookError extends Error {
     constructor(message: string) {
@@ -168,15 +171,6 @@ function parseStripeSignature(header: string): { timestamp: string; signatures: 
     }
 }
 
-function timingSafeEqualHex(a: string, b: string): boolean {
-    if (a.length !== b.length) return false
-    let diff = 0
-    for (let index = 0; index < a.length; index += 1) {
-        diff |= a.charCodeAt(index) ^ b.charCodeAt(index)
-    }
-    return diff === 0
-}
-
 async function hmacSha256Hex(secret: string, payload: string): Promise<string> {
     const encoder = new TextEncoder()
     const key = await crypto.subtle.importKey(
@@ -256,9 +250,6 @@ export async function createHostedStripeCheckout(
     input: HostedStripeCheckoutInput,
 ): Promise<{ url: string }> {
     const config = resolveHostedConfig(input.env)
-    if (!config.billing.stripe) {
-        throw new Error('Stripe billing is disabled')
-    }
     await ensureHostedBillingAccount({
         env: input.env,
         workspaceId: input.actor.workspaceId,
@@ -333,7 +324,15 @@ export async function readHostedBillingSummary(input: {
     providerPriority: string[]
 }> {
     const config = resolveHostedConfig(input.env)
-    const account = await ensureHostedBillingAccount({
+    await ensureHostedBillingAccount({
+        env: input.env,
+        workspaceId: input.actor.workspaceId,
+    })
+    await releaseExpiredHostedBillingReservations({
+        env: input.env,
+        workspaceId: input.actor.workspaceId,
+    })
+    const account = await readHostedBillingAccount({
         env: input.env,
         workspaceId: input.actor.workspaceId,
     })
@@ -350,19 +349,18 @@ export async function readHostedBillingSummary(input: {
         }),
     ])
 
-    const stripeEnabled = Boolean(config.billing.stripe)
     const planActions = config.billing.plans.map((plan) => ({
         kind: 'subscription' as const,
         planKey: plan.key,
         label: `Subscribe to ${plan.key}`,
-        enabled: stripeEnabled,
+        enabled: true,
     }))
 
     return {
         account,
         ledger,
         usage,
-        remainingUsageCents: account.includedBalanceCents + account.purchasedBalanceCents,
+        remainingUsageCents: account.availableBalanceCents,
         plans: config.billing.plans,
         usageMarkupBps: config.billing.usageMarkupBps,
         taxMode: config.billing.taxMode,
@@ -372,10 +370,10 @@ export async function readHostedBillingSummary(input: {
             {
                 kind: 'credit_topup' as const,
                 label: 'Credit top-up',
-                enabled: stripeEnabled,
+                enabled: true,
             },
         ],
-        providerPriority: ['codex', 'user_key', 'hosted_openrouter'],
+        providerPriority: hostedProviderPriorityOrder,
     }
 }
 
@@ -385,9 +383,6 @@ export async function processHostedStripeWebhook(input: {
     signatureHeader: string
 }): Promise<{ processed: boolean; eventId: string; type: string }> {
     const config = resolveHostedConfig(input.env)
-    if (!config.billing.stripe) {
-        throw new HostedStripeWebhookError('Stripe billing is disabled')
-    }
     const event = await verifyStripeWebhookPayload({
         secret: config.billing.stripe.webhookSecret,
         body: input.body,

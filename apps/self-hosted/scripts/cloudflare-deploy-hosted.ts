@@ -5,7 +5,7 @@ import {
 } from './cloudflare-hosted-config'
 
 async function main(): Promise<void> {
-    const config = await createResolvedHostedConfig()
+    const config = await createResolvedHostedConfig({ source: 'built' })
     try {
         const secrets = await writeHostedSecretsFile()
         try {

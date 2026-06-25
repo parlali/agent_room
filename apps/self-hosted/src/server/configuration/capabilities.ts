@@ -25,6 +25,14 @@ export const defaultCapabilities: CapabilityConfig = {
     shellCoding: true,
 }
 
+export interface SearchConfigDefaults {
+    enabled: boolean
+    backendUrl: string
+    defaultResultCount: number
+    timeoutMs: number
+    maxSearchesPerRun: number
+}
+
 const capabilityKeyById = {
     web_search: 'webSearch',
     url_fetch: 'urlFetch',
@@ -108,34 +116,37 @@ export function mergeCapabilities(input: {
     return merged
 }
 
-export function normalizeSearchConfig(value: JsonValue | unknown): SearchRuntimeConfig {
-    const env = getAppEnv()
+export function normalizeSearchConfig(
+    value: JsonValue | unknown,
+    defaults?: SearchConfigDefaults,
+): SearchRuntimeConfig {
+    const resolvedDefaults = defaults ?? getAppEnv().search
     const record =
         value && typeof value === 'object' && !Array.isArray(value)
             ? (value as Record<string, unknown>)
             : {}
     return {
-        enabled: typeof record.enabled === 'boolean' ? record.enabled : env.search.enabled,
+        enabled: typeof record.enabled === 'boolean' ? record.enabled : resolvedDefaults.enabled,
         backendUrl:
             typeof record.backendUrl === 'string' && record.backendUrl.trim()
                 ? record.backendUrl.trim().replace(/\/$/, '')
-                : env.search.backendUrl,
+                : resolvedDefaults.backendUrl,
         defaultResultCount:
             typeof record.defaultResultCount === 'number' &&
             Number.isFinite(record.defaultResultCount)
                 ? Math.max(1, Math.min(20, Math.floor(record.defaultResultCount)))
-                : env.search.defaultResultCount,
+                : resolvedDefaults.defaultResultCount,
         timeoutMs:
             typeof record.timeoutMs === 'number' && Number.isFinite(record.timeoutMs)
                 ? Math.max(1000, Math.min(30000, Math.floor(record.timeoutMs)))
-                : env.search.timeoutMs,
+                : resolvedDefaults.timeoutMs,
         maxSearchesPerRun:
             typeof record.maxSearchesPerRun === 'number' &&
             Number.isFinite(record.maxSearchesPerRun)
                 ? Math.max(1, Math.min(100, Math.floor(record.maxSearchesPerRun)))
-                : env.search.maxSearchesPerRun,
-        brave: normalizeBraveSearchConfig(record.brave),
-        browserbase: normalizeBrowserbaseSearchConfig(record.browserbase),
+                : resolvedDefaults.maxSearchesPerRun,
+        brave: normalizeBraveSearchConfig(record.brave, resolvedDefaults),
+        browserbase: normalizeBrowserbaseSearchConfig(record.browserbase, resolvedDefaults),
     }
 }
 
@@ -207,8 +218,10 @@ function normalizeSearchResultCount(value: unknown, fallback: number): number {
         : fallback
 }
 
-function normalizeBraveSearchConfig(value: unknown): SearchRuntimeConfig['brave'] {
-    const env = getAppEnv()
+function normalizeBraveSearchConfig(
+    value: unknown,
+    defaults: SearchConfigDefaults,
+): SearchRuntimeConfig['brave'] {
     const record = searchProviderRecord(value)
     return {
         enabled: typeof record.enabled === 'boolean' ? record.enabled : false,
@@ -216,19 +229,21 @@ function normalizeBraveSearchConfig(value: unknown): SearchRuntimeConfig['brave'
         country: normalizeOptionalString(record.country),
         searchLang: normalizeOptionalString(record.searchLang),
         safeSearch: normalizeSearchSafeSearch(record.safeSearch),
-        timeoutMs: normalizeSearchTimeout(record.timeoutMs, env.search.timeoutMs),
-        resultCount: normalizeSearchResultCount(record.resultCount, env.search.defaultResultCount),
+        timeoutMs: normalizeSearchTimeout(record.timeoutMs, defaults.timeoutMs),
+        resultCount: normalizeSearchResultCount(record.resultCount, defaults.defaultResultCount),
     }
 }
 
-function normalizeBrowserbaseSearchConfig(value: unknown): SearchRuntimeConfig['browserbase'] {
-    const env = getAppEnv()
+function normalizeBrowserbaseSearchConfig(
+    value: unknown,
+    defaults: SearchConfigDefaults,
+): SearchRuntimeConfig['browserbase'] {
     const record = searchProviderRecord(value)
     return {
         enabled: typeof record.enabled === 'boolean' ? record.enabled : false,
         envKey: null,
-        timeoutMs: normalizeSearchTimeout(record.timeoutMs, env.search.timeoutMs),
-        resultCount: normalizeSearchResultCount(record.resultCount, env.search.defaultResultCount),
+        timeoutMs: normalizeSearchTimeout(record.timeoutMs, defaults.timeoutMs),
+        resultCount: normalizeSearchResultCount(record.resultCount, defaults.defaultResultCount),
     }
 }
 

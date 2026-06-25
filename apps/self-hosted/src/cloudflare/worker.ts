@@ -1,9 +1,12 @@
 import { ContainerProxy } from '@cloudflare/containers'
-import type { MessageBatch } from '@cloudflare/workers-types'
+import type { ExecutionContext, MessageBatch } from '@cloudflare/workers-types'
+import serverEntry from '@tanstack/react-start/server-entry'
 import type { AgentRoomHostedEnv, AgentRoomRuntimeJobMessage } from '#/server/cloudflare/bindings'
 import { getHostedAuth, readHostedActorFromRequest } from '#/server/cloudflare/hosted-auth'
 import { hostedBillingCheckoutKindSchema } from '#/server/cloudflare/hosted-billing-types'
 import { resolveHostedConfig } from '#/server/cloudflare/hosted-config'
+import { runWithHostedRequestContext } from '#/server/cloudflare/hosted-request-context'
+import { hostedRouteSameOriginResponse } from '#/server/cloudflare/hosted-route-auth'
 import { reconcileHostedRuntimeJob } from '#/server/cloudflare/hosted-runtime-adapter'
 import {
     createHostedStripeCheckout,
@@ -11,6 +14,8 @@ import {
     processHostedStripeWebhook,
     readHostedBillingSummary,
 } from '#/server/cloudflare/hosted-stripe'
+import { hostedJsonResponse as jsonResponse } from '#/server/cloudflare/hosted-worker-response'
+import { hostedRuntimeWorkerRoute } from '#/server/cloudflare/hosted-worker-runtime-routes'
 import { AgentRoomRuntimeContainer } from '#/server/cloudflare/runtime-container'
 
 export { AgentRoomRuntimeContainer }
@@ -20,16 +25,6 @@ function assertBinding(value: unknown, name: keyof AgentRoomHostedEnv): void {
     if (!value) {
         throw new Error(`Missing Cloudflare binding ${name}`)
     }
-}
-
-function jsonResponse(payload: unknown, init?: ResponseInit): Response {
-    const headers = new Headers(init?.headers)
-    headers.set('content-type', 'application/json; charset=utf-8')
-    headers.set('cache-control', 'no-store')
-    return new Response(JSON.stringify(payload), {
-        ...init,
-        headers,
-    })
 }
 
 function hostedHealth(env: AgentRoomHostedEnv): Response {
@@ -42,7 +37,7 @@ function hostedHealth(env: AgentRoomHostedEnv): Response {
     return jsonResponse({
         ok: true,
         authMode: config.authMode,
-        billingMode: config.billing.mode,
+        billing: 'stripe',
         runtimeBackend: config.runtimeBackend,
         runtimeStorage: config.runtimeStorage,
         publicOrigin: config.publicOrigin,
@@ -51,6 +46,7 @@ function hostedHealth(env: AgentRoomHostedEnv): Response {
             r2: true,
             queue: true,
             runtimeContainer: true,
+            assets: Boolean(env.ASSETS),
         },
     })
 }
@@ -65,7 +61,7 @@ async function requireHostedActor(
             {
                 ok: false,
                 code: 'unauthorized',
-                message: 'Hosted billing requires an authenticated workspace member',
+                message: 'Hosted endpoint requires an authenticated workspace owner',
             },
             {
                 status: 401,
@@ -88,6 +84,22 @@ async function hostedBillingSummary(env: AgentRoomHostedEnv, request: Request): 
 }
 
 async function hostedBillingCheckout(env: AgentRoomHostedEnv, request: Request): Promise<Response> {
+    const originFailure = hostedRouteSameOriginResponse({
+        env,
+        request,
+    })
+    if (originFailure) {
+        return jsonResponse(
+            {
+                ok: false,
+                code: 'forbidden',
+                message: 'Cross-origin mutation request blocked',
+            },
+            {
+                status: 403,
+            },
+        )
+    }
     const actor = await requireHostedActor(env, request)
     if (actor instanceof Response) return actor
     let record: Record<string, unknown> = {}
@@ -197,31 +209,20 @@ async function hostedStripeWebhook(env: AgentRoomHostedEnv, request: Request): P
     }
 }
 
-function hostedAppNotReady(): Response {
-    return jsonResponse(
-        {
-            ok: false,
-            code: 'hosted_app_not_ready',
-            message:
-                'Hosted Cloudflare app routes require the D1-backed hosted route and service layer before they can serve traffic',
-        },
-        {
-            status: 503,
-        },
-    )
-}
-
 interface HostedWorkerHandler {
-    fetch: (request: Request, env: AgentRoomHostedEnv) => Promise<Response> | Response
+    fetch: (
+        request: Request,
+        env: AgentRoomHostedEnv,
+        ctx: ExecutionContext,
+    ) => Promise<Response> | Response
     queue: (
         batch: MessageBatch<AgentRoomRuntimeJobMessage>,
         env: AgentRoomHostedEnv,
     ) => Promise<void>
-    scheduled: () => Promise<void>
 }
 
 export default {
-    async fetch(request: Request, env: AgentRoomHostedEnv) {
+    async fetch(request: Request, env: AgentRoomHostedEnv, _ctx: ExecutionContext) {
         const url = new URL(request.url)
         if (url.pathname === '/api/hosted/health') {
             return hostedHealth(env)
@@ -235,10 +236,14 @@ export default {
         if (url.pathname === '/api/hosted/stripe/webhook' && request.method === 'POST') {
             return hostedStripeWebhook(env, request)
         }
+        const runtimeResponse = await hostedRuntimeWorkerRoute({ env, request, url })
+        if (runtimeResponse) {
+            return runtimeResponse
+        }
         if (url.pathname.startsWith('/api/auth/')) {
             return getHostedAuth(env).handler(request)
         }
-        return hostedAppNotReady()
+        return runWithHostedRequestContext({ env, request }, () => serverEntry.fetch(request))
     },
 
     async queue(batch: MessageBatch<AgentRoomRuntimeJobMessage>, env: AgentRoomHostedEnv) {
@@ -254,9 +259,5 @@ export default {
                 message.retry()
             }
         }
-    },
-
-    async scheduled() {
-        console.log('Hosted scheduled tick received')
     },
 } satisfies HostedWorkerHandler

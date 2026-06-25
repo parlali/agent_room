@@ -1,10 +1,10 @@
 # Cloudflare Hosted Deployment
 
-Issue 31 adds an explicit hosted deployment path for Agent Room on Cloudflare while keeping the existing Docker self-hosted path local-first.
+This document defines the Cloudflare hosted V1 deployment baseline for Agent Room while keeping the existing Docker self-hosted path local-first.
 
 ## Hosted Stack
 
-- Control plane: Cloudflare Workers through the TanStack Start Cloudflare build path. Hosted health and Better Auth routes are enabled; product app routes fail closed until their server functions use the D1 hosted route/service layer instead of the self-hosted Postgres/local-session graph.
+- Control plane: Cloudflare Workers through the TanStack Start Cloudflare build path. Hosted health, Better Auth, billing, room, runtime, file, SSE, and cron routes use the D1/R2 hosted route/service layer while the existing Docker self-hosted path remains on the local Node/Bun runtime graph.
 - Auth: Better Auth on the `AGENT_ROOM_DB` D1 binding with email/password, email verification, password reset, optional Google OAuth, and organization workspaces
 - Database: D1 migrations under `apps/self-hosted/db/d1-migrations`
 - Workspace storage: R2 object keys scoped by `workspace_id` and `room_id`
@@ -33,28 +33,37 @@ The hosted runtime Container image is intentionally separate from the root self-
 
 The production workflow runs on pushes to `main` and manual dispatch. It bootstraps the production D1 database, R2 bucket, and queue if they are missing, applies D1 migrations, then deploys the same `agent-room-hosted` Worker that was used for workers.dev smoke verification. Cloudflare's native dashboard Git integration is not required; GitHub Actions is the deployment controller.
 
-The PR preview workflow is intentionally separate. When `CLOUDFLARE_HOSTED_PREVIEWS_ENABLED=true` and `CLOUDFLARE_WORKERS_SUBDOMAIN` is set as a repository variable, same-repository pull requests deploy isolated resources named `agent-room-hosted-pr-<number>`, `agent-room-hosted-pr-<number>-workspaces`, and `agent-room-hosted-pr-<number>-runtime-jobs`. Preview Workers use their workers.dev URL and do not attach `app.openagentroom.com`. Cleanup on PR close refuses to delete any resource that does not match the preview naming pattern, then deletes the Worker, D1 database, queue, and an empty R2 bucket.
+The PR preview workflow is intentionally separate. Privileged preview deployment is manual-only through `workflow_dispatch`, requires `CLOUDFLARE_HOSTED_PREVIEWS_ENABLED=true` and `CLOUDFLARE_WORKERS_SUBDOMAIN`, checks out the default branch first, resolves the PR through the GitHub API, refuses fork PRs, and then checks out the verified same-repository head SHA. Preview deploys create isolated resources named `agent-room-hosted-pr-<number>`, `agent-room-hosted-pr-<number>-workspaces`, and `agent-room-hosted-pr-<number>-runtime-jobs`. Preview Workers use their workers.dev URL and do not attach `app.openagentroom.com`. Preview cleanup is manual through Wrangler or the Cloudflare dashboard; automated deletion is intentionally not part of the hosted workflow.
 
 ## Required CI Secrets
 
-The manual deployment workflow requires these GitHub Actions secrets:
+The production deployment workflow requires these GitHub Actions secrets:
 
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
 - `BETTER_AUTH_SECRET`
 - `BETTER_AUTH_URL`
+- `AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64`
+- `AGENT_ROOM_BILLING_PLANS`
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_CREDIT_TOPUP_PRICE_ID`
 - `AGENT_ROOM_EMAIL_WEBHOOK_URL`
 - `AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN`
 - `AGENT_ROOM_EMAIL_FROM`
+- `AGENT_ROOM_HOSTED_OPENROUTER_API_KEY`
+- `AGENT_ROOM_HOSTED_BRAVE_API_KEY`
 
-`BETTER_AUTH_URL` must be the deployed hosted origin. The email webhook URL must accept a bearer-authenticated Resend-compatible JSON payload with `from`, `to`, `subject`, `html`, and `text`, then return a 2xx response only after the provider accepts the message.
+`BETTER_AUTH_URL` must be the deployed hosted origin. `AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64` must be a base64-encoded 32-byte key used only for hosted R2 artifact and credential encryption. `AGENT_ROOM_BILLING_PLANS` must contain at least one Stripe-backed plan. Hosted OpenRouter and Brave secrets back managed provider usage, and Stripe secrets are required for the hosted billing path. The email webhook URL must accept a bearer-authenticated Resend-compatible JSON payload with `from`, `to`, `subject`, `html`, and `text`, then return a 2xx response only after the provider accepts the message.
 
 Optional Google OAuth requires both `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. If either value is missing, Google sign-in is disabled rather than partially configured.
 
-Preview deployment also needs these GitHub Actions repository variables:
+Manual preview deployment also needs these GitHub Actions repository variables:
 
 - `CLOUDFLARE_HOSTED_PREVIEWS_ENABLED=true`
 - `CLOUDFLARE_WORKERS_SUBDOMAIN`, for example the subdomain in `https://<worker>.<subdomain>.workers.dev`
+
+Preview deployment reads preview-scoped GitHub Actions secrets with the `*_HOSTED_PREVIEW_*` names from `.github/workflows/cloudflare-hosted-preview.yml` when set, then falls back to the production secret names. Preview Cloudflare resources stay isolated by PR number, but provider, billing, auth, email, and encryption credentials can still be shared if no preview-specific secret is configured.
 
 ## Commands
 
@@ -95,17 +104,34 @@ These steps require real deployment credentials and cannot be completed in the p
 - Enable Workers Paid, R2, D1, Queues, and Containers on the target Cloudflare account
 - Ensure the `agent-room-hosted` D1 database, `agent-room-hosted-runtime-jobs` queue, and `agent-room-hosted-workspaces` R2 bucket exist. The hosted resource script can create these once the relevant Cloudflare services are enabled.
 - Add the required GitHub Actions secrets
-- Set the preview repository variables if PR previews should deploy automatically
+- Set the preview repository variables and preview-scoped secrets if maintainers should be able to run manual PR previews
 - Merge to `main` or run the `Cloudflare Hosted Deploy` workflow
 - Confirm `/api/hosted/health` returns the expected D1, R2, queue, and runtime container binding truth on `https://app.openagentroom.com`
 - Sign up with email/password, receive verification mail through the webhook, verify email, sign in, request a password reset, and verify the reset mail
 - If Google OAuth is configured, sign in with Google OAuth and confirm the Better Auth user maps to an organization workspace
-- Create a workspace-backed room and verify every persisted room, provider connection, MCP connection, job, runtime state, and usage event row carries the same `workspace_id`
+- Create a workspace-backed room and verify every persisted room, provider connection, MCP connection, runtime state, and usage event row carries the same `workspace_id`
 - Enable Workers Paid before deploying Cloudflare Containers. Wrangler returns an account-level Containers authorization error until the target account has Workers Paid access.
-- Start a hosted room runtime and verify the container receives only runtime config/token materialization, not direct D1 credentials. The hosted runtime hydrate/control-plane callback protocol is still required before this can run end-to-end.
+- Start a hosted room runtime and verify the container receives only encrypted R2-backed runtime config/token materialization, not direct D1 credentials.
 - Hydrate a workspace from R2, run a session, snapshot back to R2, stop on idle, and restart from the snapshot
-- Run scheduled jobs through the queue path and verify usage and audit rows remain workspace-scoped
+- Verify hosted scheduled jobs remain disabled until the quota/runtime-lifecycle work lands separately
 - Review Cloudflare Container isolation with untrusted multi-tenant code in the deployed account. If it does not meet the isolation bar, keep the runtime adapter path open for a stronger isolated runtime backend.
+
+## Hosted V1 Baseline
+
+The hosted V1 baseline covers these readiness points:
+
+- Hosted runtime materialization uses encrypted R2 artifacts, canonical D1 runtime authority, queue-owned reconcile, compare-and-set version updates, and callback-authenticated state/file/usage sync.
+- Hosted scheduled jobs remain disabled in this baseline; the runtime execution path does not install a Worker cron trigger or hosted job-run lease table.
+- Stop and fail-closed paths destroy the container and clean runtime artifacts before clearing authority, with stopped desired-state written before cleanup so queued reconciles cannot restart a room during stop.
+- Runtime state files, visible files, memory, and forked session state sync through canonical hosted callbacks before becoming visible in the hosted read model.
+- Managed hosted OpenRouter is enabled through a room-scoped Worker proxy backed by exact runtime-correlated billing reservations and actual provider-returned `usage.cost` values; workspace BYOK and hosted Codex remain higher-priority explicit provider paths. Managed hosted Brave is materialized into the room runtime when web search is enabled unless the workspace provides its own stored Brave credential.
+- Hosted provider and HTTP MCP saves now validate through the hosted runtime materialization inputs before reporting `ready`; hosted MCP HTTP save-time validation runs the same DNS/private-network guard before the control-plane initialize fetch, and hosted MCP stdio is saved as invalid rather than selected for rooms because it cannot be safely validated through the hosted HTTP materialization path.
+- Hosted billing credit, debit, and reservation accounting now keeps ledger evidence and account balances coupled through D1 batch writes; non-reservation debits spend only available balance, reservation-backed debits are tied to exact reservation ids, stale reservations expire before billing summaries, and included-credit expiry preserves cents backing active reservations.
+- Hosted V1 owner-only workspace membership is represented directly in the baseline D1 auth schema.
+- Worker runtime callbacks and managed provider proxies are split out of the Cloudflare Worker entrypoint, so `worker.ts` remains dispatch-focused while callback auth, file/state sync, usage billing, and OpenRouter proxy reservations live in the hosted runtime route module.
+- Runtime, file cleanup, and upload failure logs avoid tenant, room, thread, job, and user-controlled path identifiers.
+- The single-tenant Docker self-hosted path remains the local Node/Bun path and does not require hosted Cloudflare bindings or hosted secrets.
+- Production duplication is verified at 0 clone groups/0 duplicated lines by the app quality score. The stricter non-generated sensitive scan still reports small repeated test/support snippets, so large touched files and test fakes remain maintainability debt under the godfile/spaghetti review lens rather than being treated as closed quality work.
 
 ## References
 

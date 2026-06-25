@@ -1,7 +1,7 @@
 import type { AgentRoomHostedEnv } from './bindings'
 import { resolveHostedConfig } from './hosted-config'
 
-export type HostedEmailPurpose = 'email_verification' | 'password_reset' | 'organization_invitation'
+export type HostedEmailPurpose = 'email_verification' | 'password_reset'
 
 export interface HostedEmailPayload {
     purpose: HostedEmailPurpose
@@ -53,14 +53,6 @@ function emailCopy(purpose: HostedEmailPurpose): HostedEmailCopy {
                 headline: 'Reset your Agent Room password',
                 intro: 'Use this secure link to choose a new password for your Agent Room account.',
                 detail: 'If you did not request a password reset, leave this email alone and your current password will keep working.',
-            }
-        case 'organization_invitation':
-            return {
-                actionLabel: 'Accept invitation',
-                eyebrow: 'Workspace invitation',
-                headline: 'Join your Agent Room workspace',
-                intro: 'You have been invited to collaborate in an Agent Room workspace.',
-                detail: 'Accept the invitation to open the workspace with the role assigned by the sender.',
             }
     }
 }

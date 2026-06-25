@@ -22,8 +22,6 @@
     ],
     "vars": {
         "AGENT_ROOM_AUTH_MODE": "better-auth",
-        "AGENT_ROOM_BILLING_MODE": "disabled",
-        "AGENT_ROOM_BILLING_PLANS": "[{\"key\":\"starter\",\"priceId\":\"price_starter_placeholder\",\"monthlyCents\":700,\"includedCents\":0},{\"key\":\"standard\",\"priceId\":\"price_standard_placeholder\",\"monthlyCents\":2000,\"includedCents\":1200},{\"key\":\"pro\",\"priceId\":\"price_pro_placeholder\",\"monthlyCents\":5000,\"includedCents\":3500}]",
         "AGENT_ROOM_BILLING_USAGE_MARKUP_BPS": "13000",
         "AGENT_ROOM_BILLING_TAX_MODE": "automatic",
         "AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS": "3",
@@ -34,6 +32,13 @@
         "required": [
             "BETTER_AUTH_SECRET",
             "BETTER_AUTH_URL",
+            "AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64",
+            "AGENT_ROOM_BILLING_PLANS",
+            "STRIPE_SECRET_KEY",
+            "STRIPE_WEBHOOK_SECRET",
+            "STRIPE_CREDIT_TOPUP_PRICE_ID",
+            "AGENT_ROOM_HOSTED_OPENROUTER_API_KEY",
+            "AGENT_ROOM_HOSTED_BRAVE_API_KEY",
             "AGENT_ROOM_EMAIL_WEBHOOK_URL",
             "AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN",
             "AGENT_ROOM_EMAIL_FROM",
@@ -63,6 +68,7 @@
             {
                 "queue": "agent-room-hosted-runtime-jobs",
                 "max_batch_size": 1,
+                "max_concurrency": 1,
                 "max_retries": 3,
             },
         ],

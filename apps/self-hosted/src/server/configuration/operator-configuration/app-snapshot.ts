@@ -24,8 +24,8 @@ export async function getOperatorConfigSnapshot(): Promise<OperatorConfigSnapsho
         settings: summarizeSettings(settings),
         codexAuth,
         providerCatalog,
-        providers: providers.map(summarizeProvider),
-        mcpConnections: mcpConnections.map(summarizeMcp),
+        providers: providers.map((provider) => summarizeProvider(provider)),
+        mcpConnections: mcpConnections.map((connection) => summarizeMcp(connection)),
         github,
         onboarding: {
             completed: settings.onboardingCompletedAt !== null,

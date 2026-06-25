@@ -9,11 +9,19 @@ export type HostedRuntimeStateTransition =
     | { kind: 'running' }
     | { kind: 'failed'; error: unknown }
 
+export class HostedRuntimeDesiredStateChangedError extends Error {
+    constructor() {
+        super('Hosted runtime desired state changed before transition')
+        this.name = 'HostedRuntimeDesiredStateChangedError'
+    }
+}
+
 interface HostedRuntimeStateTransitionInput {
     env: AgentRoomHostedEnv
     workspaceId: string
     roomId: string
     transition: HostedRuntimeStateTransition
+    requireDesiredRunning?: boolean
     now?: string
 }
 
@@ -32,13 +40,17 @@ function assertRuntimeStateBatchChanged(input: {
     results: RuntimeStateBatchResult[]
     workspaceId: string
     roomId: string
+    requireDesiredRunning: boolean
 }): void {
     const failedIndex = input.results.findIndex(
         (result) => typeof result.meta?.changes !== 'number' || result.meta.changes < 1,
     )
     if (failedIndex !== -1) {
+        if (input.requireDesiredRunning) {
+            throw new HostedRuntimeDesiredStateChangedError()
+        }
         throw new Error(
-            `Hosted runtime state transition did not update statement ${failedIndex + 1} for workspace ${input.workspaceId} room ${input.roomId}`,
+            `Hosted runtime state transition did not update statement ${failedIndex + 1}`,
         )
     }
 }
@@ -53,7 +65,24 @@ async function batchRuntimeState(input: {
     lastError: string | null
     markStarted: boolean
     markHealthy: boolean
+    requireDesiredRunning: boolean
 }): Promise<void> {
+    const runtimeDesiredStatePredicate = input.requireDesiredRunning
+        ? `
+                  AND EXISTS (
+                      SELECT 1
+                      FROM hosted_room
+                      WHERE hosted_room.workspace_id = hosted_room_runtime_state.workspace_id
+                        AND hosted_room.id = hosted_room_runtime_state.room_id
+                        AND hosted_room.desired_state = 'running'
+                  )
+          `
+        : ''
+    const roomDesiredStatePredicate = input.requireDesiredRunning
+        ? `
+                  AND desired_state = 'running'
+          `
+        : ''
     const runtimeStatement = input.markStarted
         ? input.env.AGENT_ROOM_DB.prepare(
               `
@@ -65,6 +94,7 @@ async function batchRuntimeState(input: {
                       updated_at = ?2
                   WHERE room_id = ?3
                     AND workspace_id = ?4
+                    ${runtimeDesiredStatePredicate}
               `,
           ).bind(input.healthStatus, input.now, input.roomId, input.workspaceId)
         : input.env.AGENT_ROOM_DB.prepare(
@@ -76,6 +106,7 @@ async function batchRuntimeState(input: {
                       updated_at = ?3
                   WHERE room_id = ?5
                     AND workspace_id = ?6
+                    ${runtimeDesiredStatePredicate}
               `,
           ).bind(
               input.healthStatus,
@@ -95,6 +126,7 @@ async function batchRuntimeState(input: {
                     updated_at = ?2
                 WHERE id = ?3
                   AND workspace_id = ?4
+                  ${roomDesiredStatePredicate}
             `,
         ).bind(input.roomStatus, input.now, input.roomId, input.workspaceId),
     ])
@@ -102,6 +134,7 @@ async function batchRuntimeState(input: {
         results,
         workspaceId: input.workspaceId,
         roomId: input.roomId,
+        requireDesiredRunning: input.requireDesiredRunning,
     })
 }
 
@@ -140,6 +173,7 @@ export async function writeHostedRuntimeStateTransition(
             lastError: null,
             markStarted: false,
             markHealthy: false,
+            requireDesiredRunning: input.requireDesiredRunning ?? false,
         })
         return
     }
@@ -155,6 +189,7 @@ export async function writeHostedRuntimeStateTransition(
             lastError: null,
             markStarted: true,
             markHealthy: true,
+            requireDesiredRunning: input.requireDesiredRunning ?? false,
         })
         return
     }
@@ -169,5 +204,6 @@ export async function writeHostedRuntimeStateTransition(
         lastError: truncateRuntimeError(input.transition.error),
         markStarted: false,
         markHealthy: false,
+        requireDesiredRunning: input.requireDesiredRunning ?? false,
     })
 }

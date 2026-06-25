@@ -67,6 +67,20 @@ describe('bounded process environment', () => {
         ).toThrow(/DATABASE_URL/)
     })
 
+    it('rejects hosted runtime control env keys from self-host room env materialization', () => {
+        expect(() =>
+            assertNoReservedRoomRuntimeEnvKeys({
+                AGENT_ROOM_HOSTED_USAGE_CALLBACK_URL: 'https://example.test/usage',
+                AGENT_ROOM_HOSTED_USAGE_CALLBACK_TOKEN: 'token',
+                AGENT_ROOM_HOSTED_FILE_CALLBACK_URL: 'https://example.test/files',
+                AGENT_ROOM_HOSTED_WORKSPACE_ID: 'workspace_1',
+                AGENT_ROOM_HOSTED_ROOM_ID: 'room_1',
+                AGENT_ROOM_HOSTED_MANAGED_OPENROUTER: '1',
+                AGENT_ROOM_PI_RUNTIME_FILE_BUNDLE_B64: 'bundle',
+            }),
+        ).toThrow(/AGENT_ROOM_HOSTED_FILE_CALLBACK_URL/)
+    })
+
     it('disables Bun implicit env file loading for child commands', () => {
         expect(disableImplicitEnvFileForCommand('bun', ['server.ts'])).toEqual([
             '--no-env-file',

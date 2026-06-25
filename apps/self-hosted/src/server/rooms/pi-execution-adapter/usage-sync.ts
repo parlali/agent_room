@@ -30,6 +30,27 @@ type UsageSyncCounters = {
     toolEvents: number
 }
 
+export interface RuntimeUsageEventInsert {
+    roomId: string
+    sessionKey: string | null
+    runId: string | null
+    jobId: string | null
+    kind: UsageEventKind
+    provider: string | null
+    model: string | null
+    toolName: string | null
+    inputTokens: number | null
+    outputTokens: number | null
+    cachedTokens: number | null
+    reasoningTokens: number | null
+    totalTokens: number | null
+    durationMs: number | null
+    activeDurationMs: number | null
+    idleDurationMs: number | null
+    estimatedCostUsd: number | null
+    metadata: JsonValue
+}
+
 function emptyCounters(): UsageSyncCounters {
     return {
         scannedLines: 0,
@@ -94,6 +115,38 @@ function toJsonValue(value: unknown): JsonValue {
 function usageNumber(payload: Record<string, unknown>, key: string): number | null {
     const usage = payloadRecord(payload.usage)
     return toNullableNumber(usage[key])
+}
+
+function stringArray(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+        return []
+    }
+    return value.filter(
+        (entry): entry is string => typeof entry === 'string' && entry.trim() !== '',
+    )
+}
+
+function jsonArray(value: unknown): unknown[] {
+    return Array.isArray(value) ? value : []
+}
+
+function runtimeJobId(input: {
+    record: Record<string, unknown>
+    payload: Record<string, unknown>
+}): string | null {
+    const recordJobId = typeof input.record.jobId === 'string' ? input.record.jobId.trim() : ''
+    if (recordJobId) {
+        return recordJobId
+    }
+    const payloadJobId = typeof input.payload.jobId === 'string' ? input.payload.jobId.trim() : ''
+    if (payloadJobId) {
+        return payloadJobId
+    }
+    return null
+}
+
+function runtimeRunKind(payload: Record<string, unknown>): string | null {
+    return typeof payload.runKind === 'string' ? payload.runKind : null
 }
 
 function tokenUsageKnown(payload: Record<string, unknown>): boolean {
@@ -183,93 +236,113 @@ function normalizeStateForFile(state: UsageSyncState, fileBytes: number): UsageS
     return state
 }
 
-async function appendRunUsage(input: {
+function runtimeUsageMetrics(
+    payload: Record<string, unknown>,
+): Pick<
+    RuntimeUsageEventInsert,
+    | 'provider'
+    | 'model'
+    | 'toolName'
+    | 'inputTokens'
+    | 'outputTokens'
+    | 'cachedTokens'
+    | 'reasoningTokens'
+    | 'totalTokens'
+    | 'durationMs'
+    | 'estimatedCostUsd'
+> {
+    return {
+        provider: typeof payload.provider === 'string' ? payload.provider : null,
+        model: typeof payload.model === 'string' ? payload.model : null,
+        toolName: null,
+        inputTokens: usageNumber(payload, 'inputTokens'),
+        outputTokens: usageNumber(payload, 'outputTokens'),
+        cachedTokens: usageNumber(payload, 'cachedTokens'),
+        reasoningTokens: usageNumber(payload, 'reasoningTokens'),
+        totalTokens: usageNumber(payload, 'totalTokens'),
+        durationMs: toNullableNumber(payload.durationMs),
+        estimatedCostUsd: usageNumber(payload, 'estimatedCostUsd'),
+    }
+}
+
+function runUsageEvent(input: {
     roomId: string
     sessionKey: string | null
     runId: string | null
+    jobId: string | null
     ts: number
     payload: Record<string, unknown>
-}): Promise<void> {
-    const runKind = typeof input.payload.runKind === 'string' ? input.payload.runKind : null
-    await usageRepository.appendEvent({
+}): RuntimeUsageEventInsert {
+    const runKind = runtimeRunKind(input.payload)
+    return {
         roomId: input.roomId,
         sessionKey: input.sessionKey,
         runId: input.runId,
-        jobId: null,
+        jobId: input.jobId,
         kind: runKind === 'scheduled' ? 'job' : 'run',
-        provider: typeof input.payload.provider === 'string' ? input.payload.provider : null,
-        model: typeof input.payload.model === 'string' ? input.payload.model : null,
-        toolName: null,
-        inputTokens: usageNumber(input.payload, 'inputTokens'),
-        outputTokens: usageNumber(input.payload, 'outputTokens'),
-        cachedTokens: usageNumber(input.payload, 'cachedTokens'),
-        reasoningTokens: usageNumber(input.payload, 'reasoningTokens'),
-        totalTokens: usageNumber(input.payload, 'totalTokens'),
-        durationMs: toNullableNumber(input.payload.durationMs),
+        ...runtimeUsageMetrics(input.payload),
         activeDurationMs: toNullableNumber(input.payload.activeDurationMs),
         idleDurationMs: toNullableNumber(input.payload.idleDurationMs),
-        estimatedCostUsd: usageNumber(input.payload, 'estimatedCostUsd'),
         metadata: toJsonValue({
             runtimeEventTs: input.ts,
             event: 'run.finished',
             status: typeof input.payload.status === 'string' ? input.payload.status : null,
             error: typeof input.payload.error === 'string' ? input.payload.error : null,
             runKind,
+            jobId: input.jobId,
             tokenUsageKnown: tokenUsageKnown(input.payload),
             costUsageKnown: costUsageKnown(input.payload),
+            hostedProviderReservationIds: stringArray(input.payload.hostedProviderReservationIds),
+            hostedProviderUsageCharges: jsonArray(input.payload.hostedProviderUsageCharges),
         }),
-    })
+    }
 }
 
-async function appendProviderUsage(input: {
+function providerUsageEvent(input: {
     roomId: string
     sessionKey: string | null
     runId: string | null
+    jobId: string | null
     ts: number
     payload: Record<string, unknown>
-}): Promise<void> {
-    await usageRepository.appendEvent({
+}): RuntimeUsageEventInsert {
+    return {
         roomId: input.roomId,
         sessionKey: input.sessionKey,
         runId: input.runId,
-        jobId: null,
+        jobId: input.jobId,
         kind: 'provider',
-        provider: typeof input.payload.provider === 'string' ? input.payload.provider : null,
-        model: typeof input.payload.model === 'string' ? input.payload.model : null,
-        toolName: null,
-        inputTokens: usageNumber(input.payload, 'inputTokens'),
-        outputTokens: usageNumber(input.payload, 'outputTokens'),
-        cachedTokens: usageNumber(input.payload, 'cachedTokens'),
-        reasoningTokens: usageNumber(input.payload, 'reasoningTokens'),
-        totalTokens: usageNumber(input.payload, 'totalTokens'),
-        durationMs: toNullableNumber(input.payload.durationMs),
+        ...runtimeUsageMetrics(input.payload),
         activeDurationMs: null,
         idleDurationMs: null,
-        estimatedCostUsd: usageNumber(input.payload, 'estimatedCostUsd'),
         metadata: toJsonValue({
             runtimeEventTs: input.ts,
             event: 'provider.finished',
             purpose: typeof input.payload.purpose === 'string' ? input.payload.purpose : null,
+            jobId: input.jobId,
             tokenUsageKnown: tokenUsageKnown(input.payload),
             costUsageKnown: costUsageKnown(input.payload),
+            hostedProviderReservationIds: stringArray(input.payload.hostedProviderReservationIds),
+            hostedProviderUsageCharges: jsonArray(input.payload.hostedProviderUsageCharges),
         }),
-    })
+    }
 }
 
-async function appendToolUsage(input: {
+function toolUsageEvent(input: {
     roomId: string
     sessionKey: string | null
     runId: string | null
+    jobId: string | null
     ts: number
     event: string
     kind: UsageEventKind
     payload: Record<string, unknown>
-}): Promise<void> {
-    await usageRepository.appendEvent({
+}): RuntimeUsageEventInsert {
+    return {
         roomId: input.roomId,
         sessionKey: input.sessionKey,
         runId: input.runId,
-        jobId: null,
+        jobId: input.jobId,
         kind: input.kind,
         provider: typeof input.payload.provider === 'string' ? input.payload.provider : null,
         model: typeof input.payload.model === 'string' ? input.payload.model : null,
@@ -287,8 +360,77 @@ async function appendToolUsage(input: {
         metadata: toJsonValue({
             runtimeEventTs: input.ts,
             event: input.event,
+            jobId: input.jobId,
             payload: input.payload,
         }),
+    }
+}
+
+export function runtimeUsageEventFromLogEntry(input: {
+    roomId: string
+    entry: unknown
+}): RuntimeUsageEventInsert | null {
+    const record = payloadRecord(input.entry)
+    const ts = toNullableNumber(record.ts)
+    const event = typeof record.event === 'string' ? record.event : null
+    if (!event || ts === null) {
+        return null
+    }
+
+    const payload = payloadRecord(record.payload)
+    const sessionKey =
+        typeof record.sessionKey === 'string'
+            ? record.sessionKey
+            : typeof payload.sessionKey === 'string'
+              ? payload.sessionKey
+              : null
+    const runId =
+        typeof record.runId === 'string'
+            ? record.runId
+            : typeof payload.runId === 'string'
+              ? payload.runId
+              : null
+    const jobId = runtimeJobId({ record, payload })
+
+    if (event === 'run.finished') {
+        if (runtimeRunKind(payload) === 'scheduled' && !jobId) {
+            return null
+        }
+        return runUsageEvent({
+            roomId: input.roomId,
+            sessionKey,
+            runId,
+            jobId,
+            ts,
+            payload,
+        })
+    }
+
+    if (event === 'provider.finished') {
+        return providerUsageEvent({
+            roomId: input.roomId,
+            sessionKey,
+            runId,
+            jobId,
+            ts,
+            payload,
+        })
+    }
+
+    const kind = usageKindForRuntimeEvent(event)
+    if (!kind) {
+        return null
+    }
+
+    return toolUsageEvent({
+        roomId: input.roomId,
+        sessionKey,
+        runId,
+        jobId,
+        ts,
+        event,
+        kind,
+        payload,
     })
 }
 
@@ -311,69 +453,27 @@ async function processRuntimeEventLine(input: {
     }
 
     const record = payloadRecord(entry)
-    const ts = toNullableNumber(record.ts)
     const event = typeof record.event === 'string' ? record.event : null
-    if (!event || ts === null) {
-        input.counters.invalidLines += 1
-        return
-    }
-
-    const payload = payloadRecord(record.payload)
-    const sessionKey =
-        typeof record.sessionKey === 'string'
-            ? record.sessionKey
-            : typeof payload.sessionKey === 'string'
-              ? payload.sessionKey
-              : null
-    const runId =
-        typeof record.runId === 'string'
-            ? record.runId
-            : typeof payload.runId === 'string'
-              ? payload.runId
-              : null
-
-    if (event === 'run.finished') {
-        await appendRunUsage({
-            roomId: input.roomId,
-            sessionKey,
-            runId,
-            ts,
-            payload,
-        })
-        input.counters.persistedEvents += 1
-        input.counters.runEvents += 1
-        return
-    }
-
-    if (event === 'provider.finished') {
-        await appendProviderUsage({
-            roomId: input.roomId,
-            sessionKey,
-            runId,
-            ts,
-            payload,
-        })
-        input.counters.persistedEvents += 1
-        input.counters.providerEvents += 1
-        return
-    }
-
-    const kind = usageKindForRuntimeEvent(event)
-    if (!kind) {
-        return
-    }
-
-    await appendToolUsage({
+    const usageEvent = runtimeUsageEventFromLogEntry({
         roomId: input.roomId,
-        sessionKey,
-        runId,
-        ts,
-        event,
-        kind,
-        payload,
+        entry,
     })
+    if (!usageEvent) {
+        if (!event || toNullableNumber(record.ts) === null) {
+            input.counters.invalidLines += 1
+        }
+        return
+    }
+
+    await usageRepository.appendEvent(usageEvent)
     input.counters.persistedEvents += 1
-    input.counters.toolEvents += 1
+    if (event === 'run.finished') {
+        input.counters.runEvents += 1
+    } else if (event === 'provider.finished') {
+        input.counters.providerEvents += 1
+    } else {
+        input.counters.toolEvents += 1
+    }
 }
 
 async function scanRuntimeEventTail(input: {

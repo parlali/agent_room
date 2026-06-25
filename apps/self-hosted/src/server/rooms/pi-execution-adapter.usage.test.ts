@@ -11,7 +11,6 @@ const mocks = vi.hoisted(() => ({
     roomRuntimeMetadataRepository: {},
     usageRepository: {
         appendEvent: vi.fn(),
-        attachJobToRun: vi.fn(),
     },
     getRoomConfigSnapshot: vi.fn(),
     requestPiRuntime: vi.fn(),
@@ -48,7 +47,6 @@ describe('Pi runtime usage sync', () => {
         previousDataDir = process.env.AGENT_ROOM_DATA_DIR
         process.env.AGENT_ROOM_DATA_DIR = root
         mocks.usageRepository.appendEvent.mockReset()
-        mocks.usageRepository.attachJobToRun.mockReset()
         mocks.roomRepository.listRooms.mockReset()
         mocks.requestPiRuntime.mockReset()
     })
@@ -273,7 +271,8 @@ describe('Pi runtime usage sync', () => {
         )
     })
 
-    it('links scheduled runtime usage records back to the cron job id', async () => {
+    it('sends scheduled cron job ids to the runtime request', async () => {
+        const jobId = '11111111-1111-1111-1111-111111111111'
         mocks.requestPiRuntime.mockResolvedValue({
             runId: 'scheduled-run-1',
             status: 'idle',
@@ -289,14 +288,144 @@ describe('Pi runtime usage sync', () => {
             message: 'Run the scheduled report',
             awaitCompletion: true,
             runKind: 'scheduled',
-            jobId: '11111111-1111-1111-1111-111111111111',
+            jobId,
         })
 
-        expect(mocks.usageRepository.attachJobToRun).toHaveBeenCalledWith({
+        expect(mocks.requestPiRuntime).toHaveBeenCalledWith(
+            'usage-room',
+            '/threads/thread-1/send',
+            expect.anything(),
+            expect.objectContaining({
+                body: expect.objectContaining({
+                    runKind: 'scheduled',
+                    jobId,
+                }),
+            }),
+        )
+    })
+
+    it('maps hosted scheduled runtime events with their cron job id', async () => {
+        const { runtimeUsageEventFromLogEntry } = await import('./pi-execution-adapter/usage-sync')
+        const run = runtimeUsageEventFromLogEntry({
             roomId: 'usage-room',
-            runId: 'scheduled-run-1',
-            jobId: '11111111-1111-1111-1111-111111111111',
+            entry: {
+                ts: 1000,
+                event: 'run.finished',
+                sessionKey: 'thread-1',
+                runId: 'run-1',
+                jobId: 'job-1',
+                payload: {
+                    runKind: 'scheduled',
+                    status: 'idle',
+                    provider: 'openrouter',
+                    model: 'openrouter/auto',
+                    hostedProviderReservationIds: ['reservation-1'],
+                    hostedProviderUsageCharges: [
+                        {
+                            provider: 'openrouter',
+                            reservationId: 'reservation-1',
+                            costMicros: 12345,
+                        },
+                    ],
+                },
+            },
         })
+        const provider = runtimeUsageEventFromLogEntry({
+            roomId: 'usage-room',
+            entry: {
+                ts: 1100,
+                event: 'provider.finished',
+                sessionKey: 'thread-1',
+                runId: 'run-1',
+                jobId: 'job-1',
+                payload: {
+                    provider: 'openrouter',
+                    model: 'openrouter/auto',
+                    hostedProviderReservationIds: ['reservation-2'],
+                    hostedProviderUsageCharges: [
+                        {
+                            provider: 'openrouter',
+                            reservationId: 'reservation-2',
+                            costMicros: 6789,
+                        },
+                    ],
+                },
+            },
+        })
+        const tool = runtimeUsageEventFromLogEntry({
+            roomId: 'usage-room',
+            entry: {
+                ts: 1200,
+                event: 'tool.write',
+                sessionKey: 'thread-1',
+                runId: 'run-1',
+                payload: {
+                    jobId: 'job-1',
+                    path: '/workspace/report.md',
+                },
+            },
+        })
+
+        expect(run).toEqual(
+            expect.objectContaining({
+                kind: 'job',
+                jobId: 'job-1',
+                metadata: expect.objectContaining({
+                    hostedProviderReservationIds: ['reservation-1'],
+                    hostedProviderUsageCharges: [
+                        {
+                            provider: 'openrouter',
+                            reservationId: 'reservation-1',
+                            costMicros: 12345,
+                        },
+                    ],
+                }),
+            }),
+        )
+        expect(provider).toEqual(
+            expect.objectContaining({
+                kind: 'provider',
+                jobId: 'job-1',
+                metadata: expect.objectContaining({
+                    hostedProviderReservationIds: ['reservation-2'],
+                    hostedProviderUsageCharges: [
+                        {
+                            provider: 'openrouter',
+                            reservationId: 'reservation-2',
+                            costMicros: 6789,
+                        },
+                    ],
+                }),
+            }),
+        )
+        expect(tool).toEqual(
+            expect.objectContaining({
+                kind: 'tool',
+                jobId: 'job-1',
+            }),
+        )
+    })
+
+    it('does not persist scheduled runtime usage without a canonical cron job id', async () => {
+        const { runtimeUsageEventFromLogEntry } = await import('./pi-execution-adapter/usage-sync')
+
+        expect(
+            runtimeUsageEventFromLogEntry({
+                roomId: 'usage-room',
+                entry: {
+                    ts: 1000,
+                    event: 'run.finished',
+                    sessionKey: 'thread-1',
+                    runId: 'run-1',
+                    payload: {
+                        runKind: 'scheduled',
+                        status: 'idle',
+                        provider: 'openrouter',
+                        model: 'openrouter/auto',
+                    },
+                },
+            }),
+        ).toBeNull()
     })
 
     it('records provider usage events for background model calls', async () => {

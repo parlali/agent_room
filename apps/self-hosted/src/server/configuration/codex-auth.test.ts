@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
     convertCodexCliAuthToPiCredential,
     inspectCodexAppAuthStatusSync,
+    inspectCodexPiAuthJson,
     writeCodexPiAuthFromCliAuthSync,
 } from './codex-auth'
 
@@ -105,6 +106,57 @@ describe('Codex app auth helpers', () => {
                 force: true,
             })
         }
+    })
+
+    it('validates hosted stored Codex Pi auth JSON before marking it ready', () => {
+        expect(
+            inspectCodexPiAuthJson({
+                authJson: 'not-json',
+                requiresStoredCredential: true,
+            }),
+        ).toMatchObject({
+            ready: false,
+            status: 'invalid',
+            requiresStoredCredential: true,
+        })
+
+        expect(
+            inspectCodexPiAuthJson({
+                authJson: JSON.stringify({
+                    'openai-codex': {
+                        type: 'oauth',
+                        access: jwt({ exp: 2000000000 }),
+                        refresh: '',
+                        expires: 2000000000 * 1000,
+                        accountId: 'account-1',
+                    },
+                }),
+                requiresStoredCredential: true,
+            }),
+        ).toMatchObject({
+            ready: false,
+            message: 'Codex app server login is incomplete',
+        })
+
+        expect(
+            inspectCodexPiAuthJson({
+                authJson: JSON.stringify({
+                    'openai-codex': {
+                        type: 'oauth',
+                        access: jwt({ exp: 2000000000 }),
+                        refresh: 'refresh-token',
+                        expires: 2000000000 * 1000,
+                        accountId: 'account-1',
+                    },
+                }),
+                nowMs: 1000000000,
+                requiresStoredCredential: true,
+            }),
+        ).toMatchObject({
+            ready: true,
+            accountId: 'account-1',
+            requiresStoredCredential: true,
+        })
     })
 
     it('uses a logged bounded fallback expiry when access token expiry is not parseable', () => {

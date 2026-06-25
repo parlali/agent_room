@@ -1,4 +1,5 @@
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { piRuntimeRedactionSecretsEnvKey } from '../rooms/pi-runtime-contract'
 import { boundTextByChars } from './bounded-text'
 
 const maxRedactedStringChars = 4000
@@ -22,8 +23,23 @@ function bearerTokenParts(value: string): string[] {
     return match ? [value, match[1]!] : [value]
 }
 
+function runtimeRedactionSecretsFromEnv(): string[] {
+    const encoded = process.env[piRuntimeRedactionSecretsEnvKey]
+    if (!encoded) {
+        return []
+    }
+    try {
+        const parsed = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as unknown
+        return Array.isArray(parsed)
+            ? parsed.filter((value): value is string => typeof value === 'string')
+            : []
+    } catch {
+        return []
+    }
+}
+
 function redactionSecrets(config: PiRuntimeConfig): string[] {
-    const values: string[] = [config.runtime.token]
+    const values: string[] = [config.runtime.token, ...runtimeRedactionSecretsFromEnv()]
     for (const server of config.mcpServers) {
         for (const value of [...Object.values(server.env), ...Object.values(server.headers)]) {
             values.push(...bearerTokenParts(value))

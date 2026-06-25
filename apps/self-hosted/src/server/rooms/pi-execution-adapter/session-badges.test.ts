@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = {
     roomRepository: {
         findRoomById: vi.fn(),
+        listRooms: vi.fn(),
+        listRoomsByOwner: vi.fn(),
     },
     roomRuntimeMetadataRepository: {
         findByRoomId: vi.fn(),
@@ -85,6 +87,8 @@ describe('session completed badge projection', () => {
             status: 'running',
             desiredState: 'running',
         })
+        mocks.roomRepository.listRooms.mockReset()
+        mocks.roomRepository.listRoomsByOwner.mockReset()
         mocks.roomRuntimeMetadataRepository.findByRoomId.mockResolvedValue({
             port: 3001,
             pid: 123,
@@ -191,5 +195,63 @@ describe('session completed badge projection', () => {
             ['empty-idle', false],
             ['idle-with-preview', true],
         ])
+    })
+})
+
+describe('runtime room listing ownership', () => {
+    beforeEach(() => {
+        mocks.roomRepository.listRooms.mockReset()
+        mocks.roomRepository.listRoomsByOwner.mockReset()
+        mocks.roomRuntimeMetadataRepository.findByRoomId.mockReset()
+        mocks.roomConfigRepository.getOrCreate.mockReset()
+    })
+
+    it('lists local rooms scoped to the authenticated self-host actor', async () => {
+        mocks.roomRepository.listRoomsByOwner.mockResolvedValue([
+            {
+                id: roomId,
+                slug: 'ops',
+                displayName: 'Ops',
+                status: 'running',
+                desiredState: 'running',
+            },
+        ])
+        mocks.roomRuntimeMetadataRepository.findByRoomId.mockResolvedValue({
+            port: 3001,
+            pid: 123,
+            healthStatus: 'healthy',
+            lastHealthAt: new Date('2026-05-20T10:00:00.000Z'),
+            lastError: null,
+        })
+        mocks.roomConfigRepository.getOrCreate.mockResolvedValue({
+            roomMode: 'coworker',
+        })
+
+        const { listRoomsWithRuntime } = await import('./runtime-snapshots')
+        const rooms = await listRoomsWithRuntime({
+            actorUserId: ' user-1 ',
+        })
+
+        expect(mocks.roomRepository.listRoomsByOwner).toHaveBeenCalledWith('user-1')
+        expect(mocks.roomRepository.listRooms).not.toHaveBeenCalled()
+        expect(rooms).toEqual([
+            expect.objectContaining({
+                roomId,
+                displayName: 'Ops',
+            }),
+        ])
+    })
+
+    it('fails closed when room listing has no authenticated actor', async () => {
+        const { listRoomsWithRuntime } = await import('./runtime-snapshots')
+
+        await expect(
+            listRoomsWithRuntime({
+                actorUserId: ' ',
+            }),
+        ).rejects.toThrow('Room listing requires an authenticated actor')
+
+        expect(mocks.roomRepository.listRoomsByOwner).not.toHaveBeenCalled()
+        expect(mocks.roomRepository.listRooms).not.toHaveBeenCalled()
     })
 })

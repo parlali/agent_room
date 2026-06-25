@@ -144,6 +144,28 @@ export function normalizeHtmlText(value: string): string {
     return value.replace(/\s+/g, ' ').trim()
 }
 
+export function publicHttpSearchResultFromUnknown(input: {
+    entry: unknown
+    index: number
+    engine: string
+    fetchedAt: string
+    snippet: (record: Record<string, unknown>) => string
+}): WebSearchResult | null {
+    if (!input.entry || typeof input.entry !== 'object') return null
+    const record = input.entry as Record<string, unknown>
+    const title = typeof record.title === 'string' ? normalizeHtmlText(record.title) : ''
+    const url = typeof record.url === 'string' ? record.url.trim() : ''
+    if (!title || !isPublicHttpUrl(url)) return null
+    return {
+        title,
+        url,
+        snippet: input.snippet(record),
+        engine: input.engine,
+        fetchedAt: input.fetchedAt,
+        rank: input.index + 1,
+    }
+}
+
 export function searchHeaders(format: 'json' | 'html'): HeadersInit {
     return {
         accept: format === 'json' ? 'application/json' : 'text/html',

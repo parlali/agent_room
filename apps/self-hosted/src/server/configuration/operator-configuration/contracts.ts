@@ -13,10 +13,13 @@ import type {
     SearchSafeSearch,
 } from '#/domain/domain-types'
 import {
+    capabilityIds,
+    imageProviderIds,
     mcpAuthModes,
     mcpTransports,
     roomModes,
     roomProviderModes,
+    searchSafeSearchValues,
     userRoomSecretPurposes,
 } from '#/domain/domain-types'
 import type { providerCatalog } from '../provider-config'
@@ -44,6 +47,45 @@ export const mcpSaveSchema = z.object({
     authMode: z.enum(mcpAuthModes).default('none'),
     bearerToken: z.string().optional(),
     allowedToolsText: z.string().optional(),
+})
+
+export const appDefaultsSaveSchema = z.object({
+    defaultProviderConnectionId: z.string().uuid().nullable(),
+    defaultModel: z.string().nullable(),
+    onboardingCompleted: z.boolean(),
+})
+
+export const appCapabilitySettingsSaveSchema = z.object({
+    capabilityDefaults: z.record(z.enum(capabilityIds), z.boolean()),
+    search: z
+        .object({
+            enabled: z.boolean(),
+            backendUrl: z.string().url(),
+            defaultResultCount: z.number().int().positive().max(20),
+            timeoutMs: z.number().int().positive().max(30000),
+            maxSearchesPerRun: z.number().int().positive().max(100),
+            brave: z.object({
+                enabled: z.boolean(),
+                country: z.string().nullable(),
+                searchLang: z.string().nullable(),
+                safeSearch: z.enum(searchSafeSearchValues),
+                timeoutMs: z.number().int().positive().max(30000),
+                resultCount: z.number().int().positive().max(20),
+                apiKey: z.string().optional(),
+            }),
+            browserbase: z.object({
+                enabled: z.boolean(),
+                timeoutMs: z.number().int().positive().max(30000),
+                resultCount: z.number().int().positive().max(20),
+                apiKey: z.string().optional(),
+            }),
+        })
+        .optional(),
+    image: z.object({
+        provider: z.enum(imageProviderIds).nullable(),
+        model: z.string().nullable(),
+        apiKey: z.string().optional(),
+    }),
 })
 
 export const roomConfigSaveSchema = z.object({
@@ -75,6 +117,8 @@ export const roomSecretSaveSchema = z.object({
 
 export type ProviderSaveInput = z.input<typeof providerSaveSchema>
 export type McpSaveInput = z.input<typeof mcpSaveSchema>
+export type AppDefaultsSaveInput = z.input<typeof appDefaultsSaveSchema>
+export type AppCapabilitySettingsSaveInput = z.input<typeof appCapabilitySettingsSaveSchema>
 export type RoomConfigSaveInput = z.input<typeof roomConfigSaveSchema>
 export type RoomSecretSaveInput = z.input<typeof roomSecretSaveSchema>
 

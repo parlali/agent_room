@@ -160,6 +160,7 @@ describe('provider connection workflows', () => {
             accountId: null,
             expiresAt: null,
             message: 'Codex app server login is missing',
+            requiresStoredCredential: false,
         }
         mocks.validateProviderConnection.mockReset()
         mocks.validateProviderConnection.mockResolvedValue({
@@ -220,6 +221,7 @@ describe('provider connection workflows', () => {
             accountId: 'account-1',
             expiresAt: '2026-06-11T01:00:00.000Z',
             message: 'Codex app server login is active',
+            requiresStoredCredential: false,
         }
         const { saveProviderConnection } = await import('./provider-connection-workflows')
 

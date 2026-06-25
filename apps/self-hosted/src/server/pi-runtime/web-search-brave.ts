@@ -1,8 +1,8 @@
 import {
     assertNonEmptyResults,
     fetchWithTimeout,
-    isPublicHttpUrl,
     normalizeHtmlText,
+    publicHttpSearchResultFromUnknown,
     readResponseJsonWithTimeout,
     remainingTimeoutMs,
     responseError,
@@ -58,6 +58,15 @@ function buildBraveSearchUrl(input: SearchProviderSearchInput): URL {
     return url
 }
 
+function braveSearchHeaders(apiKey: string): Record<string, string> {
+    return {
+        accept: 'application/json',
+        'accept-language': 'en-US,en;q=0.9',
+        'user-agent': 'AgentRoom/1.0',
+        'x-subscription-token': apiKey,
+    }
+}
+
 export class BraveSearchProvider implements SearchProvider {
     id = 'brave' as const
     label = 'Brave Search'
@@ -65,7 +74,11 @@ export class BraveSearchProvider implements SearchProvider {
 
     isConfigured(config: SearchRuntimeConfigScope): boolean {
         const envKey = config.search.brave.envKey
-        return config.search.brave.enabled && Boolean(envKey && process.env[envKey])
+        return (
+            config.search.enabled &&
+            config.search.brave.enabled &&
+            Boolean(envKey && process.env[envKey])
+        )
     }
 
     async search(input: SearchProviderSearchInput): Promise<SearchProviderResponse> {
@@ -87,12 +100,7 @@ export class BraveSearchProvider implements SearchProvider {
             signal: input.signal,
             url: buildBraveSearchUrl(input),
             init: {
-                headers: {
-                    accept: 'application/json',
-                    'accept-language': 'en-US,en;q=0.9',
-                    'user-agent': 'AgentRoom/1.0',
-                    'x-subscription-token': apiKey,
-                },
+                headers: braveSearchHeaders(apiKey),
             },
         })
         if (!response.ok) {
@@ -131,28 +139,26 @@ export function parseBraveSearchResults(value: unknown, fetchedAt: string): WebS
             : null
     if (!Array.isArray(results)) return []
     return results
-        .map((entry, index): WebSearchResult | null => {
-            if (!entry || typeof entry !== 'object') return null
-            const record = entry as Record<string, unknown>
-            const title = typeof record.title === 'string' ? normalizeHtmlText(record.title) : ''
-            const url = typeof record.url === 'string' ? record.url.trim() : ''
-            if (!title || !isPublicHttpUrl(url)) return null
-            const snippets = [
-                typeof record.description === 'string' ? record.description : '',
-                ...(Array.isArray(record.extra_snippets)
-                    ? record.extra_snippets.filter(
-                          (snippet): snippet is string => typeof snippet === 'string',
-                      )
-                    : []),
-            ].filter((snippet) => snippet.trim().length > 0)
-            return {
-                title,
-                url,
-                snippet: normalizeHtmlText(snippets.join(' ')),
+        .map((entry, index) =>
+            publicHttpSearchResultFromUnknown({
+                entry,
+                index,
                 engine: 'brave',
                 fetchedAt,
-                rank: index + 1,
-            }
-        })
+                snippet: braveSnippet,
+            }),
+        )
         .filter((entry): entry is WebSearchResult => entry !== null)
+}
+
+function braveSnippet(record: Record<string, unknown>): string {
+    const snippets = [
+        typeof record.description === 'string' ? record.description : '',
+        ...(Array.isArray(record.extra_snippets)
+            ? record.extra_snippets.filter(
+                  (snippet): snippet is string => typeof snippet === 'string',
+              )
+            : []),
+    ].filter((snippet) => snippet.trim().length > 0)
+    return normalizeHtmlText(snippets.join(' '))
 }

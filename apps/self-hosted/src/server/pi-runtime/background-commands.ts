@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { createHostedRuntimeStateSync } from './hosted-runtime-state-sync'
 import {
     buildBoundedProcessEnv,
     shellVisibleStoreDirEnvKey,
@@ -129,6 +130,7 @@ async function writeRecords(
         },
     )
     await rename(tempPath, path)
+    await createHostedRuntimeStateSync(config).upsert(path)
 }
 
 async function persistRecord(config: PiRuntimeConfig, record: BackgroundCommandRecord) {

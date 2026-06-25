@@ -39,6 +39,13 @@ export class SearchRouter {
             audit?: SearchAudit
         },
     ): Promise<RoutedWebSearchResponse> {
+        if (!input.config.search.enabled) {
+            throw new SearchProviderError({
+                code: 'misconfigured',
+                providerId: null,
+                message: 'Web search is disabled for this runtime',
+            })
+        }
         const runKey = searchRunKey(input.config)
         this.pruneState()
         const dedupeKey = searchDedupeKey(runKey, input)

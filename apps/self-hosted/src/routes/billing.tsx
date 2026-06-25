@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import {
     CreditCardIcon,
     GaugeIcon,
@@ -6,6 +7,7 @@ import {
     ShieldCheckIcon,
     WalletCardsIcon,
 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { EmptyState, PageHeader, Section } from '#/components/agent-room'
 import { Badge } from '#/components/ui/badge'
@@ -18,6 +20,34 @@ interface PlaceholderPlan {
     monthlyCents: number
     includedCents: number
     summary: string
+}
+
+interface HostedBillingPlan {
+    key: string
+    monthlyCents: number
+    includedCents: number
+}
+
+interface HostedBillingSummary {
+    account: {
+        planKey: string
+        planStatus: string
+        includedBalanceCents: number
+        purchasedBalanceCents: number
+        reservedBalanceCents: number
+        availableBalanceCents: number
+    }
+    plans: HostedBillingPlan[]
+    usage: Array<{
+        id: string
+        provider: 'openrouter' | 'brave'
+        model: string | null
+        costMicros: number
+        billingStatus: string
+        createdAt: string
+    }>
+    remainingUsageCents: number
+    providerPriority: string[]
 }
 
 const placeholderPlans: PlaceholderPlan[] = [
@@ -57,11 +87,67 @@ function formatUsd(cents: number): string {
 }
 
 function BillingPage() {
+    const billingQuery = useQuery<HostedBillingSummary | null>({
+        queryKey: ['hosted-billing'],
+        retry: false,
+        queryFn: async () => {
+            const response = await fetch('/api/hosted/billing', {
+                headers: {
+                    accept: 'application/json',
+                },
+            })
+            if (!response.ok) {
+                return null
+            }
+            const payload = (await response.json()) as unknown
+            return payload && typeof payload === 'object' ? (payload as HostedBillingSummary) : null
+        },
+    })
+    const checkoutMutation = useMutation({
+        mutationFn: async (
+            input: { kind: 'subscription'; planKey: string } | { kind: 'credit_topup' },
+        ) => {
+            const response = await fetch('/api/hosted/billing/checkout', {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                },
+                body: JSON.stringify(input),
+            })
+            const payload = (await response.json()) as {
+                checkout?: { url?: string }
+                message?: string
+            }
+            if (!response.ok || typeof payload.checkout?.url !== 'string') {
+                throw new Error(payload.message ?? 'Checkout is not available')
+            }
+            return payload.checkout.url
+        },
+        onSuccess: (url) => {
+            window.location.href = url
+        },
+        onError: (error) => {
+            toast.error(error instanceof Error ? error.message : 'Checkout is not available')
+        },
+    })
+    const hosted = billingQuery.data
+    const livePlans = hosted?.plans.map((plan) => ({
+        key: plan.key,
+        name: plan.key,
+        monthlyCents: plan.monthlyCents,
+        includedCents: plan.includedCents,
+        summary:
+            plan.includedCents > 0
+                ? 'Includes monthly managed OpenRouter and Brave usage.'
+                : 'Bring your own provider keys. No included hosted usage.',
+    }))
+    const plans = livePlans?.length ? livePlans : placeholderPlans
+
     return (
         <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
             <PageHeader
                 title="Billing"
-                subtitle="Hosted billing uses placeholder pricing until plans are finalized. Values shown here are illustrative."
+                subtitle="Managed OpenRouter and Brave usage draws included credits first, then purchased credits."
             />
 
             <Section
@@ -69,8 +155,19 @@ function BillingPage() {
                 description="Placeholder tiers. Final pricing and included usage are configured in the hosted deployment."
             >
                 <div className="grid gap-3 sm:grid-cols-3">
-                    {placeholderPlans.map((plan) => (
-                        <PlanCard key={plan.key} plan={plan} />
+                    {plans.map((plan) => (
+                        <PlanCard
+                            key={plan.key}
+                            plan={plan}
+                            active={hosted?.account.planKey === plan.key}
+                            hosted={Boolean(hosted)}
+                            onSubscribe={() =>
+                                checkoutMutation.mutate({
+                                    kind: 'subscription',
+                                    planKey: plan.key,
+                                })
+                            }
+                        />
                     ))}
                 </div>
                 <div className="mt-4 rounded-lg border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">
@@ -85,16 +182,41 @@ function BillingPage() {
                 <Section
                     title="Remaining usage"
                     description="In hosted deployments this shows included usage plus purchased credits still available."
-                    actions={<Badge variant="outline">Not connected locally</Badge>}
+                    actions={
+                        <Badge variant="outline">
+                            {hosted ? hosted.account.planStatus : 'Self-hosted'}
+                        </Badge>
+                    }
                 >
                     <BillingMetric
                         icon={GaugeIcon}
-                        label="Remaining usage placeholder"
-                        value="Not connected locally"
+                        label="Available usage"
+                        value={hosted ? formatUsd(hosted.remainingUsageCents) : 'Not connected'}
                     />
+                    {hosted ? (
+                        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                            <BillingMetric
+                                icon={WalletCardsIcon}
+                                label="Included"
+                                value={formatUsd(hosted.account.includedBalanceCents)}
+                            />
+                            <BillingMetric
+                                icon={CreditCardIcon}
+                                label="Purchased"
+                                value={formatUsd(hosted.account.purchasedBalanceCents)}
+                            />
+                            <BillingMetric
+                                icon={ShieldCheckIcon}
+                                label="Reserved"
+                                value={formatUsd(hosted.account.reservedBalanceCents)}
+                            />
+                        </div>
+                    ) : null}
                     <div className="mt-4 rounded-lg border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">
-                        Live remaining usage appears here from the hosted billing endpoint once a
-                        hosted deployment is connected.
+                        Provider priority is{' '}
+                        {hosted?.providerPriority.join(', ') ??
+                            'user key, Codex, hosted OpenRouter'}
+                        .
                     </div>
                 </Section>
 
@@ -118,7 +240,7 @@ function BillingPage() {
                                     BYO providers stay available
                                 </div>
                                 <p className="mt-0.5 text-sm text-muted-foreground">
-                                    Provider priority remains Codex, user key, then hosted
+                                    Provider priority remains user key, Codex, then hosted
                                     OpenRouter when balance is available.
                                 </p>
                             </div>
@@ -131,18 +253,37 @@ function BillingPage() {
                 <Section
                     title="Hosted balance"
                     description="Live balance appears here in hosted deployments."
-                    actions={<Badge variant="outline">Not connected locally</Badge>}
+                    actions={
+                        <Badge variant="outline">
+                            {hosted ? hosted.account.planKey : 'Not connected locally'}
+                        </Badge>
+                    }
                 >
                     <EmptyState
                         icon={WalletCardsIcon}
-                        title="No hosted billing account in this environment"
-                        description="Self-hosted deployments can keep billing disabled or provide their own implementation behind the hosted billing contract."
+                        title={
+                            hosted
+                                ? 'Hosted billing account'
+                                : 'No hosted billing account in this environment'
+                        }
+                        description={
+                            hosted
+                                ? 'Use top-ups when included usage runs low.'
+                                : 'Hosted billing is available after the Cloudflare hosted deployment is configured.'
+                        }
                         action={
                             <div className="flex flex-wrap justify-center gap-2">
-                                <Button variant="outline" disabled>
+                                <Button variant="outline" disabled={!hosted}>
                                     Manage subscription
                                 </Button>
-                                <Button disabled>Buy credits</Button>
+                                <Button
+                                    disabled={!hosted || checkoutMutation.isPending}
+                                    onClick={() =>
+                                        checkoutMutation.mutate({ kind: 'credit_topup' })
+                                    }
+                                >
+                                    Buy credits
+                                </Button>
                             </div>
                         }
                     />
@@ -152,18 +293,52 @@ function BillingPage() {
                     title="Recent billable usage"
                     description="Hosted usage is billed at a managed rate; BYO providers pay provider cost directly."
                 >
-                    <EmptyState
-                        icon={CreditCardIcon}
-                        title="No hosted billable usage"
-                        description="Hosted provider usage will appear here after the hosted route layer is enabled for this deployment."
-                    />
+                    {hosted?.usage.length ? (
+                        <div className="divide-y rounded-lg border border-border/70">
+                            {hosted.usage.slice(0, 8).map((event) => (
+                                <div
+                                    key={event.id}
+                                    className="flex items-center justify-between gap-3 p-3 text-sm"
+                                >
+                                    <div>
+                                        <div className="font-medium">
+                                            {event.provider} {event.model ?? ''}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">
+                                            {new Date(event.createdAt).toLocaleString()} ·{' '}
+                                            {event.billingStatus}
+                                        </div>
+                                    </div>
+                                    <div className="font-medium">
+                                        {formatUsd(Math.ceil(event.costMicros / 10000))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <EmptyState
+                            icon={CreditCardIcon}
+                            title="No hosted billable usage"
+                            description="Managed OpenRouter and Brave usage will appear here after runs complete."
+                        />
+                    )}
                 </Section>
             </div>
         </div>
     )
 }
 
-function PlanCard({ plan }: { plan: PlaceholderPlan }) {
+function PlanCard({
+    plan,
+    active,
+    hosted,
+    onSubscribe,
+}: {
+    plan: PlaceholderPlan
+    active: boolean
+    hosted: boolean
+    onSubscribe: () => void
+}) {
     const includedLabel =
         plan.includedCents > 0
             ? `${formatUsd(plan.includedCents)} included usage / month`
@@ -172,7 +347,9 @@ function PlanCard({ plan }: { plan: PlaceholderPlan }) {
         <div className="flex flex-col rounded-lg border border-border/70 bg-background p-4">
             <div className="flex items-center justify-between gap-2">
                 <div className="text-sm font-medium">{plan.name}</div>
-                <Badge variant="outline">Placeholder</Badge>
+                <Badge variant="outline">
+                    {active ? 'Current' : hosted ? 'Hosted' : 'Preview'}
+                </Badge>
             </div>
             <div className="mt-2 text-2xl font-semibold tracking-tight">
                 {formatUsd(plan.monthlyCents)}
@@ -181,8 +358,13 @@ function PlanCard({ plan }: { plan: PlaceholderPlan }) {
             <div className="mt-1 text-xs font-medium text-muted-foreground">{includedLabel}</div>
             <p className="mt-2 text-sm text-muted-foreground">{plan.summary}</p>
             <div className="mt-3">
-                <Button variant="outline" disabled className="w-full">
-                    Not connected locally
+                <Button
+                    variant="outline"
+                    disabled={!hosted || active}
+                    className="w-full"
+                    onClick={onSubscribe}
+                >
+                    {active ? 'Current plan' : hosted ? 'Subscribe' : 'Not connected locally'}
                 </Button>
             </div>
         </div>

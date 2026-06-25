@@ -216,8 +216,8 @@ export async function getRoomConfigSnapshot(roomId: string): Promise<RoomConfigS
             githubBinding,
             mcpConnections,
         }),
-        providers: providers.map(summarizeProvider),
-        mcpConnections: mcpConnections.map(summarizeMcp),
+        providers: providers.map((provider) => summarizeProvider(provider)),
+        mcpConnections: mcpConnections.map((connection) => summarizeMcp(connection)),
         github,
         roomSecrets: roomSecrets.map((secret) => ({
             id: secret.id,

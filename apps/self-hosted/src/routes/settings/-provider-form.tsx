@@ -23,6 +23,7 @@ export function ProviderForm({
     onCancel,
     pending,
     providerCatalog,
+    allowOAuthCredential,
 }: {
     form: ProviderFormState
     setForm: (patch: Partial<ProviderFormState>) => void
@@ -30,9 +31,11 @@ export function ProviderForm({
     onCancel: () => void
     pending: boolean
     providerCatalog: OperatorConfigSnapshot['providerCatalog']
+    allowOAuthCredential?: boolean
 }) {
     const protocol = resolveProviderFormProtocol(form, providerCatalog)
     const usesOAuth = protocol.authMode === 'oauth' || protocol.api === 'openai-codex-responses'
+    const credentialFieldEnabled = !usesOAuth || allowOAuthCredential === true
     const providerOptions = providerCatalog.map((entry) => ({
         value: entry.provider,
         label: entry.label,
@@ -90,15 +93,9 @@ export function ProviderForm({
                 placeholder="provider/model, provider/model"
                 hint="Comma separated. Used in order if the default fails."
             />
-            {usesOAuth ? (
-                <AttentionBanner
-                    tone="info"
-                    title="OpenAI token verification"
-                    description="Use the Codex app server authorization section in app settings to generate and verify the OpenAI code."
-                />
-            ) : (
+            {credentialFieldEnabled ? (
                 <MaskedSecretField
-                    label="API key"
+                    label={usesOAuth ? 'Codex auth JSON' : 'API key'}
                     id="provider-api-key"
                     hasCredential={form.hasCredential}
                     replace={form.replaceApiKey}
@@ -107,7 +104,13 @@ export function ProviderForm({
                     }
                     value={form.apiKey}
                     onChange={(apiKey) => setForm({ apiKey })}
-                    placeholder="sk-..."
+                    placeholder={usesOAuth ? '{"openai-codex":{...}}' : 'sk-...'}
+                />
+            ) : (
+                <AttentionBanner
+                    tone="info"
+                    title="OpenAI token verification"
+                    description="Use the Codex app server authorization section in app settings to generate and verify the OpenAI code."
                 />
             )}
             <label className="flex items-start justify-between gap-3 rounded-lg border border-border/60 px-3 py-2.5">

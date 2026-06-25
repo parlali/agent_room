@@ -1,4 +1,6 @@
 export type {
+    AppCapabilitySettingsSaveInput,
+    AppDefaultsSaveInput,
     AppSettingsSummary,
     GitHubAppSummary,
     GitHubInstallationSummary,

@@ -2,7 +2,6 @@ import { z } from 'zod'
 
 export const hostedConfigValues = {
     authMode: 'better-auth',
-    billingMode: 'stripe',
     runtimeBackend: 'cloudflare-containers',
     runtimeStorage: 'r2',
 } as const
@@ -10,20 +9,19 @@ export const hostedConfigValues = {
 export const hostedRequiredSecretNames = [
     'BETTER_AUTH_SECRET',
     'BETTER_AUTH_URL',
-    'AGENT_ROOM_EMAIL_WEBHOOK_URL',
-    'AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN',
-    'AGENT_ROOM_EMAIL_FROM',
-] as const
-
-export const hostedOptionalSecretNames = [
-    'GOOGLE_CLIENT_ID',
-    'GOOGLE_CLIENT_SECRET',
+    'AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64',
+    'AGENT_ROOM_BILLING_PLANS',
     'STRIPE_SECRET_KEY',
     'STRIPE_WEBHOOK_SECRET',
     'STRIPE_CREDIT_TOPUP_PRICE_ID',
+    'AGENT_ROOM_EMAIL_WEBHOOK_URL',
+    'AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN',
+    'AGENT_ROOM_EMAIL_FROM',
     'AGENT_ROOM_HOSTED_OPENROUTER_API_KEY',
     'AGENT_ROOM_HOSTED_BRAVE_API_KEY',
 ] as const
+
+export const hostedOptionalSecretNames = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'] as const
 
 export const hostedSecretNames = [
     ...hostedRequiredSecretNames,
@@ -37,6 +35,28 @@ const optionalSecretSchema = z
     .trim()
     .optional()
     .transform((value) => (value ? value : undefined))
+
+const hostedEncryptionKeySchema = z
+    .string()
+    .trim()
+    .superRefine((value, context) => {
+        let byteLength = 0
+        try {
+            byteLength = atob(value).length
+        } catch {
+            context.addIssue({
+                code: 'custom',
+                message: 'AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64 must be valid base64',
+            })
+            return
+        }
+        if (byteLength !== 32) {
+            context.addIssue({
+                code: 'custom',
+                message: 'AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64 must decode to 32 bytes',
+            })
+        }
+    })
 
 const hostedBillingPlanSchema = z
     .object({
@@ -68,7 +88,7 @@ const hostedBillingPlansSchema = z
             return z.NEVER
         }
     })
-    .pipe(z.array(hostedBillingPlanSchema))
+    .pipe(z.array(hostedBillingPlanSchema).min(1, 'At least one billing plan is required'))
     .superRefine((plans, context) => {
         const keys = new Set<string>()
         for (const plan of plans) {
@@ -85,7 +105,6 @@ const hostedBillingPlansSchema = z
 export const hostedConfigSchema = z
     .object({
         AGENT_ROOM_AUTH_MODE: z.literal(hostedConfigValues.authMode),
-        AGENT_ROOM_BILLING_MODE: z.enum(['disabled', hostedConfigValues.billingMode]),
         AGENT_ROOM_BILLING_PLANS: hostedBillingPlansSchema,
         AGENT_ROOM_BILLING_USAGE_MARKUP_BPS: z.coerce.number().int().min(10000),
         AGENT_ROOM_BILLING_TAX_MODE: z.enum(['none', 'automatic']),
@@ -97,13 +116,14 @@ export const hostedConfigSchema = z
             .string()
             .trim()
             .url({ protocol: /^https$/ }),
+        AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64: hostedEncryptionKeySchema,
         GOOGLE_CLIENT_ID: optionalSecretSchema,
         GOOGLE_CLIENT_SECRET: optionalSecretSchema,
-        STRIPE_SECRET_KEY: optionalSecretSchema,
-        STRIPE_WEBHOOK_SECRET: optionalSecretSchema,
-        STRIPE_CREDIT_TOPUP_PRICE_ID: optionalSecretSchema,
-        AGENT_ROOM_HOSTED_OPENROUTER_API_KEY: optionalSecretSchema,
-        AGENT_ROOM_HOSTED_BRAVE_API_KEY: optionalSecretSchema,
+        STRIPE_SECRET_KEY: z.string().trim().min(1),
+        STRIPE_WEBHOOK_SECRET: z.string().trim().min(1),
+        STRIPE_CREDIT_TOPUP_PRICE_ID: z.string().trim().min(1),
+        AGENT_ROOM_HOSTED_OPENROUTER_API_KEY: z.string().trim().min(1),
+        AGENT_ROOM_HOSTED_BRAVE_API_KEY: z.string().trim().min(1),
         AGENT_ROOM_EMAIL_WEBHOOK_URL: z
             .string()
             .trim()
@@ -121,27 +141,5 @@ export const hostedConfigSchema = z
                 path: [missingSecret],
                 message: `${missingSecret} is required when Google OAuth is enabled`,
             })
-        }
-        if (data.AGENT_ROOM_BILLING_MODE === hostedConfigValues.billingMode) {
-            for (const name of [
-                'STRIPE_SECRET_KEY',
-                'STRIPE_WEBHOOK_SECRET',
-                'STRIPE_CREDIT_TOPUP_PRICE_ID',
-            ] as const) {
-                if (!data[name]) {
-                    context.addIssue({
-                        code: 'custom',
-                        path: [name],
-                        message: `${name} is required when Stripe billing is enabled`,
-                    })
-                }
-            }
-            if (data.AGENT_ROOM_BILLING_PLANS.length < 1) {
-                context.addIssue({
-                    code: 'custom',
-                    path: ['AGENT_ROOM_BILLING_PLANS'],
-                    message: 'At least one billing plan is required when Stripe billing is enabled',
-                })
-            }
         }
     })

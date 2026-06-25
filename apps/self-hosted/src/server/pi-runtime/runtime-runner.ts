@@ -1,6 +1,7 @@
 import type { AgentSession } from '@mariozechner/pi-coding-agent'
 import type { AssistantMessage, Usage } from '@mariozechner/pi-ai'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { hostedRuntimeManagedOpenRouterEnvKey } from '../rooms/pi-runtime-contract'
 import {
     appendHiddenProjectionForLatestUserMessage,
     appendHiddenProjectionForPromptText,
@@ -23,7 +24,18 @@ import {
     type RunHeartbeatRecord,
     type RunKind,
 } from './run-budget'
-import { sessionModelCostKnown, sessionUsageDelta, sessionUsageSnapshot } from './session-usage'
+import {
+    hostedProviderReservationCollectionFromError,
+    hostedProviderUsageChargeCostMicros,
+    withHostedProviderReservationCollection,
+    type HostedProviderUsageCharge,
+} from './hosted-provider-reservation-context'
+import {
+    runUsageDeltaWithActualCostMicros,
+    sessionModelCostKnown,
+    sessionUsageDelta,
+    sessionUsageSnapshot,
+} from './session-usage'
 import {
     memoryCaptureExpectationReasons,
     memoryWasCaptured,
@@ -46,6 +58,12 @@ const zeroUsage: Usage = {
     },
 }
 
+function runtimeModelCostKnown(session: AgentSession): boolean {
+    return process.env[hostedRuntimeManagedOpenRouterEnvKey] === '1'
+        ? false
+        : sessionModelCostKnown(session)
+}
+
 export interface ActiveThread {
     session: AgentSession
     unsubscribe: (() => void) | null
@@ -60,6 +78,7 @@ export interface RunPromptInput {
     runId: string
     awaitCompletion: boolean
     runKind?: RunKind
+    jobId?: string | null
     editMessageId?: string | null
     hideUserMessage?: boolean
 }
@@ -264,6 +283,9 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
             let branchLengthBeforePrompt = 0
             let memoryHashBeforeRun: string | null = null
             let editLeafBeforeNavigation: string | null | undefined
+            const abortController = new AbortController()
+            let hostedProviderReservationIds: string[] = []
+            let hostedProviderUsageCharges: HostedProviderUsageCharge[] = []
             await dependencies.refreshSystemPrompt(dependencies.activeThreads.get(input.record.key))
             const active = await dependencies.getActiveThread(input.record)
             try {
@@ -298,10 +320,31 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                 const skipPrePromptCompaction =
                     input.editMessageId && isSessionCompactionLeaf(active.session.sessionManager)
                 if (!skipPrePromptCompaction) {
-                    await dependencies.compactOversizedThreadContext({
-                        record: input.record,
-                        active,
-                    })
+                    await withToolRunContext(
+                        {
+                            sessionKey: input.record.key,
+                            runId: input.runId,
+                            jobId: input.jobId ?? null,
+                            signal: abortController.signal,
+                        },
+                        async () => {
+                            const compactionResult = await withHostedProviderReservationCollection(
+                                async () =>
+                                    dependencies.compactOversizedThreadContext({
+                                        record: input.record,
+                                        active,
+                                    }),
+                            )
+                            hostedProviderReservationIds = [
+                                ...hostedProviderReservationIds,
+                                ...compactionResult.reservationIds,
+                            ]
+                            hostedProviderUsageCharges = [
+                                ...hostedProviderUsageCharges,
+                                ...compactionResult.usageCharges,
+                            ]
+                        },
+                    )
                 }
                 preparedPrompt = await preparePromptWithAttachments({
                     config: dependencies.config,
@@ -344,7 +387,6 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                 })
                 return
             }
-            const abortController = new AbortController()
             active.abortController = abortController
             const touch = async (reason: string) => {
                 const previousHeartbeatAt = heartbeat.heartbeatAt
@@ -422,6 +464,7 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                     {
                         sessionKey: input.record.key,
                         runId: input.runId,
+                        jobId: input.jobId ?? null,
                         signal: abortController.signal,
                     },
                     async () => {
@@ -440,23 +483,28 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                         if (input.hideUserMessage) {
                             appendHiddenProjectionForPromptText(active.session, preparedPrompt.text)
                         }
-                        const promptResult = await active.session.prompt(
-                            preparedPrompt.text,
-                            active.session.isStreaming
-                                ? {
-                                      streamingBehavior: 'followUp',
-                                      source: 'rpc',
-                                      images: preparedPrompt.images,
-                                  }
-                                : {
-                                      source: 'rpc',
-                                      images: preparedPrompt.images,
-                                  },
+                        const promptResult = await withHostedProviderReservationCollection(
+                            async () =>
+                                active.session.prompt(
+                                    preparedPrompt.text,
+                                    active.session.isStreaming
+                                        ? {
+                                              streamingBehavior: 'followUp',
+                                              source: 'rpc',
+                                              images: preparedPrompt.images,
+                                          }
+                                        : {
+                                              source: 'rpc',
+                                              images: preparedPrompt.images,
+                                          },
+                                ),
                         )
+                        hostedProviderReservationIds = promptResult.reservationIds
+                        hostedProviderUsageCharges = promptResult.usageCharges
                         if (input.hideUserMessage) {
                             appendHiddenProjectionForLatestUserMessage(active.session)
                         }
-                        return promptResult
+                        return promptResult.result
                     },
                 )
                 if (watchdogError) {
@@ -466,6 +514,11 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                 input.record.status = latestError ? 'error' : 'idle'
                 input.record.lastError = latestError
             } catch (error) {
+                const hostedProviderCollection = hostedProviderReservationCollectionFromError(error)
+                if (hostedProviderCollection) {
+                    hostedProviderReservationIds = hostedProviderCollection.reservationIds
+                    hostedProviderUsageCharges = hostedProviderCollection.usageCharges
+                }
                 const abortReason =
                     abortController.signal.reason instanceof RunWatchdog
                         ? abortController.signal.reason
@@ -518,10 +571,13 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                 input.record.idleDurationMs = idleDurationMs
                 dependencies.updateThreadFromMessages(input.record)
                 await dependencies.persistThreadIndex()
-                const usage = sessionUsageDelta(
-                    usageBefore,
-                    sessionUsageSnapshot(active.session),
-                    sessionModelCostKnown(active.session),
+                const usage = runUsageDeltaWithActualCostMicros(
+                    sessionUsageDelta(
+                        usageBefore,
+                        sessionUsageSnapshot(active.session),
+                        runtimeModelCostKnown(active.session),
+                    ),
+                    hostedProviderUsageChargeCostMicros(hostedProviderUsageCharges),
                 )
                 const toolActivity = summarizeRunToolActivity(
                     active.session.sessionManager.getBranch().slice(branchLengthBeforePrompt),
@@ -529,6 +585,7 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                 await dependencies.appendRuntimeEvent('run.finished', {
                     sessionKey: input.record.key,
                     runId: input.runId,
+                    jobId: input.jobId ?? null,
                     runKind,
                     status: input.record.status,
                     error: input.record.lastError,
@@ -538,6 +595,12 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                     activeDurationMs,
                     idleDurationMs,
                     usage,
+                    ...(hostedProviderReservationIds.length > 0
+                        ? { hostedProviderReservationIds }
+                        : {}),
+                    ...(hostedProviderUsageCharges.length > 0
+                        ? { hostedProviderUsageCharges }
+                        : {}),
                     startedAt: new Date(runStartedAt).toISOString(),
                     finishedAt: new Date(finishedAt).toISOString(),
                 })
@@ -604,6 +667,7 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
             await dependencies.appendRuntimeEvent('thread.pending_messages_changed', {
                 sessionKey: input.record.key,
                 runId: input.runId,
+                jobId: input.jobId ?? null,
                 pendingCount: input.record.pendingUserMessages?.length ?? 0,
             })
             dependencies.broadcast(input.record.key, 'thread.pending_messages_changed', {

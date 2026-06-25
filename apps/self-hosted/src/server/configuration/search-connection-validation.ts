@@ -1,24 +1,20 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { JsonValue, SearchProviderId } from '#/domain/domain-types'
+import type { JsonValue } from '#/domain/domain-types'
 import { getAppEnv } from '../config/env'
-import { SearchProviderError, type SearchProvider } from '../pi-runtime/web-search'
-import { BraveSearchProvider } from '../pi-runtime/web-search-brave'
-import { BrowserbaseSearchProvider } from '../pi-runtime/web-search-browserbase'
+import {
+    type ValidatedWebSearchProviderId,
+    withIsolatedWebSearchProviderEnv,
+    validateWebSearchRuntimeProviders,
+} from '../pi-runtime/web-search-validation'
+import { searchProviderEnvKey } from './capabilities'
 import { boundedMessage, sanitizeOutput } from './connection-validation-model'
 import { materializeSearchConfig } from './operator-configuration/materialization'
 
-type ValidatedSearchProviderId = Exclude<SearchProviderId, 'searxng'>
-
-const validationProviders: Record<ValidatedSearchProviderId, SearchProvider> = {
-    brave: new BraveSearchProvider(),
-    browserbase: new BrowserbaseSearchProvider(),
-}
-
 export async function validateMaterializedSearchProviders(input: {
     searchConfig: JsonValue
-    providers: ValidatedSearchProviderId[]
+    providers: ValidatedWebSearchProviderId[]
 }): Promise<void> {
     if (input.providers.length === 0) return
 
@@ -35,50 +31,60 @@ export async function validateMaterializedSearchProviders(input: {
         runtimeSecretsDir,
         encryptionKey: env.encryptionKey,
     })
-    const previousEnv = new Map<string, string | undefined>()
+    const isolatedEnvKeys = new Set([
+        ...input.providers.map((providerId) => searchProviderEnvKey(providerId)),
+        ...Object.keys(materialized.entitlements.env),
+    ])
 
     try {
-        for (const [key, value] of Object.entries(materialized.entitlements.env)) {
-            previousEnv.set(key, process.env[key])
-            process.env[key] = value
-        }
+        const selectedProviders = new Set(input.providers)
         const config = {
             runtime: {
                 roomId: 'search-validation',
             },
-            search: materialized.search,
+            search: {
+                ...materialized.search,
+                enabled: true,
+                brave: {
+                    ...materialized.search.brave,
+                    enabled: selectedProviders.has('brave') || materialized.search.brave.enabled,
+                },
+                browserbase: {
+                    ...materialized.search.browserbase,
+                    enabled:
+                        selectedProviders.has('browserbase') ||
+                        materialized.search.browserbase.enabled,
+                },
+            },
         }
-        for (const providerId of input.providers) {
-            const provider = validationProviders[providerId]
-            if (!provider.isConfigured(config)) {
-                throw new Error(`${provider.label} credential was not materialized`)
-            }
-            try {
-                await provider.search({
-                    config,
-                    query: 'agent room search validation',
-                    count: 1,
-                })
-            } catch (error) {
-                const message =
-                    error instanceof SearchProviderError || error instanceof Error
-                        ? error.message
-                        : `${provider.label} validation failed`
-                throw new Error(
-                    `${provider.label} validation failed: ${boundedMessage(
-                        sanitizeOutput(message, Object.values(materialized.entitlements.env)),
-                    )}`,
-                )
-            }
-        }
+        await withIsolatedWebSearchProviderEnv({
+            isolatedEnvKeys,
+            env: materialized.entitlements.env,
+            run: async () => {
+                for (const providerId of input.providers) {
+                    try {
+                        await validateWebSearchRuntimeProviders({
+                            config,
+                            providers: [providerId],
+                        })
+                    } catch (error) {
+                        const message =
+                            error instanceof Error
+                                ? error.message
+                                : 'Search provider validation failed'
+                        throw new Error(
+                            boundedMessage(
+                                sanitizeOutput(
+                                    message,
+                                    Object.values(materialized.entitlements.env),
+                                ),
+                            ),
+                        )
+                    }
+                }
+            },
+        })
     } finally {
-        for (const [key, value] of previousEnv) {
-            if (value === undefined) {
-                delete process.env[key]
-            } else {
-                process.env[key] = value
-            }
-        }
         await rm(tempDir, {
             force: true,
             recursive: true,

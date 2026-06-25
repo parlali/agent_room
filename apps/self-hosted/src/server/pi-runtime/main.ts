@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { readFile, rm } from 'node:fs/promises'
+import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import { createServer } from 'node:http'
 import {
     SessionManager,
@@ -31,6 +32,7 @@ import {
 import { timeoutMessage, RunWatchdog } from './run-budget'
 import { cleanupBackgroundCommands } from './background-commands'
 import { createRuntimeRedactor } from './runtime-redaction'
+import { createHostedRuntimeStateSync } from './hosted-runtime-state-sync'
 import { readJsonFile, writeJsonFile } from './runtime-files'
 import { ensureRuntimeLayout } from './runtime-layout'
 import { sendError } from './runtime-http'
@@ -57,7 +59,7 @@ import { createRuntimeEventBus } from './runtime-event-bus'
 import { buildRuntimeSnapshot, mapThread } from './runtime-snapshot'
 import { createSessionWindowStore } from './session-display-window'
 import { createPiRuntimeRouter } from './pi-runtime-router'
-import { createRuntimeEventAppender } from './runtime-event-log'
+import { createRuntimeEventAppender, drainPendingHostedRuntimeUsage } from './runtime-event-log'
 import { createRuntimeRunPrompt, type ActiveThread } from './runtime-runner'
 import { createRuntimeModelState } from './runtime-model-state'
 import { cleanManualThreadTitle, createThreadTitleGenerator } from './runtime-title-generator'
@@ -65,15 +67,74 @@ import { promptAttachmentMetadataByEntryId } from './prompt-attachments'
 import { createSessionEventQueue } from './session-event-queue'
 import { removeDeliveredPendingUserMessage } from './pending-user-messages'
 import { visibleProjectionEntries } from './hidden-projection'
+import { piRuntimeFileBundleEnvKey } from '../rooms/pi-runtime-contract'
 
 const configPath = process.env.AGENT_ROOM_PI_RUNTIME_CONFIG_PATH
 if (!configPath) {
     throw new Error('AGENT_ROOM_PI_RUNTIME_CONFIG_PATH is required')
 }
 
+interface RuntimeFileBundleEntry {
+    path: string
+    contentBase64: string
+    mode?: number
+}
+
+function decodeFileBundle(): RuntimeFileBundleEntry[] {
+    const raw = process.env[piRuntimeFileBundleEnvKey]
+    if (!raw) {
+        return []
+    }
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown
+    if (!Array.isArray(parsed)) {
+        throw new Error('Runtime file bundle must be an array')
+    }
+    return parsed.map((entry) => {
+        if (!entry || typeof entry !== 'object') {
+            throw new Error('Runtime file bundle entry must be an object')
+        }
+        const record = entry as Record<string, unknown>
+        if (typeof record.path !== 'string' || typeof record.contentBase64 !== 'string') {
+            throw new Error('Runtime file bundle entry is missing path or content')
+        }
+        return {
+            path: record.path,
+            contentBase64: record.contentBase64,
+            mode: typeof record.mode === 'number' ? record.mode : undefined,
+        }
+    })
+}
+
+function assertRuntimeBundlePath(path: string): void {
+    if (!isAbsolute(path)) {
+        throw new Error('Runtime file bundle path must be absolute')
+    }
+    const resolved = resolve(path)
+    const allowedRoot = '/workspace/runtime'
+    const relativePath = relative(allowedRoot, resolved)
+    if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
+        throw new Error('Runtime file bundle path is outside the hosted runtime root')
+    }
+}
+
+for (const entry of decodeFileBundle()) {
+    assertRuntimeBundlePath(entry.path)
+    await mkdir(dirname(entry.path), {
+        recursive: true,
+        mode: 0o700,
+    })
+    await writeFile(entry.path, Buffer.from(entry.contentBase64, 'base64url'), {
+        mode: entry.mode ?? 0o600,
+    })
+    if (entry.mode) {
+        await chmod(entry.path, entry.mode)
+    }
+}
+
 const config = JSON.parse(await readFile(configPath, 'utf8')) as PiRuntimeConfig
 const { redactPayload, redactString, redactUnboundedString, errorMessage } =
     createRuntimeRedactor(config)
+const hostedRuntimeStateSync = createHostedRuntimeStateSync(config)
 const activeThreads = new Map<string, ActiveThread>()
 const maxSubagentTaskChars = 24000
 const maxActiveSubagents = 5
@@ -281,6 +342,30 @@ function latestAssistantErrorMessage(record: ThreadRecord): string | null {
 
 async function persistThreadIndex(): Promise<void> {
     await writeJsonFile(config.paths.threadIndexPath, threadIndex)
+    await hostedRuntimeStateSync.upsert(config.paths.threadIndexPath)
+}
+
+async function restoreThreadIndex(input: {
+    threads: ThreadRecord[]
+    context: string
+}): Promise<void> {
+    threadIndex.threads.splice(0, threadIndex.threads.length, ...input.threads)
+    try {
+        await writeJsonFile(config.paths.threadIndexPath, threadIndex)
+    } catch (error) {
+        console.warn(
+            `${input.context}: failed to restore local thread index`,
+            error instanceof Error ? error.message : error,
+        )
+    }
+}
+
+async function deleteHostedRuntimeStateBestEffort(path: string, context: string): Promise<void> {
+    try {
+        await hostedRuntimeStateSync.delete(path)
+    } catch (error) {
+        console.warn(context, error instanceof Error ? error.message : error)
+    }
 }
 
 function updateThreadFromMessages(record: ThreadRecord): void {
@@ -324,6 +409,17 @@ async function deleteThread(record: ThreadRecord): Promise<void> {
         throw new Error(`Thread ${record.key} does not exist`)
     }
     const active = activeThreads.get(record.key)
+    const before = [...threadIndex.threads]
+    threadIndex.threads.splice(index, 1)
+    try {
+        await persistThreadIndex()
+    } catch (error) {
+        await restoreThreadIndex({
+            threads: before,
+            context: 'Thread delete rollback failed',
+        })
+        throw error
+    }
     if (active) {
         active.abortController?.abort(
             new RunWatchdog('explicit_abort', timeoutMessage('explicit_abort')),
@@ -332,9 +428,11 @@ async function deleteThread(record: ThreadRecord): Promise<void> {
         active.session.dispose()
         activeThreads.delete(record.key)
     }
-    threadIndex.threads.splice(index, 1)
     await rm(record.sessionFile, { force: true })
-    await persistThreadIndex()
+    await deleteHostedRuntimeStateBestEffort(
+        record.sessionFile,
+        'Hosted deleted thread session cleanup failed',
+    )
     await appendRuntimeEvent('thread.deleted', {
         sessionKey: record.key,
     })
@@ -454,6 +552,7 @@ async function handleSessionEvent(record: ThreadRecord, event: AgentSessionEvent
         record.activeRunId = null
     }
     await persistThreadIndex()
+    await hostedRuntimeStateSync.upsert(record.sessionFile)
     await appendRuntimeEvent(eventForLog.type, {
         sessionKey: record.key,
         event: eventForLog,
@@ -541,8 +640,17 @@ async function createThread(
         deepWorkObjective: input.deepWorkObjective ?? null,
         completedAt: null,
     }
+    const before = [...threadIndex.threads]
     threadIndex.threads.unshift(record)
-    await persistThreadIndex()
+    try {
+        await persistThreadIndex()
+    } catch (error) {
+        await restoreThreadIndex({
+            threads: before,
+            context: 'Thread create rollback failed',
+        })
+        throw error
+    }
     const instruction = input.internalInstruction?.trim() || input.firstMessage?.trim() || ''
     if (instruction) {
         await runPrompt({
@@ -735,9 +843,24 @@ async function forkThread(input: {
         deepWorkObjective: input.record.deepWorkObjective,
         completedAt: null,
     }
-    threadIndex.threads.unshift(record)
     updateThreadFromMessages(record)
-    await persistThreadIndex()
+    await hostedRuntimeStateSync.upsert(record.sessionFile)
+    const before = [...threadIndex.threads]
+    threadIndex.threads.unshift(record)
+    try {
+        await persistThreadIndex()
+    } catch (error) {
+        await restoreThreadIndex({
+            threads: before,
+            context: 'Thread fork rollback failed',
+        })
+        await deleteHostedRuntimeStateBestEffort(
+            record.sessionFile,
+            'Hosted forked thread session cleanup failed',
+        )
+        await rm(record.sessionFile, { force: true })
+        throw error
+    }
     await appendRuntimeEvent('thread.forked', {
         parentThreadKey: input.record.key,
         threadKey: record.key,
@@ -819,8 +942,10 @@ process.on('SIGTERM', () => {
     void browserAutomation.closeAll().finally(() => {
         void cleanupBackgroundCommands(config).finally(() => {
             void closeMcpConnections().finally(() => {
-                server.close(() => {
-                    process.exit(0)
+                void drainPendingHostedRuntimeUsage().finally(() => {
+                    server.close(() => {
+                        process.exit(0)
+                    })
                 })
             })
         })

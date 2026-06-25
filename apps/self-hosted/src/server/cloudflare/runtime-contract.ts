@@ -1,13 +1,26 @@
 import {
     buildPiRuntimeEntrypoint,
+    hostedRuntimeRoomIdEnvKey,
+    hostedRuntimeWorkspaceIdEnvKey,
     piRuntimeConfigPathEnvKey,
     piRuntimeTokenEnvKey,
 } from '../rooms/pi-runtime-contract'
+import { hostedRuntimePort } from './hosted-runtime-paths'
 import { assertStorageId } from './workspace-storage'
 
-export const hostedRuntimeContainerPort = 3000
+export const hostedRuntimeContainerPort = hostedRuntimePort
 export const hostedRuntimeSleepAfter = '10m'
 export const hostedRuntimeEntrypoint = buildPiRuntimeEntrypoint()
+export const hostedRuntimeDeniedHosts = [
+    '169.254.169.254',
+    '169.254.169.253',
+    '100.100.100.200',
+    'metadata',
+    'metadata.google.internal',
+    '*.metadata.google.internal',
+    'metadata.azure.com',
+    'metadata.aws.internal',
+]
 
 export interface HostedRuntimeIdentity {
     workspaceId: string
@@ -17,7 +30,7 @@ export interface HostedRuntimeIdentity {
 export interface HostedRuntimeStartInput extends HostedRuntimeIdentity {
     runtimeConfigPath: string
     runtimeToken: string
-    controlPlaneOrigin: string
+    envVars?: Record<string, string>
 }
 
 export interface HostedRuntimeStartOptions {
@@ -41,6 +54,15 @@ export interface HostedRuntimeStartAndWaitArgs {
 
 export interface HostedRuntimeContainerStub {
     startAndWaitForPorts: (args: HostedRuntimeStartAndWaitArgs) => Promise<void>
+    setAllowedHosts: (hosts: string[]) => Promise<void>
+    setDeniedHosts: (hosts: string[]) => Promise<void>
+    getState: () => Promise<{
+        status: 'running' | 'stopping' | 'stopped' | 'healthy' | 'stopped_with_code'
+        lastChange: number
+        exitCode?: number
+    }>
+    destroy: () => Promise<void>
+    fetch: (request: Request) => Promise<Response>
 }
 
 export interface HostedRuntimeContainerNamespace {
@@ -57,15 +79,29 @@ export function buildHostedRuntimeStartOptions(
     input: HostedRuntimeStartInput,
 ): HostedRuntimeStartOptions {
     hostedRuntimeContainerName(input)
+    const envVars = input.envVars ?? {}
+    const conflicts = [
+        [piRuntimeConfigPathEnvKey, input.runtimeConfigPath],
+        [piRuntimeTokenEnvKey, input.runtimeToken],
+        [hostedRuntimeWorkspaceIdEnvKey, input.workspaceId],
+        [hostedRuntimeRoomIdEnvKey, input.roomId],
+    ].filter(([key, value]) => envVars[key] !== undefined && envVars[key] !== value)
+    if (conflicts.length > 0) {
+        throw new Error(
+            `Hosted runtime start env conflicts with canonical inputs: ${conflicts
+                .map(([key]) => key)
+                .join(', ')}`,
+        )
+    }
     return {
         entrypoint: [...hostedRuntimeEntrypoint],
         enableInternet: false,
         envVars: {
+            ...envVars,
             [piRuntimeConfigPathEnvKey]: input.runtimeConfigPath,
             [piRuntimeTokenEnvKey]: input.runtimeToken,
-            AGENT_ROOM_HOSTED_WORKSPACE_ID: input.workspaceId,
-            AGENT_ROOM_HOSTED_ROOM_ID: input.roomId,
-            AGENT_ROOM_HOSTED_CONTROL_PLANE_ORIGIN: input.controlPlaneOrigin,
+            [hostedRuntimeWorkspaceIdEnvKey]: input.workspaceId,
+            [hostedRuntimeRoomIdEnvKey]: input.roomId,
             PORT: String(hostedRuntimeContainerPort),
         },
         labels: {

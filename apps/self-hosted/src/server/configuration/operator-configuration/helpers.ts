@@ -11,6 +11,7 @@ import {
     normalizeImageProvider,
     normalizeSearchConfig,
     searchProviderSecretId,
+    type SearchConfigDefaults,
 } from '../capabilities'
 import { providerRequiresStoredCredential, upperSnake } from '../provider-config'
 import type {
@@ -134,11 +135,20 @@ export function validateBaseUrl(baseUrl: string | null): string | null {
     return parsed.toString().replace(/\/$/, '')
 }
 
-export function summarizeProvider(record: AppProviderConnectionRecord): ProviderConnectionSummary {
-    const requiresCredential = providerRequiresStoredCredential({
-        provider: record.provider,
-        authMode: record.authMode,
-    })
+interface ProviderSummaryOptions {
+    requireCodexCredential?: boolean
+}
+
+export function summarizeProvider(
+    record: AppProviderConnectionRecord,
+    options: ProviderSummaryOptions = {},
+): ProviderConnectionSummary {
+    const requiresCredential =
+        providerRequiresStoredCredential({
+            provider: record.provider,
+            authMode: record.authMode,
+        }) ||
+        (options.requireCodexCredential === true && record.provider === 'openai-codex')
     return {
         id: record.id,
         label: record.label,
@@ -156,7 +166,24 @@ export function summarizeProvider(record: AppProviderConnectionRecord): Provider
     }
 }
 
-export function summarizeMcp(record: AppMcpConnectionRecord): McpConnectionSummary {
+export const redactedMcpHeaderValue = '********'
+
+interface McpSummaryOptions {
+    redactHeaders?: boolean
+}
+
+function summarizeHeaders(headers: JsonValue, options: McpSummaryOptions): Record<string, string> {
+    const parsed = toStringRecord(headers)
+    if (options.redactHeaders !== true) {
+        return parsed
+    }
+    return Object.fromEntries(Object.keys(parsed).map((key) => [key, redactedMcpHeaderValue]))
+}
+
+export function summarizeMcp(
+    record: AppMcpConnectionRecord,
+    options: McpSummaryOptions = {},
+): McpConnectionSummary {
     return {
         id: record.id,
         name: record.name,
@@ -165,7 +192,7 @@ export function summarizeMcp(record: AppMcpConnectionRecord): McpConnectionSumma
         command: record.command,
         args: toStringArray(record.args),
         url: record.url,
-        headers: toStringRecord(record.headers),
+        headers: summarizeHeaders(record.headers, options),
         authMode: record.authMode,
         hasCredential: record.credentialSecretId !== null,
         allowedTools: toStringArray(record.allowedTools),
@@ -176,8 +203,15 @@ export function summarizeMcp(record: AppMcpConnectionRecord): McpConnectionSumma
     }
 }
 
-export function summarizeSettings(record: AppSettingsRecord): AppSettingsSummary {
-    const search = normalizeSearchConfig(record.searchConfig)
+interface SettingsSummaryOptions {
+    searchDefaults?: SearchConfigDefaults
+}
+
+export function summarizeSettings(
+    record: AppSettingsRecord,
+    options: SettingsSummaryOptions = {},
+): AppSettingsSummary {
+    const search = normalizeSearchConfig(record.searchConfig, options.searchDefaults)
     const braveSecretId = searchProviderSecretId({
         config: record.searchConfig,
         provider: 'brave',

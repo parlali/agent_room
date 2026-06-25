@@ -43,6 +43,16 @@ export const roomRepository = {
         return rows.map(mapRoom)
     },
 
+    async listRoomsByOwner(userId: string): Promise<RoomRecord[]> {
+        const db = await repositoryDatabase()
+        const rows = await db
+            .select()
+            .from(rooms)
+            .where(eq(rooms.createdByUserId, userId))
+            .orderBy(desc(rooms.createdAt))
+        return rows.map(mapRoom)
+    },
+
     async findRoomById(roomId: string): Promise<RoomRecord | null> {
         const db = await repositoryDatabase()
         const [row] = await db.select().from(rooms).where(eq(rooms.id, roomId)).limit(1)

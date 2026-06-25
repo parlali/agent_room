@@ -12,6 +12,7 @@ export interface CodexAppAuthStatus {
     accountId: string | null
     expiresAt: string | null
     message: string
+    requiresStoredCredential: boolean
 }
 
 export interface CodexPiOAuthCredential {
@@ -58,6 +59,49 @@ export function inspectCodexAppAuthStatusSync(input?: { authPath?: string }): Co
         accountId: credential.accountId,
         expiresAt: new Date(credential.expires).toISOString(),
         message: 'Codex app server login is active',
+        requiresStoredCredential: false,
+    }
+}
+
+export function inspectCodexPiAuthJson(input: {
+    authJson: string
+    nowMs?: number
+    requiresStoredCredential?: boolean
+}): CodexAppAuthStatus {
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(input.authJson)
+    } catch {
+        return invalidStatus(
+            'invalid',
+            'Codex app server login could not be parsed',
+            input.requiresStoredCredential ?? true,
+        )
+    }
+
+    const credential = readCodexCredentialFromPiAuth(parsed)
+    if (!credential) {
+        return invalidStatus(
+            'invalid',
+            'Codex app server login is incomplete',
+            input.requiresStoredCredential ?? true,
+        )
+    }
+    if (credential.expires <= (input.nowMs ?? Date.now())) {
+        return invalidStatus(
+            'invalid',
+            'Codex app server login is expired',
+            input.requiresStoredCredential ?? true,
+        )
+    }
+
+    return {
+        ready: true,
+        status: 'ready',
+        accountId: credential.accountId,
+        expiresAt: new Date(credential.expires).toISOString(),
+        message: 'Codex app server login is active',
+        requiresStoredCredential: input.requiresStoredCredential ?? true,
     }
 }
 
@@ -183,13 +227,18 @@ function readCodexCredentialFromPiAuth(value: unknown): CodexPiOAuthCredential |
     }
 }
 
-function invalidStatus(status: Exclude<CodexAppAuthState, 'ready'>, message: string) {
+function invalidStatus(
+    status: Exclude<CodexAppAuthState, 'ready'>,
+    message: string,
+    requiresStoredCredential = false,
+) {
     return {
         ready: false,
         status,
         accountId: null,
         expiresAt: null,
         message,
+        requiresStoredCredential,
     }
 }
 
