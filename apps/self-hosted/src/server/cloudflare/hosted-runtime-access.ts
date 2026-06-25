@@ -2,6 +2,7 @@ import type { AgentRoomHostedEnv } from './bindings'
 import { resolveHostedConfig } from './hosted-config'
 import { readHostedBillingAccount } from './hosted-billing-repository'
 import { countActiveHostedRuntimesForWorkspace } from './hosted-runtime-state-repository'
+import { isHostedBillingPlanStatusActive } from './hosted-billing-types'
 
 export interface HostedRuntimeAccessInput {
     env: AgentRoomHostedEnv
@@ -32,8 +33,7 @@ export async function evaluateHostedRuntimeAccess(
         env: input.env,
         workspaceId: input.workspaceId,
     })
-    const subscriptionActive = account.planStatus === 'active' || account.planStatus === 'trialing'
-    if (!subscriptionActive) {
+    if (!isHostedBillingPlanStatusActive(account.planStatus)) {
         return { allowed: false, reason: 'no_subscription' }
     }
 

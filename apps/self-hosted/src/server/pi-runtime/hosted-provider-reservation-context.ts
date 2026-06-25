@@ -1,9 +1,13 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { openRouterCostMicrosFromProviderText } from '../cloudflare/hosted-provider-proxy'
+import {
+    hostedBraveProxyPathPrefix,
+    hostedOpenRouterProxyPathPrefix,
+    openRouterCostMicrosFromProviderText,
+} from '../cloudflare/hosted-provider-proxy'
 import { currentToolRunContext } from './tool-run-context'
 
-const hostedOpenRouterProxyMarker = '/api/hosted/runtime/provider/openrouter/v1/'
-const hostedBraveProxyMarker = '/api/hosted/runtime/provider/brave/v1/'
+const hostedOpenRouterProxyMarker = `${hostedOpenRouterProxyPathPrefix}/`
+const hostedBraveProxyMarker = `${hostedBraveProxyPathPrefix}/`
 const usageRequestIdHeader = 'x-agent-room-usage-request-id'
 const billingReservationIdHeader = 'x-agent-room-billing-reservation-id'
 const usageSessionKeyHeader = 'x-agent-room-session-key'

@@ -76,6 +76,10 @@ function LoginPage() {
             )
             return
         }
+        if (mode === 'sign-up' && password.length < 12) {
+            setError('Password must be at least 12 characters.')
+            return
+        }
         setError(null)
         setNotice(null)
         if (mode === 'sign-up') {

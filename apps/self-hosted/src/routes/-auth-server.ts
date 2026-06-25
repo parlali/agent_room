@@ -12,6 +12,7 @@ import {
     assertHostedSameOriginMutation,
     readHostedContextActor,
 } from '#/server/cloudflare/hosted-route-auth'
+import { isHostedBillingPlanStatusActive } from '#/server/cloudflare/hosted-billing-types'
 
 const loginInputSchema = z.object({
     email: z.email(),
@@ -117,7 +118,7 @@ export const hostedBillingAccessServer = createServerFn({ method: 'GET' }).handl
     })
     return {
         hosted: true,
-        active: account.planStatus === 'active' || account.planStatus === 'trialing',
+        active: isHostedBillingPlanStatusActive(account.planStatus),
         planKey: account.planKey,
         planStatus: account.planStatus,
     } satisfies HostedBillingAccessSnapshot

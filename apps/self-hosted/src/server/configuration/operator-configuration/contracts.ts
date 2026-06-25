@@ -284,6 +284,7 @@ export interface OperatorConfigSnapshot {
         completed: boolean
         hasProvider: boolean
         hasDefaultProvider: boolean
+        managedOpenRouterAvailable?: boolean
     }
 }
 

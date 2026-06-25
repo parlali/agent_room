@@ -4,6 +4,7 @@ import {
     centsFromMicrosCeil,
     hostedBraveSearchCostMicros,
     hostedProviderBillingGateCents,
+    type HostedBillingReservationProvider,
 } from './hosted-billing-types'
 import {
     authorizeHostedBillingReservation,
@@ -171,10 +172,32 @@ async function hostedProviderProxyUsageRequest(input: {
     }
 }
 
-async function repairExistingOpenRouterUsageSettlement(input: {
+async function releaseHostedProviderSettlementFailureReservation(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    reservationId: string | null
+}): Promise<void> {
+    try {
+        await releaseHostedProviderPreflightReservation(input)
+    } catch (error) {
+        console.warn(
+            'Hosted provider preflight reservation release failed after settlement error',
+            {
+                workspaceId: input.workspaceId,
+                reservationId: input.reservationId,
+                error,
+            },
+        )
+    }
+}
+
+async function repairExistingProviderUsageSettlement(input: {
     env: AgentRoomHostedEnv
     workspaceId: string
     roomId: string
+    provider: HostedBillingReservationProvider
+    model: string
+    billedBy: 'hosted_openrouter_proxy' | 'hosted_brave_proxy'
     usageIdempotencyKey: string
     reservationIdempotencyKey: string
     usageRequestId: string
@@ -194,41 +217,55 @@ async function repairExistingOpenRouterUsageSettlement(input: {
     ])
     if (
         !usage ||
-        !reservation ||
-        usage.provider !== 'openrouter' ||
+        usage.provider !== input.provider ||
         usage.roomId !== input.roomId ||
-        usage.costMicros === null ||
-        reservation.status !== 'authorized' ||
-        reservation.provider !== 'openrouter' ||
-        reservation.roomId !== input.roomId
+        usage.costMicros === null
     ) {
         return false
     }
-    await recordHostedProviderUsage({
-        env: input.env,
-        workspaceId: input.workspaceId,
-        roomId: usage.roomId,
-        sessionKey: usage.sessionKey,
-        runId: usage.runId,
-        jobId: usage.jobId,
-        provider: 'openrouter',
-        model: usage.model,
-        inputTokens: null,
-        outputTokens: null,
-        cachedTokens: null,
-        estimatedCostUsd: usage.costMicros / 1_000_000,
-        costMicros: usage.costMicros,
-        billingReservationId: reservation.id,
-        metadata: {
-            billedBy: 'hosted_openrouter_proxy',
-            providerProxyBillingAuthority: 'worker_proxy',
-            reservationId: reservation.id,
-            usageRequestId: input.usageRequestId,
-            targetPath: input.targetPath,
-            settlementRepair: true,
-        },
-        idempotencyKey: input.usageIdempotencyKey,
-    })
+    const settlementReservation =
+        reservation &&
+        reservation.status === 'authorized' &&
+        reservation.provider === input.provider &&
+        reservation.roomId === input.roomId
+            ? reservation
+            : null
+    try {
+        await recordHostedProviderUsage({
+            env: input.env,
+            workspaceId: input.workspaceId,
+            roomId: usage.roomId,
+            sessionKey: usage.sessionKey,
+            runId: usage.runId,
+            jobId: usage.jobId,
+            provider: input.provider,
+            model: usage.model ?? input.model,
+            inputTokens: null,
+            outputTokens: null,
+            cachedTokens: null,
+            estimatedCostUsd: usage.costMicros / 1_000_000,
+            costMicros: usage.costMicros,
+            billingReservationId: settlementReservation?.id ?? null,
+            metadata: {
+                billedBy: input.billedBy,
+                providerProxyBillingAuthority: 'worker_proxy',
+                reservationId: settlementReservation?.id ?? null,
+                usageRequestId: input.usageRequestId,
+                targetPath: input.targetPath,
+                settlementRepair: true,
+            },
+            idempotencyKey: input.usageIdempotencyKey,
+        })
+    } catch (error) {
+        if (settlementReservation) {
+            await releaseHostedProviderSettlementFailureReservation({
+                env: input.env,
+                workspaceId: input.workspaceId,
+                reservationId: settlementReservation.id,
+            })
+        }
+        throw error
+    }
     return true
 }
 
@@ -305,10 +342,13 @@ export async function hostedOpenRouterProxy(
     })
     if (existingUsage) {
         try {
-            await repairExistingOpenRouterUsageSettlement({
+            await repairExistingProviderUsageSettlement({
                 env,
                 workspaceId: proxyPath.workspaceId,
                 roomId: proxyPath.roomId,
+                provider: 'openrouter',
+                model: 'openrouter',
+                billedBy: 'hosted_openrouter_proxy',
                 usageIdempotencyKey,
                 reservationIdempotencyKey,
                 usageRequestId,
@@ -503,6 +543,11 @@ export async function hostedOpenRouterProxy(
             idempotencyKey: usageIdempotencyKey,
         })
     } catch {
+        await releaseHostedProviderSettlementFailureReservation({
+            env,
+            workspaceId: proxyPath.workspaceId,
+            reservationId,
+        })
         return hostedJsonResponse(
             {
                 ok: false,
@@ -580,6 +625,30 @@ export async function hostedBraveProxy(
         idempotencyKey: usageIdempotencyKey,
     })
     if (existingUsage) {
+        try {
+            await repairExistingProviderUsageSettlement({
+                env,
+                workspaceId: proxyPath.workspaceId,
+                roomId: proxyPath.roomId,
+                provider: 'brave',
+                model: 'brave-search',
+                billedBy: 'hosted_brave_proxy',
+                usageIdempotencyKey,
+                reservationIdempotencyKey,
+                usageRequestId,
+                targetPath: proxyPath.targetPath,
+            })
+        } catch {
+            return hostedJsonResponse(
+                {
+                    ok: false,
+                    code: 'provider_billing_settlement_failed',
+                },
+                {
+                    status: 502,
+                },
+            )
+        }
         return hostedJsonResponse(
             {
                 ok: false,
@@ -712,6 +781,11 @@ export async function hostedBraveProxy(
             idempotencyKey: usageIdempotencyKey,
         })
     } catch {
+        await releaseHostedProviderSettlementFailureReservation({
+            env,
+            workspaceId: proxyPath.workspaceId,
+            reservationId,
+        })
         return hostedJsonResponse(
             {
                 ok: false,

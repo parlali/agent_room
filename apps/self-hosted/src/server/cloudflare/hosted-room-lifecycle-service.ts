@@ -648,12 +648,6 @@ async function assertHostedRuntimeStartAllowed(input: {
     roomId: string
     config: ProviderSelectionConfig
 }): Promise<void> {
-    await resolveHostedRuntimeProviderAvailabilityForSelection({
-        env: input.env,
-        workspaceId: input.workspaceId,
-        config: input.config,
-        requireSelectionReady: true,
-    })
     const access = await evaluateHostedRuntimeAccess({
         env: input.env,
         workspaceId: input.workspaceId,
@@ -662,6 +656,12 @@ async function assertHostedRuntimeStartAllowed(input: {
     if (!access.allowed) {
         throw new Error(hostedRuntimeAccessDeniedMessage(access.reason))
     }
+    await resolveHostedRuntimeProviderAvailabilityForSelection({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        config: input.config,
+        requireSelectionReady: true,
+    })
 }
 
 export async function materializeAndEnqueueHostedRuntime(input: {

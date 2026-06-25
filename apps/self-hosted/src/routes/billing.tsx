@@ -52,6 +52,24 @@ interface HostedBillingSummary {
     providerPriority: string[]
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+async function readJsonRecord(response: Response): Promise<Record<string, unknown>> {
+    if (!response.headers.get('content-type')?.toLowerCase().includes('application/json')) {
+        return {}
+    }
+    const payload = (await response.json()) as unknown
+    return isRecord(payload) ? payload : {}
+}
+
+function hostedBillingSummaryFromPayload(
+    payload: Record<string, unknown>,
+): HostedBillingSummary | null {
+    return isRecord(payload.billing) ? (payload.billing as unknown as HostedBillingSummary) : null
+}
+
 const placeholderPlans: PlaceholderPlan[] = [
     {
         key: 'starter',
@@ -101,8 +119,7 @@ function BillingPage() {
             if (!response.ok) {
                 return null
             }
-            const payload = (await response.json()) as unknown
-            return payload && typeof payload === 'object' ? (payload as HostedBillingSummary) : null
+            return hostedBillingSummaryFromPayload(await readJsonRecord(response))
         },
     })
     const checkoutMutation = useMutation({
@@ -116,14 +133,13 @@ function BillingPage() {
                 },
                 body: JSON.stringify(input),
             })
-            const payload = (await response.json()) as {
-                checkout?: { url?: string }
-                message?: string
+            const payload = await readJsonRecord(response)
+            const checkout = isRecord(payload.checkout) ? payload.checkout : {}
+            const message = typeof payload.message === 'string' ? payload.message : null
+            if (!response.ok || typeof checkout.url !== 'string') {
+                throw new Error(message ?? 'Checkout is not available')
             }
-            if (!response.ok || typeof payload.checkout?.url !== 'string') {
-                throw new Error(payload.message ?? 'Checkout is not available')
-            }
-            return payload.checkout.url
+            return checkout.url
         },
         onSuccess: (url) => {
             window.location.href = url
@@ -141,14 +157,13 @@ function BillingPage() {
                 },
                 body: '{}',
             })
-            const payload = (await response.json()) as {
-                portal?: { url?: string }
-                message?: string
+            const payload = await readJsonRecord(response)
+            const portal = isRecord(payload.portal) ? payload.portal : {}
+            const message = typeof payload.message === 'string' ? payload.message : null
+            if (!response.ok || typeof portal.url !== 'string') {
+                throw new Error(message ?? 'Billing portal is not available')
             }
-            if (!response.ok || typeof payload.portal?.url !== 'string') {
-                throw new Error(payload.message ?? 'Billing portal is not available')
-            }
-            return payload.portal.url
+            return portal.url
         },
         onSuccess: (url) => {
             window.location.href = url

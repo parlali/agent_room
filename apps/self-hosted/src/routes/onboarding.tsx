@@ -29,7 +29,7 @@ import {
 import { requireRouteUser } from './-route-auth'
 
 interface ConfiguredProvider {
-    id: string
+    id: string | null
     label: string
     defaultModel: string
 }
@@ -86,13 +86,20 @@ function OnboardingPage() {
         ) ?? null
     const configuredProvider =
         defaultProvider ?? (readyProviders.length === 1 ? readyProviders[0] : null)
+    const managedOpenRouterReady = configQuery.data?.onboarding.managedOpenRouterAvailable === true
     const configuredProviderSummary: ConfiguredProvider | null = configuredProvider
         ? {
               id: configuredProvider.id,
               label: configuredProvider.label,
               defaultModel: configuredProvider.defaultModel,
           }
-        : null
+        : managedOpenRouterReady
+          ? {
+                id: null,
+                label: 'Hosted OpenRouter',
+                defaultModel: configQuery.data?.settings.defaultModel?.trim() || 'openrouter/auto',
+            }
+          : null
     const providerReady = configuredProviderSummary !== null
 
     useEffect(() => {
@@ -150,7 +157,9 @@ function OnboardingPage() {
             await updateAppDefaultsServer({
                 data: {
                     defaultProviderConnectionId: configuredProviderSummary.id,
-                    defaultModel: configuredProviderSummary.defaultModel,
+                    defaultModel: configuredProviderSummary.id
+                        ? configuredProviderSummary.defaultModel
+                        : null,
                     onboardingCompleted: true,
                 },
             })

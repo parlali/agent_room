@@ -66,7 +66,7 @@ export function normalizeHostedSearchBackendUrl(value: string): string {
 const defaultSearchConfig = {
     ...hostedSearchDefaults,
     brave: {
-        enabled: false,
+        enabled: true,
         country: null,
         searchLang: null,
         safeSearch: 'moderate',
@@ -661,6 +661,9 @@ export async function getHostedOperatorConfigSnapshot(input: {
         providers,
     })
     const readyProviders = listReadyProviders(providers, codexAuth)
+    const managedOpenRouterAvailable = Boolean(
+        input.env.AGENT_ROOM_HOSTED_OPENROUTER_API_KEY?.trim(),
+    )
     return {
         settings: summarizeHostedSettings(settings, input.env),
         codexAuth,
@@ -672,6 +675,7 @@ export async function getHostedOperatorConfigSnapshot(input: {
             completed: settings.onboardingCompletedAt !== null,
             hasProvider: readyProviders.length > 0,
             hasDefaultProvider: settings.defaultProviderConnectionId !== null,
+            managedOpenRouterAvailable,
         },
     }
 }

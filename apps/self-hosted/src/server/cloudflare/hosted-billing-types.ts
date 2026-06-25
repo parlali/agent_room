@@ -142,3 +142,7 @@ export function assertPositiveCents(amountCents: number): void {
         throw new Error('Billing amount must be a positive integer cent value')
     }
 }
+
+export function isHostedBillingPlanStatusActive(status: HostedBillingPlanStatus): boolean {
+    return status === 'active' || status === 'trialing'
+}
