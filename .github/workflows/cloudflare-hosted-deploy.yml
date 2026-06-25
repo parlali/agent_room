@@ -43,6 +43,11 @@ jobs:
             - name: Build hosted Worker
               run: bun run self-hosted:cloudflare:build
 
+            - name: Reset stale hosted Cloudflare resources
+              env:
+                  AGENT_ROOM_CLOUDFLARE_ALLOW_HOSTED_PRODUCTION_RESET: 'true'
+              run: bun run self-hosted:cloudflare:preview:delete
+
             - name: Ensure Cloudflare resources
               run: bun run self-hosted:cloudflare:resources
 

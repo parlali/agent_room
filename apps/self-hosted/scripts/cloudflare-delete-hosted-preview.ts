@@ -24,18 +24,39 @@ interface WorkerScriptDeleteStep {
 
 type DeleteStep = WranglerDeleteStep | WorkerScriptDeleteStep
 
-function assertPreviewResourceNames(resourceNames: HostedResourceNames): void {
+function isPreviewResourceNames(resourceNames: HostedResourceNames): boolean {
     const values = [
         resourceNames.workerName,
         resourceNames.d1DatabaseName,
         resourceNames.r2BucketName,
         resourceNames.queueName,
     ]
-    for (const value of values) {
-        if (!/^agent-room-hosted-pr-[0-9]+(?:-[a-z0-9-]+)?$/.test(value)) {
-            throw new Error(`Refusing to delete non-preview Cloudflare resource ${value}`)
-        }
+    return values.every((value) => /^agent-room-hosted-pr-[0-9]+(?:-[a-z0-9-]+)?$/.test(value))
+}
+
+function isProductionResourceNames(resourceNames: HostedResourceNames): boolean {
+    const expected: HostedResourceNames = {
+        workerName: 'agent-room-hosted',
+        d1DatabaseName: 'agent-room-hosted',
+        r2BucketName: 'agent-room-hosted-workspaces',
+        queueName: 'agent-room-hosted-runtime-jobs',
     }
+    return Object.entries(resourceNames).every(
+        ([key, value]) => value === expected[key as keyof HostedResourceNames],
+    )
+}
+
+export function assertHostedResourceNamesDeletable(resourceNames: HostedResourceNames): void {
+    if (isPreviewResourceNames(resourceNames)) {
+        return
+    }
+    if (
+        isProductionResourceNames(resourceNames) &&
+        process.env.AGENT_ROOM_CLOUDFLARE_ALLOW_HOSTED_PRODUCTION_RESET === 'true'
+    ) {
+        return
+    }
+    throw new Error('Refusing to delete non-preview Cloudflare resources without reset guard')
 }
 
 export function buildPreviewDeleteSteps(resourceNames: HostedResourceNames): DeleteStep[] {
@@ -219,7 +240,7 @@ function writeOutput(output: string): void {
 async function main(): Promise<void> {
     const configText = await readTargetedHostedConfigText()
     const resourceNames = extractHostedResourceNames(configText)
-    assertPreviewResourceNames(resourceNames)
+    assertHostedResourceNamesDeletable(resourceNames)
 
     for (const step of buildPreviewDeleteSteps(resourceNames)) {
         await deleteStep(step)

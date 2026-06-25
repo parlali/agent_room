@@ -344,20 +344,29 @@ describe('hosted Cloudflare configuration', () => {
             [...hostedRequiredSecretNames].sort(),
         )
         expect(extractWorkflowSecretEnvNames(workflowConfig)).toEqual([...hostedSecretNames].sort())
+        expect(workflowConfig).toContain('Reset stale hosted Cloudflare resources')
+        expect(workflowConfig).toContain(
+            "AGENT_ROOM_CLOUDFLARE_ALLOW_HOSTED_PRODUCTION_RESET: 'true'",
+        )
         expect(extractWorkflowSecretEnvNames(previewWorkflowConfig)).toEqual(
             hostedSecretNames.filter((name) => name !== 'BETTER_AUTH_URL').sort(),
         )
+        expect(previewWorkflowConfig).toContain('- opened')
+        expect(previewWorkflowConfig).toContain('- synchronize')
+        expect(previewWorkflowConfig).toContain('- reopened')
+        expect(previewWorkflowConfig).toContain("github.event.action != 'closed'")
         expect(previewWorkflowConfig).toContain(
-            "github.event_name == 'workflow_dispatch' && vars.CLOUDFLARE_HOSTED_PREVIEWS_ENABLED == 'true'",
+            'github.event.pull_request.head.repo.full_name == github.repository',
         )
         expect(previewWorkflowConfig).toContain(
             'run: bun run apps/self-hosted/scripts/cloudflare-hosted-preview-input.ts',
         )
         expect(previewWorkflowConfig).toContain('ref: ${{ steps.preview.outputs.head_sha }}')
         expect(previewWorkflowConfig).not.toContain('ref: ${{ inputs.ref }}')
-        expect(previewWorkflowConfig).not.toContain('- opened')
-        expect(previewWorkflowConfig).not.toContain('- synchronize')
-        expect(previewWorkflowConfig).not.toContain('- reopened')
+        expect(previewWorkflowConfig).toContain('Reset stale preview Cloudflare resources')
+        expect(previewWorkflowConfig).toContain(
+            'run: bun run self-hosted:cloudflare:preview:delete',
+        )
         expect(previewWorkflowConfig).toContain('BETTER_AUTH_URL: ${{ steps.preview.outputs.url }}')
         expect(previewWorkflowConfig).toContain(
             'BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_HOSTED_PREVIEW_SECRET }}',

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { buildPreviewDeleteSteps } from './cloudflare-delete-hosted-preview'
+import {
+    assertHostedResourceNamesDeletable,
+    buildPreviewDeleteSteps,
+} from './cloudflare-delete-hosted-preview'
 
 describe('hosted Cloudflare preview deletion', () => {
     it('removes the queue consumer before deleting the worker', () => {
@@ -38,5 +41,55 @@ describe('hosted Cloudflare preview deletion', () => {
                 args: ['r2', 'bucket', 'delete', 'agent-room-hosted-pr-123-workspaces'],
             },
         ])
+    })
+
+    it('refuses production resource deletion without the explicit reset guard', () => {
+        const previous = process.env.AGENT_ROOM_CLOUDFLARE_ALLOW_HOSTED_PRODUCTION_RESET
+        delete process.env.AGENT_ROOM_CLOUDFLARE_ALLOW_HOSTED_PRODUCTION_RESET
+        try {
+            expect(() =>
+                assertHostedResourceNamesDeletable({
+                    workerName: 'agent-room-hosted',
+                    d1DatabaseName: 'agent-room-hosted',
+                    r2BucketName: 'agent-room-hosted-workspaces',
+                    queueName: 'agent-room-hosted-runtime-jobs',
+                }),
+            ).toThrow(/reset guard/)
+        } finally {
+            if (previous === undefined) {
+                delete process.env.AGENT_ROOM_CLOUDFLARE_ALLOW_HOSTED_PRODUCTION_RESET
+            } else {
+                process.env.AGENT_ROOM_CLOUDFLARE_ALLOW_HOSTED_PRODUCTION_RESET = previous
+            }
+        }
+    })
+
+    it('allows canonical production reset only with the explicit reset guard', () => {
+        const previous = process.env.AGENT_ROOM_CLOUDFLARE_ALLOW_HOSTED_PRODUCTION_RESET
+        process.env.AGENT_ROOM_CLOUDFLARE_ALLOW_HOSTED_PRODUCTION_RESET = 'true'
+        try {
+            expect(() =>
+                assertHostedResourceNamesDeletable({
+                    workerName: 'agent-room-hosted',
+                    d1DatabaseName: 'agent-room-hosted',
+                    r2BucketName: 'agent-room-hosted-workspaces',
+                    queueName: 'agent-room-hosted-runtime-jobs',
+                }),
+            ).not.toThrow()
+            expect(() =>
+                assertHostedResourceNamesDeletable({
+                    workerName: 'agent-room-hosted-other',
+                    d1DatabaseName: 'agent-room-hosted',
+                    r2BucketName: 'agent-room-hosted-workspaces',
+                    queueName: 'agent-room-hosted-runtime-jobs',
+                }),
+            ).toThrow(/reset guard/)
+        } finally {
+            if (previous === undefined) {
+                delete process.env.AGENT_ROOM_CLOUDFLARE_ALLOW_HOSTED_PRODUCTION_RESET
+            } else {
+                process.env.AGENT_ROOM_CLOUDFLARE_ALLOW_HOSTED_PRODUCTION_RESET = previous
+            }
+        }
     })
 })

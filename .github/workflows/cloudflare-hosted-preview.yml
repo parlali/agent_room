@@ -9,18 +9,21 @@ on:
                 type: string
     pull_request:
         types:
+            - opened
+            - synchronize
+            - reopened
             - closed
 
 jobs:
     deploy:
-        if: ${{ github.event_name == 'workflow_dispatch' && vars.CLOUDFLARE_HOSTED_PREVIEWS_ENABLED == 'true' }}
+        if: ${{ vars.CLOUDFLARE_HOSTED_PREVIEWS_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || (github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository)) }}
         runs-on: ubuntu-latest
         permissions:
             contents: read
             deployments: write
             pull-requests: read
         environment:
-            name: hosted-preview
+            name: hosted-preview-${{ github.event_name == 'pull_request' && github.event.pull_request.number || inputs.pr_number }}
         steps:
             - name: Checkout workflow baseline
               uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -36,7 +39,7 @@ jobs:
             - name: Resolve preview target
               id: preview
               env:
-                  PREVIEW_PR_NUMBER: ${{ inputs.pr_number }}
+                  PREVIEW_PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || inputs.pr_number }}
                   CLOUDFLARE_WORKERS_SUBDOMAIN: ${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}
                   GITHUB_TOKEN: ${{ github.token }}
               run: bun run apps/self-hosted/scripts/cloudflare-hosted-preview-input.ts
@@ -52,6 +55,17 @@ jobs:
 
             - name: Build hosted Worker
               run: bun run self-hosted:cloudflare:build
+
+            - name: Reset stale preview Cloudflare resources
+              env:
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_HOSTED_PREVIEW_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_HOSTED_PREVIEW_ACCOUNT_ID }}
+                  AGENT_ROOM_CLOUDFLARE_WORKER_NAME: ${{ steps.preview.outputs.worker_name }}
+                  AGENT_ROOM_CLOUDFLARE_D1_DATABASE_NAME: ${{ steps.preview.outputs.d1_database_name }}
+                  AGENT_ROOM_CLOUDFLARE_R2_BUCKET_NAME: ${{ steps.preview.outputs.r2_bucket_name }}
+                  AGENT_ROOM_CLOUDFLARE_QUEUE_NAME: ${{ steps.preview.outputs.queue_name }}
+                  AGENT_ROOM_CLOUDFLARE_ROUTE_PATTERN: ''
+              run: bun run self-hosted:cloudflare:preview:delete
 
             - name: Ensure preview Cloudflare resources
               env:
