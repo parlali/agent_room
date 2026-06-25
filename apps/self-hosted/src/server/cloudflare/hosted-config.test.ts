@@ -26,7 +26,11 @@ function extractWranglerRequiredSecrets(text: string): string[] {
 }
 
 function extractWorkflowSecretEnvNames(text: string): string[] {
-    return Array.from(text.matchAll(/([A-Z0-9_]+):\s*\$\{\{\s*secrets\.([A-Z0-9_]+)\s*\}\}/g))
+    return Array.from(
+        text.matchAll(
+            /([A-Z0-9_]+):\s*\$\{\{\s*secrets\.[A-Z0-9_]+(?:\s*\|\|\s*secrets\.[A-Z0-9_]+)?\s*\}\}/g,
+        ),
+    )
         .map((match) => match[1])
         .filter((name) => hostedSecretNames.includes(name as never))
         .sort()
@@ -368,10 +372,13 @@ describe('hosted Cloudflare configuration', () => {
         expect(previewWorkflowConfig).not.toContain('self-hosted:cloudflare:preview:delete')
         expect(previewWorkflowConfig).toContain('BETTER_AUTH_URL: ${{ steps.preview.outputs.url }}')
         expect(previewWorkflowConfig).toContain(
-            'BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_HOSTED_PREVIEW_SECRET }}',
+            'BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_HOSTED_PREVIEW_SECRET || secrets.BETTER_AUTH_SECRET }}',
         )
         expect(previewWorkflowConfig).toContain(
-            'AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64: ${{ secrets.AGENT_ROOM_HOSTED_PREVIEW_ENCRYPTION_KEY_B64 }}',
+            'AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64: ${{ secrets.AGENT_ROOM_HOSTED_PREVIEW_ENCRYPTION_KEY_B64 || secrets.AGENT_ROOM_HOSTED_ENCRYPTION_KEY_B64 }}',
+        )
+        expect(previewWorkflowConfig).toContain(
+            'CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_HOSTED_PREVIEW_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}',
         )
     })
 
