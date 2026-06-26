@@ -31,4 +31,9 @@ export { BrandMark, BrandWordmark } from './brand'
 export { KeyValueList, type KeyValueItem } from './key-value-list'
 export { ErrorFallback, NotFound } from './error-fallback'
 export { CreateRoomButton } from './create-room-button'
+export {
+    CreateRoomForm,
+    type CreateRoomFormValues,
+    type CreateRoomFormProps,
+} from './create-room-form'
 export { ToggleSelector, mergeToggleSelectorItems } from './toggle-selector'

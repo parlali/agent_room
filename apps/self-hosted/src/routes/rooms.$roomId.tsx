@@ -223,7 +223,7 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                                 description={blockingIssues.map((i) => i.message).join(' · ')}
                                 action={
                                     <Link
-                                        to="/settings"
+                                        to="/operator"
                                         search={{
                                             installationId: '',
                                             setupAction: '',
@@ -231,7 +231,7 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                                         }}
                                     >
                                         <Button variant="outline" size="sm">
-                                            Open settings
+                                            Open Operator console
                                         </Button>
                                     </Link>
                                 }

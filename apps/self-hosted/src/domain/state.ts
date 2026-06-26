@@ -121,9 +121,40 @@ export function describeJobLastRun(status: string | null | undefined): SessionDi
 export function describeProviderStatus(status: string | null | undefined): SessionDisplayState {
     if (!status) return { label: 'Not checked', tone: 'muted' }
     if (status === 'ready') return { label: 'Connected', tone: 'ready' }
-    if (status === 'invalid') return { label: 'Invalid', tone: 'danger' }
+    if (status === 'invalid') return { label: 'Needs attention', tone: 'danger' }
     if (status === 'unchecked') return { label: 'Not checked', tone: 'muted' }
     return { label: status, tone: 'muted' }
+}
+
+export interface WebAccessReadiness {
+    label: string
+    tone: Tone
+    detail: string
+}
+
+export function describeWebAccessReadiness(input: {
+    enabled: boolean
+    hasBackend: boolean
+    hasCredential: boolean
+}): WebAccessReadiness {
+    if (!input.enabled) {
+        return { label: 'Off', tone: 'muted', detail: 'Web access is turned off for new rooms.' }
+    }
+    if (!input.hasBackend && !input.hasCredential) {
+        return {
+            label: 'Setup required',
+            tone: 'attention',
+            detail: 'No search backend or key is configured, so web searches will fail.',
+        }
+    }
+    if (!input.hasCredential) {
+        return {
+            label: 'Degraded',
+            tone: 'attention',
+            detail: 'No provider key is set; rooms fall back to the default search backend only.',
+        }
+    }
+    return { label: 'Ready', tone: 'ready', detail: 'Search and page fetch are configured.' }
 }
 
 export interface ScheduleSummary {

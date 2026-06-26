@@ -1,32 +1,23 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { PlusIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '#/components/ui/button'
-import { Input } from '#/components/ui/input'
-import { Label } from '#/components/ui/label'
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '#/components/ui/select'
-import { Textarea } from '#/components/ui/textarea'
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from '#/components/ui/dialog'
 import {
-    Sheet,
-    SheetContent,
-    SheetDescription,
-    SheetFooter,
-    SheetHeader,
-    SheetTitle,
-    SheetTrigger,
-} from '#/components/ui/sheet'
+    CreateRoomForm,
+    type CreateRoomFormValues,
+} from '#/components/agent-room/create-room-form'
 import { createRoomServer } from '#/routes/-room-runtime-server'
-import type { RoomMode } from '#/domain/domain-types'
-import { ROOM_MODE_OPTIONS } from '#/domain/room-modes'
 import { roomQueryKey } from '#/lib/room-query-keys'
 
 type CreateRoomButtonProps = {
@@ -51,7 +42,7 @@ export function CreateRoomButton({
     const queryClient = useQueryClient()
 
     const create = useMutation({
-        mutationFn: (input: { displayName: string; instructions: string; roomMode: RoomMode }) =>
+        mutationFn: (input: CreateRoomFormValues) =>
             createRoomServer({
                 data: {
                     displayName: input.displayName,
@@ -82,8 +73,8 @@ export function CreateRoomButton({
     })
 
     return (
-        <Sheet open={open} onOpenChange={setOpen}>
-            <SheetTrigger asChild>
+        <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
                 <Button
                     type="button"
                     variant={buttonVariant}
@@ -97,92 +88,20 @@ export function CreateRoomButton({
                         </>
                     )}
                 </Button>
-            </SheetTrigger>
-            <SheetContent side="right" className="w-full sm:max-w-md">
-                <SheetHeader>
-                    <SheetTitle>Create a new room</SheetTitle>
-                    <SheetDescription>
-                        A room is a persistent AI worker. You can edit its provider, tools, and
-                        instructions later in settings.
-                    </SheetDescription>
-                </SheetHeader>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Create a new room</DialogTitle>
+                    <DialogDescription>
+                        A room is a persistent space where the agent works on a topic, with its own
+                        files, memory, and history.
+                    </DialogDescription>
+                </DialogHeader>
                 <CreateRoomForm
                     onSubmit={(values) => create.mutate(values)}
                     pending={create.isPending}
                 />
-            </SheetContent>
-        </Sheet>
-    )
-}
-
-function CreateRoomForm({
-    onSubmit,
-    pending,
-}: {
-    onSubmit: (values: { displayName: string; instructions: string; roomMode: RoomMode }) => void
-    pending: boolean
-}) {
-    const [displayName, setDisplayName] = useState('')
-    const [instructions, setInstructions] = useState('')
-    const [roomMode, setRoomMode] = useState<RoomMode>('coworker')
-
-    const handle = (event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault()
-        const trimmed = displayName.trim()
-        if (!trimmed) return
-        onSubmit({ displayName: trimmed, instructions: instructions.trim(), roomMode })
-    }
-
-    return (
-        <form onSubmit={handle} className="space-y-4 px-4 py-2">
-            <div className="space-y-1.5">
-                <Label htmlFor="display-name">Room name</Label>
-                <Input
-                    id="display-name"
-                    autoFocus
-                    placeholder="e.g. Startup, Personal, Finance"
-                    value={displayName}
-                    onChange={(event) => setDisplayName(event.target.value)}
-                    required
-                />
-            </div>
-            <div className="space-y-1.5">
-                <Label htmlFor="instructions">What this room is for (optional)</Label>
-                <Textarea
-                    id="instructions"
-                    rows={5}
-                    placeholder="e.g. Help me research markets, draft outreach, and keep notes."
-                    value={instructions}
-                    onChange={(event) => setInstructions(event.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                    This becomes the room's working instructions. You can refine it later.
-                </p>
-            </div>
-            <div className="space-y-1.5">
-                <Label htmlFor="room-mode">Mode</Label>
-                <Select value={roomMode} onValueChange={(value) => setRoomMode(value as RoomMode)}>
-                    <SelectTrigger id="room-mode" className="w-full">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {ROOM_MODE_OPTIONS.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                    Programmer is lean for code and repos. Coworker is broader for memory, files,
-                    jobs, and artifacts.
-                </p>
-            </div>
-            <SheetFooter className="px-0">
-                <Button type="submit" disabled={pending || !displayName.trim()}>
-                    {pending ? 'Creating...' : 'Create room'}
-                </Button>
-            </SheetFooter>
-        </form>
+            </DialogContent>
+        </Dialog>
     )
 }

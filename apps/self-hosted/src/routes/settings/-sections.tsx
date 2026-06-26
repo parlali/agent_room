@@ -42,7 +42,7 @@ import { Switch } from '#/components/ui/switch'
 import { CAPABILITY_OPTIONS } from '#/domain/capabilities'
 import { formatRelativeTime } from '#/domain/format'
 import { imageModelOptionsForProvider } from '#/domain/model-options'
-import { describeProviderStatus } from '#/domain/state'
+import { describeProviderStatus, describeWebAccessReadiness } from '#/domain/state'
 import type {
     McpConnectionSummary,
     OperatorConfigSnapshot,
@@ -499,7 +499,15 @@ export function ProviderConnectionsSection({
                                 </div>
                                 <div className="mt-0.5">
                                     Updated {formatRelativeTime(entry.updatedAt)}
+                                    {entry.lastValidatedAt
+                                        ? ` · Checked ${formatRelativeTime(entry.lastValidatedAt)}`
+                                        : ''}
                                 </div>
+                                {entry.validationMessage ? (
+                                    <div className="mt-0.5 text-danger-fg">
+                                        {entry.validationMessage}
+                                    </div>
+                                ) : null}
                             </>
                         }
                         onEdit={() => onEdit(entry)}
@@ -555,7 +563,15 @@ export function McpConnectionsSection({
                                 <div className="truncate">{entry.serverKey}</div>
                                 <div className="mt-0.5">
                                     Updated {formatRelativeTime(entry.updatedAt)}
+                                    {entry.lastValidatedAt
+                                        ? ` · Checked ${formatRelativeTime(entry.lastValidatedAt)}`
+                                        : ''}
                                 </div>
+                                {entry.validationMessage ? (
+                                    <div className="mt-0.5 text-danger-fg">
+                                        {entry.validationMessage}
+                                    </div>
+                                ) : null}
                             </>
                         }
                         onEdit={() => onEdit(entry)}
@@ -674,6 +690,13 @@ export function CapabilitiesSection({
         setAppSearch((current) =>
             current ? { ...current, browserbase: { ...current.browserbase, ...patch } } : current,
         )
+    const webAccess = appSearch
+        ? describeWebAccessReadiness({
+              enabled: appSearch.enabled,
+              hasBackend: appSearch.backendUrl.trim().length > 0,
+              hasCredential: appSearch.brave.hasCredential || appSearch.browserbase.hasCredential,
+          })
+        : null
 
     return (
         <Section
@@ -719,16 +742,26 @@ export function CapabilitiesSection({
                         ))}
                     </div>
                     <div className="rounded-lg border border-border/60 p-3">
-                        <div className="flex items-center justify-between gap-3">
-                            <div>
-                                <div className="text-sm font-medium text-foreground">
-                                    Web search defaults
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-sm font-medium text-foreground">
+                                        Web access defaults
+                                    </span>
+                                    {webAccess ? (
+                                        <StateBadge tone={webAccess.tone} label={webAccess.label} />
+                                    ) : null}
                                 </div>
+                                {webAccess ? (
+                                    <p className="mt-0.5 text-xs text-muted-foreground">
+                                        {webAccess.detail}
+                                    </p>
+                                ) : null}
                             </div>
                             <Switch
                                 checked={appSearch.enabled}
                                 onCheckedChange={(enabled) => updateSearch({ enabled })}
-                                aria-label="Toggle web search"
+                                aria-label="Toggle web access"
                             />
                         </div>
                         <div className="mt-3 max-w-sm">

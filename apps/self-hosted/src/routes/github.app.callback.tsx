@@ -98,14 +98,14 @@ function GitHubAppCallbackPage() {
                             <StateBadge tone="ready" label="Connected" />
                             <Button asChild>
                                 <Link
-                                    to="/settings"
+                                    to="/operator"
                                     search={{
                                         installationId: '',
                                         setupAction: '',
                                         githubState: '',
                                     }}
                                 >
-                                    Back to settings
+                                    Back to setup
                                 </Link>
                             </Button>
                         </div>
@@ -128,14 +128,14 @@ function GitHubAppCallbackPage() {
                                 ) : null}
                                 <Button asChild>
                                     <Link
-                                        to="/settings"
+                                        to="/operator"
                                         search={{
                                             installationId: '',
                                             setupAction: '',
                                             githubState: '',
                                         }}
                                     >
-                                        Back to settings
+                                        Back to setup
                                     </Link>
                                 </Button>
                             </div>
@@ -150,14 +150,14 @@ function GitHubAppCallbackPage() {
                             <StateBadge tone="ready" label="Ready" />
                             <Button asChild>
                                 <Link
-                                    to="/settings"
+                                    to="/operator"
                                     search={{
                                         installationId: '',
                                         setupAction: '',
                                         githubState: '',
                                     }}
                                 >
-                                    Back to settings
+                                    Back to setup
                                 </Link>
                             </Button>
                         </div>
