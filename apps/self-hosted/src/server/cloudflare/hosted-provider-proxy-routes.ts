@@ -18,7 +18,7 @@ import {
 import { resolveHostedConfig } from './hosted-config'
 import { objectRecord, nullableObjectRecord } from './hosted-json'
 import {
-    openRouterCostMicrosFromProviderText,
+    openRouterUsageSnapshotFromProviderText,
     parseHostedBraveProxyPath,
     parseHostedOpenRouterProxyPath,
 } from './hosted-provider-proxy'
@@ -449,6 +449,30 @@ export async function hostedOpenRouterProxy(
     const responseHeaders = hostedProviderResponseHeaders(response)
     if (!response.ok) {
         const responseText = await response.text()
+        await recordHostedProviderUsageBlocked({
+            env,
+            workspaceId: proxyPath.workspaceId,
+            roomId: proxyPath.roomId,
+            sessionKey: usageContext.sessionKey,
+            runId: usageContext.runId,
+            jobId: usageContext.jobId,
+            provider: 'openrouter',
+            model: providerRequest.model,
+            metadata: {
+                ...managedModelMetadata,
+                billedBy: 'hosted_openrouter_proxy',
+                providerProxyBillingAuthority: 'worker_proxy',
+                providerRejectedRequest: true,
+                reservationId,
+                usageRequestId,
+                sessionKey: usageContext.sessionKey,
+                runId: usageContext.runId,
+                jobId: usageContext.jobId,
+                targetPath: proxyPath.targetPath,
+                status: response.status,
+            },
+            idempotencyKey: usageIdempotencyKey,
+        })
         await releaseHostedProviderPreflightReservation({
             env,
             workspaceId: proxyPath.workspaceId,
@@ -461,7 +485,8 @@ export async function hostedOpenRouterProxy(
         })
     }
     const responseText = await response.text()
-    const costMicros = openRouterCostMicrosFromProviderText(responseText)
+    const providerUsage = openRouterUsageSnapshotFromProviderText(responseText)
+    const costMicros = providerUsage.costMicros
     if (costMicros === null) {
         await recordHostedProviderUsageBlocked({
             env,
@@ -557,9 +582,11 @@ export async function hostedOpenRouterProxy(
             jobId: usageContext.jobId,
             provider: 'openrouter',
             model: providerRequest.model,
-            inputTokens: null,
-            outputTokens: null,
-            cachedTokens: null,
+            inputTokens: providerUsage.inputTokens,
+            outputTokens: providerUsage.outputTokens,
+            cachedTokens: providerUsage.cachedTokens,
+            reasoningTokens: providerUsage.reasoningTokens,
+            totalTokens: providerUsage.totalTokens,
             estimatedCostUsd: costMicros / 1_000_000,
             costMicros,
             billingReservationId: reservationId,

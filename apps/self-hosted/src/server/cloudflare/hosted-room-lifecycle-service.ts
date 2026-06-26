@@ -584,21 +584,6 @@ async function resolveHostedRuntimeProviderAvailabilityForSelection(input: {
     codexAvailable: boolean
     managedOpenRouterAvailable: boolean
 }> {
-    const [settings, providers] = await Promise.all([
-        getHostedWorkspaceSettings({
-            env: input.env,
-            workspaceId: input.workspaceId,
-        }),
-        listHostedProviders({
-            env: input.env,
-            workspaceId: input.workspaceId,
-        }),
-    ])
-    const codexAuth = await resolveHostedCodexStatus({
-        env: input.env,
-        workspaceId: input.workspaceId,
-        providers,
-    })
     const managedOpenRouterAvailable = await resolveHostedManagedModelAvailable({
         env: input.env,
         workspaceId: input.workspaceId,
@@ -614,6 +599,21 @@ async function resolveHostedRuntimeProviderAvailabilityForSelection(input: {
         }
     }
 
+    const [settings, providers] = await Promise.all([
+        getHostedWorkspaceSettings({
+            env: input.env,
+            workspaceId: input.workspaceId,
+        }),
+        listHostedProviders({
+            env: input.env,
+            workspaceId: input.workspaceId,
+        }),
+    ])
+    const codexAuth = await resolveHostedCodexStatus({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        providers,
+    })
     const selection = resolveHostedProviderSelection({
         config: input.config,
         settings,

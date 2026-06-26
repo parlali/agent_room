@@ -386,8 +386,11 @@ export async function updateRoomThreadModel(input: {
         workspaceId: actor.workspaceId,
         roomId: input.roomId,
     })
+    if (!runtime) {
+        throw new Error('Hosted runtime state was not found')
+    }
     if (
-        runtime?.row.providerCandidate === 'hosted_openrouter' &&
+        runtime.row.providerCandidate === 'hosted_openrouter' &&
         (input.provider !== hostedManagedModelProvider || input.model !== hostedManagedModelId)
     ) {
         throw new Error('Hosted rooms can only use the managed hosted model')

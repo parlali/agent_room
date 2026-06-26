@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { ProviderConnectionSummary } from '#/server/configuration/operator-configuration'
 import { hostedManagedModelId } from '#/server/cloudflare/hosted-model-policy'
 import type { ConfigDraft } from './model'
-import { ModelSection } from './model-section'
+import { ModelSection, providerConnectionOptionLabel } from './model-section'
 
 function draft(input: Partial<ConfigDraft> = {}): ConfigDraft {
     return {
@@ -78,5 +78,36 @@ describe('room model section', () => {
         expect(hostedHtml).toContain('OpenRouter')
         expect(hostedHtml).toContain('Codex')
         expect(hostedHtml).not.toContain(hostedManagedModelId)
+    })
+
+    it('keeps the hosted selector while managed availability is still unavailable', () => {
+        const hostedHtml = renderToStaticMarkup(
+            <ModelSection
+                draft={draft()}
+                providers={[]}
+                managedHostedAvailable={false}
+                onChange={() => undefined}
+                onSave={() => undefined}
+                dirty={false}
+                pending={false}
+            />,
+        )
+
+        expect(hostedHtml).toContain('Hosted')
+        expect(hostedHtml).toContain('OpenRouter')
+        expect(hostedHtml).toContain('Codex')
+        expect(hostedHtml).not.toContain('App default')
+        expect(hostedHtml).not.toContain('Use this')
+    })
+
+    it('keeps provider labels in hosted BYOK dropdown option labels', () => {
+        expect(
+            providerConnectionOptionLabel(
+                provider({
+                    label: 'Production OpenRouter',
+                    defaultModel: 'openrouter/auto',
+                }),
+            ),
+        ).toBe('Production OpenRouter - openrouter/auto')
     })
 })

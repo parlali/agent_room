@@ -140,6 +140,19 @@ export const parseHostedOpenRouterProxyPath = hostedOpenRouterProxyPathHelpers.p
 export const parseHostedBraveProxyPath = hostedBraveProxyPathHelpers.parse
 export const parseHostedBrowserbaseProxyPath = hostedBrowserbaseProxyPathHelpers.parse
 
+export interface OpenRouterProviderUsageSnapshot {
+    costMicros: number | null
+    inputTokens: number | null
+    outputTokens: number | null
+    cachedTokens: number | null
+    reasoningTokens: number | null
+    totalTokens: number | null
+}
+
+function openRouterTokenCount(value: unknown): number | null {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
+}
+
 function openRouterCostDollars(value: unknown): number | null {
     const numeric =
         typeof value === 'number'
@@ -159,7 +172,20 @@ function openRouterCostMicrosFromDollars(value: unknown): number | null {
     return Number.isSafeInteger(micros) && micros >= 0 ? micros : null
 }
 
-export function openRouterCostMicrosFromProviderPayload(value: unknown): number | null {
+function emptyOpenRouterUsageSnapshot(): OpenRouterProviderUsageSnapshot {
+    return {
+        costMicros: null,
+        inputTokens: null,
+        outputTokens: null,
+        cachedTokens: null,
+        reasoningTokens: null,
+        totalTokens: null,
+    }
+}
+
+export function openRouterUsageSnapshotFromProviderPayload(
+    value: unknown,
+): OpenRouterProviderUsageSnapshot | null {
     const record = nullableObjectRecord(value)
     if (!record) {
         return null
@@ -168,22 +194,59 @@ export function openRouterCostMicrosFromProviderPayload(value: unknown): number 
     if (!usage) {
         return null
     }
-    return openRouterCostMicrosFromDollars(usage.cost)
+    const promptDetails = nullableObjectRecord(usage.prompt_tokens_details)
+    const completionDetails = nullableObjectRecord(usage.completion_tokens_details)
+    return {
+        ...emptyOpenRouterUsageSnapshot(),
+        costMicros: openRouterCostMicrosFromDollars(usage.cost),
+        inputTokens: openRouterTokenCount(usage.prompt_tokens),
+        outputTokens: openRouterTokenCount(usage.completion_tokens),
+        cachedTokens: openRouterTokenCount(promptDetails?.cached_tokens),
+        reasoningTokens: openRouterTokenCount(completionDetails?.reasoning_tokens),
+        totalTokens: openRouterTokenCount(usage.total_tokens),
+    }
 }
 
-export function openRouterCostMicrosFromProviderText(text: string): number | null {
+export function openRouterCostMicrosFromProviderPayload(value: unknown): number | null {
+    return openRouterUsageSnapshotFromProviderPayload(value)?.costMicros ?? null
+}
+
+function hasOpenRouterUsageSnapshotValue(value: OpenRouterProviderUsageSnapshot): boolean {
+    return Object.values(value).some((entry) => entry !== null)
+}
+
+function mergeOpenRouterUsageSnapshots(
+    current: OpenRouterProviderUsageSnapshot,
+    next: OpenRouterProviderUsageSnapshot,
+): OpenRouterProviderUsageSnapshot {
+    return {
+        costMicros: next.costMicros ?? current.costMicros,
+        inputTokens: next.inputTokens ?? current.inputTokens,
+        outputTokens: next.outputTokens ?? current.outputTokens,
+        cachedTokens: next.cachedTokens ?? current.cachedTokens,
+        reasoningTokens: next.reasoningTokens ?? current.reasoningTokens,
+        totalTokens: next.totalTokens ?? current.totalTokens,
+    }
+}
+
+export function openRouterUsageSnapshotFromProviderText(
+    text: string,
+): OpenRouterProviderUsageSnapshot {
     const trimmed = text.trim()
     if (!trimmed) {
-        return null
+        return emptyOpenRouterUsageSnapshot()
     }
     if (!trimmed.includes('\ndata:') && !trimmed.startsWith('data:')) {
         try {
-            return openRouterCostMicrosFromProviderPayload(JSON.parse(trimmed) as unknown)
+            return (
+                openRouterUsageSnapshotFromProviderPayload(JSON.parse(trimmed) as unknown) ??
+                emptyOpenRouterUsageSnapshot()
+            )
         } catch {
-            return null
+            return emptyOpenRouterUsageSnapshot()
         }
     }
-    let lastCostMicros: number | null = null
+    let lastUsageSnapshot = emptyOpenRouterUsageSnapshot()
     for (const line of trimmed.split(/\r?\n/)) {
         const stripped = line.trim()
         if (!stripped.startsWith('data:')) {
@@ -194,15 +257,19 @@ export function openRouterCostMicrosFromProviderText(text: string): number | nul
             continue
         }
         try {
-            const costMicros = openRouterCostMicrosFromProviderPayload(
+            const usageSnapshot = openRouterUsageSnapshotFromProviderPayload(
                 JSON.parse(payload) as unknown,
             )
-            if (costMicros !== null) {
-                lastCostMicros = costMicros
+            if (usageSnapshot && hasOpenRouterUsageSnapshotValue(usageSnapshot)) {
+                lastUsageSnapshot = mergeOpenRouterUsageSnapshots(lastUsageSnapshot, usageSnapshot)
             }
         } catch {
             continue
         }
     }
-    return lastCostMicros
+    return lastUsageSnapshot
+}
+
+export function openRouterCostMicrosFromProviderText(text: string): number | null {
+    return openRouterUsageSnapshotFromProviderText(text).costMicros
 }

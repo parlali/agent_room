@@ -6,9 +6,13 @@ import {
 } from './hosted-worker-runtime-routes'
 import { HostedBillingBalanceExhaustedError } from './hosted-billing-types'
 import {
+    hostedManagedModelCompactionKeepRecentTokens,
+    hostedManagedModelCompactionReserveTokens,
+    hostedManagedModelContextWindowTokens,
     hostedManagedModelId,
     hostedManagedModelMaxOutputTokens,
     hostedManagedModelRequestReservationCents,
+    hostedManagedModelRetryMaxRetries,
 } from './hosted-model-policy'
 
 const mocks = vi.hoisted(() => ({
@@ -750,6 +754,15 @@ describe('hosted runtime worker route security gates', () => {
                         id: 'completion_1',
                         usage: {
                             cost: 0.123456,
+                            prompt_tokens: 111,
+                            completion_tokens: 22,
+                            total_tokens: 133,
+                            prompt_tokens_details: {
+                                cached_tokens: 7,
+                            },
+                            completion_tokens_details: {
+                                reasoning_tokens: 5,
+                            },
                         },
                     }),
                     {
@@ -790,6 +803,12 @@ describe('hosted runtime worker route security gates', () => {
                     modelSource: 'managed_hosted',
                     model: hostedManagedModelId,
                     reservationCeilingCents: hostedManagedModelRequestReservationCents,
+                    contextWindowTokens: hostedManagedModelContextWindowTokens,
+                    maxOutputTokens: hostedManagedModelMaxOutputTokens,
+                    compactionReserveTokens: hostedManagedModelCompactionReserveTokens,
+                    compactionKeepRecentTokens: hostedManagedModelCompactionKeepRecentTokens,
+                    retryEnabled: false,
+                    maxProviderRetries: hostedManagedModelRetryMaxRetries,
                 }),
             }),
         )
@@ -802,6 +821,11 @@ describe('hosted runtime worker route security gates', () => {
                 jobId: 'job_1',
                 provider: 'openrouter',
                 model: hostedManagedModelId,
+                inputTokens: 111,
+                outputTokens: 22,
+                cachedTokens: 7,
+                reasoningTokens: 5,
+                totalTokens: 133,
                 costMicros: 123456,
                 estimatedCostUsd: 0.123456,
                 billingReservationId: 'reservation_1',
@@ -846,6 +870,50 @@ describe('hosted runtime worker route security gates', () => {
             },
         })
         expect(JSON.parse(String(providerInit.body))).not.toHaveProperty('max_tokens')
+    })
+
+    it('records blocked usage when OpenRouter rejects a managed hosted request', async () => {
+        const fetchMock = vi.fn(
+            async () =>
+                new Response(JSON.stringify({ error: { message: 'rate limited' } }), {
+                    status: 429,
+                }),
+        )
+        vi.stubGlobal('fetch', fetchMock)
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
+            headers: openRouterRuntimeHeaders(),
+            body: {
+                model: hostedManagedModelId,
+                messages: [],
+            },
+        })
+
+        expect(response.status).toBe(429)
+        expect(mocks.recordHostedProviderUsageBlocked).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                provider: 'openrouter',
+                model: hostedManagedModelId,
+                idempotencyKey: 'provider_proxy:openrouter:workspace_1:room_1:usage-request-123456',
+                metadata: expect.objectContaining({
+                    providerRejectedRequest: true,
+                    status: 429,
+                    reservationId: 'reservation_1',
+                    modelSource: 'managed_hosted',
+                    maxProviderRetries: hostedManagedModelRetryMaxRetries,
+                }),
+            }),
+        )
+        expect(mocks.recordHostedProviderUsage).not.toHaveBeenCalled()
+        expect(mocks.releaseHostedBillingReservation).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                reservationId: 'reservation_1',
+            }),
+        )
     })
 
     it('does not return OpenRouter provider bodies when exact provider cost is missing', async () => {

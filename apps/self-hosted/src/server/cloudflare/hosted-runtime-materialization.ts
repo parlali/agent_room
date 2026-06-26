@@ -47,8 +47,12 @@ import { resolveHostedMcpHeaders } from './hosted-mcp-header-secrets'
 import type { HostedProviderCandidate } from './hosted-provider-priority'
 import {
     assertHostedManagedModelAvailable,
+    hostedManagedModelCompactionKeepRecentTokens,
+    hostedManagedModelCompactionReserveTokens,
+    hostedManagedModelContextWindowTokens,
     hostedManagedModelId,
     hostedManagedModelLabel,
+    hostedManagedModelMaxOutputTokens,
     hostedManagedModelProvider,
 } from './hosted-model-policy'
 import { hostedOpenRouterProxyBaseUrl } from './hosted-provider-proxy'
@@ -180,11 +184,6 @@ export async function materializeHostedProvider(input: {
     authJson: string | null
     candidate: HostedProviderCandidate
 }> {
-    const codexAuth = await resolveHostedCodexStatus({
-        env: input.env,
-        workspaceId: input.workspaceId,
-        providers: input.providers,
-    })
     if (input.config.providerMode === 'managed_hosted') {
         await assertHostedManagedModelAvailable({
             env: input.env,
@@ -197,6 +196,10 @@ export async function materializeHostedProvider(input: {
                 api: 'openai-completions',
                 model: hostedManagedModelId,
                 modelLabel: hostedManagedModelLabel,
+                contextWindowTokens: hostedManagedModelContextWindowTokens,
+                maxOutputTokens: hostedManagedModelMaxOutputTokens,
+                compactionReserveTokens: hostedManagedModelCompactionReserveTokens,
+                compactionKeepRecentTokens: hostedManagedModelCompactionKeepRecentTokens,
                 fallbackModels: [],
                 baseUrl: hostedOpenRouterProxyBaseUrl({
                     publicOrigin: input.publicOrigin,
@@ -214,6 +217,11 @@ export async function materializeHostedProvider(input: {
         }
     }
 
+    const codexAuth = await resolveHostedCodexStatus({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        providers: input.providers,
+    })
     const selection = resolveHostedProviderSelection({
         ...input,
         codexAuth,

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
     openRouterCostMicrosFromProviderPayload,
     openRouterCostMicrosFromProviderText,
+    openRouterUsageSnapshotFromProviderText,
 } from './hosted-provider-proxy'
 
 describe('hosted provider cost extraction', () => {
@@ -95,5 +96,47 @@ describe('hosted provider cost extraction', () => {
         ).toBe(123)
         expect(openRouterCostMicrosFromProviderText('data: {"usage":{}}\n')).toBeNull()
         expect(openRouterCostMicrosFromProviderText('{not-json')).toBeNull()
+    })
+
+    it('extracts OpenRouter token usage from buffered JSON and SSE provider bodies', () => {
+        expect(
+            openRouterUsageSnapshotFromProviderText(
+                JSON.stringify({
+                    usage: {
+                        cost: '0.000042',
+                        prompt_tokens: 100,
+                        completion_tokens: 25,
+                        total_tokens: 125,
+                        prompt_tokens_details: {
+                            cached_tokens: 10,
+                        },
+                        completion_tokens_details: {
+                            reasoning_tokens: 5,
+                        },
+                    },
+                }),
+            ),
+        ).toEqual({
+            costMicros: 42,
+            inputTokens: 100,
+            outputTokens: 25,
+            cachedTokens: 10,
+            reasoningTokens: 5,
+            totalTokens: 125,
+        })
+        expect(
+            openRouterUsageSnapshotFromProviderText(
+                [
+                    'data: {"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}',
+                    'data: {"usage":{"cost":0.000123}}',
+                    'data: [DONE]',
+                ].join('\n'),
+            ),
+        ).toMatchObject({
+            costMicros: 123,
+            inputTokens: 10,
+            outputTokens: 2,
+            totalTokens: 12,
+        })
     })
 })

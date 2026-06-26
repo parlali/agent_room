@@ -282,7 +282,7 @@ function BillingPage() {
                     ) : null}
                     <div className="mt-4 rounded-lg border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">
                         Model sources are{' '}
-                        {hosted?.providerSources.join(', ') ?? 'Hosted, OpenRouter, Codex'}.
+                        {hosted?.providerSources?.join(', ') ?? 'Hosted, OpenRouter, Codex'}.
                     </div>
                 </Section>
 

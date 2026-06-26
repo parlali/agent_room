@@ -10,7 +10,12 @@ export const hostedManagedModelId = 'z-ai/glm-5.2'
 export const hostedManagedModelLabel = 'Hosted'
 export const hostedManagedModelPolicyId = 'managed-hosted-model-v1'
 export const hostedManagedModelRequestReservationCents = 500
+export const hostedManagedModelContextWindowTokens = 128000
 export const hostedManagedModelMaxOutputTokens = 16384
+export const hostedManagedModelCompactionReserveTokens = 16384
+export const hostedManagedModelCompactionKeepRecentTokens = 20000
+export const hostedManagedModelRetryMaxRetries = 0
+export const hostedManagedModelRetryMaxRetryDelayMs = 0
 export const hostedModelSourceLabels = ['Hosted', 'OpenRouter', 'Codex'] as const
 export const hostedManagedModelUnavailableMessage =
     'Hosted model access is not available for this workspace'
@@ -70,6 +75,12 @@ export function hostedManagedModelAuditMetadata(input: {
         model: hostedManagedModelId,
         hostedModelPolicyId: hostedManagedModelPolicyId,
         reservationCeilingCents: input.reservationCents,
+        contextWindowTokens: hostedManagedModelContextWindowTokens,
         maxOutputTokens: hostedManagedModelMaxOutputTokens,
+        compactionReserveTokens: hostedManagedModelCompactionReserveTokens,
+        compactionKeepRecentTokens: hostedManagedModelCompactionKeepRecentTokens,
+        retryEnabled: false,
+        maxProviderRetries: hostedManagedModelRetryMaxRetries,
+        maxProviderRetryDelayMs: hostedManagedModelRetryMaxRetryDelayMs,
     }
 }

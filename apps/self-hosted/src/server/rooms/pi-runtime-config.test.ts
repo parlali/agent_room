@@ -13,6 +13,12 @@ import {
     testImage,
     testSearch,
 } from '../pi-runtime/test-runtime-defaults'
+import {
+    hostedManagedModelCompactionKeepRecentTokens,
+    hostedManagedModelCompactionReserveTokens,
+    hostedManagedModelContextWindowTokens,
+    hostedManagedModelMaxOutputTokens,
+} from '../cloudflare/hosted-model-policy'
 import { buildPiRuntimeConfig } from './pi-runtime-config'
 import { piRuntimeEngineProfile } from './pi-runtime-engine-profile'
 import { defaultRuntimeSandboxHardening } from './runtime-sandbox-hardening'
@@ -177,6 +183,10 @@ describe('Pi runtime config materialization', () => {
             ...roomConfig.provider,
             model: 'provider/custom-model',
             modelLabel: 'Hosted',
+            contextWindowTokens: hostedManagedModelContextWindowTokens,
+            maxOutputTokens: hostedManagedModelMaxOutputTokens,
+            compactionReserveTokens: hostedManagedModelCompactionReserveTokens,
+            compactionKeepRecentTokens: hostedManagedModelCompactionKeepRecentTokens,
         }
 
         const config = buildPiRuntimeConfig({
@@ -193,6 +203,13 @@ describe('Pi runtime config materialization', () => {
         expect(config.models.providers.openrouter?.models?.[0]).toMatchObject({
             id: 'provider/custom-model',
             name: 'Hosted',
+            contextWindow: hostedManagedModelContextWindowTokens,
+            maxTokens: hostedManagedModelMaxOutputTokens,
+        })
+        expect(config.compaction).toEqual({
+            enabled: true,
+            reserveTokens: hostedManagedModelCompactionReserveTokens,
+            keepRecentTokens: hostedManagedModelCompactionKeepRecentTokens,
         })
     })
 

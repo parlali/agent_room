@@ -172,8 +172,8 @@ function buildProviderModels(input: {
             name: provider.modelLabel ?? provider.model,
             reasoning: provider.api !== 'openai-completions',
             input: ['text'],
-            contextWindow: 128000,
-            maxTokens: 16384,
+            contextWindow: provider.contextWindowTokens ?? 128000,
+            maxTokens: provider.maxOutputTokens ?? 16384,
             cost: zeroModelCost(),
         },
     ]
@@ -265,8 +265,8 @@ export function buildPiRuntimeConfig(input: {
         },
         compaction: {
             enabled: true,
-            reserveTokens: 16384,
-            keepRecentTokens: 20000,
+            reserveTokens: provider.compactionReserveTokens ?? 16384,
+            keepRecentTokens: provider.compactionKeepRecentTokens ?? 20000,
         },
     }
 }

@@ -616,6 +616,10 @@ export interface MaterializedProviderConfig {
     authMode: ProviderAuthMode
     model: string
     modelLabel?: string
+    contextWindowTokens?: number
+    maxOutputTokens?: number
+    compactionReserveTokens?: number
+    compactionKeepRecentTokens?: number
     fallbackModels: string[]
     baseUrl: string | null
     authPath: string | null

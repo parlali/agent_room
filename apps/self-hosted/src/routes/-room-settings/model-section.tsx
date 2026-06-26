@@ -12,6 +12,10 @@ import type { ProviderConnectionSummary } from '#/server/configuration/operator-
 import type { ConfigDraft } from './model'
 import { ModeRadio, SaveBar } from './shared'
 
+export function providerConnectionOptionLabel(provider: ProviderConnectionSummary): string {
+    return `${provider.label} - ${provider.defaultModel}`
+}
+
 export function ModelSection({
     draft,
     providers,
@@ -23,13 +27,13 @@ export function ModelSection({
 }: {
     draft: ConfigDraft
     providers: ProviderConnectionSummary[]
-    managedHostedAvailable?: boolean
+    managedHostedAvailable: boolean | null
     onChange: (patch: Partial<ConfigDraft>) => void
     onSave: () => void
     dirty: boolean
     pending: boolean
 }) {
-    if (managedHostedAvailable !== undefined) {
+    if (managedHostedAvailable !== null) {
         return (
             <HostedModelSection
                 draft={draft}
@@ -217,7 +221,7 @@ function HostedModelSection({
                             <SelectContent>
                                 {selectedOptions.map((provider) => (
                                     <SelectItem key={provider.id} value={provider.id}>
-                                        {provider.defaultModel}
+                                        {providerConnectionOptionLabel(provider)}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
