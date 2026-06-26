@@ -5,11 +5,7 @@ import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
 import { Alert, AlertDescription } from '#/components/ui/alert'
-import {
-    Collapsible,
-    CollapsibleContent,
-    CollapsibleTrigger,
-} from '#/components/ui/collapsible'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '#/components/ui/collapsible'
 import { FieldGroup, SelectField } from '#/components/agent-room/form'
 import { cn } from '#/lib/utils'
 import type { RoomMode } from '#/domain/domain-types'

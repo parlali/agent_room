@@ -175,11 +175,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     )
 
     const invalidateSessionScope = useCallback(
-        (options?: {
-            roomId?: string
-            sessionKey?: string
-            includeRoomsList?: boolean
-        }) => {
+        (options?: { roomId?: string; sessionKey?: string; includeRoomsList?: boolean }) => {
             const targetRoomId = options?.roomId ?? roomId
             const targetSessionKey = options?.sessionKey ?? sessionKey
             void queryClient.invalidateQueries({

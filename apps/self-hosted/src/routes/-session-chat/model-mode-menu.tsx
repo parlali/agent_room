@@ -141,7 +141,9 @@ export function ModelModeMenu({
                                 Advanced
                             </DropdownMenuSubTrigger>
                             <DropdownMenuSubContent className="max-h-96 w-72 overflow-y-auto rounded-xl p-2">
-                                <DropdownMenuLabel className="px-2 text-sm">Model</DropdownMenuLabel>
+                                <DropdownMenuLabel className="px-2 text-sm">
+                                    Model
+                                </DropdownMenuLabel>
                                 <ModelRadioItems state={state} onChange={onChange} />
                             </DropdownMenuSubContent>
                         </DropdownMenuSub>

@@ -87,14 +87,10 @@ export function CapabilitiesSection({
         draft.capabilityOverrides['web_search'] === undefined &&
         draft.capabilityOverrides['url_fetch'] === undefined
     const imageInherited =
-        !programmerMode &&
-        appDefaults !== null &&
-        draft.capabilityOverrides['images'] === undefined
+        !programmerMode && appDefaults !== null && draft.capabilityOverrides['images'] === undefined
     const plainOptions = visibleOptions.filter(
         (option) =>
-            option.id !== 'web_search' &&
-            option.id !== 'url_fetch' &&
-            option.id !== 'images',
+            option.id !== 'web_search' && option.id !== 'url_fetch' && option.id !== 'images',
     )
     const capabilitySelectorItems = plainOptions.map((option) => ({
         option,

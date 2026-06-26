@@ -374,7 +374,11 @@ function webActivityState(input: ToolProjectionInput): RoomWebActivityState {
     if (input.status !== 'error') return 'ok'
     const message = safeErrorText(input.text, input.result).toLowerCase()
     if (/rate.?limit|too many request|quota|429/.test(message)) return 'rate_limited'
-    if (/not configured|not materialized|missing .*key|no .*provider|set up|setup|not enabled/.test(message)) {
+    if (
+        /not configured|not materialized|missing .*key|no .*provider|set up|setup|not enabled/.test(
+            message,
+        )
+    ) {
         return 'setup_required'
     }
     if (/unavailable|disabled|not available|turned off/.test(message)) return 'unavailable'
@@ -446,7 +450,10 @@ function browserActionFromName(name: string | null): string {
     return match?.[1] ?? ''
 }
 
-function webSourceFromUrl(value: string | null, title: string | null): RoomWebActivitySource | null {
+function webSourceFromUrl(
+    value: string | null,
+    title: string | null,
+): RoomWebActivitySource | null {
     if (!value) return null
     try {
         const url = new URL(value)

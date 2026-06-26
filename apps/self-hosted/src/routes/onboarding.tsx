@@ -104,7 +104,8 @@ function OnboardingPage() {
               defaultModel: null,
           }
 
-    const byokEntry = config?.providerCatalog.find((entry) => entry.provider === 'openrouter') ?? null
+    const byokEntry =
+        config?.providerCatalog.find((entry) => entry.provider === 'openrouter') ?? null
 
     const saveKey = useMutation({
         mutationFn: async () => {

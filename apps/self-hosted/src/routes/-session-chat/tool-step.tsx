@@ -36,9 +36,10 @@ export function ToolActivity({
 }) {
     const visibleTasks = useMemo(() => tasks.filter((task) => task.title.trim()), [tasks])
     const webTasks = useMemo(
-        () => visibleTasks.filter((task): task is ToolActivityTask & { web: RoomWebActivity } =>
-            Boolean(task.web),
-        ),
+        () =>
+            visibleTasks.filter((task): task is ToolActivityTask & { web: RoomWebActivity } =>
+                Boolean(task.web),
+            ),
         [visibleTasks],
     )
     const otherTasks = useMemo(() => visibleTasks.filter((task) => !task.web), [visibleTasks])
@@ -56,11 +57,7 @@ export function ToolActivity({
                 <WebActivityCard key={task.id} task={task} onLayoutChange={onLayoutChange} />
             ))}
             {otherTasks.length > 0 ? (
-                <ToolDisclosure
-                    id={id}
-                    tasks={otherTasks}
-                    onLayoutChange={onLayoutChange}
-                />
+                <ToolDisclosure id={id} tasks={otherTasks} onLayoutChange={onLayoutChange} />
             ) : null}
         </div>
     )
@@ -171,7 +168,11 @@ function WebSearchBody({ web }: { web: RoomWebActivity }) {
                 <ul className="flex min-w-0 flex-col gap-1">
                     {web.sources.map((source) => (
                         <li key={source.url} className="min-w-0">
-                            <WebSourceLink title={source.title} url={source.url} host={source.host} />
+                            <WebSourceLink
+                                title={source.title}
+                                url={source.url}
+                                host={source.host}
+                            />
                         </li>
                     ))}
                 </ul>
@@ -184,15 +185,15 @@ function WebFetchBody({ web }: { web: RoomWebActivity }) {
     if (!web.page) {
         return <p className="text-muted-foreground">Read a web page.</p>
     }
-    return (
-        <WebSourceLink title={web.page.title} url={web.page.url} host={web.page.host} />
-    )
+    return <WebSourceLink title={web.page.title} url={web.page.url} host={web.page.host} />
 }
 
 function WebBrowserBody({ web }: { web: RoomWebActivity }) {
     return (
         <div className="flex min-w-0 flex-col gap-1">
-            <p className="min-w-0 break-words text-foreground">{web.summary ?? 'Browsed the web.'}</p>
+            <p className="min-w-0 break-words text-foreground">
+                {web.summary ?? 'Browsed the web.'}
+            </p>
             {web.page ? (
                 <WebSourceLink title={web.page.title} url={web.page.url} host={web.page.host} />
             ) : null}

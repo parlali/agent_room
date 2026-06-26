@@ -564,7 +564,6 @@ export async function listRoomUsageForRoute(data: { roomId: string; limit?: numb
     }
 }
 
-
 export async function listRoomFilesForRoute(data: { roomId: string }) {
     const hosted = await requireCurrentHostedActor()
     if (hosted) {

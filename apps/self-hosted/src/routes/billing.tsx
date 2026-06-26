@@ -8,7 +8,13 @@ import {
     type HostedPlanTier,
 } from '@agent-room/billing'
 import { useMutation } from '@tanstack/react-query'
-import { CheckIcon, ChevronDownIcon, Loader2Icon, RefreshCwIcon, WalletCardsIcon } from 'lucide-react'
+import {
+    CheckIcon,
+    ChevronDownIcon,
+    Loader2Icon,
+    RefreshCwIcon,
+    WalletCardsIcon,
+} from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -23,11 +29,7 @@ import {
     StatGrid,
 } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
-import {
-    Collapsible,
-    CollapsibleContent,
-    CollapsibleTrigger,
-} from '#/components/ui/collapsible'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '#/components/ui/collapsible'
 import { usageProviderLabel } from '#/domain/capability-labels'
 import { formatDateTime } from '#/domain/format'
 import type { Tone } from '#/domain/state'
@@ -59,7 +61,9 @@ async function readJsonRecord(response: Response): Promise<Record<string, unknow
 
 export const Route = createFileRoute('/billing')({
     beforeLoad: () => requireRouteUser({ requireHostedSubscription: false }),
-    validateSearch: (search: Record<string, unknown>): { checkout: BillingCheckoutResult | null } => ({
+    validateSearch: (
+        search: Record<string, unknown>,
+    ): { checkout: BillingCheckoutResult | null } => ({
         checkout:
             search.checkout === 'subscription_success' ||
             search.checkout === 'topup_success' ||
@@ -72,8 +76,7 @@ export const Route = createFileRoute('/billing')({
 
 function BillingPage() {
     const billingQuery = useHostedBillingQuery()
-    const summary =
-        billingQuery.data?.status === 'active' ? billingQuery.data.summary : null
+    const summary = billingQuery.data?.status === 'active' ? billingQuery.data.summary : null
 
     const header = (
         <PageHeader
@@ -273,7 +276,10 @@ function BillingActiveContent({
                 />
             ) : null}
 
-            <Section title="Available credits" description="What you have left to spend on AI rooms.">
+            <Section
+                title="Available credits"
+                description="What you have left to spend on AI rooms."
+            >
                 <Stat
                     label="Available"
                     value={formatHostedUsd(available)}
@@ -302,10 +308,7 @@ function BillingActiveContent({
                 </div>
             </Section>
 
-            <Section
-                title="Recent usage"
-                description="Charges against your credits, newest first."
-            >
+            <Section title="Recent usage" description="Charges against your credits, newest first.">
                 <BillingUsageList events={summary.usage} />
             </Section>
 
@@ -343,8 +346,8 @@ function BalanceDetails({ summary }: { summary: HostedBillingSummary }) {
                     />
                 </StatGrid>
                 <p className="mt-3 text-sm text-muted-foreground">
-                    Included usage resets monthly and is spent first. Purchased credits carry over and
-                    are spent after included usage runs out.
+                    Included usage resets monthly and is spent first. Purchased credits carry over
+                    and are spent after included usage runs out.
                 </p>
             </CollapsibleContent>
         </Collapsible>
@@ -462,8 +465,8 @@ function AdvancedDisclosure({ summary }: { summary: HostedBillingSummary }) {
                     description="By default your rooms use Agent Room's managed model and web access, drawn from your credits."
                 >
                     <p className="text-sm text-muted-foreground">
-                        You can connect your own model key in room settings. When a key is present it
-                        is used first, before managed credits.
+                        You can connect your own model key in room settings. When a key is present
+                        it is used first, before managed credits.
                     </p>
                     {summary.providerSources.length ? (
                         <p className="mt-3 text-xs text-muted-foreground">
