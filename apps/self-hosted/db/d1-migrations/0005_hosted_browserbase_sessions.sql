@@ -7,9 +7,9 @@ CREATE TABLE hosted_browserbase_session (
     job_id TEXT,
     usage_request_id TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('active', 'release_requested', 'released')),
-    created_at DATE NOT NULL,
-    updated_at DATE NOT NULL,
-    released_at DATE,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    released_at TEXT,
     UNIQUE(workspace_id, room_id, usage_request_id),
     FOREIGN KEY (workspace_id, room_id)
         REFERENCES hosted_room(workspace_id, id)
