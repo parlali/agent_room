@@ -6,6 +6,7 @@ import { hostedProviderAuthPath } from './hosted-runtime-paths'
 import { hostedRuntimeDeniedHosts } from './runtime-contract'
 import { encryptHostedSecret } from './hosted-secret-store'
 import { hostedRuntimeManagedOpenRouterEnvKey } from '../rooms/pi-runtime-contract'
+import { hostedManagedModelId } from './hosted-model-policy'
 
 interface RuntimeUpdate {
     sql: string
@@ -522,9 +523,13 @@ describe('hosted runtime reconciliation', () => {
                 workspaceSnapshotKey: null,
             },
             providerRows: [],
+            roomConfigRow: {
+                providerMode: 'managed_hosted',
+                providerConnectionId: null,
+            },
             workspaceSettingsRow: {
                 defaultProviderConnectionId: null,
-                defaultModel: 'openrouter/auto',
+                defaultModel: null,
             },
             start: async (name, args) => {
                 starts.push({ name, args })
@@ -534,6 +539,16 @@ describe('hosted runtime reconciliation', () => {
         await reconcileHostedRuntimeJob(env, runtimeMessage())
 
         expect(runtimeEnvVars(starts[0]?.args)?.[hostedRuntimeManagedOpenRouterEnvKey]).toBe('1')
+        const bundle = decodeRuntimeBundle(starts[0]?.args)
+        const runtimeConfig = JSON.parse(
+            bundledFileText(bundle, hostedRuntimeConfigPath),
+        ) as Record<string, unknown>
+        expect(runtimeConfig).toMatchObject({
+            provider: {
+                sourceProvider: 'openrouter',
+                sourceModel: hostedManagedModelId,
+            },
+        })
     })
 
     it('does not materialize app image secrets for a room-scoped image provider', async () => {

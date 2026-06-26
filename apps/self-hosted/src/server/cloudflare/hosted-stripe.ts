@@ -20,7 +20,7 @@ import {
     isHostedBillingPlanStatusActive,
 } from './hosted-billing-types'
 import type { HostedActor } from './hosted-auth'
-import { hostedProviderPriorityOrder } from './hosted-provider-priority'
+import { hostedModelSourceLabels } from './hosted-model-policy'
 import { timingSafeEqualHex } from '../security/timing-safe'
 
 export class HostedStripeWebhookError extends Error {
@@ -428,7 +428,7 @@ export async function readHostedBillingSummary(input: {
         label: string
         enabled: boolean
     }>
-    providerPriority: string[]
+    providerSources: string[]
 }> {
     const config = resolveHostedConfig(input.env)
     await ensureHostedBillingAccount({
@@ -481,7 +481,7 @@ export async function readHostedBillingSummary(input: {
                 enabled: true,
             },
         ],
-        providerPriority: hostedProviderPriorityOrder,
+        providerSources: [...hostedModelSourceLabels],
     }
 }
 

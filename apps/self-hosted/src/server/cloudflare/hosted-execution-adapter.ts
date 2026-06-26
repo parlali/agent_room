@@ -50,6 +50,7 @@ import {
 } from './hosted-room-read-model-service'
 import { openHostedPiRuntimeStream, requestHostedPiRuntime } from './hosted-runtime-client'
 import { assertHostedRunAllowed, requireHostedExecutionContext } from './hosted-execution-context'
+import { hostedManagedModelId, hostedManagedModelProvider } from './hosted-model-policy'
 import { hostedRoomPaths, hostedRuntimePort } from './hosted-runtime-paths'
 
 const requireHosted = requireHostedExecutionContext
@@ -380,6 +381,20 @@ export async function updateRoomThreadModel(input: {
     speedMode?: RoomExecutionModelState['speedMode']
 }): Promise<RoomExecutionModelState> {
     const { context, actor } = await requireHosted()
+    const runtime = await getHostedRuntimeState({
+        env: context.env,
+        workspaceId: actor.workspaceId,
+        roomId: input.roomId,
+    })
+    if (!runtime) {
+        throw new Error('Hosted runtime state was not found')
+    }
+    if (
+        runtime.row.providerCandidate === 'hosted_openrouter' &&
+        (input.provider !== hostedManagedModelProvider || input.model !== hostedManagedModelId)
+    ) {
+        throw new Error('Hosted rooms can only use the managed hosted model')
+    }
     const request = updateThreadModelRuntimeRequest(input)
     return requestHostedPiRuntime({
         env: context.env,

@@ -702,7 +702,7 @@ describe('hosted billing service API', () => {
                 .map((a) => a.planKey),
         ).toEqual(['starter', 'standard', 'pro'])
         expect(summary.actions.every((action) => action.enabled)).toBe(true)
-        expect(summary.providerPriority).toEqual(['user_key', 'codex', 'hosted_openrouter'])
+        expect(summary.providerSources).toEqual(['Hosted', 'OpenRouter', 'Codex'])
 
         await expect(
             createHostedStripeCheckout({

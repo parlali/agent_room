@@ -10,7 +10,7 @@ import {
     supportedProviderCatalogEntry,
 } from '../provider-config'
 
-export type EffectiveProviderSource = 'app_default' | 'app_connection'
+export type EffectiveProviderSource = 'app_default' | 'app_connection' | 'managed_hosted'
 
 export interface ProviderReadiness {
     ready: boolean
@@ -103,6 +103,15 @@ export function resolveEffectiveProvider(input: {
     codexAuth?: CodexAppAuthStatus
 }): EffectiveProviderResolution {
     const codexAuth = input.codexAuth ?? inspectCodexAppAuthStatusSync()
+    if (input.config.providerMode === 'managed_hosted') {
+        return {
+            source: 'managed_hosted',
+            provider: null,
+            blockedReasons: ['Managed hosted models are not available in this runtime'],
+            codexAuth: null,
+        }
+    }
+
     if (input.config.providerMode === 'app_connection') {
         if (!input.config.providerConnectionId) {
             return {

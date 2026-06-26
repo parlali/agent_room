@@ -10,16 +10,19 @@ export function ModeRadio({
     label,
     description,
     checked,
+    disabled,
     onSelect,
 }: {
     label: string
     description: string
     checked: boolean
+    disabled?: boolean
     onSelect: () => void
 }) {
     return (
         <CardButton
             onClick={onSelect}
+            disabled={disabled}
             className={cn(
                 'flex-col items-start gap-1 px-3 py-2',
                 checked

@@ -92,6 +92,10 @@ export function hostedPlanAllowsManagedBrowserbase(planKey: string | null | unde
     return Boolean(hostedPlanTierByKey(planKey)?.managedBrowserbase)
 }
 
+export function hostedPlanAllowsManagedOpenRouter(planKey: string | null | undefined): boolean {
+    return Boolean(hostedPlanTierByKey(planKey)?.managedOpenRouter)
+}
+
 export function hostedPlanAllowsManagedFetchUrl(planKey: string | null | undefined): boolean {
     return Boolean(hostedPlanTierByKey(planKey)?.managedFetchUrl)
 }

@@ -253,7 +253,7 @@ CREATE TABLE `room_configs` (
 	FOREIGN KEY (`room_id`) REFERENCES `rooms`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`provider_connection_id`) REFERENCES `app_provider_connections`(`id`) ON UPDATE no action ON DELETE set null,
 	FOREIGN KEY (`image_secret_id`) REFERENCES `secrets`(`id`) ON UPDATE no action ON DELETE set null,
-	CONSTRAINT "room_configs_provider_mode_check" CHECK("room_configs"."provider_mode" IN ('app_default', 'app_connection')),
+	CONSTRAINT "room_configs_provider_mode_check" CHECK("room_configs"."provider_mode" IN ('app_default', 'app_connection', 'managed_hosted')),
 	CONSTRAINT "room_configs_room_mode_check" CHECK("room_configs"."room_mode" IN ('programmer', 'coworker')),
 	CONSTRAINT "room_configs_image_provider_check" CHECK("room_configs"."image_provider" IS NULL OR "room_configs"."image_provider" IN ('openai', 'gemini')),
 	CONSTRAINT "room_configs_browser_action_budget_check" CHECK("room_configs"."browser_action_budget" BETWEEN 1 AND 200)

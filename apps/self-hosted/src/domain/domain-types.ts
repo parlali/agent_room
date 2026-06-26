@@ -17,7 +17,7 @@ export const providerApis = ['openai-completions', 'openai-codex-responses'] as 
 export const providerAuthModes = ['api_key', 'oauth'] as const
 export const mcpTransports = ['stdio', 'http', 'streamable_http'] as const
 export const mcpAuthModes = ['none', 'bearer'] as const
-export const roomProviderModes = ['app_default', 'app_connection'] as const
+export const roomProviderModes = ['app_default', 'app_connection', 'managed_hosted'] as const
 export const roomSecretPurposes = ['generic', 'webhook', 'image_api_key'] as const
 export const userRoomSecretPurposes = ['generic', 'webhook'] as const
 export const roomModes = ['programmer', 'coworker'] as const
@@ -615,6 +615,11 @@ export interface MaterializedProviderConfig {
     api: ProviderApi
     authMode: ProviderAuthMode
     model: string
+    modelLabel?: string
+    contextWindowTokens?: number
+    maxOutputTokens?: number
+    compactionReserveTokens?: number
+    compactionKeepRecentTokens?: number
     fallbackModels: string[]
     baseUrl: string | null
     authPath: string | null

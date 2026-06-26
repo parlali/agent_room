@@ -18,6 +18,10 @@ import {
 import { enqueueHostedRuntimeReconcile } from './hosted-runtime-jobs'
 import { releaseAuthorizedHostedBillingReservationsForRoom } from './hosted-billing-repository'
 import {
+    hostedManagedModelUnavailableMessage,
+    resolveHostedManagedModelAvailable,
+} from './hosted-model-policy'
+import {
     assertHostedProviderSelectionReady,
     type ProviderSelectionConfig,
     resolveHostedProviderSelection,
@@ -85,8 +89,9 @@ export async function createHostedRoom(input: {
     const now = nowIso()
     const desiredState = input.startImmediately === false ? 'stopped' : 'running'
     const status = desiredState === 'running' ? 'starting' : 'stopped'
-    const providerMode = input.providerMode ?? 'app_default'
-    const providerConnectionId = input.providerConnectionId ?? null
+    const providerMode = input.providerMode ?? 'managed_hosted'
+    const providerConnectionId =
+        providerMode === 'managed_hosted' ? null : (input.providerConnectionId ?? null)
     if (providerMode === 'app_connection') {
         if (!providerConnectionId) {
             throw new Error('Provider connection is required for room provider mode')
@@ -579,6 +584,21 @@ async function resolveHostedRuntimeProviderAvailabilityForSelection(input: {
     codexAvailable: boolean
     managedOpenRouterAvailable: boolean
 }> {
+    const managedOpenRouterAvailable = await resolveHostedManagedModelAvailable({
+        env: input.env,
+        workspaceId: input.workspaceId,
+    })
+    if (input.config.providerMode === 'managed_hosted') {
+        if (input.requireSelectionReady && !managedOpenRouterAvailable) {
+            throw new Error(hostedManagedModelUnavailableMessage)
+        }
+        return {
+            userKeyAvailable: false,
+            codexAvailable: false,
+            managedOpenRouterAvailable,
+        }
+    }
+
     const [settings, providers] = await Promise.all([
         getHostedWorkspaceSettings({
             env: input.env,
@@ -600,16 +620,7 @@ async function resolveHostedRuntimeProviderAvailabilityForSelection(input: {
         providers,
         codexAuth,
     })
-    const managedOpenRouterAvailable = Boolean(
-        input.env.AGENT_ROOM_HOSTED_OPENROUTER_API_KEY?.trim(),
-    )
-    const hasExplicitProviderSelection =
-        input.config.providerMode === 'app_connection' ||
-        Boolean(settings.defaultProviderConnectionId)
-    if (
-        input.requireSelectionReady &&
-        (hasExplicitProviderSelection || !managedOpenRouterAvailable)
-    ) {
+    if (input.requireSelectionReady) {
         assertHostedProviderSelectionReady({
             selection,
             appConnectionMessage: 'Selected provider connection is not configured',

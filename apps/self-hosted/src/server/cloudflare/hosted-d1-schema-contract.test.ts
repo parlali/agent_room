@@ -7,6 +7,7 @@ import {
     providerApis,
     providerAuthModes,
     roomDesiredStates,
+    roomProviderModes,
     roomStatuses,
     usageEventKinds,
 } from '../../domain/domain-types'
@@ -57,6 +58,13 @@ describe('hosted D1 schema contract', () => {
                 columnName: 'health_status',
             }),
         ).toEqual([...healthStatuses])
+        expect(
+            extractCheckValues({
+                sql,
+                tableName: 'hosted_room_config',
+                columnName: 'provider_mode',
+            }),
+        ).toEqual([...roomProviderModes])
         expect(
             extractCheckValues({
                 sql,

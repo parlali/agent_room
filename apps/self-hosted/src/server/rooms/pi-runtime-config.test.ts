@@ -13,6 +13,12 @@ import {
     testImage,
     testSearch,
 } from '../pi-runtime/test-runtime-defaults'
+import {
+    hostedManagedModelCompactionKeepRecentTokens,
+    hostedManagedModelCompactionReserveTokens,
+    hostedManagedModelContextWindowTokens,
+    hostedManagedModelMaxOutputTokens,
+} from '../cloudflare/hosted-model-policy'
 import { buildPiRuntimeConfig } from './pi-runtime-config'
 import { piRuntimeEngineProfile } from './pi-runtime-engine-profile'
 import { defaultRuntimeSandboxHardening } from './runtime-sandbox-hardening'
@@ -168,6 +174,43 @@ describe('Pi runtime config materialization', () => {
         })
         expect(config.models.providers['openai-codex'].models).toBeUndefined()
         expect(config.paths.authPath).toBe(join(root, 'shared-codex-auth.json'))
+    })
+
+    it('uses materialized model labels for custom provider model display names', () => {
+        const root = '/tmp/agent-room-test/room-1'
+        const roomConfig = roomConfiguration()
+        roomConfig.provider = {
+            ...roomConfig.provider,
+            model: 'provider/custom-model',
+            modelLabel: 'Hosted',
+            contextWindowTokens: hostedManagedModelContextWindowTokens,
+            maxOutputTokens: hostedManagedModelMaxOutputTokens,
+            compactionReserveTokens: hostedManagedModelCompactionReserveTokens,
+            compactionKeepRecentTokens: hostedManagedModelCompactionKeepRecentTokens,
+        }
+
+        const config = buildPiRuntimeConfig({
+            roomId: 'room-1',
+            displayName: 'Room One',
+            port: 31234,
+            token: 'token-token-token-token-token',
+            paths: roomPaths(root),
+            sandbox: sandbox(),
+            sandboxHardening: defaultRuntimeSandboxHardening(),
+            roomConfiguration: roomConfig,
+        })
+
+        expect(config.models.providers.openrouter?.models?.[0]).toMatchObject({
+            id: 'provider/custom-model',
+            name: 'Hosted',
+            contextWindow: hostedManagedModelContextWindowTokens,
+            maxTokens: hostedManagedModelMaxOutputTokens,
+        })
+        expect(config.compaction).toEqual({
+            enabled: true,
+            reserveTokens: hostedManagedModelCompactionReserveTokens,
+            keepRecentTokens: hostedManagedModelCompactionKeepRecentTokens,
+        })
     })
 
     it('fails closed for runtime provider configs outside the app provider catalog', () => {

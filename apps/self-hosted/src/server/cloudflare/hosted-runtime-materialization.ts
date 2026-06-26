@@ -44,10 +44,17 @@ import {
 } from './hosted-runtime-egress-policy'
 import { resolveHostedCodexStatus } from './hosted-operator-config-service'
 import { resolveHostedMcpHeaders } from './hosted-mcp-header-secrets'
+import type { HostedProviderCandidate } from './hosted-provider-priority'
 import {
-    selectHostedProviderCandidate,
-    type HostedProviderCandidate,
-} from './hosted-provider-priority'
+    assertHostedManagedModelAvailable,
+    hostedManagedModelCompactionKeepRecentTokens,
+    hostedManagedModelCompactionReserveTokens,
+    hostedManagedModelContextWindowTokens,
+    hostedManagedModelId,
+    hostedManagedModelLabel,
+    hostedManagedModelMaxOutputTokens,
+    hostedManagedModelProvider,
+} from './hosted-model-policy'
 import { hostedOpenRouterProxyBaseUrl } from './hosted-provider-proxy'
 import {
     hostedProviderAuthPath,
@@ -177,6 +184,39 @@ export async function materializeHostedProvider(input: {
     authJson: string | null
     candidate: HostedProviderCandidate
 }> {
+    if (input.config.providerMode === 'managed_hosted') {
+        await assertHostedManagedModelAvailable({
+            env: input.env,
+            workspaceId: input.workspaceId,
+        })
+        return {
+            provider: {
+                provider: hostedManagedModelProvider,
+                authMode: 'api_key',
+                api: 'openai-completions',
+                model: hostedManagedModelId,
+                modelLabel: hostedManagedModelLabel,
+                contextWindowTokens: hostedManagedModelContextWindowTokens,
+                maxOutputTokens: hostedManagedModelMaxOutputTokens,
+                compactionReserveTokens: hostedManagedModelCompactionReserveTokens,
+                compactionKeepRecentTokens: hostedManagedModelCompactionKeepRecentTokens,
+                fallbackModels: [],
+                baseUrl: hostedOpenRouterProxyBaseUrl({
+                    publicOrigin: input.publicOrigin,
+                    workspaceId: input.workspaceId,
+                    roomId: input.roomId,
+                }),
+                authPath: hostedProviderAuthPath,
+            },
+            env: {},
+            authJson: providerAuthJson(hostedManagedModelProvider, {
+                type: 'api_key',
+                key: input.runtimeToken,
+            }),
+            candidate: 'hosted_openrouter',
+        }
+    }
+
     const codexAuth = await resolveHostedCodexStatus({
         env: input.env,
         workspaceId: input.workspaceId,
@@ -186,27 +226,13 @@ export async function materializeHostedProvider(input: {
         ...input,
         codexAuth,
     })
-    const hasExplicitProviderSelection =
-        input.config.providerMode === 'app_connection' ||
-        Boolean(input.settings.defaultProviderConnectionId)
-    if (hasExplicitProviderSelection) {
-        assertHostedProviderSelectionReady({
-            selection,
-            appConnectionMessage: 'Selected provider connection is not configured',
-            appDefaultMessage: 'Default provider connection is not configured',
-        })
-    }
-    const { apiKeyProvider, codexProvider } = selection
-    const candidate = await selectHostedProviderCandidate({
-        workspaceId: input.workspaceId,
-        userKeyAvailable: apiKeyProvider !== null,
-        codexAvailable: codexProvider !== null,
-        managedOpenRouterAvailable: Boolean(input.env.AGENT_ROOM_HOSTED_OPENROUTER_API_KEY?.trim()),
+    assertHostedProviderSelectionReady({
+        selection,
+        appConnectionMessage: 'Selected provider connection is not configured',
+        appDefaultMessage: 'Default provider connection is not configured',
     })
-    if (!candidate) {
-        throw new Error('No hosted provider candidate is available')
-    }
-    if (candidate === 'user_key' && apiKeyProvider) {
+    const { apiKeyProvider, codexProvider } = selection
+    if (apiKeyProvider) {
         const apiKey = await readHostedSecretPlainText({
             env: input.env,
             workspaceId: input.workspaceId,
@@ -221,10 +247,10 @@ export async function materializeHostedProvider(input: {
                 type: 'api_key',
                 key: apiKey,
             }),
-            candidate,
+            candidate: 'user_key',
         })
     }
-    if (candidate === 'codex' && codexProvider) {
+    if (codexProvider) {
         const authJson = await readHostedSecretPlainText({
             env: input.env,
             workspaceId: input.workspaceId,
@@ -243,31 +269,8 @@ export async function materializeHostedProvider(input: {
         return providerMaterializationFromSecret({
             provider: codexProvider,
             authJson,
-            candidate,
+            candidate: 'codex',
         })
-    }
-    if (candidate === 'hosted_openrouter') {
-        return {
-            provider: {
-                provider: 'openrouter',
-                authMode: 'api_key',
-                api: 'openai-completions',
-                model: input.settings.defaultModel?.trim() || 'openrouter/auto',
-                fallbackModels: [],
-                baseUrl: hostedOpenRouterProxyBaseUrl({
-                    publicOrigin: input.publicOrigin,
-                    workspaceId: input.workspaceId,
-                    roomId: input.roomId,
-                }),
-                authPath: hostedProviderAuthPath,
-            },
-            env: {},
-            authJson: providerAuthJson('openrouter', {
-                type: 'api_key',
-                key: input.runtimeToken,
-            }),
-            candidate,
-        }
     }
     throw new Error('No hosted provider candidate is available')
 }

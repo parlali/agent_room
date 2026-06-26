@@ -53,7 +53,7 @@ interface HostedBillingSummary {
     }>
     remainingUsageCents: number
     active: boolean
-    providerPriority: string[]
+    providerSources: string[]
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -281,10 +281,8 @@ function BillingPage() {
                         </div>
                     ) : null}
                     <div className="mt-4 rounded-lg border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">
-                        Provider priority is{' '}
-                        {hosted?.providerPriority.join(', ') ??
-                            'user key, Codex, hosted OpenRouter'}
-                        .
+                        Model sources are{' '}
+                        {hosted?.providerSources?.join(', ') ?? 'Hosted, OpenRouter, Codex'}.
                     </div>
                 </Section>
 

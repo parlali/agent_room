@@ -89,6 +89,21 @@ function buildProvider(
 }
 
 describe('provider resolution', () => {
+    it('fails closed for managed hosted mode outside hosted materialization', () => {
+        const resolution = resolveEffectiveProvider({
+            config: buildRoomConfig({ providerMode: 'managed_hosted' }),
+            settings: buildSettings(),
+            providers: [],
+        })
+
+        expect(resolution).toMatchObject({
+            source: 'managed_hosted',
+            provider: null,
+            blockedReasons: ['Managed hosted models are not available in this runtime'],
+            codexAuth: null,
+        })
+    })
+
     it('uses the explicit app default provider even when multiple providers are ready', () => {
         const openRouter = buildProvider({ id: 'openrouter' })
         const codex = buildProvider({

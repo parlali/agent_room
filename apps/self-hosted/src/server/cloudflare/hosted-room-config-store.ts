@@ -88,7 +88,7 @@ export async function getOrCreateHostedRoomConfig(input: {
                 created_at,
                 updated_at
             )
-            VALUES (?1, ?2, '', 'app_default', NULL, 'coworker', '{}', NULL, NULL, NULL, 'UTC', 50, ?3, ?3)
+            VALUES (?1, ?2, '', 'managed_hosted', NULL, 'coworker', '{}', NULL, NULL, NULL, 'UTC', 50, ?3, ?3)
         `,
     )
         .bind(input.roomId, input.workspaceId, now)

@@ -36,7 +36,6 @@ export const hostedBillingReservationProviders = [
     'browserbase',
     'fetch_url',
 ] as const
-export const hostedProviderBillingGateCents = 1
 export const hostedBraveSearchCostMicros = 10000
 export const hostedBrowserbaseSearchCostMicros = 10000
 export const hostedBrowserbaseSessionCostMicros = 50000

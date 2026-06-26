@@ -5,6 +5,15 @@ import {
     runtimeUsageIdempotencyKey,
 } from './hosted-worker-runtime-routes'
 import { HostedBillingBalanceExhaustedError } from './hosted-billing-types'
+import {
+    hostedManagedModelCompactionKeepRecentTokens,
+    hostedManagedModelCompactionReserveTokens,
+    hostedManagedModelContextWindowTokens,
+    hostedManagedModelId,
+    hostedManagedModelMaxOutputTokens,
+    hostedManagedModelRequestReservationCents,
+    hostedManagedModelRetryMaxRetries,
+} from './hosted-model-policy'
 
 const mocks = vi.hoisted(() => ({
     HostedBillingReservationAlreadyExistsError: class HostedBillingReservationAlreadyExistsError extends Error {
@@ -488,7 +497,7 @@ describe('hosted runtime worker route security gates', () => {
         const response = await callRoute({
             path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
             body: {
-                model: 'openrouter/test-model',
+                model: hostedManagedModelId,
                 messages: [],
             },
         })
@@ -505,7 +514,7 @@ describe('hosted runtime worker route security gates', () => {
         const response = await callRoute({
             path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
             body: {
-                model: 'openrouter/test-model',
+                model: hostedManagedModelId,
                 messages: [],
             },
         })
@@ -525,7 +534,7 @@ describe('hosted runtime worker route security gates', () => {
             runId: 'run_1',
             jobId: 'job_1',
             provider: 'openrouter',
-            model: 'openrouter/test-model',
+            model: hostedManagedModelId,
             costMicros: 123456,
             billingStatus: 'debited',
             billingLedgerEntryId: 'ledger_1',
@@ -541,7 +550,7 @@ describe('hosted runtime worker route security gates', () => {
             path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
             headers: openRouterRuntimeHeaders(),
             body: {
-                model: 'openrouter/test-model',
+                model: hostedManagedModelId,
                 messages: [],
             },
         })
@@ -556,7 +565,7 @@ describe('hosted runtime worker route security gates', () => {
                 runId: 'run_1',
                 jobId: 'job_1',
                 provider: 'openrouter',
-                model: 'openrouter/test-model',
+                model: hostedManagedModelId,
                 costMicros: 123456,
                 billingReservationId: 'reservation_1',
                 idempotencyKey: 'provider_proxy:openrouter:workspace_1:room_1:usage-request-123456',
@@ -630,7 +639,7 @@ describe('hosted runtime worker route security gates', () => {
                 'x-agent-room-job-id': 'job_other',
             },
             body: {
-                model: 'openrouter/test-model',
+                model: hostedManagedModelId,
                 messages: [],
             },
         })
@@ -650,7 +659,7 @@ describe('hosted runtime worker route security gates', () => {
                 'x-agent-room-usage-request-id': 'usage-request-123456',
             },
             body: {
-                model: 'openrouter/test-model',
+                model: hostedManagedModelId,
                 messages: [],
             },
         })
@@ -671,13 +680,70 @@ describe('hosted runtime worker route security gates', () => {
             path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
             headers: openRouterRuntimeHeaders(),
             body: {
-                model: 'openrouter/test-model',
+                model: hostedManagedModelId,
                 messages: [],
             },
         })
 
         await expectJsonCode(response, 409, 'runtime_usage_request_already_in_flight')
         expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it('rejects non-canonical hosted OpenRouter models before calling the provider', async () => {
+        const fetchMock = vi.fn(async () => new Response('{}'))
+        vi.stubGlobal('fetch', fetchMock)
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
+            headers: openRouterRuntimeHeaders(),
+            body: {
+                model: 'openrouter/test-model',
+                messages: [],
+            },
+        })
+
+        await expectJsonCode(response, 403, 'hosted_model_policy_violation')
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect(mocks.authorizeHostedBillingReservation).not.toHaveBeenCalled()
+        expect(mocks.recordHostedProviderUsageBlocked).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                provider: 'openrouter',
+                model: 'openrouter/test-model',
+                metadata: expect.objectContaining({
+                    hostedModelPolicyViolation: true,
+                    modelSource: 'managed_hosted',
+                    model: hostedManagedModelId,
+                }),
+            }),
+        )
+    })
+
+    it('blocks managed OpenRouter calls before the provider when the request ceiling cannot be reserved', async () => {
+        const fetchMock = vi.fn(async () => new Response('{}'))
+        vi.stubGlobal('fetch', fetchMock)
+        mocks.authorizeHostedBillingReservation.mockRejectedValue(
+            new HostedBillingBalanceExhaustedError(),
+        )
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
+            headers: openRouterRuntimeHeaders(),
+            body: {
+                model: hostedManagedModelId,
+                messages: [],
+            },
+        })
+
+        await expectJsonCode(response, 402, 'hosted_billing_balance_exhausted')
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect(mocks.authorizeHostedBillingReservation).toHaveBeenCalledWith(
+            expect.objectContaining({
+                amountCents: hostedManagedModelRequestReservationCents,
+            }),
+        )
+        expect(mocks.recordHostedProviderUsage).not.toHaveBeenCalled()
     })
 
     it('settles OpenRouter proxy usage from provider-returned cost before returning the body', async () => {
@@ -688,6 +754,15 @@ describe('hosted runtime worker route security gates', () => {
                         id: 'completion_1',
                         usage: {
                             cost: 0.123456,
+                            prompt_tokens: 111,
+                            completion_tokens: 22,
+                            total_tokens: 133,
+                            prompt_tokens_details: {
+                                cached_tokens: 7,
+                            },
+                            completion_tokens_details: {
+                                reasoning_tokens: 5,
+                            },
                         },
                     }),
                     {
@@ -703,8 +778,8 @@ describe('hosted runtime worker route security gates', () => {
             path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
             headers: openRouterRuntimeHeaders(),
             body: {
-                model: 'openrouter/test-model',
-                messages: [],
+                model: hostedManagedModelId,
+                messages: [{ role: 'user', content: 'hello' }],
             },
         })
 
@@ -715,11 +790,29 @@ describe('hosted runtime worker route security gates', () => {
         expect(fetchMock).toHaveBeenCalledTimes(1)
         const providerInit = fetchMock.mock.calls[0]![1] as RequestInit
         expect(JSON.parse(String(providerInit.body))).toMatchObject({
-            model: 'openrouter/test-model',
+            model: hostedManagedModelId,
+            messages: [{ role: 'user', content: 'hello' }],
+            max_tokens: hostedManagedModelMaxOutputTokens,
             usage: {
                 include: true,
             },
         })
+        expect(mocks.authorizeHostedBillingReservation).toHaveBeenCalledWith(
+            expect.objectContaining({
+                amountCents: hostedManagedModelRequestReservationCents,
+                metadata: expect.objectContaining({
+                    modelSource: 'managed_hosted',
+                    model: hostedManagedModelId,
+                    reservationCeilingCents: hostedManagedModelRequestReservationCents,
+                    contextWindowTokens: hostedManagedModelContextWindowTokens,
+                    maxOutputTokens: hostedManagedModelMaxOutputTokens,
+                    compactionReserveTokens: hostedManagedModelCompactionReserveTokens,
+                    compactionKeepRecentTokens: hostedManagedModelCompactionKeepRecentTokens,
+                    retryEnabled: false,
+                    maxProviderRetries: hostedManagedModelRetryMaxRetries,
+                }),
+            }),
+        )
         expect(mocks.recordHostedProviderUsage).toHaveBeenCalledWith(
             expect.objectContaining({
                 workspaceId: 'workspace_1',
@@ -728,7 +821,12 @@ describe('hosted runtime worker route security gates', () => {
                 runId: 'run_1',
                 jobId: 'job_1',
                 provider: 'openrouter',
-                model: 'openrouter/test-model',
+                model: hostedManagedModelId,
+                inputTokens: 111,
+                outputTokens: 22,
+                cachedTokens: 7,
+                reasoningTokens: 5,
+                totalTokens: 133,
                 costMicros: 123456,
                 estimatedCostUsd: 0.123456,
                 billingReservationId: 'reservation_1',
@@ -739,6 +837,86 @@ describe('hosted runtime worker route security gates', () => {
         expect(mocks.releaseHostedBillingReservation).not.toHaveBeenCalled()
     })
 
+    it('caps managed OpenRouter max completion tokens without adding max_tokens', async () => {
+        const fetchMock = vi.fn(
+            async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) =>
+                new Response(
+                    JSON.stringify({
+                        id: 'completion_1',
+                        usage: {
+                            cost: 0.123456,
+                        },
+                    }),
+                ),
+        )
+        vi.stubGlobal('fetch', fetchMock)
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
+            headers: openRouterRuntimeHeaders(),
+            body: {
+                model: hostedManagedModelId,
+                messages: [],
+                max_completion_tokens: hostedManagedModelMaxOutputTokens + 1,
+            },
+        })
+
+        expect(response.status).toBe(200)
+        const providerInit = fetchMock.mock.calls[0]![1] as RequestInit
+        expect(JSON.parse(String(providerInit.body))).toMatchObject({
+            model: hostedManagedModelId,
+            max_completion_tokens: hostedManagedModelMaxOutputTokens,
+            usage: {
+                include: true,
+            },
+        })
+        expect(JSON.parse(String(providerInit.body))).not.toHaveProperty('max_tokens')
+    })
+
+    it('records blocked usage when OpenRouter rejects a managed hosted request', async () => {
+        const fetchMock = vi.fn(
+            async () =>
+                new Response(JSON.stringify({ error: { message: 'rate limited' } }), {
+                    status: 429,
+                }),
+        )
+        vi.stubGlobal('fetch', fetchMock)
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
+            headers: openRouterRuntimeHeaders(),
+            body: {
+                model: hostedManagedModelId,
+                messages: [],
+            },
+        })
+
+        expect(response.status).toBe(429)
+        expect(mocks.recordHostedProviderUsageBlocked).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                provider: 'openrouter',
+                model: hostedManagedModelId,
+                idempotencyKey: 'provider_proxy:openrouter:workspace_1:room_1:usage-request-123456',
+                metadata: expect.objectContaining({
+                    providerRejectedRequest: true,
+                    status: 429,
+                    reservationId: 'reservation_1',
+                    modelSource: 'managed_hosted',
+                    maxProviderRetries: hostedManagedModelRetryMaxRetries,
+                }),
+            }),
+        )
+        expect(mocks.recordHostedProviderUsage).not.toHaveBeenCalled()
+        expect(mocks.releaseHostedBillingReservation).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                reservationId: 'reservation_1',
+            }),
+        )
+    })
+
     it('does not return OpenRouter provider bodies when exact provider cost is missing', async () => {
         const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: 'completion_1' })))
         vi.stubGlobal('fetch', fetchMock)
@@ -747,7 +925,7 @@ describe('hosted runtime worker route security gates', () => {
             path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
             headers: openRouterRuntimeHeaders(),
             body: {
-                model: 'openrouter/test-model',
+                model: hostedManagedModelId,
                 messages: [],
             },
         })
@@ -761,11 +939,57 @@ describe('hosted runtime worker route security gates', () => {
                 runId: 'run_1',
                 jobId: 'job_1',
                 provider: 'openrouter',
-                model: 'openrouter/test-model',
+                model: hostedManagedModelId,
                 idempotencyKey: 'provider_proxy:openrouter:workspace_1:room_1:usage-request-123456',
                 metadata: expect.objectContaining({
                     missingProviderActualCost: true,
                     reservationId: 'reservation_1',
+                }),
+            }),
+        )
+        expect(mocks.recordHostedProviderUsage).not.toHaveBeenCalled()
+        expect(mocks.releaseHostedBillingReservation).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                reservationId: 'reservation_1',
+            }),
+        )
+    })
+
+    it('does not return OpenRouter provider bodies when actual cost exceeds the authorized ceiling', async () => {
+        const fetchMock = vi.fn(
+            async () =>
+                new Response(
+                    JSON.stringify({
+                        id: 'completion_1',
+                        usage: {
+                            cost: 6,
+                        },
+                    }),
+                ),
+        )
+        vi.stubGlobal('fetch', fetchMock)
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
+            headers: openRouterRuntimeHeaders(),
+            body: {
+                model: hostedManagedModelId,
+                messages: [],
+            },
+        })
+
+        await expectJsonCode(response, 402, 'provider_actual_cost_exceeds_authorized_maximum')
+        expect(mocks.recordHostedProviderUsageBlocked).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                provider: 'openrouter',
+                model: hostedManagedModelId,
+                metadata: expect.objectContaining({
+                    actualCostExceededAuthorizedMaximum: true,
+                    billedCents: 780,
+                    reservationCeilingCents: hostedManagedModelRequestReservationCents,
                 }),
             }),
         )
@@ -786,7 +1010,7 @@ describe('hosted runtime worker route security gates', () => {
             path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
             headers: openRouterRuntimeHeaders(),
             body: {
-                model: 'openrouter/test-model',
+                model: hostedManagedModelId,
                 messages: [],
             },
         })
@@ -821,7 +1045,7 @@ describe('hosted runtime worker route security gates', () => {
             path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
             headers: openRouterRuntimeHeaders(),
             body: {
-                model: 'openrouter/test-model',
+                model: hostedManagedModelId,
                 messages: [],
             },
         })
