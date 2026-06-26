@@ -15,11 +15,11 @@ import {
     centsFromMicrosCeil,
     HostedBillingBalanceExhaustedError,
     hostedBillingLedgerSourceForProvider,
-    hostedProviderBillingGateCents,
     type HostedBillingReservationProvider,
 } from './hosted-billing-types'
 import { resolveHostedConfig } from './hosted-config'
 import { nowIso } from './hosted-json'
+import { hostedManagedModelRequestReservationCents } from './hosted-model-policy'
 
 export interface HostedProviderUsageInput {
     env: AgentRoomHostedEnv
@@ -49,6 +49,7 @@ export interface HostedProviderUsageInput {
 export async function assertHostedProviderCreditsAvailable(input: {
     env: AgentRoomHostedEnv
     workspaceId: string
+    minimumBalanceCents?: number
     now?: Date
 }): Promise<void> {
     await ensureHostedBillingAccount({
@@ -61,7 +62,9 @@ export async function assertHostedProviderCreditsAvailable(input: {
         now: input.now,
     })
     const account = await readHostedBillingAccount(input)
-    if (account.availableBalanceCents < hostedProviderBillingGateCents) {
+    const minimumBalanceCents =
+        input.minimumBalanceCents ?? hostedManagedModelRequestReservationCents
+    if (account.availableBalanceCents < minimumBalanceCents) {
         throw new HostedBillingBalanceExhaustedError()
     }
 }

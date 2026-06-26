@@ -14,6 +14,7 @@ import {
     recordHostedProviderUsage,
 } from './hosted-usage-billing'
 import { FakeD1, hostedEnv, totalBalance } from './hosted-billing-test-support'
+import { hostedManagedModelRequestReservationCents } from './hosted-model-policy'
 
 describe('hosted billing money units', () => {
     it('settles micros to integer cents without rounding down billable usage', () => {
@@ -388,7 +389,7 @@ describe('hosted billing reservations', () => {
             env,
             workspaceId: 'workspace_1',
             source: 'subscription_included_credit',
-            amountCents: 1,
+            amountCents: hostedManagedModelRequestReservationCents,
             idempotencyKey: 'included_gate',
             now: new Date(1),
         })
@@ -397,7 +398,7 @@ describe('hosted billing reservations', () => {
             workspaceId: 'workspace_1',
             roomId: 'room_1',
             provider: 'openrouter',
-            amountCents: 1,
+            amountCents: hostedManagedModelRequestReservationCents,
             idempotencyKey: 'expired_gate_reservation',
             expiresAt: new Date(5),
             now: new Date(2),
@@ -424,7 +425,7 @@ describe('hosted billing reservations', () => {
             workspaceId: 'workspace_1',
         })
         expect(db.reservations.get(reservation.id)?.status).toBe('expired')
-        expect(account.availableBalanceCents).toBe(1)
+        expect(account.availableBalanceCents).toBe(hostedManagedModelRequestReservationCents)
         expect(account.reservedBalanceCents).toBe(0)
     })
 })

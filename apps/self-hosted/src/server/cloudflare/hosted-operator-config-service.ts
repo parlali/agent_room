@@ -39,6 +39,14 @@ import {
 import { providerCatalog } from '../configuration/provider-config'
 import type { HostedActor } from './hosted-auth'
 import type { AgentRoomHostedEnv } from './bindings'
+import { readHostedBillingAccount } from './hosted-billing-repository'
+import { resolveHostedConfig } from './hosted-config'
+import {
+    hostedManagedModelAvailable,
+    hostedManagedModelId,
+    hostedManagedModelLabel,
+    hostedManagedModelProvider,
+} from './hosted-model-policy'
 import { readHostedSecretPlainText, upsertHostedSecret } from './hosted-secret-store'
 import { nowIso, parseJsonValue, stringifyJson, toDate } from './hosted-json'
 import {
@@ -350,37 +358,11 @@ export function materializedImageConfig(input: {
     })
 }
 
-export function resolveEffectiveProviderSummary(input: {
-    config: RoomConfigRecord
-    settings: AppSettingsRecord
-    providers: AppProviderConnectionRecord[]
+function hostedMcpBlockedReasons(input: {
     mcpConnections: AppMcpConnectionRecord[]
     bindings: RoomMcpBindingRecord[]
-    capabilities: CapabilityConfig
-    searchReady: boolean
-    imageReady: boolean
-    codexAuth: CodexAppAuthStatus
-    managedOpenRouterAvailable: boolean
-}): RoomConfigSnapshot['effective'] {
-    const providerResolution = resolveEffectiveProvider({
-        config: input.config,
-        settings: input.settings,
-        providers: input.providers,
-        codexAuth: input.codexAuth,
-    })
-    const selected = providerResolution.provider
-    const blockedReasons = [...providerResolution.blockedReasons]
-    const usingManagedOpenRouterFallback =
-        input.managedOpenRouterAvailable &&
-        input.config.providerMode === 'app_default' &&
-        !input.settings.defaultProviderConnectionId &&
-        selected === null
-    if (usingManagedOpenRouterFallback) {
-        const defaultProviderIndex = blockedReasons.indexOf('Select an app default provider')
-        if (defaultProviderIndex >= 0) {
-            blockedReasons.splice(defaultProviderIndex, 1)
-        }
-    }
+}): string[] {
+    const blockedReasons: string[] = []
     for (const binding of input.bindings.filter((entry) => entry.enabled)) {
         const connection = input.mcpConnections.find(
             (entry) => entry.id === binding.mcpConnectionId,
@@ -401,25 +383,96 @@ export function resolveEffectiveProviderSummary(input: {
             )
         }
     }
+    return blockedReasons
+}
+
+function hostedMcpServerIds(input: {
+    mcpConnections: AppMcpConnectionRecord[]
+    bindings: RoomMcpBindingRecord[]
+}): string[] {
+    return input.bindings
+        .filter((binding) => binding.enabled)
+        .map((binding) => {
+            const connection = input.mcpConnections.find(
+                (entry) => entry.id === binding.mcpConnectionId,
+            )
+            return connection?.serverKey ?? binding.mcpConnectionId
+        })
+}
+
+export function resolveEffectiveProviderSummary(input: {
+    config: RoomConfigRecord
+    settings: AppSettingsRecord
+    providers: AppProviderConnectionRecord[]
+    mcpConnections: AppMcpConnectionRecord[]
+    bindings: RoomMcpBindingRecord[]
+    capabilities: CapabilityConfig
+    searchReady: boolean
+    imageReady: boolean
+    codexAuth: CodexAppAuthStatus
+    managedOpenRouterAvailable: boolean
+}): RoomConfigSnapshot['effective'] {
+    if (input.config.providerMode === 'managed_hosted') {
+        const blockedReasons = input.managedOpenRouterAvailable
+            ? []
+            : ['Hosted model access is not available for this workspace']
+        blockedReasons.push(
+            ...hostedMcpBlockedReasons({
+                mcpConnections: input.mcpConnections,
+                bindings: input.bindings,
+            }),
+        )
+        return {
+            ready: blockedReasons.length === 0,
+            blockedReasons,
+            providerSource: 'managed_hosted',
+            providerLabel: hostedManagedModelLabel,
+            provider: hostedManagedModelProvider,
+            model: hostedManagedModelId,
+            mcpServers: hostedMcpServerIds({
+                mcpConnections: input.mcpConnections,
+                bindings: input.bindings,
+            }),
+            capabilities: input.capabilities,
+            searchReady: input.searchReady,
+            imageReady: input.imageReady,
+            codexAuth: null,
+            github: {
+                ready: true,
+                enabled: false,
+                installationId: null,
+                accountLogin: null,
+                repositories: [],
+                message: null,
+            },
+        }
+    }
+
+    const providerResolution = resolveEffectiveProvider({
+        config: input.config,
+        settings: input.settings,
+        providers: input.providers,
+        codexAuth: input.codexAuth,
+    })
+    const selected = providerResolution.provider
+    const blockedReasons = [...providerResolution.blockedReasons]
+    blockedReasons.push(
+        ...hostedMcpBlockedReasons({
+            mcpConnections: input.mcpConnections,
+            bindings: input.bindings,
+        }),
+    )
     return {
         ready: blockedReasons.length === 0,
         blockedReasons,
         providerSource: providerResolution.source,
-        providerLabel: usingManagedOpenRouterFallback
-            ? 'Hosted OpenRouter'
-            : (selected?.label ?? null),
-        provider: usingManagedOpenRouterFallback ? 'openrouter' : (selected?.provider ?? null),
-        model: usingManagedOpenRouterFallback
-            ? input.settings.defaultModel || 'openrouter/auto'
-            : (selected?.defaultModel ?? null),
-        mcpServers: input.bindings
-            .filter((binding) => binding.enabled)
-            .map((binding) => {
-                const connection = input.mcpConnections.find(
-                    (entry) => entry.id === binding.mcpConnectionId,
-                )
-                return connection?.serverKey ?? binding.mcpConnectionId
-            }),
+        providerLabel: selected?.label ?? null,
+        provider: selected?.provider ?? null,
+        model: selected?.defaultModel ?? null,
+        mcpServers: hostedMcpServerIds({
+            mcpConnections: input.mcpConnections,
+            bindings: input.bindings,
+        }),
         capabilities: input.capabilities,
         searchReady: input.searchReady,
         imageReady: input.imageReady,
@@ -664,9 +717,23 @@ export async function getHostedOperatorConfigSnapshot(input: {
         providers,
     })
     const readyProviders = listReadyProviders(providers, codexAuth)
-    const managedOpenRouterAvailable = Boolean(
-        input.env.AGENT_ROOM_HOSTED_OPENROUTER_API_KEY?.trim(),
-    )
+    const hostedConfig = resolveHostedConfig(input.env)
+    const billingAccount = await readHostedBillingAccount({
+        env: input.env,
+        workspaceId: input.actor.workspaceId,
+    }).catch((error) => {
+        console.warn('Hosted billing account lookup failed while resolving operator config', {
+            workspaceId: input.actor.workspaceId,
+            error,
+        })
+        return null
+    })
+    const managedOpenRouterAvailable = hostedManagedModelAvailable({
+        openRouterApiKey: hostedConfig.managedProviders.openRouterApiKey,
+        hostedModelsDisabled: hostedConfig.killSwitches.hostedModels,
+        planKey: billingAccount?.planKey,
+        planStatus: billingAccount?.planStatus,
+    })
     return {
         settings: summarizeHostedSettings(settings, input.env),
         codexAuth,

@@ -5,8 +5,9 @@ import {
     type HostedQuotaCheckInput,
 } from './hosted-abuse-controls'
 import {
+    applyUsageMarkupMicros,
+    centsFromMicrosCeil,
     hostedBraveSearchCostMicros,
-    hostedProviderBillingGateCents,
     type HostedBillingReservationProvider,
 } from './hosted-billing-types'
 import {
@@ -21,6 +22,12 @@ import {
     parseHostedBraveProxyPath,
     parseHostedOpenRouterProxyPath,
 } from './hosted-provider-proxy'
+import {
+    hostedManagedModelAuditMetadata,
+    hostedManagedModelId,
+    hostedManagedModelMaxOutputTokens,
+    hostedManagedModelRequestReservationCents,
+} from './hosted-model-policy'
 import {
     authorizeFixedProviderReservation,
     hostedFixedCostReservationCents,
@@ -39,6 +46,12 @@ import { requireHostedRuntimeProviderProxy } from './hosted-runtime-worker-auth'
 interface HostedOpenRouterProviderRequest {
     body: BodyInit | null
     model: string | null
+}
+
+function cappedMaxTokens(value: unknown): number {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+        ? Math.min(value, hostedManagedModelMaxOutputTokens)
+        : hostedManagedModelMaxOutputTokens
 }
 
 async function assertProviderQuotaOrResponse(input: {
@@ -94,6 +107,8 @@ async function hostedOpenRouterProviderRequestBody(
     return {
         body: JSON.stringify({
             ...payload,
+            model: hostedManagedModelId,
+            max_tokens: cappedMaxTokens(payload.max_tokens),
             usage: {
                 ...objectRecord(payload.usage),
                 include: true,
@@ -251,7 +266,7 @@ export async function hostedOpenRouterProxy(
                 workspaceId: proxyPath.workspaceId,
                 roomId: proxyPath.roomId,
                 provider: 'openrouter',
-                model: 'openrouter',
+                model: hostedManagedModelId,
                 billedBy: 'hosted_openrouter_proxy',
                 usageIdempotencyKey,
                 reservationIdempotencyKey,
@@ -280,6 +295,44 @@ export async function hostedOpenRouterProxy(
         )
     }
     const providerRequest = await hostedOpenRouterProviderRequestBody(request)
+    const reservationCents = hostedManagedModelRequestReservationCents
+    const managedModelMetadata = hostedManagedModelAuditMetadata({
+        reservationCents,
+    })
+    if (providerRequest.model !== hostedManagedModelId) {
+        await recordHostedProviderUsageBlocked({
+            env,
+            workspaceId: proxyPath.workspaceId,
+            roomId: proxyPath.roomId,
+            sessionKey: usageContext.sessionKey,
+            runId: usageContext.runId,
+            jobId: usageContext.jobId,
+            provider: 'openrouter',
+            model: providerRequest.model,
+            metadata: {
+                ...managedModelMetadata,
+                billedBy: 'hosted_openrouter_proxy',
+                providerProxyBillingAuthority: 'worker_proxy',
+                hostedModelPolicyViolation: true,
+                requestedModel: providerRequest.model,
+                usageRequestId,
+                sessionKey: usageContext.sessionKey,
+                runId: usageContext.runId,
+                jobId: usageContext.jobId,
+                targetPath: proxyPath.targetPath,
+            },
+            idempotencyKey: usageIdempotencyKey,
+        })
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'hosted_model_policy_violation',
+            },
+            {
+                status: 403,
+            },
+        )
+    }
     const quotaCheck = {
         env,
         request,
@@ -292,7 +345,7 @@ export async function hostedOpenRouterProxy(
         providerPath: proxyPath.targetPath,
         amount: {
             count: 1,
-            cents: hostedProviderBillingGateCents,
+            cents: reservationCents,
         },
     } satisfies HostedQuotaCheckInput
     const quotaPreflightResponse = await assertProviderQuotaOrResponse({
@@ -316,10 +369,11 @@ export async function hostedOpenRouterProxy(
             roomId: proxyPath.roomId,
             usageContext,
             provider: 'openrouter',
-            amountCents: hostedProviderBillingGateCents,
+            amountCents: reservationCents,
             idempotencyKey: reservationIdempotencyKey,
             targetPath: proxyPath.targetPath,
             usageRequestId,
+            metadata: managedModelMetadata,
         })
         if (reservationIdOrResponse instanceof Response) {
             return reservationIdOrResponse
@@ -401,6 +455,7 @@ export async function hostedOpenRouterProxy(
             provider: 'openrouter',
             model: providerRequest.model,
             metadata: {
+                ...managedModelMetadata,
                 billedBy: 'hosted_openrouter_proxy',
                 providerProxyBillingAuthority: 'worker_proxy',
                 missingProviderActualCost: true,
@@ -429,6 +484,51 @@ export async function hostedOpenRouterProxy(
             },
         )
     }
+    const billedMicros = applyUsageMarkupMicros(costMicros, config.billing.usageMarkupBps)
+    const billedCents = centsFromMicrosCeil(billedMicros)
+    if (billedCents > reservationCents) {
+        await recordHostedProviderUsageBlocked({
+            env,
+            workspaceId: proxyPath.workspaceId,
+            roomId: proxyPath.roomId,
+            sessionKey: usageContext.sessionKey,
+            runId: usageContext.runId,
+            jobId: usageContext.jobId,
+            provider: 'openrouter',
+            model: providerRequest.model,
+            metadata: {
+                ...managedModelMetadata,
+                billedBy: 'hosted_openrouter_proxy',
+                providerProxyBillingAuthority: 'worker_proxy',
+                actualCostExceededAuthorizedMaximum: true,
+                costMicros,
+                billedMicros,
+                billedCents,
+                reservationId,
+                usageRequestId,
+                sessionKey: usageContext.sessionKey,
+                runId: usageContext.runId,
+                jobId: usageContext.jobId,
+                targetPath: proxyPath.targetPath,
+                status: response.status,
+            },
+            idempotencyKey: usageIdempotencyKey,
+        })
+        await releaseHostedProviderPreflightReservation({
+            env,
+            workspaceId: proxyPath.workspaceId,
+            reservationId,
+        })
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'provider_actual_cost_exceeds_authorized_maximum',
+            },
+            {
+                status: 402,
+            },
+        )
+    }
     try {
         await recordHostedProviderUsage({
             env,
@@ -446,6 +546,7 @@ export async function hostedOpenRouterProxy(
             costMicros,
             billingReservationId: reservationId,
             metadata: {
+                ...managedModelMetadata,
                 billedBy: 'hosted_openrouter_proxy',
                 providerProxyBillingAuthority: 'worker_proxy',
                 reservationId,

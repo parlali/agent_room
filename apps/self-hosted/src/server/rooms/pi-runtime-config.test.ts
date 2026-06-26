@@ -170,6 +170,32 @@ describe('Pi runtime config materialization', () => {
         expect(config.paths.authPath).toBe(join(root, 'shared-codex-auth.json'))
     })
 
+    it('uses materialized model labels for custom provider model display names', () => {
+        const root = '/tmp/agent-room-test/room-1'
+        const roomConfig = roomConfiguration()
+        roomConfig.provider = {
+            ...roomConfig.provider,
+            model: 'provider/custom-model',
+            modelLabel: 'Hosted',
+        }
+
+        const config = buildPiRuntimeConfig({
+            roomId: 'room-1',
+            displayName: 'Room One',
+            port: 31234,
+            token: 'token-token-token-token-token',
+            paths: roomPaths(root),
+            sandbox: sandbox(),
+            sandboxHardening: defaultRuntimeSandboxHardening(),
+            roomConfiguration: roomConfig,
+        })
+
+        expect(config.models.providers.openrouter?.models?.[0]).toMatchObject({
+            id: 'provider/custom-model',
+            name: 'Hosted',
+        })
+    })
+
     it('fails closed for runtime provider configs outside the app provider catalog', () => {
         const root = '/tmp/agent-room-test/room-1'
         const unsupported = roomConfiguration()

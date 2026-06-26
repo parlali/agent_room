@@ -22,6 +22,7 @@ import type { AgentRoomHostedEnv } from './bindings'
 import { resolveHostedConfig } from './hosted-config'
 import { readHostedBillingAccount } from './hosted-billing-repository'
 import { isHostedBillingPlanStatusActive } from './hosted-billing-types'
+import { hostedManagedModelAvailable } from './hosted-model-policy'
 import { upsertHostedSecret } from './hosted-secret-store'
 import { nowIso, stringifyJson, toJsonValue } from './hosted-json'
 import type { HostedActor } from './hosted-auth'
@@ -165,6 +166,12 @@ export async function getHostedRoomConfigSnapshot(input: {
         isHostedBillingPlanStatusActive(billingAccount.planStatus) &&
         hostedPlanAllowsManagedBrowserbase(billingAccount.planKey),
     )
+    const managedOpenRouterAvailable = hostedManagedModelAvailable({
+        openRouterApiKey: hostedConfig.managedProviders.openRouterApiKey,
+        hostedModelsDisabled: hostedConfig.killSwitches.hostedModels,
+        planKey: billingAccount?.planKey,
+        planStatus: billingAccount?.planStatus,
+    })
     const codexAuth = await resolveHostedCodexStatus({
         env: input.env,
         workspaceId: input.actor.workspaceId,
@@ -221,9 +228,7 @@ export async function getHostedRoomConfigSnapshot(input: {
                 appImageSecretId: imageSecretId,
             }),
             codexAuth,
-            managedOpenRouterAvailable: Boolean(
-                input.env.AGENT_ROOM_HOSTED_OPENROUTER_API_KEY?.trim(),
-            ),
+            managedOpenRouterAvailable,
         }),
         providers: providers.map(summarizeHostedProvider),
         mcpConnections: mcpConnections.map(summarizeHostedMcp),
@@ -340,6 +345,10 @@ export async function saveHostedRoomConfig(input: {
     if (!roomModes.includes(input.data.roomMode)) {
         throw new Error('Invalid room mode')
     }
+    const providerConnectionId =
+        input.data.providerMode === 'app_connection'
+            ? (input.data.providerConnectionId ?? null)
+            : null
     const room = await getHostedRoom({
         env: input.env,
         workspaceId: input.actor.workspaceId,
@@ -349,7 +358,6 @@ export async function saveHostedRoomConfig(input: {
         throw new Error('Room not found')
     }
     if (input.data.providerMode === 'app_connection') {
-        const providerConnectionId = input.data.providerConnectionId
         if (!providerConnectionId) {
             throw new Error('Provider connection is required for room provider mode')
         }
@@ -411,7 +419,7 @@ export async function saveHostedRoomConfig(input: {
         .bind(
             input.data.instructions,
             input.data.providerMode,
-            input.data.providerConnectionId ?? null,
+            providerConnectionId,
             input.data.roomMode,
             stringifyJson(toJsonValue(input.data.capabilityOverrides)),
             imageSecret.imageProvider,
@@ -432,7 +440,7 @@ export async function saveHostedRoomConfig(input: {
         action: 'room.config.saved',
         payload: {
             providerMode: input.data.providerMode,
-            providerConnectionId: input.data.providerConnectionId ?? null,
+            providerConnectionId,
             roomMode: input.data.roomMode,
             imageProvider: imageSecret.imageProvider,
             imageModel: imageSecret.imageModel,
@@ -455,7 +463,7 @@ export async function saveHostedRoomConfig(input: {
             roomId: input.data.roomId,
             config: {
                 providerMode: input.data.providerMode,
-                providerConnectionId: input.data.providerConnectionId ?? null,
+                providerConnectionId,
             },
         })
     }

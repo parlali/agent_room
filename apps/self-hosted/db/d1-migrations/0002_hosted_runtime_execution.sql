@@ -50,7 +50,7 @@ CREATE TABLE hosted_room_config (
     room_id TEXT PRIMARY KEY NOT NULL,
     workspace_id TEXT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
     instructions TEXT NOT NULL,
-    provider_mode TEXT NOT NULL CHECK (provider_mode IN ('app_default', 'app_connection')),
+    provider_mode TEXT NOT NULL CHECK (provider_mode IN ('app_default', 'app_connection', 'managed_hosted')),
     provider_connection_id TEXT,
     room_mode TEXT NOT NULL CHECK (room_mode IN ('programmer', 'coworker')),
     capability_overrides TEXT NOT NULL,

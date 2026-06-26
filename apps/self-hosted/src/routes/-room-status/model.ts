@@ -194,7 +194,8 @@ function modelConnectionRow(config: RoomConfigSnapshot | null): CheckRow {
 
     if (config.effective.ready) {
         const label = config.effective.providerLabel ?? config.effective.provider ?? 'Default model'
-        const model = config.effective.model
+        const model =
+            config.effective.providerSource === 'managed_hosted' ? null : config.effective.model
         return {
             icon: KeyRoundIcon,
             tone: 'ready',

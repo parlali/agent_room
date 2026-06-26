@@ -169,7 +169,7 @@ function buildProviderModels(input: {
     config.models = [
         {
             id: input.piModel,
-            name: provider.model,
+            name: provider.modelLabel ?? provider.model,
             reasoning: provider.api !== 'openai-completions',
             input: ['text'],
             contextWindow: 128000,

@@ -1547,7 +1547,7 @@
             "checkConstraints": {
                 "room_configs_provider_mode_check": {
                     "name": "room_configs_provider_mode_check",
-                    "value": "\"room_configs\".\"provider_mode\" IN ('app_default', 'app_connection')"
+                    "value": "\"room_configs\".\"provider_mode\" IN ('app_default', 'app_connection', 'managed_hosted')"
                 },
                 "room_configs_room_mode_check": {
                     "name": "room_configs_room_mode_check",

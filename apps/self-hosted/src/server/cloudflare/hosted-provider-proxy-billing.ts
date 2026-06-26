@@ -231,6 +231,7 @@ export async function authorizeFixedProviderReservation(input: {
     idempotencyKey: string
     targetPath: string | null
     usageRequestId: string
+    metadata?: Record<string, unknown>
 }): Promise<string | Response> {
     try {
         const reservation = await authorizeHostedBillingReservation({
@@ -250,6 +251,7 @@ export async function authorizeFixedProviderReservation(input: {
                 runId: input.usageContext.runId,
                 jobId: input.usageContext.jobId,
                 reservationPurpose: 'provider_preflight',
+                ...input.metadata,
             },
             expiresAt: new Date(Date.now() + 15 * 60 * 1000),
             allowExisting: false,

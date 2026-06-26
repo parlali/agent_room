@@ -132,6 +132,7 @@ export function ConfigSections({
             <ModelSection
                 draft={draft}
                 providers={providers}
+                managedHostedAvailable={operatorQuery.data?.onboarding.managedOpenRouterAvailable}
                 onChange={(patch) => setDraft((prev) => (prev ? { ...prev, ...patch } : prev))}
                 onSave={handleSave}
                 dirty={dirty}

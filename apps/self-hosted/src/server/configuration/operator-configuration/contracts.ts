@@ -317,7 +317,7 @@ export interface RoomConfigSnapshot {
     effective: {
         ready: boolean
         blockedReasons: string[]
-        providerSource: 'app_default' | 'app_connection' | 'missing'
+        providerSource: 'app_default' | 'app_connection' | 'managed_hosted' | 'missing'
         providerLabel: string | null
         provider: string | null
         model: string | null

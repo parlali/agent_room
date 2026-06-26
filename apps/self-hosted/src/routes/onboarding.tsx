@@ -96,8 +96,8 @@ function OnboardingPage() {
         : managedOpenRouterReady
           ? {
                 id: null,
-                label: 'Hosted OpenRouter',
-                defaultModel: configQuery.data?.settings.defaultModel?.trim() || 'openrouter/auto',
+                label: 'Hosted',
+                defaultModel: 'Managed model',
             }
           : null
     const providerReady = configuredProviderSummary !== null
