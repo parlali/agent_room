@@ -1,41 +1,33 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, redirect, useNavigate } from '@tanstack/react-router'
-import {
-    ArrowRightIcon,
-    CheckCircle2Icon,
-    CircleIcon,
-    KeyRoundIcon,
-    SparklesIcon,
-} from 'lucide-react'
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { ArrowRightIcon } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
 
-import { AttentionBanner, BrandMark } from '#/components/agent-room'
+import {
+    AttentionBanner,
+    BrandMark,
+    CreateRoomForm,
+    type CreateRoomFormValues,
+    FieldGroup,
+    Page,
+    PageHeader,
+    Section,
+} from '#/components/agent-room'
 import { Alert, AlertDescription } from '#/components/ui/alert'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
-import { Label } from '#/components/ui/label'
-import { Textarea } from '#/components/ui/textarea'
-import { cn } from '#/lib/utils'
-import { roomQueryKey } from '#/lib/room-query-keys'
+import { Skeleton } from '#/components/ui/skeleton'
 import { markChatSelection } from '#/lib/browser-performance'
+import { roomQueryKey } from '#/lib/room-query-keys'
 
 import { friendlyNotice } from './-notice-copy'
-import { getOperatorConfigServer, updateAppDefaultsServer } from './-operator-config-server'
 import {
-    createRoomServer,
-    createThreadServer,
-    getRoomSetupReadinessServer,
-} from './-room-runtime-server'
+    getOperatorConfigServer,
+    saveProviderConnectionServer,
+    updateAppDefaultsServer,
+} from './-operator-config-server'
+import { createRoomServer, createThreadServer } from './-room-runtime-server'
 import { requireRouteUser } from './-route-auth'
-
-interface ConfiguredProvider {
-    id: string | null
-    label: string
-    defaultModel: string
-}
-
-type StepId = 'portal' | 'provider' | 'room' | 'done'
-type StepState = 'complete' | 'active' | 'pending'
 
 export const Route = createFileRoute('/onboarding')({
     beforeLoad: async () => {
@@ -46,10 +38,34 @@ export const Route = createFileRoute('/onboarding')({
     component: OnboardingPage,
 })
 
+const sessionFallbackNotice = 'Your room was created, but it could not start a session yet.'
+
 function messageFromError(error: unknown, fallback: string): string {
     if (error instanceof Error && error.message) return error.message
     if (typeof error === 'string' && error.length > 0) return error
     return fallback
+}
+
+function OnboardingShell({ children }: { children: ReactNode }) {
+    return (
+        <Page
+            width="sm"
+            header={
+                <PageHeader
+                    eyebrow="Setup"
+                    glyph={
+                        <span className="flex size-10 items-center justify-center rounded-lg bg-foreground/95 text-background">
+                            <BrandMark size={22} className="text-background" />
+                        </span>
+                    }
+                    title="Welcome to Agent Room"
+                    subtitle="A couple of quick steps and your first room is ready to work."
+                />
+            }
+        >
+            {children}
+        </Page>
+    )
 }
 
 function OnboardingPage() {
@@ -60,402 +76,291 @@ function OnboardingPage() {
         queryKey: roomQueryKey.operatorConfig,
         queryFn: () => getOperatorConfigServer(),
     })
-    const readinessQuery = useQuery({
-        queryKey: roomQueryKey.setupReadiness,
-        queryFn: () => getRoomSetupReadinessServer(),
-    })
 
-    const blockingIssues =
-        readinessQuery.data?.issues.filter((issue) => issue.severity === 'blocking') ?? []
-
-    const [activeStep, setActiveStep] = useState<StepId>('provider')
-    const [createdRoomId, setCreatedRoomId] = useState<string | null>(null)
-    const [createdSessionKey, setCreatedSessionKey] = useState<string | null>(null)
-    const [firstRoomBlockedReason, setFirstRoomBlockedReason] = useState<string | null>(null)
-
-    const [roomName, setRoomName] = useState('')
-    const [roomInstructions, setRoomInstructions] = useState('')
+    const [apiKey, setApiKey] = useState('')
+    const [keyError, setKeyError] = useState<string | null>(null)
     const [roomError, setRoomError] = useState<string | null>(null)
+    const [createdRoomId, setCreatedRoomId] = useState<string | null>(null)
+    const [blockedReason, setBlockedReason] = useState<string | null>(null)
 
-    const readyProviders = (configQuery.data?.providers ?? []).filter(
+    const config = configQuery.data
+    const readyProviders = (config?.providers ?? []).filter(
         (provider) => provider.status === 'ready',
     )
     const defaultProvider =
         readyProviders.find(
-            (provider) => provider.id === configQuery.data?.settings.defaultProviderConnectionId,
-        ) ?? null
-    const configuredProvider =
-        defaultProvider ?? (readyProviders.length === 1 ? readyProviders[0] : null)
-    const managedOpenRouterReady = configQuery.data?.onboarding.managedOpenRouterAvailable === true
-    const configuredProviderSummary: ConfiguredProvider | null = configuredProvider
+            (provider) => provider.id === config?.settings.defaultProviderConnectionId,
+        ) ?? (readyProviders.length === 1 ? readyProviders[0] : null)
+    const managedModelReady = config?.onboarding.managedOpenRouterAvailable === true
+    const modelAvailable = managedModelReady || readyProviders.length > 0
+
+    const finishDefaults = defaultProvider
         ? {
-              id: configuredProvider.id,
-              label: configuredProvider.label,
-              defaultModel: configuredProvider.defaultModel,
+              defaultProviderConnectionId: defaultProvider.id,
+              defaultModel: defaultProvider.defaultModel,
           }
-        : managedOpenRouterReady
-          ? {
-                id: null,
-                label: 'Hosted',
-                defaultModel: 'Managed model',
-            }
-          : null
-    const providerReady = configuredProviderSummary !== null
+        : {
+              defaultProviderConnectionId: null,
+              defaultModel: null,
+          }
 
-    useEffect(() => {
-        if (providerReady && activeStep === 'provider') {
-            setActiveStep('room')
-        }
-    }, [activeStep, providerReady])
+    const byokEntry = config?.providerCatalog.find((entry) => entry.provider === 'openrouter') ?? null
 
-    const createRoom = useMutation({
+    const saveKey = useMutation({
         mutationFn: async () => {
-            const trimmed = roomName.trim()
-            if (!trimmed) throw new Error('A room name is required.')
-            return createRoomServer({
+            if (!byokEntry) {
+                throw new Error('This build cannot accept a model key here.')
+            }
+            const key = apiKey.trim()
+            if (!key) throw new Error('Paste your model key to continue.')
+            return saveProviderConnectionServer({
                 data: {
-                    displayName: trimmed,
-                    instructions: roomInstructions.trim() || undefined,
-                    startImmediately: true,
+                    label: byokEntry.label,
+                    provider: byokEntry.provider,
+                    defaultModel: byokEntry.model,
+                    apiKey: key,
+                    makeDefault: true,
                 },
             })
         },
-        onSuccess: async (room) => {
-            setRoomError(null)
-            setCreatedRoomId(room.id)
-            setFirstRoomBlockedReason(null)
+        onSuccess: async () => {
+            setApiKey('')
+            setKeyError(null)
+            await queryClient.invalidateQueries({ queryKey: roomQueryKey.operatorConfig })
+        },
+        onError: (error: unknown) => {
+            setKeyError(messageFromError(error, 'Could not save your model key.'))
+        },
+    })
+
+    const startRoom = useMutation({
+        mutationFn: async (values: CreateRoomFormValues) => {
+            const room = await createRoomServer({
+                data: {
+                    displayName: values.displayName,
+                    instructions: values.instructions || undefined,
+                    roomMode: values.roomMode,
+                    startImmediately: true,
+                },
+            })
             await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
             try {
-                const thread = await createThreadServer({
+                const thread = await createThreadServer({ data: { roomId: room.id } })
+                await updateAppDefaultsServer({
                     data: {
-                        roomId: room.id,
+                        defaultProviderConnectionId: finishDefaults.defaultProviderConnectionId,
+                        defaultModel: finishDefaults.defaultModel,
+                        onboardingCompleted: true,
                     },
                 })
-                setCreatedSessionKey(thread.key)
+                await queryClient.invalidateQueries({ queryKey: roomQueryKey.operatorConfig })
+                return { ok: true as const, roomId: room.id, sessionKey: thread.key }
             } catch (error) {
-                setCreatedSessionKey(null)
-                setFirstRoomBlockedReason(
-                    friendlyNotice(
-                        messageFromError(
-                            error,
-                            'The room is ready for setup, but no session is ready yet.',
-                        ),
-                    ) ?? 'The room is ready for setup, but no session is ready yet.',
-                )
+                return {
+                    ok: false as const,
+                    roomId: room.id,
+                    reason:
+                        friendlyNotice(messageFromError(error, sessionFallbackNotice)) ??
+                        sessionFallbackNotice,
+                }
             }
-            setActiveStep('done')
+        },
+        onSuccess: (result) => {
+            if (result.ok) {
+                markChatSelection(result.roomId, result.sessionKey)
+                void navigate({
+                    to: '/rooms/$roomId/sessions/$sessionKey',
+                    params: { roomId: result.roomId, sessionKey: result.sessionKey },
+                })
+                return
+            }
+            setCreatedRoomId(result.roomId)
+            setBlockedReason(result.reason)
         },
         onError: (error: unknown) => {
             setRoomError(messageFromError(error, 'Could not create the room.'))
         },
     })
 
-    const finish = useMutation({
+    const retrySession = useMutation({
         mutationFn: async () => {
-            if (!configuredProviderSummary) throw new Error('Provider not configured.')
-            if (!createdRoomId) throw new Error('Room not created.')
+            if (!createdRoomId) throw new Error('No room is waiting to start.')
+            const thread = await createThreadServer({ data: { roomId: createdRoomId } })
             await updateAppDefaultsServer({
                 data: {
-                    defaultProviderConnectionId: configuredProviderSummary.id,
-                    defaultModel: configuredProviderSummary.id
-                        ? configuredProviderSummary.defaultModel
-                        : null,
+                    defaultProviderConnectionId: finishDefaults.defaultProviderConnectionId,
+                    defaultModel: finishDefaults.defaultModel,
                     onboardingCompleted: true,
                 },
             })
-            return {
-                roomId: createdRoomId,
-                sessionKey: createdSessionKey,
-            }
-        },
-        onSuccess: async (target) => {
             await queryClient.invalidateQueries({ queryKey: roomQueryKey.operatorConfig })
-            if (target.sessionKey) {
-                markChatSelection(target.roomId, target.sessionKey)
-                await navigate({
-                    to: '/rooms/$roomId/sessions/$sessionKey',
-                    params: { roomId: target.roomId, sessionKey: target.sessionKey },
-                })
-                return
-            }
-            await navigate({ to: '/rooms/$roomId', params: { roomId: target.roomId } })
+            return { roomId: createdRoomId, sessionKey: thread.key }
+        },
+        onSuccess: (target) => {
+            markChatSelection(target.roomId, target.sessionKey)
+            void navigate({
+                to: '/rooms/$roomId/sessions/$sessionKey',
+                params: { roomId: target.roomId, sessionKey: target.sessionKey },
+            })
+        },
+        onError: (error: unknown) => {
+            setBlockedReason(
+                friendlyNotice(messageFromError(error, sessionFallbackNotice)) ??
+                    sessionFallbackNotice,
+            )
         },
     })
 
-    const portalState: StepState = 'complete'
-    const providerState: StepState = providerReady
-        ? 'complete'
-        : activeStep === 'provider'
-          ? 'active'
-          : 'pending'
-    const roomState: StepState = createdRoomId
-        ? 'complete'
-        : activeStep === 'room' && providerReady
-          ? 'active'
-          : 'pending'
-    const doneState: StepState = activeStep === 'done' ? 'active' : 'pending'
-
-    return (
-        <main className="min-h-screen bg-background px-6 py-12">
-            <div className="mx-auto w-full max-w-2xl space-y-8">
-                <header className="flex items-center gap-3">
-                    <span className="flex size-10 items-center justify-center rounded-lg bg-foreground/95 text-background">
-                        <BrandMark size={22} className="text-background" />
-                    </span>
-                    <div>
-                        <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                            Setup
-                        </p>
-                        <h1 className="text-2xl font-semibold tracking-tight">
-                            Welcome to Agent Room
-                        </h1>
-                        <p className="mt-0.5 text-sm text-muted-foreground">
-                            A few quick steps to get your first room running.
-                        </p>
+    if (configQuery.isLoading) {
+        return (
+            <OnboardingShell>
+                <Section title="Getting things ready">
+                    <div className="space-y-3">
+                        <Skeleton className="h-4 w-2/3" />
+                        <Skeleton className="h-9 w-full" />
+                        <Skeleton className="h-24 w-full" />
+                        <Skeleton className="h-9 w-40" />
                     </div>
-                </header>
-
-                {blockingIssues.length > 0 ? (
-                    <AttentionBanner
-                        tone="attention"
-                        title="Portal needs attention"
-                        description={
-                            <ul className="mt-1 list-disc space-y-1 pl-4">
-                                {blockingIssues.map((issue) => (
-                                    <li key={issue.code}>{issue.message}</li>
-                                ))}
-                            </ul>
-                        }
-                    />
-                ) : null}
-
-                <ol className="space-y-3">
-                    <Step
-                        index={1}
-                        state={portalState}
-                        title="Portal ready"
-                        description="You are signed in and the portal is reachable."
-                    />
-
-                    <Step
-                        index={2}
-                        state={providerState}
-                        title="Add a model provider"
-                        description="Configure the app-level provider rooms will use for chat and jobs."
-                        summary={
-                            configuredProviderSummary
-                                ? `${configuredProviderSummary.label} - default model ${configuredProviderSummary.defaultModel}`
-                                : null
-                        }
-                    >
-                        {activeStep === 'provider' && !providerReady ? (
-                            <ProviderSettingsPrompt
-                                readyCount={readyProviders.length}
-                                hasDefault={defaultProvider !== null}
-                            />
-                        ) : null}
-                    </Step>
-
-                    <Step
-                        index={3}
-                        state={roomState}
-                        title="Create your first room"
-                        description="A room is a persistent space where the agent works on a topic."
-                        summary={createdRoomId && roomName ? `${roomName} is starting up.` : null}
-                    >
-                        {activeStep === 'room' && !createdRoomId ? (
-                            <RoomForm
-                                roomName={roomName}
-                                onRoomName={setRoomName}
-                                roomInstructions={roomInstructions}
-                                onRoomInstructions={setRoomInstructions}
-                                error={roomError}
-                                pending={createRoom.isPending}
-                                onSubmit={(event) => {
-                                    event.preventDefault()
-                                    createRoom.mutate()
-                                }}
-                            />
-                        ) : null}
-                    </Step>
-
-                    <Step
-                        index={4}
-                        state={doneState}
-                        title="All set"
-                        description="Mark setup complete and open your new room."
-                    >
-                        {activeStep === 'done' ? (
-                            <div className="space-y-3">
-                                {firstRoomBlockedReason ? (
-                                    <AttentionBanner
-                                        tone="attention"
-                                        title="Room created"
-                                        description={firstRoomBlockedReason}
-                                    />
-                                ) : (
-                                    <p className="text-sm text-muted-foreground">
-                                        Your portal, provider, and first room are ready. Open the
-                                        selected session to start work.
-                                    </p>
-                                )}
-                                <Button
-                                    onClick={() => finish.mutate()}
-                                    disabled={finish.isPending}
-                                    size="lg"
-                                >
-                                    {finish.isPending
-                                        ? 'Finishing...'
-                                        : createdSessionKey
-                                          ? 'Open session'
-                                          : 'Open room'}
-                                    <ArrowRightIcon />
-                                </Button>
-                            </div>
-                        ) : null}
-                    </Step>
-                </ol>
-            </div>
-        </main>
-    )
-}
-
-function Step({
-    index,
-    state,
-    title,
-    description,
-    summary,
-    children,
-}: {
-    index: number
-    state: StepState
-    title: string
-    description: string
-    summary?: string | null
-    children?: ReactNode
-}) {
-    return (
-        <li className="flex gap-4 rounded-xl border border-border/70 bg-card p-5 shadow-sm">
-            <StepIndicator index={index} state={state} />
-            <div className="flex-1 space-y-2">
-                <div>
-                    <h2
-                        className={cn(
-                            'text-base font-semibold tracking-tight',
-                            state === 'pending' && 'text-muted-foreground',
-                        )}
-                    >
-                        {title}
-                    </h2>
-                    <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
-                </div>
-                {summary ? <p className="text-sm font-medium text-foreground">{summary}</p> : null}
-                {children ? <div className="pt-2">{children}</div> : null}
-            </div>
-        </li>
-    )
-}
-
-function StepIndicator({ index, state }: { index: number; state: StepState }) {
-    if (state === 'complete') {
-        return (
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background">
-                <CheckCircle2Icon className="size-5" />
-            </span>
+                </Section>
+            </OnboardingShell>
         )
     }
-    if (state === 'active') {
+
+    if (configQuery.isError || !config) {
         return (
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-full border-2 border-foreground text-sm font-semibold">
-                {index}
-            </span>
+            <OnboardingShell>
+                <AttentionBanner
+                    tone="danger"
+                    title="We could not load setup"
+                    description="Something went wrong while preparing your workspace."
+                    action={
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => configQuery.refetch()}
+                            disabled={configQuery.isFetching}
+                        >
+                            {configQuery.isFetching ? 'Retrying...' : 'Retry'}
+                        </Button>
+                    }
+                />
+            </OnboardingShell>
         )
     }
-    return (
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border text-sm font-medium text-muted-foreground">
-            <CircleIcon className="size-3" />
-        </span>
-    )
-}
 
-function ProviderSettingsPrompt({
-    readyCount,
-    hasDefault,
-}: {
-    readyCount: number
-    hasDefault: boolean
-}) {
-    const description =
-        readyCount > 1 && !hasDefault
-            ? 'Choose an app default provider in Settings before creating rooms.'
-            : 'Add an OpenRouter key or authorize Codex app server in Settings before creating rooms.'
-
-    return (
-        <div className="space-y-3">
-            <Alert>
-                <AlertDescription>{description}</AlertDescription>
-            </Alert>
-            <Button asChild>
-                <Link
-                    to="/settings"
-                    search={{
-                        installationId: '',
-                        setupAction: '',
-                        githubState: '',
-                    }}
+    if (createdRoomId && blockedReason) {
+        return (
+            <OnboardingShell>
+                <Section
+                    title="Almost there"
+                    description="Your room was created but still needs setup before it can start working."
                 >
-                    <KeyRoundIcon />
-                    Open settings
-                </Link>
-            </Button>
-        </div>
-    )
-}
+                    <div className="space-y-4">
+                        <AttentionBanner
+                            tone="attention"
+                            title="Setup required"
+                            description={blockedReason}
+                        />
+                        <div className="flex flex-wrap items-center gap-3">
+                            <Button
+                                type="button"
+                                onClick={() => retrySession.mutate()}
+                                disabled={retrySession.isPending}
+                            >
+                                {retrySession.isPending ? 'Starting...' : 'Try again'}
+                                <ArrowRightIcon />
+                            </Button>
+                            <Button asChild variant="ghost" size="sm">
+                                <Link
+                                    to="/operator"
+                                    search={{
+                                        installationId: '',
+                                        setupAction: '',
+                                        githubState: '',
+                                    }}
+                                >
+                                    Open advanced setup
+                                </Link>
+                            </Button>
+                        </div>
+                    </div>
+                </Section>
+            </OnboardingShell>
+        )
+    }
 
-function RoomForm(props: {
-    roomName: string
-    onRoomName: (value: string) => void
-    roomInstructions: string
-    onRoomInstructions: (value: string) => void
-    error: string | null
-    pending: boolean
-    onSubmit: (event: FormEvent<HTMLFormElement>) => void
-}) {
+    if (!modelAvailable) {
+        return (
+            <OnboardingShell>
+                <Section
+                    title="Connect your model"
+                    description="Agent Room needs a model key to think, chat, and run scheduled work."
+                >
+                    <form
+                        className="space-y-4"
+                        onSubmit={(event) => {
+                            event.preventDefault()
+                            saveKey.mutate()
+                        }}
+                        noValidate
+                    >
+                        {keyError ? (
+                            <Alert variant="destructive">
+                                <AlertDescription>{keyError}</AlertDescription>
+                            </Alert>
+                        ) : null}
+                        <FieldGroup
+                            label="Model key"
+                            htmlFor="onboarding-model-key"
+                            hint="Your key stays on this server and is used for chat and scheduled jobs."
+                        >
+                            <Input
+                                id="onboarding-model-key"
+                                type="password"
+                                autoComplete="off"
+                                value={apiKey}
+                                onChange={(event) => setApiKey(event.target.value)}
+                                placeholder="Paste your model key"
+                                autoFocus
+                            />
+                        </FieldGroup>
+                        <Button
+                            type="submit"
+                            disabled={saveKey.isPending || apiKey.trim().length === 0}
+                        >
+                            {saveKey.isPending ? 'Saving...' : 'Save and continue'}
+                            <ArrowRightIcon />
+                        </Button>
+                    </form>
+                </Section>
+            </OnboardingShell>
+        )
+    }
+
     return (
-        <form className="space-y-4" onSubmit={props.onSubmit} noValidate>
-            {props.error ? (
-                <Alert variant="destructive">
-                    <AlertDescription>{props.error}</AlertDescription>
-                </Alert>
-            ) : null}
-            <div className="space-y-1.5">
-                <Label htmlFor="room-name">Room name</Label>
-                <Input
-                    id="room-name"
-                    value={props.roomName}
-                    onChange={(event) => props.onRoomName(event.target.value)}
-                    placeholder="Research"
-                    autoFocus
-                    required
-                />
-            </div>
-            <div className="space-y-1.5">
-                <Label htmlFor="room-instructions">
-                    What is this room for? <span className="text-muted-foreground">(optional)</span>
-                </Label>
-                <Textarea
-                    id="room-instructions"
-                    value={props.roomInstructions}
-                    onChange={(event) => props.onRoomInstructions(event.target.value)}
-                    placeholder="Watch competitor releases, summarize daily, draft follow-up notes."
-                    rows={4}
-                />
-            </div>
-            <Button type="submit" disabled={props.pending}>
-                <SparklesIcon />
-                {props.pending ? 'Creating room...' : 'Create room'}
-            </Button>
-        </form>
+        <OnboardingShell>
+            <Section
+                title="Name your first room"
+                description="A room is a persistent space where your AI coworker works on a topic, with its own files, memory, and history."
+            >
+                <div className="space-y-4">
+                    {managedModelReady ? (
+                        <p className="text-sm text-muted-foreground">
+                            Your model and web access are included. Just name your room and start
+                            working.
+                        </p>
+                    ) : null}
+                    <CreateRoomForm
+                        variant="embedded"
+                        onSubmit={(values) => startRoom.mutate(values)}
+                        pending={startRoom.isPending}
+                        error={roomError}
+                        submitLabel="Create room and start"
+                        submittingLabel="Starting your room..."
+                    />
+                </div>
+            </Section>
+        </OnboardingShell>
     )
 }
