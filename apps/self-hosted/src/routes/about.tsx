@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
-import { BrandMark, PageHeader } from '#/components/agent-room'
+import { BrandMark, Page, PageHeader } from '#/components/agent-room'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#/components/ui/card'
 import { requireRouteUser } from './-route-auth'
 
@@ -76,14 +76,17 @@ const foundations: AboutCard[] = [
 
 function AboutPage() {
     return (
-        <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
-            <PageHeader
-                title="How Agent Room Works"
-                subtitle="A room-first model for persistent AI coworkers that can chat, use tools, manage files, and run scheduled work on your own host."
-                glyph={<BrandMark size={28} />}
-            />
-
-            <div className="mt-6 space-y-6">
+        <Page
+            width="lg"
+            header={
+                <PageHeader
+                    title="How Agent Room Works"
+                    subtitle="A room-first model for persistent AI coworkers that can chat, use tools, manage files, and run scheduled work on your own host."
+                    glyph={<BrandMark size={28} />}
+                />
+            }
+        >
+            <div className="space-y-6">
                 <Card>
                     <CardHeader>
                         <CardTitle>Self-hosted, model-agnostic, room-first</CardTitle>
@@ -171,6 +174,6 @@ function AboutPage() {
                     </CardContent>
                 </Card>
             </div>
-        </div>
+        </Page>
     )
 }

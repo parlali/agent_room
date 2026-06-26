@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { BarChart3Icon } from 'lucide-react'
 
-import { EmptyState, LoadingRows, PageHeader, Section } from '#/components/agent-room'
+import { EmptyState, LoadingRows, Page, PageHeader, Section } from '#/components/agent-room'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import { listRoomsServer, listUsageServer } from './-room-runtime-server'
 import { requireRouteUser } from './-route-auth'
@@ -30,13 +30,16 @@ function UsagePage() {
     const totals = usageQuery.data?.totals
 
     return (
-        <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
-            <PageHeader
-                title="Usage"
-                subtitle="Runtime, token, tool, document, image, and job usage across rooms."
-            />
-
-            <div className="mt-6 space-y-4">
+        <Page
+            width="lg"
+            header={
+                <PageHeader
+                    title="Usage"
+                    subtitle="Runtime, token, tool, document, image, and job usage across rooms."
+                />
+            }
+        >
+            <div className="space-y-4">
                 <Section title="Totals" description="Unknown provider fields remain explicit.">
                     {usageQuery.isLoading ? (
                         <LoadingRows count={2} />
@@ -65,6 +68,6 @@ function UsagePage() {
                     )}
                 </Section>
             </div>
-        </div>
+        </Page>
     )
 }

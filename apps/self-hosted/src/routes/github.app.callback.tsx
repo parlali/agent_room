@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { ExternalLinkIcon, Loader2Icon } from 'lucide-react'
-import { AttentionBanner, PageHeader, Section, StateBadge } from '#/components/agent-room'
+import { AttentionBanner, Page, PageHeader, Section, StateBadge } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
 import { roomQueryKey } from '#/lib/room-query-keys'
 import { completeGitHubCallbackServer } from './-operator-config-server'
@@ -52,13 +52,13 @@ function GitHubAppCallbackPage() {
     const installUrl = github?.app.installUrl ?? null
     const connectedLogin = github?.user.login ?? null
     return (
-        <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
-            <PageHeader
-                title="GitHub App"
-                subtitle="Completing first-party GitHub setup."
-                className="border-0 px-0 py-0"
-            />
-            <div className="mt-6">
+        <Page
+            width="md"
+            header={
+                <PageHeader title="GitHub App" subtitle="Completing first-party GitHub setup." />
+            }
+        >
+            <div>
                 {missingParams ? (
                     <AttentionBanner
                         tone="danger"
@@ -164,6 +164,6 @@ function GitHubAppCallbackPage() {
                     </Section>
                 )}
             </div>
-        </div>
+        </Page>
     )
 }

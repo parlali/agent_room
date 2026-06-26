@@ -25,7 +25,7 @@ import { logoutServer } from '#/routes/-auth-server'
 import type { AuthUserSnapshot } from '#/routes/-auth-server'
 import { initialsFromName } from '#/domain/format'
 import { roomQueryKey } from '#/lib/room-query-keys'
-import { useThemeMode } from './theme-toggle'
+import { useThemeMode } from '#/lib/theme'
 
 export function UserMenu({ user }: { user: AuthUserSnapshot | null }) {
     const queryClient = useQueryClient()
