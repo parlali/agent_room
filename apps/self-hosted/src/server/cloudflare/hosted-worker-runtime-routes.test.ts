@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
     ensureHostedBillingAccount: vi.fn(),
     authorizeHostedBillingReservation: vi.fn(),
     releaseHostedBillingReservation: vi.fn(),
+    appendHostedUsageEvent: vi.fn(),
     findHostedBillingReservationByIdempotencyKey: vi.fn(),
     readHostedProviderUsageSettlementByIdempotencyKey: vi.fn(),
     recordHostedBrowserbaseSession: vi.fn(),
@@ -65,6 +66,7 @@ vi.mock('./hosted-billing-repository', () => ({
     ensureHostedBillingAccount: mocks.ensureHostedBillingAccount,
     authorizeHostedBillingReservation: mocks.authorizeHostedBillingReservation,
     releaseHostedBillingReservation: mocks.releaseHostedBillingReservation,
+    appendHostedUsageEvent: mocks.appendHostedUsageEvent,
     findHostedBillingReservationByIdempotencyKey:
         mocks.findHostedBillingReservationByIdempotencyKey,
     readHostedProviderUsageSettlementByIdempotencyKey:
@@ -90,6 +92,14 @@ function hostedEnv(): AgentRoomHostedEnv {
             prepare: () => ({
                 bind: (...args: unknown[]) => ({
                     first: async () => (args[2] === 'job_1' ? { id: 'job_1' } : null),
+                    all: async () => ({ results: [] }),
+                    run: async () => ({
+                        success: true,
+                        meta: {
+                            changes: 1,
+                        },
+                        results: [],
+                    }),
                 }),
             }),
         } as unknown as AgentRoomHostedEnv['AGENT_ROOM_DB'],
@@ -279,6 +289,7 @@ describe('hosted runtime worker route security gates', () => {
         })
         mocks.findHostedBillingReservationByIdempotencyKey.mockResolvedValue(null)
         mocks.readHostedProviderUsageSettlementByIdempotencyKey.mockResolvedValue(null)
+        mocks.appendHostedUsageEvent.mockResolvedValue('usage_quota_1')
         mocks.recordHostedBrowserbaseSession.mockResolvedValue(undefined)
         mocks.readHostedBrowserbaseSession.mockResolvedValue({
             browserbaseSessionId: 'bb-session-1',

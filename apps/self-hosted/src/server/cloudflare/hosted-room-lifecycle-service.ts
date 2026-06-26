@@ -7,6 +7,7 @@ import type {
 } from '#/domain/domain-types'
 import type { AgentRoomHostedEnv } from './bindings'
 import type { HostedActor } from './hosted-auth'
+import { assertHostedQuotaAllowed } from './hosted-abuse-controls'
 import { appendHostedAudit } from './hosted-audit'
 import { assertChanged } from './hosted-d1'
 import { nowIso } from './hosted-json'
@@ -115,6 +116,7 @@ export async function createHostedRoom(input: {
                 providerMode,
                 providerConnectionId,
             },
+            actorUserId: input.actor.userId,
         })
     }
     const containerName = hostedRuntimeContainerName({
@@ -265,6 +267,7 @@ export async function setHostedRoomDesiredState(input: {
             workspaceId: input.actor.workspaceId,
             roomId: input.roomId,
             config,
+            actorUserId: input.actor.userId,
         })
         const result = await input.env.AGENT_ROOM_DB.prepare(
             `
@@ -647,6 +650,8 @@ async function assertHostedRuntimeStartAllowed(input: {
     workspaceId: string
     roomId: string
     config: ProviderSelectionConfig
+    actorUserId?: string | null
+    consumeQuota?: boolean
 }): Promise<void> {
     const access = await evaluateHostedRuntimeAccess({
         env: input.env,
@@ -656,6 +661,17 @@ async function assertHostedRuntimeStartAllowed(input: {
     if (!access.allowed) {
         throw new Error(hostedRuntimeAccessDeniedMessage(access.reason))
     }
+    await assertHostedQuotaAllowed({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+        actorUserId: input.actorUserId ?? null,
+        action: 'runtime_start',
+        amount: {
+            count: 1,
+        },
+        consume: input.consumeQuota ?? false,
+    })
     await resolveHostedRuntimeProviderAvailabilityForSelection({
         env: input.env,
         workspaceId: input.workspaceId,
@@ -676,6 +692,7 @@ export async function materializeAndEnqueueHostedRuntime(input: {
             workspaceId: input.actor.workspaceId,
             roomId: input.roomId,
             config: input.config,
+            actorUserId: input.actor.userId,
         })
         await materializeAndEnqueueHostedRuntimeAfterAccessCheck(input)
     } catch (error) {

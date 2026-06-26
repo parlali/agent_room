@@ -1,6 +1,7 @@
 import type { AgentRoomHostedEnv } from './bindings'
 import {
     hostedRuntimeFileCallback,
+    hostedRuntimeQuotaCallback,
     hostedRuntimeStateCallback,
     hostedRuntimeUsageCallback,
     runtimeUsageIdempotencyKey,
@@ -29,6 +30,9 @@ export async function hostedRuntimeWorkerRoute(input: {
     }
     if (input.url.pathname === '/api/hosted/runtime/state' && input.request.method === 'POST') {
         return hostedRuntimeStateCallback(input.env, input.request)
+    }
+    if (input.url.pathname === '/api/hosted/runtime/quota' && input.request.method === 'POST') {
+        return hostedRuntimeQuotaCallback(input.env, input.request)
     }
     if (
         input.url.pathname === hostedOpenRouterProxyPathPrefix ||

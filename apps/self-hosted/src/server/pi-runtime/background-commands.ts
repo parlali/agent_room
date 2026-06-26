@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { assertHostedRuntimeQuota } from './hosted-runtime-quota'
 import { createHostedRuntimeStateSync } from './hosted-runtime-state-sync'
 import {
     buildBoundedProcessEnv,
@@ -175,6 +176,14 @@ export async function startBackgroundCommand(input: {
     }
 
     await ensureShellWritableDirectory(input.config, input.config.paths.workspaceDir)
+    await assertHostedRuntimeQuota({
+        action: 'shell_command',
+        amount: {
+            count: 1,
+        },
+        sessionKey: input.sessionKey ?? null,
+        runId: input.runId ?? null,
+    })
     const combined = combineAbortSignals([input.signal, currentToolRunSignal()])
     const record: BackgroundCommandRecord = {
         commandId: randomUUID(),

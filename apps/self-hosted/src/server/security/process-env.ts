@@ -2,6 +2,7 @@ import { basename } from 'node:path'
 import {
     hostedRuntimeFileCallbackUrlEnvKey,
     hostedRuntimeManagedOpenRouterEnvKey,
+    hostedRuntimeQuotaCallbackUrlEnvKey,
     hostedRuntimeRoomIdEnvKey,
     hostedRuntimeStateCallbackUrlEnvKey,
     hostedRuntimeUsageCallbackTokenEnvKey,
@@ -30,6 +31,7 @@ export const reservedRoomRuntimeEnvKeys = new Set([
     piRuntimeTokenEnvKey,
     piRuntimeStateDirEnvKey,
     hostedRuntimeFileCallbackUrlEnvKey,
+    hostedRuntimeQuotaCallbackUrlEnvKey,
     hostedRuntimeStateCallbackUrlEnvKey,
     hostedRuntimeUsageCallbackTokenEnvKey,
     hostedRuntimeUsageCallbackUrlEnvKey,

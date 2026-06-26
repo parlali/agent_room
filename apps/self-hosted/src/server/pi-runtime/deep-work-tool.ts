@@ -5,6 +5,7 @@ import type { RoomExecutionMessage } from '../rooms/execution-types'
 import type { RunKind } from './run-budget'
 import type { ThreadKind, ThreadRecord } from './thread-records'
 import { finalAssistantText } from './thread-results'
+import { assertHostedRuntimeQuota } from './hosted-runtime-quota'
 
 export interface CreateDeepWorkToolInput {
     parentRecord: ThreadRecord
@@ -131,6 +132,13 @@ export function createDeepWorkTool(input: CreateDeepWorkToolInput): ToolDefiniti
             }
 
             const runId = randomUUID()
+            await assertHostedRuntimeQuota({
+                action: 'run_start',
+                amount: {
+                    count: 1,
+                },
+                runId,
+            })
             const releaseActive = input.reserveActive()
             let activeReserved = true
             let record: ThreadRecord | null = null

@@ -10,6 +10,7 @@ export const hostedRuntimeUsageCallbackUrlEnvKey = 'AGENT_ROOM_HOSTED_USAGE_CALL
 export const hostedRuntimeUsageCallbackTokenEnvKey = 'AGENT_ROOM_HOSTED_USAGE_CALLBACK_TOKEN'
 export const hostedRuntimeFileCallbackUrlEnvKey = 'AGENT_ROOM_HOSTED_FILE_CALLBACK_URL'
 export const hostedRuntimeStateCallbackUrlEnvKey = 'AGENT_ROOM_HOSTED_STATE_CALLBACK_URL'
+export const hostedRuntimeQuotaCallbackUrlEnvKey = 'AGENT_ROOM_HOSTED_QUOTA_CALLBACK_URL'
 export const hostedRuntimeWorkspaceIdEnvKey = 'AGENT_ROOM_HOSTED_WORKSPACE_ID'
 export const hostedRuntimeRoomIdEnvKey = 'AGENT_ROOM_HOSTED_ROOM_ID'
 export const hostedRuntimeManagedOpenRouterEnvKey = 'AGENT_ROOM_HOSTED_MANAGED_OPENROUTER'

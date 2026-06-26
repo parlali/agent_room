@@ -1,5 +1,11 @@
 import { Buffer } from 'node:buffer'
 import type { AgentRoomHostedEnv } from './bindings'
+import {
+    assertHostedQuotaAllowed,
+    hostedQuotaDeniedResponse,
+    parseHostedQuotaAction,
+    type HostedQuotaAmount,
+} from './hosted-abuse-controls'
 import { upsertHostedRoomRuntimeFile } from './hosted-file-store'
 import { objectRecord } from './hosted-json'
 import {
@@ -12,6 +18,22 @@ import { hostedJsonResponse } from './hosted-worker-response'
 import { parseHostedRuntimeStateOperation } from '../rooms/hosted-runtime-state-contract'
 import { runtimeUsageEventFromLogEntry } from '../rooms/pi-execution-adapter/usage-sync'
 import type { RoomFileSurface } from '../rooms/file-store'
+
+function quotaAmount(value: unknown): HostedQuotaAmount {
+    const amount = objectRecord(value)
+    return {
+        count: finiteWholeNumber(amount.count),
+        bytes: finiteWholeNumber(amount.bytes),
+        storageBytes: finiteWholeNumber(amount.storageBytes),
+        cents: finiteWholeNumber(amount.cents),
+    }
+}
+
+function finiteWholeNumber(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+        ? value
+        : undefined
+}
 
 export function runtimeUsageIdempotencyKey(input: {
     workspaceId: string
@@ -255,5 +277,68 @@ export async function hostedRuntimeStateCallback(
     return hostedJsonResponse({
         ok: true,
         state: saved,
+    })
+}
+
+export async function hostedRuntimeQuotaCallback(
+    env: AgentRoomHostedEnv,
+    request: Request,
+): Promise<Response> {
+    let record: Record<string, unknown>
+    try {
+        const parsed = (await request.json()) as unknown
+        record = objectRecord(parsed)
+    } catch {
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'invalid_request_body',
+            },
+            {
+                status: 400,
+            },
+        )
+    }
+    const callback = await requireHostedRuntimeCallback({
+        env,
+        request,
+        record,
+    })
+    if (callback instanceof Response) {
+        return callback
+    }
+    const action = parseHostedQuotaAction(record.action)
+    if (!action) {
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'invalid_quota_callback',
+                message: 'action is required',
+            },
+            {
+                status: 400,
+            },
+        )
+    }
+    try {
+        await assertHostedQuotaAllowed({
+            env,
+            workspaceId: callback.workspaceId,
+            roomId: callback.roomId,
+            action,
+            sessionKey: typeof record.sessionKey === 'string' ? record.sessionKey : null,
+            runId: typeof record.runId === 'string' ? record.runId : null,
+            jobId: typeof record.jobId === 'string' ? record.jobId : null,
+            amount: quotaAmount(record.amount),
+        })
+    } catch (error) {
+        const response = hostedQuotaDeniedResponse(error)
+        if (response) {
+            return response
+        }
+        throw error
+    }
+    return hostedJsonResponse({
+        ok: true,
     })
 }

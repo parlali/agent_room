@@ -1,5 +1,6 @@
 import { hostedPlanAllowsManagedBrowserbase } from '@agent-room/billing'
 import type { AgentRoomHostedEnv } from './bindings'
+import { assertHostedQuotaAllowed, hostedQuotaDeniedResponse } from './hosted-abuse-controls'
 import {
     hostedBrowserbaseSearchCostMicros,
     hostedBrowserbaseSessionCostMicros,
@@ -422,16 +423,42 @@ export async function hostedBrowserbaseProxy(
                 return existingSessionError
             }
         }
+        const reservationCents = hostedFixedCostReservationCents({
+            costMicros: operation.costMicros,
+            usageMarkupBps: config.billing.usageMarkupBps,
+        })
+        try {
+            await assertHostedQuotaAllowed({
+                env,
+                workspaceId: proxyPath.workspaceId,
+                roomId: proxyPath.roomId,
+                sessionKey: usageRequest.usageContext.sessionKey,
+                runId: usageRequest.usageContext.runId,
+                jobId: usageRequest.usageContext.jobId,
+                action:
+                    providerRequest.action === 'create_session'
+                        ? 'browserbase_session_start'
+                        : 'provider_browserbase',
+                providerPath: proxyPath.targetPath,
+                amount: {
+                    count: 1,
+                    cents: reservationCents,
+                },
+            })
+        } catch (error) {
+            const response = hostedQuotaDeniedResponse(error)
+            if (response) {
+                return response
+            }
+            throw error
+        }
         const reservation = await authorizeFixedProviderReservation({
             env,
             workspaceId: proxyPath.workspaceId,
             roomId: proxyPath.roomId,
             usageContext: usageRequest.usageContext,
             provider: 'browserbase',
-            amountCents: hostedFixedCostReservationCents({
-                costMicros: operation.costMicros,
-                usageMarkupBps: config.billing.usageMarkupBps,
-            }),
+            amountCents: reservationCents,
             idempotencyKey: `browserbase:${proxyPath.workspaceId}:${proxyPath.roomId}:${usageRequest.usageRequestId}`,
             targetPath: proxyPath.targetPath,
             usageRequestId: usageRequest.usageRequestId,
@@ -708,6 +735,32 @@ export async function hostedManagedFetchProxy(
             },
         )
     }
+    const reservationCents = hostedFixedCostReservationCents({
+        costMicros: hostedFetchUrlCostMicros,
+        usageMarkupBps: config.billing.usageMarkupBps,
+    })
+    try {
+        await assertHostedQuotaAllowed({
+            env,
+            workspaceId: proxyPath.workspaceId,
+            roomId: proxyPath.roomId,
+            sessionKey: usageRequest.usageContext.sessionKey,
+            runId: usageRequest.usageContext.runId,
+            jobId: usageRequest.usageContext.jobId,
+            action: 'provider_fetch_url',
+            providerPath: 'fetch_url',
+            amount: {
+                count: 1,
+                cents: reservationCents,
+            },
+        })
+    } catch (error) {
+        const response = hostedQuotaDeniedResponse(error)
+        if (response) {
+            return response
+        }
+        throw error
+    }
     await ensureHostedBillingAccount({
         env,
         workspaceId: proxyPath.workspaceId,
@@ -718,10 +771,7 @@ export async function hostedManagedFetchProxy(
         roomId: proxyPath.roomId,
         usageContext: usageRequest.usageContext,
         provider: 'fetch_url',
-        amountCents: hostedFixedCostReservationCents({
-            costMicros: hostedFetchUrlCostMicros,
-            usageMarkupBps: config.billing.usageMarkupBps,
-        }),
+        amountCents: reservationCents,
         idempotencyKey: `fetch_url:${proxyPath.workspaceId}:${proxyPath.roomId}:${usageRequest.usageRequestId}`,
         targetPath: null,
         usageRequestId: usageRequest.usageRequestId,

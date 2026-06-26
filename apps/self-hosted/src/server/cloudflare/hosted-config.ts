@@ -22,6 +22,17 @@ export interface HostedConfig {
             creditTopupPriceId: string
         }
     }
+    killSwitches: {
+        runtimeExecution: boolean
+        hostedModels: boolean
+        managedWeb: boolean
+        browserbase: boolean
+        scheduledJobs: boolean
+        shell: boolean
+        storage: boolean
+        imageGeneration: boolean
+        documentWorkers: boolean
+    }
     runtimeBackend: 'cloudflare-containers'
     runtimeStorage: 'r2'
     betterAuthSecret: string
@@ -61,6 +72,17 @@ export function resolveHostedConfig(env: AgentRoomHostedEnv): HostedConfig {
                 webhookSecret: data.STRIPE_WEBHOOK_SECRET,
                 creditTopupPriceId: hostedCreditTopupPriceId(),
             },
+        },
+        killSwitches: {
+            runtimeExecution: data.AGENT_ROOM_HOSTED_DISABLE_RUNTIME_EXECUTION,
+            hostedModels: data.AGENT_ROOM_HOSTED_DISABLE_HOSTED_MODELS,
+            managedWeb: data.AGENT_ROOM_HOSTED_DISABLE_MANAGED_WEB,
+            browserbase: data.AGENT_ROOM_HOSTED_DISABLE_BROWSERBASE,
+            scheduledJobs: data.AGENT_ROOM_HOSTED_DISABLE_SCHEDULED_JOBS,
+            shell: data.AGENT_ROOM_HOSTED_DISABLE_SHELL,
+            storage: data.AGENT_ROOM_HOSTED_DISABLE_STORAGE,
+            imageGeneration: data.AGENT_ROOM_HOSTED_DISABLE_IMAGE_GENERATION,
+            documentWorkers: data.AGENT_ROOM_HOSTED_DISABLE_DOCUMENT_WORKERS,
         },
         runtimeBackend: data.AGENT_ROOM_RUNTIME_BACKEND,
         runtimeStorage: data.AGENT_ROOM_RUNTIME_STORAGE,

@@ -315,6 +315,8 @@ export async function createRoomThread(input: {
             env: context.env,
             workspaceId: actor.workspaceId,
             roomId: input.roomId,
+            actorUserId: actor.userId,
+            request: context.request,
         })
     }
     const request = createThreadRuntimeRequest({
@@ -347,6 +349,9 @@ export async function sendRoomThreadMessage(input: {
         env: context.env,
         workspaceId: actor.workspaceId,
         roomId: input.roomId,
+        actorUserId: actor.userId,
+        request: context.request,
+        sessionKey: input.sessionKey,
     })
     const request = sendThreadRuntimeRequest({
         sessionKey: input.sessionKey,
@@ -415,6 +420,9 @@ export async function compactRoomThread(input: {
         env: context.env,
         workspaceId: actor.workspaceId,
         roomId: input.roomId,
+        actorUserId: actor.userId,
+        request: context.request,
+        sessionKey: input.sessionKey,
     })
     const request = compactThreadRuntimeRequest(input)
     return requestHostedPiRuntime({
@@ -458,6 +466,9 @@ export async function editRoomThreadMessage(input: {
         env: context.env,
         workspaceId: actor.workspaceId,
         roomId: input.roomId,
+        actorUserId: actor.userId,
+        request: context.request,
+        sessionKey: input.sessionKey,
     })
     const request = editThreadMessageRuntimeRequest(input)
     return requestHostedPiRuntime({

@@ -15,6 +15,7 @@ import {
 import { buildPiRuntimeConfig } from '../rooms/pi-runtime-config'
 import {
     hostedRuntimeUsageCallbackTokenEnvKey,
+    hostedRuntimeQuotaCallbackUrlEnvKey,
     hostedRuntimeUsageCallbackUrlEnvKey,
 } from '../rooms/pi-runtime-contract'
 import { assertNoReservedRoomRuntimeEnvKeys } from '../security/process-env'
@@ -388,6 +389,7 @@ export async function materializeHostedRuntime(input: {
     const egressAllowedHosts = await hostedRuntimeAllowedHosts({
         runtimeConfig: piConfig,
         usageCallbackUrl: runtimeEnv[hostedRuntimeUsageCallbackUrlEnvKey],
+        quotaCallbackUrl: runtimeEnv[hostedRuntimeQuotaCallbackUrlEnvKey],
     })
     const configObjectKey = hostedRuntimeConfigKey({
         workspaceId: input.actor.workspaceId,

@@ -1,4 +1,5 @@
 import type { AgentRoomHostedEnv } from './bindings'
+import { assertHostedQuotaAllowed, hostedQuotaDeniedResponse } from './hosted-abuse-controls'
 import {
     hostedBraveSearchCostMicros,
     hostedProviderBillingGateCents,
@@ -249,6 +250,28 @@ export async function hostedOpenRouterProxy(
                 status: 409,
             },
         )
+    }
+    try {
+        await assertHostedQuotaAllowed({
+            env,
+            workspaceId: proxyPath.workspaceId,
+            roomId: proxyPath.roomId,
+            sessionKey: usageContext.sessionKey,
+            runId: usageContext.runId,
+            jobId: usageContext.jobId,
+            action: 'provider_openrouter',
+            providerPath: proxyPath.targetPath,
+            amount: {
+                count: 1,
+                cents: hostedProviderBillingGateCents,
+            },
+        })
+    } catch (error) {
+        const response = hostedQuotaDeniedResponse(error)
+        if (response) {
+            return response
+        }
+        throw error
     }
     const providerRequest = await hostedOpenRouterProviderRequestBody(request)
     let reservationId: string | null = null
@@ -513,6 +536,31 @@ export async function hostedBraveProxy(
             },
         )
     }
+    const reservationCents = hostedBraveSearchReservationCents({
+        usageMarkupBps: config.billing.usageMarkupBps,
+    })
+    try {
+        await assertHostedQuotaAllowed({
+            env,
+            workspaceId: proxyPath.workspaceId,
+            roomId: proxyPath.roomId,
+            sessionKey: usageContext.sessionKey,
+            runId: usageContext.runId,
+            jobId: usageContext.jobId,
+            action: 'provider_brave',
+            providerPath: proxyPath.targetPath,
+            amount: {
+                count: 1,
+                cents: reservationCents,
+            },
+        })
+    } catch (error) {
+        const response = hostedQuotaDeniedResponse(error)
+        if (response) {
+            return response
+        }
+        throw error
+    }
 
     let reservationId: string | null = null
     try {
@@ -526,9 +574,7 @@ export async function hostedBraveProxy(
             roomId: proxyPath.roomId,
             usageContext,
             provider: 'brave',
-            amountCents: hostedBraveSearchReservationCents({
-                usageMarkupBps: config.billing.usageMarkupBps,
-            }),
+            amountCents: reservationCents,
             idempotencyKey: reservationIdempotencyKey,
             targetPath: proxyPath.targetPath,
             usageRequestId,

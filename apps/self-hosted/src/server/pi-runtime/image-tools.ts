@@ -2,6 +2,7 @@ import { relative } from 'node:path'
 import { defineTool, type ToolDefinition } from '@mariozechner/pi-coding-agent'
 import { Type } from '@mariozechner/pi-ai'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
+import { assertHostedRuntimeQuota } from './hosted-runtime-quota'
 import { saveImages } from './image-artifacts'
 import { generateImages } from './image-generation'
 import { clampPositiveInteger, textToolResult } from './tool-helpers'
@@ -41,7 +42,14 @@ function createImageGenerateTool(ctx: ImageToolContext): ToolDefinition {
         executionMode: 'sequential',
         execute: async (_toolCallId, input, signal) => {
             const startedAt = Date.now()
+            const count = clampPositiveInteger(input.count, 1, 4)
             try {
+                await assertHostedRuntimeQuota({
+                    action: 'image_generation',
+                    amount: {
+                        count,
+                    },
+                })
                 const images = await generateImages({
                     config: ctx.config,
                     prompt: input.prompt,
@@ -49,7 +57,7 @@ function createImageGenerateTool(ctx: ImageToolContext): ToolDefinition {
                     size: input.size?.trim() || '1024x1024',
                     aspectRatio: input.aspectRatio?.trim() || '1:1',
                     quality: input.quality?.trim() || 'auto',
-                    count: clampPositiveInteger(input.count, 1, 4),
+                    count,
                     signal,
                 })
                 const saved = await saveImages(ctx.config, images, input.outputPrefix)

@@ -35,6 +35,12 @@ const optionalSecretSchema = z
     .optional()
     .transform((value) => (value ? value : undefined))
 
+const optionalBooleanSchema = z
+    .string()
+    .trim()
+    .optional()
+    .transform((value) => value === '1' || value?.toLowerCase() === 'true')
+
 const hostedEncryptionKeySchema = z
     .string()
     .trim()
@@ -63,6 +69,15 @@ export const hostedConfigSchema = z
         AGENT_ROOM_BILLING_USAGE_MARKUP_BPS: z.coerce.number().int().min(10000),
         AGENT_ROOM_BILLING_TAX_MODE: z.enum(['none', 'automatic']),
         AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS: z.coerce.number().int().min(1),
+        AGENT_ROOM_HOSTED_DISABLE_RUNTIME_EXECUTION: optionalBooleanSchema,
+        AGENT_ROOM_HOSTED_DISABLE_HOSTED_MODELS: optionalBooleanSchema,
+        AGENT_ROOM_HOSTED_DISABLE_MANAGED_WEB: optionalBooleanSchema,
+        AGENT_ROOM_HOSTED_DISABLE_BROWSERBASE: optionalBooleanSchema,
+        AGENT_ROOM_HOSTED_DISABLE_SCHEDULED_JOBS: optionalBooleanSchema,
+        AGENT_ROOM_HOSTED_DISABLE_SHELL: optionalBooleanSchema,
+        AGENT_ROOM_HOSTED_DISABLE_STORAGE: optionalBooleanSchema,
+        AGENT_ROOM_HOSTED_DISABLE_IMAGE_GENERATION: optionalBooleanSchema,
+        AGENT_ROOM_HOSTED_DISABLE_DOCUMENT_WORKERS: optionalBooleanSchema,
         AGENT_ROOM_RUNTIME_BACKEND: z.literal(hostedConfigValues.runtimeBackend),
         AGENT_ROOM_RUNTIME_STORAGE: z.literal(hostedConfigValues.runtimeStorage),
         BETTER_AUTH_SECRET: z.string().trim().min(32),

@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer'
 import type { AgentRoomHostedEnv } from './bindings'
+import { assertHostedQuotaAllowed } from './hosted-abuse-controls'
 import {
     readHostedRuntimeArtifactText,
     readHostedRuntimeArtifactTextOrNull,
@@ -31,6 +32,15 @@ export async function putHostedRuntimeStateFile(input: {
         throw new Error('Hosted runtime state file exceeds the configured byte limit')
     }
     const relativePath = normalizeHostedRuntimeStateRelativePath(input.relativePath)
+    await assertHostedQuotaAllowed({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+        action: 'runtime_state_sync',
+        amount: {
+            bytes: input.content.byteLength,
+        },
+    })
     await putHostedRuntimeArtifact({
         env: input.env,
         key: hostedRuntimeStateFileKey({
