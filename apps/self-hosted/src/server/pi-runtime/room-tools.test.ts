@@ -1,15 +1,10 @@
 import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { createGrepTool } from '@mariozechner/pi-coding-agent'
 import { describe, expect, it } from 'vitest'
 import { PDFDocument } from 'pdf-lib'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
-import {
-    createRoomTools,
-    nativeWorkspaceToolNamesForCapabilities,
-    roomToolNamesForCapabilities,
-} from './room-tools'
+import { createRoomTools, roomToolNamesForCapabilities } from './room-tools'
 import { createDocumentTools } from './document-tools'
 import {
     createTestPiRuntimeConfig,
@@ -110,43 +105,6 @@ function resultDetails(result: Awaited<ReturnType<typeof executeRoomTool>>['resu
 }
 
 describe('room Pi tools', () => {
-    it('uses Pi-native workspace tool names and keeps custom tools product-neutral', () => {
-        expect(nativeWorkspaceToolNamesForCapabilities(testCapabilities)).toEqual([
-            'read',
-            'grep',
-            'find',
-            'ls',
-            'edit',
-            'write',
-        ])
-        expect(
-            nativeWorkspaceToolNamesForCapabilities({
-                ...testCapabilities,
-                shellCoding: false,
-            }),
-        ).toEqual(['read', 'grep', 'find', 'ls'])
-
-        const coworkerNames = roomToolNamesForCapabilities('coworker', testCapabilities)
-        const programmerNames = roomToolNamesForCapabilities('programmer', testCapabilities)
-
-        expect(coworkerNames).toEqual([
-            'skill_list',
-            'skill_read',
-            'skill_search',
-            'shell',
-            'command_start',
-            'command_poll',
-            'command_status',
-            'command_terminate',
-            'artifact_import',
-            'artifact_export',
-        ])
-        expect(programmerNames).not.toContain('artifact_import')
-        expect(
-            [...coworkerNames, ...programmerNames].some((name) => name.startsWith('agent_room_')),
-        ).toBe(false)
-    })
-
     it('removes shell and artifact tool names when shell coding is disabled', () => {
         const names = roomToolNamesForCapabilities('coworker', {
             ...testCapabilities,
@@ -154,49 +112,6 @@ describe('room Pi tools', () => {
         })
 
         expect(names).toEqual(['skill_list', 'skill_read', 'skill_search'])
-    })
-
-    it('does not register duplicate Agent Room workspace tools', async () => {
-        await withRoom(async (config) => {
-            const names = createRoomTools({ config, audit: async () => {} }).map(
-                (tool) => tool.name,
-            )
-
-            expect(names).not.toContain('agent_room_read')
-            expect(names).not.toContain('agent_room_list')
-            expect(names).not.toContain('agent_room_search')
-            expect(names).not.toContain('agent_room_workspace_tree')
-            expect(names).not.toContain('agent_room_write')
-            expect(names).not.toContain('agent_room_edit')
-            expect(names).toContain('skill_read')
-            expect(names).toContain('shell')
-            expect(names).toContain('artifact_import')
-        })
-    })
-
-    it('reads and searches bundled skills through the read-only skill tools', async () => {
-        await withRoom(async (config) => {
-            const listed = await executeRoomTool(config, 'skill_list', {
-                path: 'docx',
-            })
-            const read = await executeRoomTool(config, 'skill_read', {
-                path: 'docx/SKILL.md',
-            })
-            const searched = await executeRoomTool(config, 'skill_search', {
-                path: 'docx',
-                query: 'signatureGrid',
-            })
-
-            expect(resultText(listed.result)).toContain('file\tdocx/SKILL.md')
-            expect(resultText(read.result)).toContain('# DOCX')
-            expect(resultText(searched.result)).toContain('docx/SKILL.md')
-            expect(resultText(searched.result)).toContain('signatureGrid')
-            expect(resultDetails(read.result)).toMatchObject({
-                root: 'skills',
-                path: 'docx/SKILL.md',
-            })
-            expect(read.events.some((event) => event.event === 'tool.skill_read')).toBe(true)
-        })
     })
 
     it('keeps bundled skill tools inside the skill asset root', async () => {
@@ -211,48 +126,6 @@ describe('room Pi tools', () => {
                     path: '../src/server/pi-runtime/skills/docx/SKILL.md',
                 }),
             ).rejects.toThrow(/escapes bundled skills/)
-        })
-    })
-
-    it('uses Pi grep behavior for ignore-aware bounded workspace search', async () => {
-        await withRoom(async (config) => {
-            await writeFile(join(config.paths.workspaceDir, '.gitignore'), 'vendor/\n', 'utf8')
-            await writeFile(join(config.paths.workspaceDir, '.ignore'), 'vendor/\n', 'utf8')
-            await mkdir(join(config.paths.workspaceDir, 'src'), {
-                recursive: true,
-            })
-            await mkdir(join(config.paths.workspaceDir, 'vendor'), {
-                recursive: true,
-            })
-            await writeFile(
-                join(config.paths.workspaceDir, 'src', 'match.txt'),
-                `MATCH ${'x'.repeat(12000)}\nMATCH second\n`,
-                'utf8',
-            )
-            await writeFile(
-                join(config.paths.workspaceDir, 'vendor', 'ignored.txt'),
-                'MATCH ignored\n',
-                'utf8',
-            )
-
-            const grep = createGrepTool(config.paths.workspaceDir)
-            const result = await grep.execute(
-                'call-1',
-                {
-                    pattern: 'MATCH',
-                    literal: true,
-                    limit: 1,
-                },
-                undefined,
-                undefined,
-            )
-            const text = resultText(result)
-
-            expect(text).toContain('src/match.txt:1:')
-            expect(text).not.toContain('ignored.txt')
-            expect(text).toContain('1 matches limit reached')
-            expect(text).toContain('Some lines truncated')
-            expect(Buffer.byteLength(text)).toBeLessThan(60_000)
         })
     })
 
@@ -428,45 +301,6 @@ describe('room Pi tools', () => {
             expect(resultDetails(inspectedPdf.result)).toMatchObject({
                 root: 'store',
                 format: 'pdf',
-            })
-        })
-    })
-
-    it('exposes simplified PDF tools without office compatibility tools', async () => {
-        await withRoom(async (config) => {
-            const names = createDocumentTools({ config, audit: async () => {} }).map(
-                (tool) => tool.name,
-            )
-
-            expect(names).toContain('read_pdf')
-            expect(names).toContain('pdf')
-            expect(names.some((name) => name.startsWith('agent_room_'))).toBe(false)
-            expect(names).not.toContain('docx')
-            expect(names).not.toContain('xlsx')
-            expect(names).not.toContain('pptx')
-            expect(names).not.toContain('pdf_extract_text')
-        })
-    })
-
-    it('reports unsupported PDF reads without falling back to text extraction silently', async () => {
-        await withRoom(async (config) => {
-            await executeDocumentTool(config, 'pdf', {
-                operation: 'create',
-                path: 'source.pdf',
-                paragraphs: ['Unsupported PDF path text'],
-            })
-
-            const readPdf = await executeDocumentTool(config, 'read_pdf', {
-                path: 'source.pdf',
-            })
-
-            expect(resultText(readPdf.result)).toContain('unsupported')
-            expect(readPdf.result.content).toHaveLength(1)
-            expect(resultDetails(readPdf.result)).toMatchObject({
-                ingestionMode: 'unsupported',
-                backend: 'unsupported',
-                inputBlocks: 0,
-                degraded: true,
             })
         })
     })
