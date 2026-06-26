@@ -84,6 +84,7 @@ function SettingsPage() {
                   config.settings.search.browserbase.hasCredential,
           })
         : null
+    const webAccessEnabled = config?.settings.search.enabled ?? false
     const toolCount = config?.mcpConnections.length ?? 0
     const githubConnected = config?.github.app.configured ?? false
 
@@ -100,8 +101,8 @@ function SettingsPage() {
                   label: 'Web access',
                   value: webAccess ? (
                       <StateBadge
-                          tone={webAccess.label === 'Off' ? 'muted' : webAccess.tone}
-                          label={webAccess.label === 'Off' ? 'Off' : 'Included'}
+                          tone={webAccessEnabled ? webAccess.tone : 'muted'}
+                          label={webAccessEnabled ? 'Included' : 'Off'}
                       />
                   ) : null,
                   hint: 'Rooms can search and read public web pages.',

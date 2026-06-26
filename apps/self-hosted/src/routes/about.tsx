@@ -31,7 +31,7 @@ const cards: AboutCard[] = [
         icon: UsersRoundIcon,
         title: 'Rooms are colleagues',
         description:
-            'Each room is a durable AI worker with its own files, jobs, instructions, tools, and provider binding.',
+            'Each room is a durable AI worker with its own files, jobs, instructions, tools, and a connected model.',
     },
     {
         icon: MessagesSquareIcon,
@@ -50,9 +50,9 @@ const cards: AboutCard[] = [
 const foundations: AboutCard[] = [
     {
         icon: KeyRoundIcon,
-        title: 'Provider binding',
+        title: 'Model connection',
         description:
-            'An app default can power new rooms, while sensitive rooms can bind to their own saved connection or room key.',
+            'A shared default can power new rooms, while sensitive rooms can use their own saved connection or key.',
     },
     {
         icon: FilesIcon,
@@ -104,9 +104,9 @@ function AboutPage() {
                                 continuity matters.
                             </p>
                             <p>
-                                Each room can inherit app defaults or bind to a specific provider
-                                connection. That keeps runtime truth explicit and makes it clear
-                                which credentials and models power each task.
+                                Each room can use the shared defaults or its own connection. That
+                                keeps it clear which model and key power each task, so nothing is
+                                hidden.
                             </p>
                         </div>
                         <div className="rounded-lg border border-border/60 bg-muted/30 p-3">

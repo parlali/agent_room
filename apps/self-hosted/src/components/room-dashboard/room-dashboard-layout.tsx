@@ -82,7 +82,7 @@ export function RoomDashboardLayout({
 
     return (
         <Page
-            width="full"
+            width="xl"
             header={<RoomHeader roomId={roomId} headerActions={headerActions} />}
             subnav={<RoomNav roomId={roomId} activeTab={activeTab} />}
         >

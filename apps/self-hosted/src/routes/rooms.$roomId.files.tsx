@@ -366,7 +366,7 @@ function FilesContent({ roomId }: { roomId: string }) {
     )
 
     return (
-        <div className="mx-auto flex w-full max-w-[80rem] flex-col gap-4">
+        <div className="flex w-full flex-col gap-4">
             {runtimeNotice ? (
                 <AttentionBanner
                     tone={runtimeNotice.tone}

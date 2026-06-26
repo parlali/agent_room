@@ -125,7 +125,7 @@ export function buildOverall(input: {
         }
     }
 
-    if (base.label === 'Paused') {
+    if (base.kind === 'paused') {
         return {
             tone: base.tone,
             label: base.label,

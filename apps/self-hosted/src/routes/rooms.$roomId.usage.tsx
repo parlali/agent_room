@@ -54,7 +54,7 @@ function UsageContent({ roomId }: { roomId: string }) {
         usageQuery.error instanceof Error ? usageQuery.error.message : 'Unexpected usage error.'
 
     return (
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-4">
+        <div className="flex w-full flex-col gap-4">
             <Section
                 title="Usage"
                 description="Room runs, tools, jobs, tokens, and estimated cost."

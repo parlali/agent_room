@@ -234,13 +234,10 @@ function isAppRouteHref(href: string): boolean {
     if (pathname.startsWith('/_serverFn/')) return false
     return (
         pathname === '/about' ||
-        pathname === '/activity' ||
-        pathname === '/files' ||
-        pathname === '/jobs' ||
         pathname === '/login' ||
         pathname === '/onboarding' ||
+        pathname === '/operator' ||
         pathname === '/settings' ||
-        pathname === '/usage' ||
         pathname.startsWith('/github/app/callback') ||
         pathname.startsWith('/rooms/')
     )

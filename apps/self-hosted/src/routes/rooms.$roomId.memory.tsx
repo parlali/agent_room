@@ -145,7 +145,7 @@ function IdentityAndMemory({ roomId }: { roomId: string }) {
     const room = roomsQuery.data?.find((entry) => entry.roomId === roomId) ?? null
 
     return (
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+        <div className="flex w-full flex-col gap-6">
             <Section
                 title="Identity and memory"
                 description="Shape who this room is and what it remembers. Think of it as a brief for a coworker who keeps notes of their own."
