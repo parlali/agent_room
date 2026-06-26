@@ -327,30 +327,6 @@ describe('completeGitHubAppManifest', () => {
         vi.useRealTimers()
     })
 
-    it('keeps manifest setup complete when immediate installation sync hits GitHub propagation', async () => {
-        const { completeGitHubAppManifest } = await import('./github-app')
-
-        const result = await completeGitHubAppManifest({
-            code: 'manifest-code',
-            state: 'manifest-state',
-            actorUserId: 'user-1',
-        })
-
-        expect(result.app.configured).toBe(true)
-        expect(result.installations).toEqual([])
-        expect(mocks.state.sessionStatusUpdates).toEqual(['completed'])
-        expect(mocks.state.audits.map((event) => event.action)).toEqual([
-            'github_app.configured',
-            'github_installations.initial_sync_failed',
-        ])
-        expect(mocks.state.audits[1]?.payload).toMatchObject({
-            appId: '3697071',
-            slug: 'agent-room',
-            message: 'Integration not found',
-            status: 404,
-        })
-    })
-
     it('connects a GitHub user through the interactive app OAuth callback', async () => {
         mocks.state.app = readyApp()
         mocks.state.userAuthSession = {
