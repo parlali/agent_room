@@ -28,6 +28,7 @@ import {
     hostedProviderProxyUsageRequest,
     hostedProviderResponseHeaders,
     releaseHostedProviderPreflightReservation,
+    releaseHostedProviderQuotaFailureReservation,
     releaseHostedProviderSettlementFailureReservation,
     type HostedProviderProxyBillingAuthority,
 } from './hosted-provider-proxy-billing'
@@ -48,14 +49,14 @@ async function assertProviderQuotaOrResponse(input: {
         await assertHostedQuotaAllowed(input.check)
         return null
     } catch (error) {
+        const response = hostedQuotaDeniedResponse(error)
         if (input.reservationId) {
-            await releaseHostedProviderPreflightReservation({
+            await releaseHostedProviderQuotaFailureReservation({
                 env: input.check.env,
                 workspaceId: input.check.workspaceId,
                 reservationId: input.reservationId,
             })
         }
-        const response = hostedQuotaDeniedResponse(error)
         if (response) {
             return response
         }
@@ -281,6 +282,7 @@ export async function hostedOpenRouterProxy(
     const providerRequest = await hostedOpenRouterProviderRequestBody(request)
     const quotaCheck = {
         env,
+        request,
         workspaceId: proxyPath.workspaceId,
         roomId: proxyPath.roomId,
         sessionKey: usageContext.sessionKey,
@@ -577,6 +579,7 @@ export async function hostedBraveProxy(
     })
     const quotaCheck = {
         env,
+        request,
         workspaceId: proxyPath.workspaceId,
         roomId: proxyPath.roomId,
         sessionKey: usageContext.sessionKey,

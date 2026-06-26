@@ -39,6 +39,7 @@ import {
     hostedProviderResponseHeaders,
     recordFixedProviderUsage,
     releaseHostedProviderPreflightReservation,
+    releaseHostedProviderQuotaFailureReservation,
     type HostedProviderProxyUsageRequest,
 } from './hosted-provider-proxy-billing'
 import { assertHostedRuntimeEgressDestination } from './hosted-runtime-egress-policy'
@@ -61,14 +62,14 @@ async function assertManagedProviderQuotaOrResponse(input: {
         await assertHostedQuotaAllowed(input.check)
         return null
     } catch (error) {
+        const response = hostedQuotaDeniedResponse(error)
         if (input.reservationId) {
-            await releaseHostedProviderPreflightReservation({
+            await releaseHostedProviderQuotaFailureReservation({
                 env: input.check.env,
                 workspaceId: input.check.workspaceId,
                 reservationId: input.reservationId,
             })
         }
-        const response = hostedQuotaDeniedResponse(error)
         if (response) {
             return response
         }
@@ -476,6 +477,7 @@ export async function hostedBrowserbaseProxy(
         })
         const quotaCheck = {
             env,
+            request,
             workspaceId: proxyPath.workspaceId,
             roomId: proxyPath.roomId,
             sessionKey: usageRequest.usageContext.sessionKey,
@@ -886,6 +888,7 @@ export async function hostedManagedFetchProxy(
     })
     const quotaCheck = {
         env,
+        request,
         workspaceId: proxyPath.workspaceId,
         roomId: proxyPath.roomId,
         sessionKey: usageRequest.usageContext.sessionKey,

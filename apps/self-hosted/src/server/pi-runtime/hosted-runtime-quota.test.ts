@@ -220,23 +220,24 @@ describe('hosted runtime quota callback', () => {
         const fetchMock = abortAwareFetch()
         vi.stubGlobal('fetch', fetchMock)
         const controller = new AbortController()
-        controller.abort()
 
         await withHostedQuotaEnv(hostedQuotaEnv(), async () => {
-            await expect(
-                withToolRunContext(
-                    {
-                        sessionKey: 'session_1',
-                        runId: 'run_1',
-                        signal: controller.signal,
-                    },
-                    () =>
-                        assertHostedRuntimeQuota({
-                            action: 'shell_command',
-                        }),
-                ),
-            ).rejects.toThrow('Hosted quota callback aborted')
+            const pending = withToolRunContext(
+                {
+                    sessionKey: 'session_1',
+                    runId: 'run_1',
+                    signal: controller.signal,
+                },
+                () =>
+                    assertHostedRuntimeQuota({
+                        action: 'shell_command',
+                    }),
+            )
+
+            expect(fetchMock).toHaveBeenCalled()
+            controller.abort()
+
+            await expect(pending).rejects.toThrow('Hosted quota callback aborted')
         })
-        expect(fetchMock).toHaveBeenCalled()
     })
 })

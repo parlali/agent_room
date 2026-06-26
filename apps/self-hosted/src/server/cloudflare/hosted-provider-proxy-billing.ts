@@ -46,6 +46,22 @@ export async function releaseHostedProviderPreflightReservation(input: {
     })
 }
 
+export async function releaseHostedProviderQuotaFailureReservation(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    reservationId: string | null
+}): Promise<void> {
+    try {
+        await releaseHostedProviderPreflightReservation(input)
+    } catch (error) {
+        console.error('Hosted provider reservation release failed after quota check', {
+            workspaceId: input.workspaceId,
+            reservationId: input.reservationId,
+            error,
+        })
+    }
+}
+
 async function runtimeUsageContextReferences(
     env: AgentRoomHostedEnv,
     input: {
