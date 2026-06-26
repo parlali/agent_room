@@ -345,6 +345,13 @@ export async function sendRoomThreadMessage(input: {
     awaitCompletion?: boolean
 }): Promise<RoomThreadSendResult> {
     const { context, actor } = await requireHosted()
+    const request = sendThreadRuntimeRequest({
+        sessionKey: input.sessionKey,
+        message: input.message,
+        awaitCompletion: input.awaitCompletion,
+        runKind: 'manual',
+        hideUserMessage: false,
+    })
     await assertHostedRunAllowed({
         env: context.env,
         workspaceId: actor.workspaceId,
@@ -352,13 +359,6 @@ export async function sendRoomThreadMessage(input: {
         actorUserId: actor.userId,
         request: context.request,
         sessionKey: input.sessionKey,
-    })
-    const request = sendThreadRuntimeRequest({
-        sessionKey: input.sessionKey,
-        message: input.message,
-        awaitCompletion: input.awaitCompletion,
-        runKind: 'manual',
-        hideUserMessage: false,
     })
     return requestHostedPiRuntime({
         env: context.env,
@@ -462,6 +462,7 @@ export async function editRoomThreadMessage(input: {
     message: string
 }): Promise<RoomThreadSendResult> {
     const { context, actor } = await requireHosted()
+    const request = editThreadMessageRuntimeRequest(input)
     await assertHostedRunAllowed({
         env: context.env,
         workspaceId: actor.workspaceId,
@@ -470,7 +471,6 @@ export async function editRoomThreadMessage(input: {
         request: context.request,
         sessionKey: input.sessionKey,
     })
-    const request = editThreadMessageRuntimeRequest(input)
     return requestHostedPiRuntime({
         env: context.env,
         workspaceId: actor.workspaceId,

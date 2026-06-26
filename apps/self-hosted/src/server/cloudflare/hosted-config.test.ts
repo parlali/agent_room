@@ -179,6 +179,16 @@ describe('hosted Cloudflare configuration', () => {
         })
     })
 
+    it('rejects invalid hosted kill switch values', () => {
+        expect(() =>
+            resolveHostedConfig(
+                hostedEnv({
+                    AGENT_ROOM_HOSTED_DISABLE_SHELL: 'treu',
+                }),
+            ),
+        ).toThrow(/AGENT_ROOM_HOSTED_DISABLE_SHELL/)
+    })
+
     it('fails closed when Better Auth is not explicitly enabled', () => {
         expect(() =>
             resolveHostedConfig(

@@ -1,46 +1,22 @@
 import type { AgentRoomHostedEnv } from './bindings'
 import { hostedJsonResponse } from './hosted-worker-response'
+import {
+    hostedQuotaActions,
+    type HostedQuotaAction,
+    type HostedQuotaAmount,
+    type HostedQuotaScope,
+} from '../rooms/hosted-quota-contract'
 
-export const hostedQuotaScopes = [
-    'workspace',
-    'user',
-    'ip',
-    'room',
-    'session',
-    'job',
-    'runtime',
-    'provider',
-] as const
-
-export const hostedQuotaActions = [
-    'runtime_start',
-    'run_start',
-    'provider_openrouter',
-    'provider_brave',
-    'provider_browserbase',
-    'provider_fetch_url',
-    'browserbase_session_start',
-    'file_upload',
-    'runtime_file_sync',
-    'runtime_state_sync',
-    'scheduled_job_claim',
-    'shell_command',
-    'document_worker',
-    'image_generation',
-] as const
+export {
+    hostedQuotaActions,
+    hostedQuotaScopes,
+    type HostedQuotaAction,
+    type HostedQuotaAmount,
+    type HostedQuotaScope,
+} from '../rooms/hosted-quota-contract'
 
 export const hostedQuotaPolicyStatuses = ['active', 'restricted', 'suspended'] as const
 export const hostedQuotaDecisions = ['allowed', 'denied'] as const
-
-export type HostedQuotaScope = (typeof hostedQuotaScopes)[number]
-export type HostedQuotaAction = (typeof hostedQuotaActions)[number]
-
-export interface HostedQuotaAmount {
-    count?: number
-    bytes?: number
-    storageBytes?: number
-    cents?: number
-}
 
 export interface HostedQuotaCheckInput {
     env: AgentRoomHostedEnv
@@ -55,6 +31,7 @@ export interface HostedQuotaCheckInput {
     providerPath?: string | null
     amount?: HostedQuotaAmount
     consume?: boolean
+    skipConcurrency?: boolean
     now?: Date
 }
 

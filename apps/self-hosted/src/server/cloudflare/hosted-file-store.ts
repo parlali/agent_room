@@ -299,6 +299,13 @@ export async function writeHostedRoomUploadedFile(input: {
     if (existing) {
         throw new Error(`File already exists: ${relativePath}`)
     }
+    await assertNoFileAncestors({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+        surface: input.surface,
+        relativePath,
+    })
     await assertHostedQuotaAllowed({
         env: input.env,
         workspaceId: input.workspaceId,
@@ -361,6 +368,13 @@ export async function upsertHostedRoomRuntimeFile(input: {
     if (existing?.kind === 'directory') {
         throw new Error(`File path is already a directory: ${relativePath}`)
     }
+    await assertNoFileAncestors({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+        surface: input.surface,
+        relativePath,
+    })
     await assertHostedQuotaAllowed({
         env: input.env,
         workspaceId: input.workspaceId,

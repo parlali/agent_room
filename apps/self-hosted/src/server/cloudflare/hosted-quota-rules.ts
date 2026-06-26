@@ -15,7 +15,7 @@ export function amountBytes(input: HostedQuotaCheckInput): number {
     return safeIntegerAmount(input.amount?.bytes, 0)
 }
 
-function amountStorageBytes(input: HostedQuotaCheckInput): number {
+export function amountStorageBytes(input: HostedQuotaCheckInput): number {
     return safeIntegerAmount(input.amount?.storageBytes, amountBytes(input))
 }
 
@@ -68,7 +68,7 @@ export function counterRules(input: {
 }): CounterRule[] {
     const rules: CounterRule[] = []
     const count = amountCount(input.check)
-    const bytes = amountStorageBytes(input.check)
+    const bytes = amountBytes(input.check)
     const cents = amountCents(input.check)
     const minute = isoMinute(input.now)
     const hour = isoHour(input.now)

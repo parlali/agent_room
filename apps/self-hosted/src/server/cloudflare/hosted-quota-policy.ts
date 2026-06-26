@@ -1,7 +1,7 @@
 import type { JsonValue } from '#/domain/domain-types'
 import type { AgentRoomHostedEnv } from './bindings'
 import { resolveHostedConfig } from './hosted-config'
-import { objectRecord, parseJsonValue } from './hosted-json'
+import { nullableObjectRecord, parseJsonValue } from './hosted-json'
 import {
     deny,
     hostedQuotaActions,
@@ -46,23 +46,51 @@ function isHostedQuotaAction(value: string): value is HostedQuotaAction {
 
 function numberLimit(record: Record<string, unknown>, key: keyof HostedQuotaLimits): number {
     const value = record[key]
-    return Number.isSafeInteger(value) && Number(value) >= 0
-        ? Number(value)
-        : defaultHostedQuotaLimits[key]
+    if (value === undefined) {
+        return defaultHostedQuotaLimits[key]
+    }
+    if (Number.isSafeInteger(value) && Number(value) >= 0) {
+        return Number(value)
+    }
+    throw new Error(`Hosted quota policy limit ${String(key)} is invalid`)
 }
 
-function stringArray(value: unknown): string[] {
-    if (!Array.isArray(value)) {
+function stringArray(value: unknown, key: string): string[] {
+    if (value === undefined) {
         return []
     }
-    return Array.from(new Set(value.filter((entry): entry is string => typeof entry === 'string')))
+    if (!Array.isArray(value)) {
+        throw new Error(`Hosted quota policy restriction ${key} must be an array`)
+    }
+    const entries = value.map((entry) => {
+        if (typeof entry !== 'string') {
+            throw new Error(`Hosted quota policy restriction ${key} must contain only strings`)
+        }
+        return entry
+    })
+    return Array.from(new Set(entries))
 }
 
-function actionArray(value: unknown): HostedQuotaAction[] {
-    return stringArray(value).filter(isHostedQuotaAction)
+function objectPolicyValue(value: JsonValue, label: string): Record<string, unknown> {
+    const record = nullableObjectRecord(value)
+    if (!record) {
+        throw new Error(`Hosted quota policy ${label} must be a JSON object`)
+    }
+    return record
 }
 
-function capabilityArray(value: unknown): HostedQuotaCapability[] {
+function actionArray(value: unknown, key: string): HostedQuotaAction[] {
+    return stringArray(value, key).map((entry) => {
+        if (!isHostedQuotaAction(entry)) {
+            throw new Error(
+                `Hosted quota policy restriction ${key} contains unknown action ${entry}`,
+            )
+        }
+        return entry
+    })
+}
+
+function capabilityArray(value: unknown, key: string): HostedQuotaCapability[] {
     const allowed = new Set<HostedQuotaCapability>([
         'runtime',
         'hosted_models',
@@ -74,13 +102,18 @@ function capabilityArray(value: unknown): HostedQuotaCapability[] {
         'image_generation',
         'document_workers',
     ])
-    return stringArray(value).filter((entry): entry is HostedQuotaCapability =>
-        allowed.has(entry as HostedQuotaCapability),
-    )
+    return stringArray(value, key).map((entry) => {
+        if (!allowed.has(entry as HostedQuotaCapability)) {
+            throw new Error(
+                `Hosted quota policy restriction ${key} contains unknown capability ${entry}`,
+            )
+        }
+        return entry as HostedQuotaCapability
+    })
 }
 
 function limitsFromJson(value: JsonValue): HostedQuotaLimits {
-    const record = objectRecord(value)
+    const record = objectPolicyValue(value, 'limits')
     return {
         maxWorkspaceRuntimeStartsPerHour: numberLimit(record, 'maxWorkspaceRuntimeStartsPerHour'),
         maxWorkspaceRunStartsPerMinute: numberLimit(record, 'maxWorkspaceRunStartsPerMinute'),
@@ -118,13 +151,13 @@ function limitsFromJson(value: JsonValue): HostedQuotaLimits {
 }
 
 function restrictionsFromJson(value: JsonValue): HostedQuotaRestrictions {
-    const record = objectRecord(value)
+    const record = objectPolicyValue(value, 'restrictions')
     return {
-        disabledActions: actionArray(record.disabledActions),
-        disabledCapabilities: capabilityArray(record.disabledCapabilities),
-        disabledRooms: stringArray(record.disabledRooms),
-        disabledUsers: stringArray(record.disabledUsers),
-        disabledProviderPaths: stringArray(record.disabledProviderPaths),
+        disabledActions: actionArray(record.disabledActions, 'disabledActions'),
+        disabledCapabilities: capabilityArray(record.disabledCapabilities, 'disabledCapabilities'),
+        disabledRooms: stringArray(record.disabledRooms, 'disabledRooms'),
+        disabledUsers: stringArray(record.disabledUsers, 'disabledUsers'),
+        disabledProviderPaths: stringArray(record.disabledProviderPaths, 'disabledProviderPaths'),
     }
 }
 

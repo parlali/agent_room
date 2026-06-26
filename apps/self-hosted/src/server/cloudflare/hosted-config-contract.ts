@@ -39,6 +39,21 @@ const optionalBooleanSchema = z
     .string()
     .trim()
     .optional()
+    .superRefine((value, context) => {
+        if (
+            value !== undefined &&
+            value !== '' &&
+            value !== '1' &&
+            value !== '0' &&
+            value.toLowerCase() !== 'true' &&
+            value.toLowerCase() !== 'false'
+        ) {
+            context.addIssue({
+                code: 'custom',
+                message: 'Expected one of: 1, 0, true, false',
+            })
+        }
+    })
     .transform((value) => value === '1' || value?.toLowerCase() === 'true')
 
 const hostedEncryptionKeySchema = z

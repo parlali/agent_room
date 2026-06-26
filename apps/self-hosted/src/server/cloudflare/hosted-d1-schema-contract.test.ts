@@ -195,6 +195,23 @@ describe('hosted D1 schema contract', () => {
         })
     })
 
+    it('constrains hosted quota policy JSON columns to objects', () => {
+        const sql = readHostedMigration()
+
+        expectTableConstraint({
+            sql,
+            tableName: 'hosted_quota_policy',
+            constraint:
+                "limits TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(limits) AND json_type(limits) = 'object')",
+        })
+        expectTableConstraint({
+            sql,
+            tableName: 'hosted_quota_policy',
+            constraint:
+                "restrictions TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(restrictions) AND json_type(restrictions) = 'object')",
+        })
+    })
+
     it('keeps hosted runtime execution migration durable for existing rooms and audit history', () => {
         const sql = readHostedMigration()
 

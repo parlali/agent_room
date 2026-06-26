@@ -1,11 +1,6 @@
 import { Buffer } from 'node:buffer'
 import type { AgentRoomHostedEnv } from './bindings'
-import {
-    assertHostedQuotaAllowed,
-    hostedQuotaDeniedResponse,
-    parseHostedQuotaAction,
-    type HostedQuotaAmount,
-} from './hosted-abuse-controls'
+import { assertHostedQuotaAllowed, hostedQuotaDeniedResponse } from './hosted-abuse-controls'
 import { upsertHostedRoomRuntimeFile } from './hosted-file-store'
 import { objectRecord } from './hosted-json'
 import {
@@ -15,17 +10,62 @@ import {
 import { requireHostedRuntimeCallback } from './hosted-runtime-worker-auth'
 import { recordHostedRuntimeUsageEvent } from './hosted-usage-billing'
 import { hostedJsonResponse } from './hosted-worker-response'
+import {
+    parseHostedRuntimeQuotaAction,
+    type HostedQuotaAmount,
+} from '../rooms/hosted-quota-contract'
 import { parseHostedRuntimeStateOperation } from '../rooms/hosted-runtime-state-contract'
 import { runtimeUsageEventFromLogEntry } from '../rooms/pi-execution-adapter/usage-sync'
 import type { RoomFileSurface } from '../rooms/file-store'
 
-function quotaAmount(value: unknown): HostedQuotaAmount {
-    const amount = objectRecord(value)
+type QuotaAmountParseResult =
+    | {
+          ok: true
+          amount: HostedQuotaAmount
+      }
+    | {
+          ok: false
+      }
+
+function quotaAmount(value: unknown): QuotaAmountParseResult {
+    if (value === undefined) {
+        return {
+            ok: true,
+            amount: {},
+        }
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return {
+            ok: false,
+        }
+    }
+    const amount = value as Record<string, unknown>
+    const count = finiteWholeNumber(amount.count)
+    if (amount.count !== undefined && (!count || count < 1)) {
+        return {
+            ok: false,
+        }
+    }
+    const bytes = finiteWholeNumber(amount.bytes)
+    const storageBytes = finiteWholeNumber(amount.storageBytes)
+    const cents = finiteWholeNumber(amount.cents)
+    if (
+        (amount.bytes !== undefined && bytes === undefined) ||
+        (amount.storageBytes !== undefined && storageBytes === undefined) ||
+        (amount.cents !== undefined && cents === undefined)
+    ) {
+        return {
+            ok: false,
+        }
+    }
     return {
-        count: finiteWholeNumber(amount.count),
-        bytes: finiteWholeNumber(amount.bytes),
-        storageBytes: finiteWholeNumber(amount.storageBytes),
-        cents: finiteWholeNumber(amount.cents),
+        ok: true,
+        amount: {
+            count,
+            bytes,
+            storageBytes,
+            cents,
+        },
     }
 }
 
@@ -307,13 +347,26 @@ export async function hostedRuntimeQuotaCallback(
     if (callback instanceof Response) {
         return callback
     }
-    const action = parseHostedQuotaAction(record.action)
+    const action = parseHostedRuntimeQuotaAction(record.action)
     if (!action) {
         return hostedJsonResponse(
             {
                 ok: false,
                 code: 'invalid_quota_callback',
                 message: 'action is required',
+            },
+            {
+                status: 400,
+            },
+        )
+    }
+    const parsedAmount = quotaAmount(record.amount)
+    if (!parsedAmount.ok) {
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'invalid_quota_callback',
+                message: 'amount fields must be non-negative integers and count must be at least 1',
             },
             {
                 status: 400,
@@ -329,7 +382,7 @@ export async function hostedRuntimeQuotaCallback(
             sessionKey: typeof record.sessionKey === 'string' ? record.sessionKey : null,
             runId: typeof record.runId === 'string' ? record.runId : null,
             jobId: typeof record.jobId === 'string' ? record.jobId : null,
-            amount: quotaAmount(record.amount),
+            amount: parsedAmount.amount,
         })
     } catch (error) {
         const response = hostedQuotaDeniedResponse(error)

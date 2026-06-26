@@ -39,6 +39,7 @@ class FakeQuotaD1 {
     counters = new Map<string, number>()
     beforeCounterWrite: (() => void) | null = null
     forceCounterWriteMiss = false
+    failUsageEventWrite = false
     quotaEvents: QuotaEventRow[] = []
     auditEvents: AuditEventRow[] = []
     usageEvents: UsageEventRow[] = []
@@ -101,6 +102,9 @@ class FakeQuotaD1 {
                 action: String(args[3]),
             })
         } else if (/INSERT INTO hosted_usage_event/.test(sql)) {
+            if (this.failUsageEventWrite) {
+                throw new Error('usage event write failed')
+            }
             this.usageEvents.push({
                 kind: String(args[6]),
                 billingStatus: String(args[20]),
@@ -335,6 +339,90 @@ describe('hosted abuse controls', () => {
 
         expect(error.decision.reason).toBe('quota_unavailable')
         expect(db.counters.size).toBe(0)
+    })
+
+    it('counts actual written bytes for file-write counters instead of net storage growth', async () => {
+        const db = new FakeQuotaD1()
+        db.policy = {
+            status: 'active',
+            limits: JSON.stringify({
+                maxWorkspaceFileWriteBytesPerDay: 5,
+            }),
+            restrictions: '{}',
+        }
+        const env = quotaEnv(db)
+
+        const error = await expectDenied(() =>
+            assertHostedQuotaAllowed({
+                env,
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                action: 'runtime_file_sync',
+                amount: {
+                    bytes: 10,
+                    storageBytes: 0,
+                },
+            }),
+        )
+
+        expect(error.decision.reason).toBe('storage_quota_exceeded')
+        expect(error.decision.counterKey).toBe('file_write_bytes')
+    })
+
+    it('fails closed when persisted quota policy values are malformed', async () => {
+        const db = new FakeQuotaD1()
+        db.policy = {
+            status: 'active',
+            limits: JSON.stringify({
+                maxWorkspaceRunStartsPerMinute: 'not-a-number',
+            }),
+            restrictions: '{}',
+        }
+        const env = quotaEnv(db)
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+        try {
+            const error = await expectDenied(() =>
+                assertHostedQuotaAllowed({
+                    env,
+                    workspaceId: 'workspace_1',
+                    roomId: 'room_1',
+                    action: 'run_start',
+                }),
+            )
+
+            expect(error.decision.reason).toBe('quota_unavailable')
+            expect(db.counters.size).toBe(0)
+        } finally {
+            consoleError.mockRestore()
+        }
+    })
+
+    it('fails closed when quota denial evidence cannot be recorded', async () => {
+        const db = new FakeQuotaD1()
+        db.failUsageEventWrite = true
+        db.policy = {
+            status: 'active',
+            limits: JSON.stringify({
+                maxWorkspaceRunStartsPerMinute: 0,
+            }),
+            restrictions: '{}',
+        }
+        const env = quotaEnv(db)
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+        try {
+            const error = await expectDenied(() =>
+                assertHostedQuotaAllowed({
+                    env,
+                    workspaceId: 'workspace_1',
+                    roomId: 'room_1',
+                    action: 'run_start',
+                }),
+            )
+
+            expect(error.decision.reason).toBe('quota_unavailable')
+        } finally {
+            consoleError.mockRestore()
+        }
     })
 
     it('denies Browserbase session starts at active workspace concurrency cap', async () => {

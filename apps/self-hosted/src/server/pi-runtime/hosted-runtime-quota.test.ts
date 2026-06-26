@@ -6,6 +6,7 @@ import {
     hostedRuntimeWorkspaceIdEnvKey,
 } from '../rooms/pi-runtime-contract'
 import { assertHostedRuntimeQuota } from './hosted-runtime-quota'
+import { withToolRunContext } from './tool-run-context'
 
 const hostedQuotaEnvKeys = [
     hostedRuntimeQuotaCallbackUrlEnvKey,
@@ -15,8 +16,45 @@ const hostedQuotaEnvKeys = [
 ]
 
 afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
 })
+
+function hostedQuotaEnv(): Record<string, string> {
+    return {
+        [hostedRuntimeQuotaCallbackUrlEnvKey]: 'https://rooms.example.test/quota',
+        [hostedRuntimeUsageCallbackTokenEnvKey]: 'runtime-token',
+        [hostedRuntimeWorkspaceIdEnvKey]: 'workspace_1',
+        [hostedRuntimeRoomIdEnvKey]: 'room_1',
+    }
+}
+
+function abortError(): Error {
+    const error = new Error('aborted')
+    error.name = 'AbortError'
+    return error
+}
+
+function abortAwareFetch() {
+    return vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        const signal = init?.signal
+        return new Promise<Response>((_resolve, reject) => {
+            if (signal?.aborted) {
+                reject(abortError())
+                return
+            }
+            signal?.addEventListener(
+                'abort',
+                () => {
+                    reject(abortError())
+                },
+                {
+                    once: true,
+                },
+            )
+        })
+    })
+}
 
 async function withHostedQuotaEnv(
     values: Record<string, string | undefined>,
@@ -87,24 +125,16 @@ describe('hosted runtime quota callback', () => {
         const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true })))
         vi.stubGlobal('fetch', fetchMock)
 
-        await withHostedQuotaEnv(
-            {
-                [hostedRuntimeQuotaCallbackUrlEnvKey]: 'https://rooms.example.test/quota',
-                [hostedRuntimeUsageCallbackTokenEnvKey]: 'runtime-token',
-                [hostedRuntimeWorkspaceIdEnvKey]: 'workspace_1',
-                [hostedRuntimeRoomIdEnvKey]: 'room_1',
-            },
-            async () => {
-                await assertHostedRuntimeQuota({
-                    action: 'image_generation',
-                    amount: {
-                        count: 2,
-                    },
-                    sessionKey: 'session_1',
-                    runId: 'run_1',
-                })
-            },
-        )
+        await withHostedQuotaEnv(hostedQuotaEnv(), async () => {
+            await assertHostedRuntimeQuota({
+                action: 'image_generation',
+                amount: {
+                    count: 2,
+                },
+                sessionKey: 'session_1',
+                runId: 'run_1',
+            })
+        })
 
         expect(fetchMock).toHaveBeenCalledWith(
             'https://rooms.example.test/quota',
@@ -127,5 +157,86 @@ describe('hosted runtime quota callback', () => {
                 }),
             }),
         )
+    })
+
+    it('surfaces the denial reason from the callback response', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(
+                async () =>
+                    new Response(JSON.stringify({ reason: 'quota exceeded' }), {
+                        status: 429,
+                    }),
+            ),
+        )
+
+        await withHostedQuotaEnv(hostedQuotaEnv(), async () => {
+            await expect(
+                assertHostedRuntimeQuota({
+                    action: 'shell_command',
+                }),
+            ).rejects.toThrow('quota exceeded')
+        })
+    })
+
+    it.each([
+        ['missing ok', () => new Response(JSON.stringify({ ok: false }))],
+        ['non-json body', () => new Response('<html></html>')],
+        ['empty body', () => new Response(null, { status: 204 })],
+    ])('rejects invalid success responses from the callback: %s', async (_name, response) => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => response()),
+        )
+
+        await withHostedQuotaEnv(hostedQuotaEnv(), async () => {
+            await expect(
+                assertHostedRuntimeQuota({
+                    action: 'shell_command',
+                }),
+            ).rejects.toThrow('Hosted quota callback returned an invalid success response')
+        })
+    })
+
+    it('times out stalled quota callbacks', async () => {
+        vi.useFakeTimers()
+        const fetchMock = abortAwareFetch()
+        vi.stubGlobal('fetch', fetchMock)
+
+        const pending = expect(
+            withHostedQuotaEnv(hostedQuotaEnv(), async () => {
+                await assertHostedRuntimeQuota({
+                    action: 'shell_command',
+                })
+            }),
+        ).rejects.toThrow('Hosted quota callback timed out')
+
+        await vi.advanceTimersByTimeAsync(5000)
+        await pending
+        expect(fetchMock).toHaveBeenCalled()
+    })
+
+    it('aborts the callback when the tool run is aborted', async () => {
+        const fetchMock = abortAwareFetch()
+        vi.stubGlobal('fetch', fetchMock)
+        const controller = new AbortController()
+        controller.abort()
+
+        await withHostedQuotaEnv(hostedQuotaEnv(), async () => {
+            await expect(
+                withToolRunContext(
+                    {
+                        sessionKey: 'session_1',
+                        runId: 'run_1',
+                        signal: controller.signal,
+                    },
+                    () =>
+                        assertHostedRuntimeQuota({
+                            action: 'shell_command',
+                        }),
+                ),
+            ).rejects.toThrow('Hosted quota callback aborted')
+        })
+        expect(fetchMock).toHaveBeenCalled()
     })
 })

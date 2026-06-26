@@ -4,20 +4,27 @@ import {
     hostedRuntimeUsageCallbackTokenEnvKey,
     hostedRuntimeWorkspaceIdEnvKey,
 } from '../rooms/pi-runtime-contract'
-import { currentToolRunContext } from './tool-run-context'
+import type { HostedQuotaAmount, HostedRuntimeQuotaAction } from '../rooms/hosted-quota-contract'
+import { combineAbortSignals, currentToolRunContext } from './tool-run-context'
 
-export type HostedRuntimeQuotaAction =
-    | 'run_start'
-    | 'scheduled_job_claim'
-    | 'shell_command'
-    | 'document_worker'
-    | 'image_generation'
+export type { HostedRuntimeQuotaAction }
+export type HostedRuntimeQuotaAmount = HostedQuotaAmount
 
-export interface HostedRuntimeQuotaAmount {
-    count?: number
-    bytes?: number
-    storageBytes?: number
-    cents?: number
+const hostedQuotaCallbackTimeoutMs = 5000
+
+async function assertSuccessResponse(response: Response): Promise<void> {
+    let body: unknown
+    try {
+        body = await response.json()
+    } catch {
+        throw new Error('Hosted quota callback returned an invalid success response')
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+        throw new Error('Hosted quota callback returned an invalid success response')
+    }
+    if ((body as { ok?: unknown }).ok !== true) {
+        throw new Error('Hosted quota callback returned an invalid success response')
+    }
 }
 
 export async function assertHostedRuntimeQuota(input: {
@@ -39,37 +46,56 @@ export async function assertHostedRuntimeQuota(input: {
         throw new Error('Hosted quota runtime configuration is incomplete')
     }
     const context = currentToolRunContext()
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-            authorization: `Bearer ${token}`,
-            'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-            workspaceId,
-            roomId,
-            action: input.action,
-            amount: input.amount ?? {},
-            sessionKey: input.sessionKey ?? context?.sessionKey ?? null,
-            runId: input.runId ?? context?.runId ?? null,
-            jobId: input.jobId ?? context?.jobId ?? null,
-        }),
-    })
-    if (response.ok) {
-        return
-    }
-    let message = `Hosted quota denied with status ${response.status}`
+    const timeoutController = new AbortController()
+    const timeout = setTimeout(() => timeoutController.abort(), hostedQuotaCallbackTimeoutMs)
+    timeout.unref?.()
+    const combinedSignal = combineAbortSignals([timeoutController.signal, context?.signal])
     try {
-        const body = (await response.json()) as { message?: unknown; reason?: unknown }
-        const detail =
-            typeof body.message === 'string'
-                ? body.message
-                : typeof body.reason === 'string'
-                  ? body.reason
-                  : null
-        if (detail) {
-            message = detail
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                authorization: `Bearer ${token}`,
+                'content-type': 'application/json',
+            },
+            body: JSON.stringify({
+                workspaceId,
+                roomId,
+                action: input.action,
+                amount: input.amount ?? {},
+                sessionKey: input.sessionKey ?? context?.sessionKey ?? null,
+                runId: input.runId ?? context?.runId ?? null,
+                jobId: input.jobId ?? context?.jobId ?? null,
+            }),
+            signal: combinedSignal.signal,
+        })
+        if (response.ok) {
+            await assertSuccessResponse(response)
+            return
         }
-    } catch {}
-    throw new Error(message)
+        let message = `Hosted quota denied with status ${response.status}`
+        try {
+            const body = (await response.json()) as { message?: unknown; reason?: unknown }
+            const detail =
+                typeof body.message === 'string'
+                    ? body.message
+                    : typeof body.reason === 'string'
+                      ? body.reason
+                      : null
+            if (detail) {
+                message = detail
+            }
+        } catch {}
+        throw new Error(message)
+    } catch (error) {
+        if (timeoutController.signal.aborted) {
+            throw new Error('Hosted quota callback timed out')
+        }
+        if (context?.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
+            throw new Error('Hosted quota callback aborted')
+        }
+        throw error
+    } finally {
+        clearTimeout(timeout)
+        combinedSignal.dispose()
+    }
 }

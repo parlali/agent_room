@@ -10,11 +10,8 @@ import {
     HostedBillingReservationAlreadyExistsError,
     releaseHostedBillingReservation,
 } from './hosted-billing-repository'
-import {
-    boundedHeaderToken,
-    runtimeUsageContext,
-    type HostedRuntimeUsageContext,
-} from './hosted-runtime-worker-auth'
+import { boundedHeaderToken, runtimeUsageContext } from './hosted-runtime-worker-auth'
+import type { HostedRuntimeUsageContext } from './hosted-runtime-usage-context'
 import { recordHostedProviderUsage } from './hosted-usage-billing'
 import { hostedJsonResponse } from './hosted-worker-response'
 

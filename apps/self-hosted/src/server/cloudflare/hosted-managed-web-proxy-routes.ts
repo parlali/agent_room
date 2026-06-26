@@ -1,6 +1,10 @@
 import { hostedPlanAllowsManagedBrowserbase } from '@agent-room/billing'
 import type { AgentRoomHostedEnv } from './bindings'
-import { assertHostedQuotaAllowed, hostedQuotaDeniedResponse } from './hosted-abuse-controls'
+import {
+    assertHostedQuotaAllowed,
+    hostedQuotaDeniedResponse,
+    type HostedQuotaCheckInput,
+} from './hosted-abuse-controls'
 import {
     hostedBrowserbaseSearchCostMicros,
     hostedBrowserbaseSessionCostMicros,
@@ -12,7 +16,6 @@ import {
     markHostedBrowserbaseSessionReleased,
     readHostedBrowserbaseSession,
     readHostedBrowserbaseSessionByUsageRequestId,
-    recordHostedBrowserbaseSession,
     requestHostedBrowserbaseSessionRelease,
     readHostedProviderUsageSettlementByIdempotencyKey,
 } from './hosted-billing-repository'
@@ -41,9 +44,52 @@ import {
 import { assertHostedRuntimeEgressDestination } from './hosted-runtime-egress-policy'
 import { requireHostedRuntimeProviderProxy } from './hosted-runtime-worker-auth'
 import { hostedJsonResponse } from './hosted-worker-response'
+import {
+    activateHostedBrowserbaseActiveSessionSlot,
+    releaseHostedBrowserbaseActiveSessionSlot,
+    reserveHostedBrowserbaseActiveSessionSlot,
+} from './hosted-browserbase-session-slots'
 import { fetchPublicTextUrl } from '../web/web-fetch-core'
 
 const browserbaseCleanupTimeoutMs = 10000
+
+async function assertManagedProviderQuotaOrResponse(input: {
+    check: HostedQuotaCheckInput
+    reservationId?: string | null
+}): Promise<Response | null> {
+    try {
+        await assertHostedQuotaAllowed(input.check)
+        return null
+    } catch (error) {
+        if (input.reservationId) {
+            await releaseHostedProviderPreflightReservation({
+                env: input.check.env,
+                workspaceId: input.check.workspaceId,
+                reservationId: input.reservationId,
+            })
+        }
+        const response = hostedQuotaDeniedResponse(error)
+        if (response) {
+            return response
+        }
+        throw error
+    }
+}
+
+function browserbaseConcurrencyDeniedResponse(): Response {
+    return hostedJsonResponse(
+        {
+            ok: false,
+            code: 'hosted_quota_denied',
+            reason: 'concurrency_limit',
+            action: 'browserbase_session_start',
+            message: 'Hosted concurrency limit reached',
+        },
+        {
+            status: 429,
+        },
+    )
+}
 
 function browserbaseOperation(proxyPath: HostedBrowserbaseProxyPath): {
     model: string
@@ -385,6 +431,7 @@ export async function hostedBrowserbaseProxy(
     let usageRequest: HostedProviderProxyUsageRequest | null = null
     let usageIdempotencyKey: string | null = null
     let reservationId: string | null = null
+    let pendingBrowserbaseSlotId: string | null = null
     if (operation.billable && operation.costMicros !== null) {
         const usageRequestResult = await hostedProviderProxyUsageRequest({
             env,
@@ -427,30 +474,31 @@ export async function hostedBrowserbaseProxy(
             costMicros: operation.costMicros,
             usageMarkupBps: config.billing.usageMarkupBps,
         })
-        try {
-            await assertHostedQuotaAllowed({
-                env,
-                workspaceId: proxyPath.workspaceId,
-                roomId: proxyPath.roomId,
-                sessionKey: usageRequest.usageContext.sessionKey,
-                runId: usageRequest.usageContext.runId,
-                jobId: usageRequest.usageContext.jobId,
-                action:
-                    providerRequest.action === 'create_session'
-                        ? 'browserbase_session_start'
-                        : 'provider_browserbase',
-                providerPath: proxyPath.targetPath,
-                amount: {
-                    count: 1,
-                    cents: reservationCents,
-                },
-            })
-        } catch (error) {
-            const response = hostedQuotaDeniedResponse(error)
-            if (response) {
-                return response
-            }
-            throw error
+        const quotaCheck = {
+            env,
+            workspaceId: proxyPath.workspaceId,
+            roomId: proxyPath.roomId,
+            sessionKey: usageRequest.usageContext.sessionKey,
+            runId: usageRequest.usageContext.runId,
+            jobId: usageRequest.usageContext.jobId,
+            action:
+                providerRequest.action === 'create_session'
+                    ? 'browserbase_session_start'
+                    : 'provider_browserbase',
+            providerPath: proxyPath.targetPath,
+            amount: {
+                count: 1,
+                cents: reservationCents,
+            },
+        } satisfies HostedQuotaCheckInput
+        const quotaPreflightResponse = await assertManagedProviderQuotaOrResponse({
+            check: {
+                ...quotaCheck,
+                consume: false,
+            },
+        })
+        if (quotaPreflightResponse) {
+            return quotaPreflightResponse
         }
         const reservation = await authorizeFixedProviderReservation({
             env,
@@ -467,6 +515,59 @@ export async function hostedBrowserbaseProxy(
             return reservation
         }
         reservationId = reservation
+        if (providerRequest.action === 'create_session') {
+            try {
+                pendingBrowserbaseSlotId = await reserveHostedBrowserbaseActiveSessionSlot({
+                    env,
+                    workspaceId: proxyPath.workspaceId,
+                    roomId: proxyPath.roomId,
+                    usageRequestId: usageRequest.usageRequestId,
+                    usageContext: usageRequest.usageContext,
+                })
+            } catch (error) {
+                await releaseHostedProviderPreflightReservation({
+                    env,
+                    workspaceId: proxyPath.workspaceId,
+                    reservationId,
+                })
+                throw error
+            }
+            if (!pendingBrowserbaseSlotId) {
+                await releaseHostedProviderPreflightReservation({
+                    env,
+                    workspaceId: proxyPath.workspaceId,
+                    reservationId,
+                })
+                return browserbaseConcurrencyDeniedResponse()
+            }
+        }
+        let quotaConsumeResponse: Response | null
+        try {
+            quotaConsumeResponse = await assertManagedProviderQuotaOrResponse({
+                check: {
+                    ...quotaCheck,
+                    skipConcurrency: providerRequest.action === 'create_session',
+                },
+                reservationId,
+            })
+        } catch (error) {
+            await releaseHostedBrowserbaseActiveSessionSlot({
+                env,
+                workspaceId: proxyPath.workspaceId,
+                roomId: proxyPath.roomId,
+                pendingBrowserbaseSessionId: pendingBrowserbaseSlotId,
+            })
+            throw error
+        }
+        if (quotaConsumeResponse) {
+            await releaseHostedBrowserbaseActiveSessionSlot({
+                env,
+                workspaceId: proxyPath.workspaceId,
+                roomId: proxyPath.roomId,
+                pendingBrowserbaseSessionId: pendingBrowserbaseSlotId,
+            })
+            return quotaConsumeResponse
+        }
     }
 
     const accept = request.headers.get('accept')
@@ -481,6 +582,12 @@ export async function hostedBrowserbaseProxy(
             body: providerRequest.body,
         })
     } catch (error) {
+        await releaseHostedBrowserbaseActiveSessionSlot({
+            env,
+            workspaceId: proxyPath.workspaceId,
+            roomId: proxyPath.roomId,
+            pendingBrowserbaseSessionId: pendingBrowserbaseSlotId,
+        })
         await releaseHostedProviderPreflightReservation({
             env,
             workspaceId: proxyPath.workspaceId,
@@ -491,6 +598,12 @@ export async function hostedBrowserbaseProxy(
     const responseHeaders = hostedProviderResponseHeaders(response)
     const responseText = await response.text()
     if (!response.ok) {
+        await releaseHostedBrowserbaseActiveSessionSlot({
+            env,
+            workspaceId: proxyPath.workspaceId,
+            roomId: proxyPath.roomId,
+            pendingBrowserbaseSessionId: pendingBrowserbaseSlotId,
+        })
         await releaseHostedProviderPreflightReservation({
             env,
             workspaceId: proxyPath.workspaceId,
@@ -505,6 +618,12 @@ export async function hostedBrowserbaseProxy(
     if (providerRequest.action === 'create_session' && usageRequest) {
         const browserbaseSessionId = browserbaseSessionIdFromProviderResponse(responseText)
         if (!browserbaseSessionId) {
+            await releaseHostedBrowserbaseActiveSessionSlot({
+                env,
+                workspaceId: proxyPath.workspaceId,
+                roomId: proxyPath.roomId,
+                pendingBrowserbaseSessionId: pendingBrowserbaseSlotId,
+            })
             await releaseHostedProviderPreflightReservation({
                 env,
                 workspaceId: proxyPath.workspaceId,
@@ -521,14 +640,17 @@ export async function hostedBrowserbaseProxy(
             )
         }
         try {
-            await recordHostedBrowserbaseSession({
+            const activated = await activateHostedBrowserbaseActiveSessionSlot({
                 env,
                 workspaceId: proxyPath.workspaceId,
                 roomId: proxyPath.roomId,
+                pendingBrowserbaseSessionId: pendingBrowserbaseSlotId,
                 browserbaseSessionId,
                 usageRequestId: usageRequest.usageRequestId,
-                usageContext: usageRequest.usageContext,
             })
+            if (!activated) {
+                throw new Error('Hosted Browserbase session slot activation failed')
+            }
         } catch (error) {
             console.error('Hosted Browserbase session ownership record failed', {
                 workspaceId: proxyPath.workspaceId,
@@ -536,6 +658,12 @@ export async function hostedBrowserbaseProxy(
                 browserbaseSessionId,
                 usageRequestId: usageRequest.usageRequestId,
                 error,
+            })
+            await releaseHostedBrowserbaseActiveSessionSlot({
+                env,
+                workspaceId: proxyPath.workspaceId,
+                roomId: proxyPath.roomId,
+                pendingBrowserbaseSessionId: pendingBrowserbaseSlotId,
             })
             await releaseHostedProviderPreflightReservation({
                 env,
@@ -717,6 +845,23 @@ export async function hostedManagedFetchProxy(
             },
         )
     }
+    try {
+        await assertHostedRuntimeEgressDestination({
+            value: fetchInput.url,
+            label: 'Managed fetch URL',
+        })
+    } catch (error) {
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'runtime_fetch_failed',
+                message: error instanceof Error ? error.message : 'Managed URL fetch failed',
+            },
+            {
+                status: 400,
+            },
+        )
+    }
     const config = resolveHostedConfig(env)
     const usageIdempotencyKey = `provider_proxy:fetch_url:${proxyPath.workspaceId}:${proxyPath.roomId}:${usageRequest.usageRequestId}`
     const existingUsage = await readHostedProviderUsageSettlementByIdempotencyKey({
@@ -739,27 +884,28 @@ export async function hostedManagedFetchProxy(
         costMicros: hostedFetchUrlCostMicros,
         usageMarkupBps: config.billing.usageMarkupBps,
     })
-    try {
-        await assertHostedQuotaAllowed({
-            env,
-            workspaceId: proxyPath.workspaceId,
-            roomId: proxyPath.roomId,
-            sessionKey: usageRequest.usageContext.sessionKey,
-            runId: usageRequest.usageContext.runId,
-            jobId: usageRequest.usageContext.jobId,
-            action: 'provider_fetch_url',
-            providerPath: 'fetch_url',
-            amount: {
-                count: 1,
-                cents: reservationCents,
-            },
-        })
-    } catch (error) {
-        const response = hostedQuotaDeniedResponse(error)
-        if (response) {
-            return response
-        }
-        throw error
+    const quotaCheck = {
+        env,
+        workspaceId: proxyPath.workspaceId,
+        roomId: proxyPath.roomId,
+        sessionKey: usageRequest.usageContext.sessionKey,
+        runId: usageRequest.usageContext.runId,
+        jobId: usageRequest.usageContext.jobId,
+        action: 'provider_fetch_url',
+        providerPath: 'fetch_url',
+        amount: {
+            count: 1,
+            cents: reservationCents,
+        },
+    } satisfies HostedQuotaCheckInput
+    const quotaPreflightResponse = await assertManagedProviderQuotaOrResponse({
+        check: {
+            ...quotaCheck,
+            consume: false,
+        },
+    })
+    if (quotaPreflightResponse) {
+        return quotaPreflightResponse
     }
     await ensureHostedBillingAccount({
         env,
@@ -778,6 +924,13 @@ export async function hostedManagedFetchProxy(
     })
     if (reservation instanceof Response) {
         return reservation
+    }
+    const quotaConsumeResponse = await assertManagedProviderQuotaOrResponse({
+        check: quotaCheck,
+        reservationId: reservation,
+    })
+    if (quotaConsumeResponse) {
+        return quotaConsumeResponse
     }
     let result: Awaited<ReturnType<typeof fetchPublicTextUrl>>
     try {

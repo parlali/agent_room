@@ -10,7 +10,7 @@ import {
     type HostedQuotaDenyDecision,
     type HostedQuotaPolicy,
 } from './hosted-quota-contract'
-import { amountBytes, amountCount, hashScopeId } from './hosted-quota-rules'
+import { amountCount, amountStorageBytes, hashScopeId } from './hosted-quota-rules'
 
 function providerFromAction(action: HostedQuotaAction): HostedBillingReservationProvider | null {
     if (action === 'provider_openrouter') return 'openrouter'
@@ -138,7 +138,7 @@ async function countActiveBrowserbaseSessions(input: {
                   FROM hosted_browserbase_session
                   WHERE workspace_id = ?1
                     AND room_id = ?2
-                    AND status IN ('active', 'release_requested')
+                    AND status IN ('creating', 'active', 'release_requested')
               `,
           )
               .bind(input.check.workspaceId, input.roomId)
@@ -148,7 +148,7 @@ async function countActiveBrowserbaseSessions(input: {
                   SELECT COUNT(*) AS activeCount
                   FROM hosted_browserbase_session
                   WHERE workspace_id = ?1
-                    AND status IN ('active', 'release_requested')
+                    AND status IN ('creating', 'active', 'release_requested')
               `,
           )
               .bind(input.check.workspaceId)
@@ -189,7 +189,7 @@ export async function activeConcurrencyDenial(input: {
     check: HostedQuotaCheckInput
     policy: HostedQuotaPolicy
 }): Promise<HostedQuotaDenyDecision | null> {
-    if (input.check.action !== 'browserbase_session_start') {
+    if (input.check.skipConcurrency || input.check.action !== 'browserbase_session_start') {
         return null
     }
     const workspaceActive = await countActiveBrowserbaseSessions({
@@ -233,7 +233,7 @@ export async function storageDenial(input: {
     check: HostedQuotaCheckInput
     policy: HostedQuotaPolicy
 }): Promise<HostedQuotaDenyDecision | null> {
-    const bytes = amountBytes(input.check)
+    const bytes = amountStorageBytes(input.check)
     if (
         bytes <= 0 ||
         (input.check.action !== 'file_upload' && input.check.action !== 'runtime_file_sync')
@@ -382,7 +382,7 @@ export async function recordHostedQuotaDenied(input: {
     now: string
 }): Promise<void> {
     const scopeHash = await hashScopeId(input.decision.scopeId)
-    await Promise.allSettled([
+    const results = await Promise.allSettled([
         recordQuotaEvent({
             ...input,
             scopeHash,
@@ -442,4 +442,9 @@ export async function recordHostedQuotaDenied(input: {
             now: new Date(input.now),
         }),
     ])
+    for (const result of results) {
+        if (result.status === 'rejected') {
+            throw result.reason
+        }
+    }
 }

@@ -32,6 +32,13 @@ export async function assertHostedRunAllowed(input: {
     if (!providerCandidate) {
         throw new Error('Hosted runtime provider binding is missing')
     }
+    if (providerCandidate === 'hosted_openrouter') {
+        await assertHostedProviderCreditsAvailable({
+            env: input.env,
+            workspaceId: input.workspaceId,
+        })
+    }
+
     await assertHostedQuotaAllowed({
         env: input.env,
         workspaceId: input.workspaceId,
@@ -45,12 +52,5 @@ export async function assertHostedRunAllowed(input: {
         amount: {
             count: 1,
         },
-    })
-    if (providerCandidate !== 'hosted_openrouter') {
-        return
-    }
-    await assertHostedProviderCreditsAvailable({
-        env: input.env,
-        workspaceId: input.workspaceId,
     })
 }

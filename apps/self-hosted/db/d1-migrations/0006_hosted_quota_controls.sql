@@ -3,8 +3,8 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE hosted_quota_policy (
     workspace_id TEXT PRIMARY KEY NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
     status TEXT NOT NULL CHECK (status IN ('active', 'restricted', 'suspended')) DEFAULT 'active',
-    limits TEXT NOT NULL DEFAULT '{}',
-    restrictions TEXT NOT NULL DEFAULT '{}',
+    limits TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(limits) AND json_type(limits) = 'object'),
+    restrictions TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(restrictions) AND json_type(restrictions) = 'object'),
     note TEXT,
     updated_by_user_id TEXT REFERENCES "user"(id) ON DELETE SET NULL,
     created_at DATE NOT NULL,

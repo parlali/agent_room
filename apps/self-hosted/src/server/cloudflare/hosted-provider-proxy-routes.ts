@@ -1,5 +1,9 @@
 import type { AgentRoomHostedEnv } from './bindings'
-import { assertHostedQuotaAllowed, hostedQuotaDeniedResponse } from './hosted-abuse-controls'
+import {
+    assertHostedQuotaAllowed,
+    hostedQuotaDeniedResponse,
+    type HostedQuotaCheckInput,
+} from './hosted-abuse-controls'
 import {
     hostedBraveSearchCostMicros,
     hostedProviderBillingGateCents,
@@ -34,6 +38,29 @@ import { requireHostedRuntimeProviderProxy } from './hosted-runtime-worker-auth'
 interface HostedOpenRouterProviderRequest {
     body: BodyInit | null
     model: string | null
+}
+
+async function assertProviderQuotaOrResponse(input: {
+    check: HostedQuotaCheckInput
+    reservationId?: string | null
+}): Promise<Response | null> {
+    try {
+        await assertHostedQuotaAllowed(input.check)
+        return null
+    } catch (error) {
+        if (input.reservationId) {
+            await releaseHostedProviderPreflightReservation({
+                env: input.check.env,
+                workspaceId: input.check.workspaceId,
+                reservationId: input.reservationId,
+            })
+        }
+        const response = hostedQuotaDeniedResponse(error)
+        if (response) {
+            return response
+        }
+        throw error
+    }
 }
 
 async function hostedOpenRouterProviderRequestBody(
@@ -251,29 +278,30 @@ export async function hostedOpenRouterProxy(
             },
         )
     }
-    try {
-        await assertHostedQuotaAllowed({
-            env,
-            workspaceId: proxyPath.workspaceId,
-            roomId: proxyPath.roomId,
-            sessionKey: usageContext.sessionKey,
-            runId: usageContext.runId,
-            jobId: usageContext.jobId,
-            action: 'provider_openrouter',
-            providerPath: proxyPath.targetPath,
-            amount: {
-                count: 1,
-                cents: hostedProviderBillingGateCents,
-            },
-        })
-    } catch (error) {
-        const response = hostedQuotaDeniedResponse(error)
-        if (response) {
-            return response
-        }
-        throw error
-    }
     const providerRequest = await hostedOpenRouterProviderRequestBody(request)
+    const quotaCheck = {
+        env,
+        workspaceId: proxyPath.workspaceId,
+        roomId: proxyPath.roomId,
+        sessionKey: usageContext.sessionKey,
+        runId: usageContext.runId,
+        jobId: usageContext.jobId,
+        action: 'provider_openrouter',
+        providerPath: proxyPath.targetPath,
+        amount: {
+            count: 1,
+            cents: hostedProviderBillingGateCents,
+        },
+    } satisfies HostedQuotaCheckInput
+    const quotaPreflightResponse = await assertProviderQuotaOrResponse({
+        check: {
+            ...quotaCheck,
+            consume: false,
+        },
+    })
+    if (quotaPreflightResponse) {
+        return quotaPreflightResponse
+    }
     let reservationId: string | null = null
     try {
         await ensureHostedBillingAccount({
@@ -304,6 +332,14 @@ export async function hostedOpenRouterProxy(
             targetPath: proxyPath.targetPath,
             usageRequestId,
         })
+    }
+
+    const quotaConsumeResponse = await assertProviderQuotaOrResponse({
+        check: quotaCheck,
+        reservationId,
+    })
+    if (quotaConsumeResponse) {
+        return quotaConsumeResponse
     }
 
     const headers = new Headers()
@@ -539,27 +575,28 @@ export async function hostedBraveProxy(
     const reservationCents = hostedBraveSearchReservationCents({
         usageMarkupBps: config.billing.usageMarkupBps,
     })
-    try {
-        await assertHostedQuotaAllowed({
-            env,
-            workspaceId: proxyPath.workspaceId,
-            roomId: proxyPath.roomId,
-            sessionKey: usageContext.sessionKey,
-            runId: usageContext.runId,
-            jobId: usageContext.jobId,
-            action: 'provider_brave',
-            providerPath: proxyPath.targetPath,
-            amount: {
-                count: 1,
-                cents: reservationCents,
-            },
-        })
-    } catch (error) {
-        const response = hostedQuotaDeniedResponse(error)
-        if (response) {
-            return response
-        }
-        throw error
+    const quotaCheck = {
+        env,
+        workspaceId: proxyPath.workspaceId,
+        roomId: proxyPath.roomId,
+        sessionKey: usageContext.sessionKey,
+        runId: usageContext.runId,
+        jobId: usageContext.jobId,
+        action: 'provider_brave',
+        providerPath: proxyPath.targetPath,
+        amount: {
+            count: 1,
+            cents: reservationCents,
+        },
+    } satisfies HostedQuotaCheckInput
+    const quotaPreflightResponse = await assertProviderQuotaOrResponse({
+        check: {
+            ...quotaCheck,
+            consume: false,
+        },
+    })
+    if (quotaPreflightResponse) {
+        return quotaPreflightResponse
     }
 
     let reservationId: string | null = null
@@ -592,6 +629,14 @@ export async function hostedBraveProxy(
             targetPath: proxyPath.targetPath,
             usageRequestId,
         })
+    }
+
+    const quotaConsumeResponse = await assertProviderQuotaOrResponse({
+        check: quotaCheck,
+        reservationId,
+    })
+    if (quotaConsumeResponse) {
+        return quotaConsumeResponse
     }
 
     const headers = new Headers()

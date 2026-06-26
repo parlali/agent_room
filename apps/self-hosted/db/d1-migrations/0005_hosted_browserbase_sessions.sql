@@ -6,7 +6,7 @@ CREATE TABLE hosted_browserbase_session (
     run_id TEXT,
     job_id TEXT,
     usage_request_id TEXT NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('active', 'release_requested', 'released')),
+    status TEXT NOT NULL CHECK (status IN ('creating', 'active', 'release_requested', 'released')),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     released_at TEXT,
