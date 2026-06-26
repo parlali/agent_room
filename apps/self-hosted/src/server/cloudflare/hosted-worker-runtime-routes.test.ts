@@ -27,6 +27,10 @@ const mocks = vi.hoisted(() => ({
     releaseHostedBillingReservation: vi.fn(),
     findHostedBillingReservationByIdempotencyKey: vi.fn(),
     readHostedProviderUsageSettlementByIdempotencyKey: vi.fn(),
+    recordHostedBrowserbaseSession: vi.fn(),
+    readHostedBrowserbaseSession: vi.fn(),
+    requestHostedBrowserbaseSessionRelease: vi.fn(),
+    markHostedBrowserbaseSessionReleased: vi.fn(),
     readHostedRoomConfig: vi.fn(),
     listRoomMcpBindings: vi.fn(),
 }))
@@ -64,6 +68,10 @@ vi.mock('./hosted-billing-repository', () => ({
         mocks.findHostedBillingReservationByIdempotencyKey,
     readHostedProviderUsageSettlementByIdempotencyKey:
         mocks.readHostedProviderUsageSettlementByIdempotencyKey,
+    recordHostedBrowserbaseSession: mocks.recordHostedBrowserbaseSession,
+    readHostedBrowserbaseSession: mocks.readHostedBrowserbaseSession,
+    requestHostedBrowserbaseSessionRelease: mocks.requestHostedBrowserbaseSessionRelease,
+    markHostedBrowserbaseSessionReleased: mocks.markHostedBrowserbaseSessionReleased,
 }))
 
 vi.mock('./hosted-room-config-store', () => ({
@@ -268,6 +276,22 @@ describe('hosted runtime worker route security gates', () => {
         })
         mocks.findHostedBillingReservationByIdempotencyKey.mockResolvedValue(null)
         mocks.readHostedProviderUsageSettlementByIdempotencyKey.mockResolvedValue(null)
+        mocks.recordHostedBrowserbaseSession.mockResolvedValue(undefined)
+        mocks.readHostedBrowserbaseSession.mockResolvedValue({
+            browserbaseSessionId: 'bb-session-1',
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            sessionKey: 'thread_1',
+            runId: 'run_1',
+            jobId: 'job_1',
+            usageRequestId: 'usage-request-123456',
+            status: 'active',
+            createdAt: new Date(0).toISOString(),
+            updatedAt: new Date(0).toISOString(),
+            releasedAt: null,
+        })
+        mocks.requestHostedBrowserbaseSessionRelease.mockResolvedValue(true)
+        mocks.markHostedBrowserbaseSessionReleased.mockResolvedValue(undefined)
         mocks.authorizeHostedBillingReservation.mockResolvedValue({
             id: 'reservation_1',
         })
@@ -1010,6 +1034,9 @@ describe('hosted runtime worker route security gates', () => {
             token: null,
             body: {
                 keepAlive: true,
+                browserSettings: {
+                    timeout: 120,
+                },
             },
         })
 
@@ -1021,6 +1048,25 @@ describe('hosted runtime worker route security gates', () => {
         expect(providerUrl.toString()).toBe('https://api.browserbase.com/v1/sessions')
         const providerHeaders = new Headers((fetchMock.mock.calls[0]![1] as RequestInit).headers)
         expect(providerHeaders.get('x-bb-api-key')).toBe('browserbase-platform-key')
+        expect(JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body))).toEqual({
+            keepAlive: true,
+            browserSettings: {
+                timeout: 120,
+            },
+        })
+        expect(mocks.recordHostedBrowserbaseSession).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                browserbaseSessionId: 'bb-session-1',
+                usageRequestId: 'usage-request-123456',
+                usageContext: expect.objectContaining({
+                    sessionKey: 'thread_1',
+                    runId: 'run_1',
+                    jobId: 'job_1',
+                }),
+            }),
+        )
         expect(mocks.authorizeHostedBillingReservation).toHaveBeenCalledWith(
             expect.objectContaining({
                 provider: 'browserbase',
@@ -1039,6 +1085,201 @@ describe('hosted runtime worker route security gates', () => {
         )
     })
 
+    it('releases untracked Browserbase sessions when ownership recording fails', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const fetchMock = vi
+            .fn()
+            .mockResolvedValueOnce(
+                new Response(
+                    JSON.stringify({
+                        id: 'bb-session-untracked',
+                        connectUrl: 'wss://connect.browserbase.com/session',
+                    }),
+                    {
+                        headers: {
+                            'content-type': 'application/json',
+                        },
+                    },
+                ),
+            )
+            .mockResolvedValueOnce(new Response('{}'))
+        vi.stubGlobal('fetch', fetchMock)
+        mocks.recordHostedBrowserbaseSession.mockRejectedValue(new Error('D1 unavailable'))
+
+        try {
+            const response = await callRoute({
+                path: '/api/hosted/runtime/provider/browserbase/v1/workspaces/workspace_1/rooms/room_1/sessions',
+                headers: browserbaseRuntimeHeaders(),
+                token: null,
+                body: {
+                    keepAlive: true,
+                    browserSettings: {
+                        timeout: 120,
+                    },
+                },
+            })
+
+            await expectJsonCode(response, 502, 'managed_browserbase_session_record_failed')
+            expect(mocks.releaseHostedBillingReservation).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    workspaceId: 'workspace_1',
+                    reservationId: 'reservation_1',
+                }),
+            )
+            expect(fetchMock).toHaveBeenCalledTimes(2)
+            const [releaseUrl, releaseInit] = fetchMock.mock.calls[1] as unknown as [
+                URL,
+                RequestInit,
+            ]
+            expect(releaseUrl.toString()).toBe(
+                'https://api.browserbase.com/v1/sessions/bb-session-untracked',
+            )
+            expect(JSON.parse(String(releaseInit.body))).toEqual({
+                status: 'REQUEST_RELEASE',
+            })
+            expect(mocks.recordHostedProviderUsage).not.toHaveBeenCalled()
+        } finally {
+            errorSpy.mockRestore()
+        }
+    })
+
+    it('rejects unexpected Browserbase session fields before using the platform key', async () => {
+        const fetchMock = vi.fn(async () => new Response('{}'))
+        vi.stubGlobal('fetch', fetchMock)
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/provider/browserbase/v1/workspaces/workspace_1/rooms/room_1/sessions',
+            headers: browserbaseRuntimeHeaders(),
+            token: null,
+            body: {
+                keepAlive: true,
+                browserSettings: {
+                    timeout: 120,
+                },
+                projectId: 'tenant-selected-project',
+            },
+        })
+
+        await expectJsonCode(response, 400, 'invalid_managed_browserbase_request')
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect(mocks.authorizeHostedBillingReservation).not.toHaveBeenCalled()
+        expect(mocks.recordHostedBrowserbaseSession).not.toHaveBeenCalled()
+    })
+
+    it('rejects Browserbase query options before using the platform key', async () => {
+        const fetchMock = vi.fn(async () => new Response('{}'))
+        vi.stubGlobal('fetch', fetchMock)
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/provider/browserbase/v1/workspaces/workspace_1/rooms/room_1/sessions?projectId=tenant-selected-project',
+            headers: browserbaseRuntimeHeaders(),
+            token: null,
+            body: {
+                keepAlive: true,
+                browserSettings: {
+                    timeout: 120,
+                },
+            },
+        })
+
+        await expectJsonCode(response, 400, 'invalid_managed_browserbase_request')
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect(mocks.authorizeHostedBillingReservation).not.toHaveBeenCalled()
+        expect(mocks.recordHostedBrowserbaseSession).not.toHaveBeenCalled()
+    })
+
+    it('blocks Browserbase debug for session ids not owned by the requesting room', async () => {
+        const fetchMock = vi.fn(async () => new Response('{}'))
+        vi.stubGlobal('fetch', fetchMock)
+        mocks.readHostedBrowserbaseSession.mockResolvedValue(null)
+
+        const response = await callRoute({
+            method: 'GET',
+            path: '/api/hosted/runtime/provider/browserbase/v1/workspaces/workspace_1/rooms/room_1/sessions/bb-session-foreign/debug',
+            headers: browserbaseRuntimeHeaders(),
+            token: null,
+        })
+
+        await expectJsonCode(response, 404, 'managed_browserbase_session_not_found')
+        expect(mocks.readHostedBrowserbaseSession).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                browserbaseSessionId: 'bb-session-foreign',
+            }),
+        )
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect(mocks.authorizeHostedBillingReservation).not.toHaveBeenCalled()
+    })
+
+    it('allows Browserbase debug only for active sessions owned by the requesting room', async () => {
+        const fetchMock = vi.fn(
+            async () =>
+                new Response(
+                    JSON.stringify({
+                        debuggerUrl: 'https://browserbase.example.test/debug',
+                        pages: [],
+                    }),
+                    {
+                        headers: {
+                            'content-type': 'application/json',
+                        },
+                    },
+                ),
+        )
+        vi.stubGlobal('fetch', fetchMock)
+
+        const response = await callRoute({
+            method: 'GET',
+            path: '/api/hosted/runtime/provider/browserbase/v1/workspaces/workspace_1/rooms/room_1/sessions/bb-session-1/debug',
+            headers: browserbaseRuntimeHeaders(),
+            token: null,
+        })
+
+        expect(response.status).toBe(200)
+        const [providerUrl] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
+        expect(providerUrl.toString()).toBe(
+            'https://api.browserbase.com/v1/sessions/bb-session-1/debug',
+        )
+        expect(mocks.authorizeHostedBillingReservation).not.toHaveBeenCalled()
+        expect(mocks.recordHostedProviderUsage).not.toHaveBeenCalled()
+    })
+
+    it('marks owned Browserbase sessions as release requested before forwarding release', async () => {
+        const fetchMock = vi.fn(async () => new Response('{}'))
+        vi.stubGlobal('fetch', fetchMock)
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/provider/browserbase/v1/workspaces/workspace_1/rooms/room_1/sessions/bb-session-1',
+            headers: browserbaseRuntimeHeaders(),
+            token: null,
+            body: {
+                status: 'REQUEST_RELEASE',
+            },
+        })
+
+        expect(response.status).toBe(200)
+        expect(mocks.requestHostedBrowserbaseSessionRelease).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                browserbaseSessionId: 'bb-session-1',
+            }),
+        )
+        expect(mocks.markHostedBrowserbaseSessionReleased).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                browserbaseSessionId: 'bb-session-1',
+            }),
+        )
+        const [, providerInit] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
+        expect(JSON.parse(String(providerInit.body))).toEqual({
+            status: 'REQUEST_RELEASE',
+        })
+        expect(mocks.authorizeHostedBillingReservation).not.toHaveBeenCalled()
+    })
+
     it('blocks managed Browserbase for non-Pro billing plans before using the platform key', async () => {
         const fetchMock = vi.fn(async () => new Response('{}'))
         vi.stubGlobal('fetch', fetchMock)
@@ -1055,6 +1296,9 @@ describe('hosted runtime worker route security gates', () => {
             token: null,
             body: {
                 keepAlive: true,
+                browserSettings: {
+                    timeout: 120,
+                },
             },
         })
 

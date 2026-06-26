@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { AgentRoomHostedEnv, AgentRoomRuntimeJobMessage } from './bindings'
 import { hostedRuntimeConfigPath, reconcileHostedRuntimeJob } from './hosted-runtime-adapter'
 import { hostedProviderAuthPath } from './hosted-runtime-paths'
+import { hostedRuntimeDeniedHosts } from './runtime-contract'
 import { encryptHostedSecret } from './hosted-secret-store'
 import { hostedRuntimeManagedOpenRouterEnvKey } from '../rooms/pi-runtime-contract'
 
@@ -333,11 +334,12 @@ function runtimeMessage(): AgentRoomRuntimeJobMessage {
 }
 
 describe('hosted runtime reconciliation', () => {
-    it('starts the canonical room container after D1 and R2 state are verified', async () => {
+    it('starts the canonical room container with direct egress disabled after D1 and R2 state are verified', async () => {
         const updates: RuntimeUpdate[] = []
         const batches: RuntimeUpdate[][] = []
         const starts: Array<{ name: string; args: unknown }> = []
         const allowedHosts: Array<{ name: string; hosts: string[] }> = []
+        const deniedHosts: Array<{ name: string; hosts: string[] }> = []
         const env = hostedEnv({
             updates,
             batches,
@@ -360,6 +362,9 @@ describe('hosted runtime reconciliation', () => {
             setAllowedHosts: async (name, hosts) => {
                 allowedHosts.push({ name, hosts })
             },
+            setDeniedHosts: async (name, hosts) => {
+                deniedHosts.push({ name, hosts })
+            },
         })
 
         await reconcileHostedRuntimeJob(env, runtimeMessage())
@@ -369,6 +374,12 @@ describe('hosted runtime reconciliation', () => {
             {
                 name: 'workspace:workspace_1:room:room_1',
                 hosts: ['openrouter.ai', 'rooms.example.test'],
+            },
+        ])
+        expect(deniedHosts).toEqual([
+            {
+                name: 'workspace:workspace_1:room:room_1',
+                hosts: hostedRuntimeDeniedHosts,
             },
         ])
         expect(starts[0]?.name).toBe('workspace:workspace_1:room:room_1')

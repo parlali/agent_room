@@ -13,6 +13,10 @@ import { parseSearxngHtmlResults, SearxngSearchProvider, searxngSearch } from '.
 import { createTestPiRuntimeConfig } from './test-runtime-defaults'
 import { withToolRunContext } from './tool-run-context'
 import {
+    installHostedProviderReservationFetchRecorder,
+    withHostedProviderReservationCollection,
+} from './hosted-provider-reservation-context'
+import {
     FakeSearchProvider,
     executeWebTool,
     resetWebToolTestGlobals,
@@ -67,22 +71,51 @@ describe('web tools', () => {
         if (!tool) {
             throw new Error('Missing fetch_url tool')
         }
+        const runContext = {
+            sessionKey: 'thread_1',
+            runId: 'run_1',
+            jobId: 'job_1',
+        }
+        const abortController = new AbortController()
+        const uninstallRecorder = installHostedProviderReservationFetchRecorder()
 
-        const result = await tool.execute(
-            'call-1',
-            {
-                url: 'https://example.com/page?secret=1',
-            },
-            undefined,
-            undefined,
-            {} as never,
-        )
+        const { result } = await (async () => {
+            try {
+                return await withHostedProviderReservationCollection(
+                    () =>
+                        withToolRunContext(
+                            {
+                                ...runContext,
+                                signal: abortController.signal,
+                            },
+                            () =>
+                                tool.execute(
+                                    'call-1',
+                                    {
+                                        url: 'https://example.com/page?secret=1',
+                                    },
+                                    undefined,
+                                    undefined,
+                                    {} as never,
+                                ),
+                        ),
+                    runContext,
+                )
+            } finally {
+                uninstallRecorder()
+            }
+        })()
 
         expect(requests).toHaveLength(1)
         expect(requests[0]!.url).toBe(
             'https://rooms.example.test/api/hosted/runtime/fetch/workspaces/workspace_1/rooms/room_1',
         )
         expect(requests[0]!.headers.get('authorization')).toBe('Bearer runtime-token-value-123456')
+        const usageRequestId = requests[0]!.headers.get('x-agent-room-usage-request-id')
+        expect(usageRequestId).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/))
+        expect(requests[0]!.headers.get('x-agent-room-session-key')).toBe('thread_1')
+        expect(requests[0]!.headers.get('x-agent-room-run-id')).toBe('run_1')
+        expect(requests[0]!.headers.get('x-agent-room-job-id')).toBe('job_1')
         expect(requests[0]!.body).toMatchObject({
             url: 'https://example.com/page?secret=1',
         })

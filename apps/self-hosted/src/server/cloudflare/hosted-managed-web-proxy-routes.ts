@@ -8,8 +8,17 @@ import {
 } from './hosted-billing-types'
 import {
     ensureHostedBillingAccount,
+    markHostedBrowserbaseSessionReleased,
+    readHostedBrowserbaseSession,
+    recordHostedBrowserbaseSession,
+    requestHostedBrowserbaseSessionRelease,
     readHostedProviderUsageSettlementByIdempotencyKey,
 } from './hosted-billing-repository'
+import {
+    browserbaseProviderRequest,
+    browserbaseSessionIdFromProviderResponse,
+    type BrowserbaseProviderRequest,
+} from './hosted-browserbase-proxy-request'
 import { resolveHostedConfig } from './hosted-config'
 import { nullableObjectRecord } from './hosted-json'
 import {
@@ -95,6 +104,73 @@ async function assertManagedBrowserbasePlan(input: {
     return null
 }
 
+function managedBrowserbaseSessionNotFound(): Response {
+    return hostedJsonResponse(
+        {
+            ok: false,
+            code: 'managed_browserbase_session_not_found',
+        },
+        {
+            status: 404,
+        },
+    )
+}
+
+async function assertHostedBrowserbaseSessionAccess(input: {
+    env: AgentRoomHostedEnv
+    proxyPath: HostedBrowserbaseProxyPath
+    providerRequest: BrowserbaseProviderRequest
+}): Promise<Response | null> {
+    if (!input.providerRequest.sessionId) {
+        return null
+    }
+    const session = await readHostedBrowserbaseSession({
+        env: input.env,
+        workspaceId: input.proxyPath.workspaceId,
+        roomId: input.proxyPath.roomId,
+        browserbaseSessionId: input.providerRequest.sessionId,
+    })
+    if (!session) {
+        return managedBrowserbaseSessionNotFound()
+    }
+    if (input.providerRequest.action === 'debug_session' && session.status !== 'active') {
+        return managedBrowserbaseSessionNotFound()
+    }
+    if (
+        input.providerRequest.action === 'release_session' &&
+        session.status !== 'active' &&
+        session.status !== 'release_requested'
+    ) {
+        return managedBrowserbaseSessionNotFound()
+    }
+    return null
+}
+
+async function releaseUntrackedBrowserbaseSession(input: {
+    apiKey: string
+    browserbaseSessionId: string
+}): Promise<void> {
+    const headers = new Headers()
+    headers.set('content-type', 'application/json')
+    headers.set('user-agent', 'AgentRoom/1.0')
+    headers.set('x-bb-api-key', input.apiKey)
+    const response = await fetch(
+        new URL(
+            `https://api.browserbase.com/v1/sessions/${encodeURIComponent(input.browserbaseSessionId)}`,
+        ),
+        {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                status: 'REQUEST_RELEASE',
+            }),
+        },
+    )
+    if (!response.ok) {
+        throw new Error(`Browserbase cleanup release failed with status ${response.status}`)
+    }
+}
+
 export async function hostedBrowserbaseProxy(
     env: AgentRoomHostedEnv,
     request: Request,
@@ -141,6 +217,33 @@ export async function hostedBrowserbaseProxy(
     })
     if (planError) {
         return planError
+    }
+    const providerRequest = await browserbaseProviderRequest({
+        request,
+        url,
+        proxyPath,
+    })
+    if (providerRequest instanceof Response) {
+        return providerRequest
+    }
+    const sessionAccessError = await assertHostedBrowserbaseSessionAccess({
+        env,
+        proxyPath,
+        providerRequest,
+    })
+    if (sessionAccessError) {
+        return sessionAccessError
+    }
+    if (providerRequest.action === 'release_session' && providerRequest.sessionId) {
+        const releaseRequested = await requestHostedBrowserbaseSessionRelease({
+            env,
+            workspaceId: proxyPath.workspaceId,
+            roomId: proxyPath.roomId,
+            browserbaseSessionId: providerRequest.sessionId,
+        })
+        if (!releaseRequested) {
+            return managedBrowserbaseSessionNotFound()
+        }
     }
 
     const operation = browserbaseOperation(proxyPath)
@@ -196,24 +299,22 @@ export async function hostedBrowserbaseProxy(
 
     const headers = new Headers()
     const accept = request.headers.get('accept')
-    const contentType = request.headers.get('content-type')
     if (accept) {
         headers.set('accept', accept)
     }
-    if (contentType) {
-        headers.set('content-type', contentType)
+    if (providerRequest.body !== null) {
+        headers.set('content-type', 'application/json')
     }
     headers.set('user-agent', 'AgentRoom/1.0')
     headers.set('x-bb-api-key', apiKey)
 
     const providerUrl = new URL(`https://api.browserbase.com/v1${proxyPath.targetPath}`)
-    providerUrl.search = url.search
     let response: Response
     try {
         response = await fetch(providerUrl, {
             method: request.method,
             headers,
-            body: request.method === 'GET' ? null : await request.text(),
+            body: providerRequest.body,
         })
     } catch (error) {
         await releaseHostedProviderPreflightReservation({
@@ -236,6 +337,97 @@ export async function hostedBrowserbaseProxy(
             statusText: response.statusText,
             headers: responseHeaders,
         })
+    }
+    if (providerRequest.action === 'create_session' && usageRequest) {
+        const browserbaseSessionId = browserbaseSessionIdFromProviderResponse(responseText)
+        if (!browserbaseSessionId) {
+            await releaseHostedProviderPreflightReservation({
+                env,
+                workspaceId: proxyPath.workspaceId,
+                reservationId,
+            })
+            return hostedJsonResponse(
+                {
+                    ok: false,
+                    code: 'managed_browserbase_session_response_invalid',
+                },
+                {
+                    status: 502,
+                },
+            )
+        }
+        try {
+            await recordHostedBrowserbaseSession({
+                env,
+                workspaceId: proxyPath.workspaceId,
+                roomId: proxyPath.roomId,
+                browserbaseSessionId,
+                usageRequestId: usageRequest.usageRequestId,
+                usageContext: usageRequest.usageContext,
+            })
+        } catch (error) {
+            console.error('Hosted Browserbase session ownership record failed', {
+                workspaceId: proxyPath.workspaceId,
+                roomId: proxyPath.roomId,
+                browserbaseSessionId,
+                usageRequestId: usageRequest.usageRequestId,
+                error,
+            })
+            await releaseHostedProviderPreflightReservation({
+                env,
+                workspaceId: proxyPath.workspaceId,
+                reservationId,
+            })
+            try {
+                await releaseUntrackedBrowserbaseSession({
+                    apiKey,
+                    browserbaseSessionId,
+                })
+            } catch (cleanupError) {
+                console.error('Hosted Browserbase untracked session cleanup failed', {
+                    workspaceId: proxyPath.workspaceId,
+                    roomId: proxyPath.roomId,
+                    browserbaseSessionId,
+                    usageRequestId: usageRequest.usageRequestId,
+                    error: cleanupError,
+                })
+            }
+            return hostedJsonResponse(
+                {
+                    ok: false,
+                    code: 'managed_browserbase_session_record_failed',
+                },
+                {
+                    status: 502,
+                },
+            )
+        }
+    }
+    if (providerRequest.action === 'release_session' && providerRequest.sessionId) {
+        try {
+            await markHostedBrowserbaseSessionReleased({
+                env,
+                workspaceId: proxyPath.workspaceId,
+                roomId: proxyPath.roomId,
+                browserbaseSessionId: providerRequest.sessionId,
+            })
+        } catch (error) {
+            console.error('Hosted Browserbase session release record failed', {
+                workspaceId: proxyPath.workspaceId,
+                roomId: proxyPath.roomId,
+                browserbaseSessionId: providerRequest.sessionId,
+                error,
+            })
+            return hostedJsonResponse(
+                {
+                    ok: false,
+                    code: 'managed_browserbase_session_release_failed',
+                },
+                {
+                    status: 502,
+                },
+            )
+        }
     }
     if (
         operation.billable &&

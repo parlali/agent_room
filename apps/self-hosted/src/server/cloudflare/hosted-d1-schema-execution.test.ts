@@ -463,6 +463,102 @@ describe('hosted D1 schema contract', () => {
         }
     })
 
+    it('scopes hosted Browserbase sessions to their owning hosted room', async () => {
+        const db = await createHostedFullDb()
+        try {
+            const now = new Date(0).toISOString()
+            await insertHostedAuthRow({
+                db,
+                userId: 'user_1',
+                organizationId: 'workspace_1',
+                memberId: 'member_1',
+            })
+            await insertHostedAuthRow({
+                db,
+                userId: 'user_2',
+                organizationId: 'workspace_2',
+                memberId: 'member_2',
+            })
+            await insertHostedRoom({
+                db,
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                userId: 'user_1',
+                now,
+            })
+            await insertHostedRoom({
+                db,
+                workspaceId: 'workspace_2',
+                roomId: 'room_2',
+                userId: 'user_2',
+                now,
+            })
+
+            await db.execute({
+                sql: `
+                    INSERT INTO hosted_browserbase_session (
+                        browserbase_session_id,
+                        workspace_id,
+                        room_id,
+                        session_key,
+                        run_id,
+                        job_id,
+                        usage_request_id,
+                        status,
+                        created_at,
+                        updated_at,
+                        released_at
+                    )
+                    VALUES ('bb-session-1', 'workspace_1', 'room_1', 'thread_1', 'run_1', NULL, 'usage_request_1', 'active', ?1, ?1, NULL)
+                `,
+                args: [now],
+            })
+
+            await expect(
+                db.execute({
+                    sql: `
+                        INSERT INTO hosted_browserbase_session (
+                            browserbase_session_id,
+                            workspace_id,
+                            room_id,
+                            session_key,
+                            run_id,
+                            job_id,
+                            usage_request_id,
+                            status,
+                            created_at,
+                            updated_at,
+                            released_at
+                        )
+                        VALUES ('bb-session-2', 'workspace_1', 'room_2', 'thread_2', 'run_2', NULL, 'usage_request_2', 'active', ?1, ?1, NULL)
+                    `,
+                    args: [now],
+                }),
+            ).rejects.toThrow()
+
+            await db.execute({
+                sql: `
+                    DELETE FROM hosted_room
+                    WHERE workspace_id = 'workspace_1'
+                      AND id = 'room_1'
+                `,
+            })
+            const remaining = await db.execute({
+                sql: `
+                    SELECT COUNT(*) AS count
+                    FROM hosted_browserbase_session
+                    WHERE browserbase_session_id = 'bb-session-1'
+                `,
+            })
+
+            expect(remaining.rows[0]).toMatchObject({
+                count: 0,
+            })
+        } finally {
+            db.close()
+        }
+    })
+
     it('migrates existing billing enum constraints for managed web usage without writable schema', async () => {
         const db = createClient({ url: 'file::memory:' })
         try {
