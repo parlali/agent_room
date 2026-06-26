@@ -14,7 +14,6 @@ import {
 import { Button } from '#/components/ui/button'
 import { CardButton } from '#/components/ui/card'
 import { Badge } from '#/components/ui/badge'
-import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
 import { RoomDashboardLayout } from '#/components/room-dashboard'
 import {
     AttentionBanner,
@@ -117,6 +116,7 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
     const blockingIssues =
         readinessQuery.data?.issues.filter((i) => i.severity === 'blocking') ?? []
     const onboardingSessionKey = setup?.phase === 'onboarding' ? setup.onboardingSessionKey : null
+    const needsSetup = setup?.phase === 'setup_required'
     const openOnboardingSession = () => {
         if (!onboardingSessionKey) return
         markChatSelection(roomId, onboardingSessionKey)
@@ -128,20 +128,17 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
             },
         })
     }
-    const sessionAction = {
-        label: onboardingSessionKey
-            ? 'Continue setup'
-            : setup?.phase === 'starting'
-              ? 'Starting setup'
-              : setup?.phase === 'setup_required'
-                ? 'Setup required'
-                : 'Start session',
-        disabled:
-            onboardingSessionKey === null &&
-            (startSession.isPending || setup?.canStartSessions === false),
-        pending: startSession.isPending,
-        run: onboardingSessionKey ? openOnboardingSession : () => startSession.mutate(),
-    }
+    const sessionLabel = onboardingSessionKey
+        ? 'Continue setup'
+        : setup?.phase === 'starting'
+          ? 'Starting setup'
+          : 'Start session'
+    const sessionDisabled =
+        onboardingSessionKey === null &&
+        (startSession.isPending || setup?.canStartSessions === false)
+    const startSessionAction = onboardingSessionKey
+        ? openOnboardingSession
+        : () => startSession.mutate()
 
     const activeSessions = useMemo(() => {
         return threads.filter((t) => {
@@ -187,21 +184,41 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
         )
     }
 
-    const showAttention = blockingIssues.length > 0 || (room?.lastError ?? null) !== null
+    const showAttention =
+        needsSetup || blockingIssues.length > 0 || (room?.lastError ?? null) !== null
 
     return (
         <RoomDashboardLayout
             roomId={roomId}
             activeTab="home"
             headerActions={
-                <Button size="sm" onClick={sessionAction.run} disabled={sessionAction.disabled}>
-                    <MessagesSquareIcon /> {sessionAction.label}
-                </Button>
+                needsSetup ? null : (
+                    <Button size="sm" onClick={startSessionAction} disabled={sessionDisabled}>
+                        <MessagesSquareIcon /> {sessionLabel}
+                    </Button>
+                )
             }
         >
             <div className="space-y-6">
                 {showAttention ? (
                     <div className="space-y-2">
+                        {needsSetup ? (
+                            <AttentionBanner
+                                tone="attention"
+                                title="This room needs setup before it can start"
+                                description={
+                                    setup?.message ??
+                                    'Finish configuring this room so it can run sessions and jobs.'
+                                }
+                                action={
+                                    <Link to="/rooms/$roomId/settings" params={{ roomId }}>
+                                        <Button variant="outline" size="sm">
+                                            Finish setup
+                                        </Button>
+                                    </Link>
+                                }
+                            />
+                        ) : null}
                         {room?.lastError ? (
                             <AttentionBanner
                                 tone="danger"
@@ -240,14 +257,7 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                     </div>
                 ) : null}
 
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <ActionTile
-                        icon={<MessagesSquareIcon className="size-4" />}
-                        label={sessionAction.label}
-                        onClick={sessionAction.run}
-                        pending={sessionAction.pending}
-                        disabled={sessionAction.disabled}
-                    />
+                <div className="grid grid-cols-3 gap-2">
                     <ActionTile
                         icon={<CalendarClockIcon className="size-4" />}
                         label="Add job"
@@ -287,16 +297,7 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                                 <EmptyState
                                     icon={MessagesSquareIcon}
                                     title="No sessions yet"
-                                    description="Start a conversation with this room."
-                                    action={
-                                        <Button
-                                            size="sm"
-                                            onClick={sessionAction.run}
-                                            disabled={sessionAction.disabled}
-                                        >
-                                            {sessionAction.label}
-                                        </Button>
-                                    }
+                                    description="Use the button in the header to start a conversation with this room."
                                 />
                             ) : (
                                 <p className="text-sm text-muted-foreground">
@@ -309,11 +310,8 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                                 {sessionRows.map((thread) => {
                                     const state = describeSessionState(thread.status)
                                     return (
-                                        <li
-                                            key={thread.key}
-                                            className="group/session py-2 first:pt-0 last:pb-0"
-                                        >
-                                            <div className="flex min-h-12 items-center justify-between gap-3 rounded-md px-1 py-1 transition-colors hover:bg-muted/50">
+                                        <li key={thread.key} className="py-2 first:pt-0 last:pb-0">
+                                            <div className="flex min-h-12 items-center gap-2 rounded-md px-1 py-1 transition-colors hover:bg-muted/50">
                                                 <Link
                                                     to="/rooms/$roomId/sessions/$sessionKey"
                                                     params={{ roomId, sessionKey: thread.key }}
@@ -343,23 +341,17 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                                                         </p>
                                                     ) : null}
                                                 </Link>
-                                                <span className="flex h-10 w-5 shrink-0 items-center justify-end sm:w-40">
-                                                    <span className="hidden flex-col items-end gap-1 text-xs text-muted-foreground group-hover/session:hidden group-focus-within/session:hidden sm:flex">
-                                                        <SessionRunStatus thread={thread} compact />
-                                                        <span>
-                                                            {formatRelativeTime(thread.updatedAt)}
-                                                        </span>
-                                                    </span>
-                                                    <SessionContextMenu
-                                                        roomId={roomId}
-                                                        sessionKey={thread.key}
-                                                        sessionTitle={
-                                                            thread.title || 'Untitled session'
-                                                        }
-                                                    >
-                                                        <SessionContextMenuTrigger className="hidden group-hover/session:inline-flex group-focus-within/session:inline-flex data-[state=open]:inline-flex" />
-                                                    </SessionContextMenu>
+                                                <span className="flex shrink-0 flex-col items-end gap-1 text-xs text-muted-foreground">
+                                                    <SessionRunStatus thread={thread} compact />
+                                                    <span>{formatRelativeTime(thread.updatedAt)}</span>
                                                 </span>
+                                                <SessionContextMenu
+                                                    roomId={roomId}
+                                                    sessionKey={thread.key}
+                                                    sessionTitle={thread.title || 'Untitled session'}
+                                                >
+                                                    <SessionContextMenuTrigger />
+                                                </SessionContextMenu>
                                             </div>
                                         </li>
                                     )
@@ -487,49 +479,22 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
 function ActionTile({
     icon,
     label,
-    onClick,
-    pending,
-    disabled,
     href,
 }: {
     icon: React.ReactNode
     label: string
-    onClick?: () => void
-    pending?: boolean
-    disabled?: boolean
-    href?: {
+    href: {
         to: '/rooms/$roomId/files' | '/rooms/$roomId/jobs' | '/rooms/$roomId/settings'
         params: { roomId: string }
     }
 }) {
-    const inner = (
-        <>
-            <span className="text-muted-foreground">{icon}</span>
-            <span className="font-medium">{label}</span>
-        </>
-    )
-    if (href) {
-        return (
-            <CardButton asChild className="h-full flex-col items-start gap-2 px-3 py-3">
-                <Link to={href.to} params={href.params}>
-                    {inner}
-                </Link>
-            </CardButton>
-        )
-    }
     return (
-        <Tooltip>
-            <TooltipTrigger asChild>
-                <CardButton
-                    onClick={onClick}
-                    disabled={pending || disabled}
-                    className="h-full flex-col items-start gap-2 px-3 py-3 disabled:opacity-50"
-                >
-                    {inner}
-                </CardButton>
-            </TooltipTrigger>
-            <TooltipContent>{pending ? 'Working…' : label}</TooltipContent>
-        </Tooltip>
+        <CardButton asChild className="h-full flex-col items-start gap-2 px-3 py-3">
+            <Link to={href.to} params={href.params}>
+                <span className="text-muted-foreground">{icon}</span>
+                <span className="font-medium">{label}</span>
+            </Link>
+        </CardButton>
     )
 }
 

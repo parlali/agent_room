@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 
-import { AttentionBanner, LoadingPage } from '#/components/agent-room'
+import { LoadingPage } from '#/components/agent-room'
 import { RoomDashboardLayout } from '#/components/room-dashboard'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import type { RoomRunHistoryEntry } from '#/domain/room-execution-types'
@@ -15,8 +15,8 @@ import {
 } from './-room-runtime-server'
 import { getRoomConfigServer } from './-operator-config-server'
 import {
-    ChecksSection,
     LastWorkSummary,
+    OperatorDetails,
     OverallBanner,
     RecentRunsSection,
     RunDetailSheet,
@@ -83,7 +83,6 @@ function RoomStatusPage() {
         [history],
     )
     const lastFailure = useMemo(() => history.find((entry) => isFailed(entry)) ?? null, [history])
-    const mismatchCount = historyQuery.data?.mismatchCount ?? 0
 
     if (initialLoading) {
         return (
@@ -96,21 +95,14 @@ function RoomStatusPage() {
     return (
         <RoomDashboardLayout roomId={roomId} activeTab="status">
             <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-                <OverallBanner status={overall} />
-                {mismatchCount > 0 ? (
-                    <AttentionBanner
-                        tone="attention"
-                        title="Some past runs do not match this room"
-                        description={`${mismatchCount} ${mismatchCount === 1 ? 'run is' : 'runs are'} hidden because they belong to another room agent.`}
-                    />
-                ) : null}
-                <ChecksSection checks={checks} />
+                <OverallBanner status={overall} roomId={roomId} />
                 <RecentRunsSection history={history} onSelect={setSelectedRun} />
                 <LastWorkSummary
                     roomId={roomId}
                     lastSuccess={lastSuccess}
                     lastFailure={lastFailure}
                 />
+                <OperatorDetails checks={checks} roomId={roomId} />
             </div>
             <RunDetailSheet
                 entry={selectedRun}

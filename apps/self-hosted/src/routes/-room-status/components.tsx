@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import {
     AlertTriangleIcon,
     CheckCircle2Icon,
+    ChevronRightIcon,
     ClockIcon,
     LoaderIcon,
     XCircleIcon,
@@ -11,6 +13,7 @@ import type { LucideIcon } from 'lucide-react'
 import { EmptyState, Section, StateBadge, StatusDot } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
 import { CardButton } from '#/components/ui/card'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '#/components/ui/collapsible'
 import { ScrollArea } from '#/components/ui/scroll-area'
 import {
     Sheet,
@@ -21,49 +24,111 @@ import {
 } from '#/components/ui/sheet'
 import { formatDurationMs, formatRelativeTime } from '#/domain/format'
 import type { RoomRunHistoryEntry } from '#/domain/room-execution-types'
+import { toneStyles, type Tone } from '#/domain/state'
+import { cn } from '#/lib/utils'
 
-import { classifyRun, type CheckRow, type OverallStatus, type OverallTone } from './model'
+import { classifyRun, type CheckRow, type OverallStatus, type StatusFix } from './model'
 
-const overallToneClass: Record<OverallTone, string> = {
-    ready: 'border-ready/40 bg-ready-soft text-ready-fg',
-    working: 'border-working/40 bg-working-soft text-working-fg',
-    attention: 'border-attention/40 bg-attention-soft text-attention-fg',
-    danger: 'border-danger/40 bg-danger-soft text-danger-fg',
+const overallIcon: Record<Tone, LucideIcon> = {
+    ready: CheckCircle2Icon,
+    working: LoaderIcon,
+    danger: XCircleIcon,
+    attention: AlertTriangleIcon,
+    info: AlertTriangleIcon,
+    muted: ClockIcon,
 }
 
-export function OverallBanner({ status }: { status: OverallStatus }) {
-    const Icon =
-        status.tone === 'ready'
-            ? CheckCircle2Icon
-            : status.tone === 'working'
-              ? LoaderIcon
-              : status.tone === 'danger'
-                ? XCircleIcon
-                : AlertTriangleIcon
+function StatusActionButton({
+    fix,
+    roomId,
+    primary,
+}: {
+    fix: StatusFix
+    roomId: string
+    primary?: boolean
+}) {
+    const variant = primary ? 'default' : 'outline'
+    if (fix.target === 'operator') {
+        return (
+            <Button asChild size="sm" variant={variant}>
+                <Link
+                    to="/operator"
+                    search={{ installationId: '', setupAction: '', githubState: '' }}
+                >
+                    {fix.label}
+                </Link>
+            </Button>
+        )
+    }
+    if (fix.target === 'jobs') {
+        return (
+            <Button asChild size="sm" variant={variant}>
+                <Link to="/rooms/$roomId/jobs" params={{ roomId }}>
+                    {fix.label}
+                </Link>
+            </Button>
+        )
+    }
+    return (
+        <Button asChild size="sm" variant={variant}>
+            <Link to="/rooms/$roomId/settings" params={{ roomId }}>
+                {fix.label}
+            </Link>
+        </Button>
+    )
+}
 
+export function OverallBanner({ status, roomId }: { status: OverallStatus; roomId: string }) {
+    const Icon = overallIcon[status.tone]
     return (
         <div
-            className={`flex items-start gap-3 rounded-xl border px-4 py-4 ${overallToneClass[status.tone]}`}
+            className={cn(
+                'flex flex-col gap-3 rounded-xl border border-transparent px-4 py-4 sm:flex-row sm:items-start',
+                toneStyles[status.tone].chip,
+            )}
             role={status.tone === 'danger' ? 'alert' : 'status'}
         >
             <Icon
-                className={`size-6 shrink-0 ${status.tone === 'working' ? 'animate-spin' : ''}`}
+                className={cn('size-6 shrink-0', status.tone === 'working' && 'animate-spin')}
                 aria-hidden
             />
             <div className="min-w-0 flex-1">
                 <div className="text-base font-semibold leading-tight">{status.label}</div>
                 <p className="mt-1 text-sm leading-relaxed opacity-90">{status.description}</p>
             </div>
+            {status.primaryAction ? (
+                <div className="shrink-0">
+                    <StatusActionButton fix={status.primaryAction} roomId={roomId} primary />
+                </div>
+            ) : null}
         </div>
     )
 }
 
-export function ChecksSection({ checks }: { checks: CheckRow[] }) {
+export function OperatorDetails({ checks, roomId }: { checks: CheckRow[]; roomId: string }) {
+    const [open, setOpen] = useState(false)
+    return (
+        <Collapsible open={open} onOpenChange={setOpen}>
+            <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-lg border border-border/60 bg-card px-4 py-3 text-left text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
+                <ChevronRightIcon
+                    className={cn('size-4 shrink-0 transition-transform', open && 'rotate-90')}
+                    aria-hidden
+                />
+                Operator details
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-3">
+                <ChecksSection checks={checks} roomId={roomId} />
+            </CollapsibleContent>
+        </Collapsible>
+    )
+}
+
+function ChecksSection({ checks, roomId }: { checks: CheckRow[]; roomId: string }) {
     return (
         <Section title="Checks" description="What is working in this room right now.">
             <div className="grid gap-2 sm:grid-cols-2">
                 {checks.map((row) => (
-                    <CheckCard key={row.label} row={row} />
+                    <CheckCard key={row.label} row={row} roomId={roomId} />
                 ))}
             </div>
         </Section>
@@ -231,7 +296,7 @@ export function RunDetailSheet({
     )
 }
 
-function CheckCard({ row }: { row: CheckRow }) {
+function CheckCard({ row, roomId }: { row: CheckRow; roomId: string }) {
     const Icon = row.icon
     return (
         <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-card px-4 py-3">
@@ -244,6 +309,11 @@ function CheckCard({ row }: { row: CheckRow }) {
                     <div className="text-sm font-medium text-foreground">{row.label}</div>
                 </div>
                 <p className="mt-0.5 text-xs text-muted-foreground">{row.detail}</p>
+                {row.fix ? (
+                    <div className="mt-2">
+                        <StatusActionButton fix={row.fix} roomId={roomId} />
+                    </div>
+                ) : null}
             </div>
         </div>
     )

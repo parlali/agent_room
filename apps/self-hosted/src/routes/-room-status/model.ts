@@ -1,8 +1,14 @@
 import { CalendarClockIcon, FolderIcon, KeyRoundIcon, SparklesIcon } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
+import { capabilityLabel } from '#/domain/capability-labels'
 import { CAPABILITY_OPTIONS } from '#/domain/capabilities'
-import { describeJobLastRun, describeSessionState, type Tone } from '#/domain/state'
+import {
+    describeJobLastRun,
+    describeRoomState,
+    describeSessionState,
+    type Tone,
+} from '#/domain/state'
 import type {
     RoomCronJob,
     RoomExecutionSnapshot,
@@ -13,13 +19,18 @@ import type { RoomSetupReadinessSnapshot } from '#/server/rooms/runtime-readines
 
 const ONE_HOUR_MS = 60 * 60 * 1000
 
-export type OverallTone = 'ready' | 'working' | 'attention' | 'danger'
-export type FixTo = '/rooms/$roomId/settings' | '/rooms/$roomId/jobs'
+export type StatusFixTarget = 'operator' | 'roomSettings' | 'jobs'
+
+export interface StatusFix {
+    label: string
+    target: StatusFixTarget
+}
 
 export interface OverallStatus {
-    tone: OverallTone
+    tone: Tone
     label: string
     description: string
+    primaryAction?: StatusFix
 }
 
 export interface CheckRow {
@@ -27,8 +38,7 @@ export interface CheckRow {
     tone: Tone
     label: string
     detail: string
-    fixTo?: FixTo
-    fixLabel?: string
+    fix?: StatusFix
 }
 
 export function classifyRun(status: string | null) {
@@ -51,50 +61,89 @@ export function buildOverall(input: {
 }): OverallStatus {
     const { execution, config, readiness, history } = input
     const room = execution?.room ?? null
-    if (room?.status === 'setup_required') {
-        const blockedReason = config?.effective.blockedReasons[0] ?? null
+
+    if (!room) {
         return {
             tone: 'attention',
-            label: 'Needs setup',
-            description:
-                blockedReason ?? 'Configure an app-level model provider to start this room.',
+            label: 'Needs attention',
+            description: execution?.executionMessage ?? 'This room is not currently reachable.',
         }
     }
 
-    if (room?.status === 'failed' || execution?.executionState === 'error') {
+    const base = describeRoomState({
+        status: room.status,
+        desiredState: room.desiredState,
+        healthStatus: room.healthStatus,
+    })
+
+    if (room.status === 'setup_required') {
+        return {
+            tone: base.tone,
+            label: base.label,
+            description: 'Connect a model so this room can start working.',
+            primaryAction: { label: 'Finish setup', target: 'operator' },
+        }
+    }
+
+    if (room.status === 'failed' || execution?.executionState === 'error') {
         return {
             tone: 'danger',
             label: 'Failed',
             description:
-                room?.lastError ?? execution?.executionMessage ?? 'This room could not start.',
+                room.lastError ?? execution?.executionMessage ?? 'This room could not start.',
+            primaryAction: { label: 'Finish setup', target: 'operator' },
         }
     }
 
     const blocking = readiness?.issues.find((issue) => issue.severity === 'blocking') ?? null
     if (blocking) {
-        return { tone: 'attention', label: 'Needs attention', description: blocking.message }
+        return {
+            tone: 'attention',
+            label: 'Needs setup',
+            description: 'This room cannot start yet. Finish setup to get it running.',
+            primaryAction: { label: 'Finish setup', target: 'operator' },
+        }
     }
 
     const blockedReason = config?.effective.blockedReasons[0] ?? null
     if (blockedReason && !config?.effective.ready) {
-        return { tone: 'attention', label: 'Needs attention', description: blockedReason }
+        return {
+            tone: 'attention',
+            label: 'Needs setup',
+            description: 'This room needs a connected model before it can work.',
+            primaryAction: { label: 'Finish setup', target: 'operator' },
+        }
     }
 
     const capabilityIssue = capabilityBlockers(config)[0] ?? null
     if (capabilityIssue) {
-        return { tone: 'attention', label: 'Needs attention', description: capabilityIssue }
-    }
-
-    if (room?.desiredState === 'stopped') {
         return {
             tone: 'attention',
-            label: 'Paused',
-            description:
-                'This room is paused. Resume from the room header to run jobs and sessions.',
+            label: 'Needs attention',
+            description: capabilityIssue,
+            primaryAction: { label: 'Open settings', target: 'roomSettings' },
         }
     }
 
-    if (room?.lastError) {
+    if (base.label === 'Paused') {
+        return {
+            tone: base.tone,
+            label: base.label,
+            description:
+                'This room is paused. Resume it from the room header to run jobs and sessions.',
+        }
+    }
+
+    if (room.status === 'degraded') {
+        return {
+            tone: base.tone,
+            label: base.label,
+            description: room.lastError ?? 'This room is running with reduced reliability.',
+            primaryAction: { label: 'Open settings', target: 'roomSettings' },
+        }
+    }
+
+    if (room.lastError) {
         return { tone: 'attention', label: 'Needs attention', description: room.lastError }
     }
 
@@ -110,12 +159,8 @@ export function buildOverall(input: {
         }
     }
 
-    if (room?.status === 'starting') {
-        return {
-            tone: 'working',
-            label: 'Working on something',
-            description: 'The room is starting up.',
-        }
+    if (room.status === 'starting') {
+        return { tone: base.tone, label: base.label, description: 'The room is starting up.' }
     }
 
     const working = execution?.threads.find(
@@ -131,11 +176,14 @@ export function buildOverall(input: {
         }
     }
 
-    if (room?.status === 'running') {
+    if (room.status === 'running') {
         return {
-            tone: 'ready',
-            label: 'Ready',
-            description: 'Everything in this room is ready to run.',
+            tone: base.tone,
+            label: base.label,
+            description:
+                base.tone === 'ready'
+                    ? 'Everything in this room is ready to run.'
+                    : 'This room is running but reporting reduced health.',
         }
     }
 
@@ -174,10 +222,10 @@ function capabilityBlockers(config: RoomConfigSnapshot | null): string[] {
 
     const blockers: string[] = []
     if (config.effective.capabilities.webSearch && !config.effective.searchReady) {
-        blockers.push('Web search is enabled but the search backend is not ready.')
+        blockers.push('Web access is turned on but is not ready yet.')
     }
     if (config.effective.capabilities.images && !config.effective.imageReady) {
-        blockers.push('Images are enabled but provider, model, or room image key is missing.')
+        blockers.push('Image generation is turned on but is not ready yet.')
     }
     return blockers
 }
@@ -215,8 +263,7 @@ function modelConnectionRow(config: RoomConfigSnapshot | null): CheckRow {
             (isMissing
                 ? 'No app model provider is configured.'
                 : 'Model provider needs a key or finishing setup.'),
-        fixTo: '/rooms/$roomId/settings',
-        fixLabel: isMissing ? 'Connect' : 'Fix',
+        fix: { label: isMissing ? 'Connect a model' : 'Finish setup', target: 'operator' },
     }
 }
 
@@ -238,8 +285,7 @@ function jobsRow(jobs: RoomCronJob[], history: RoomRunHistoryEntry[]): CheckRow 
             tone: 'muted',
             label: 'Jobs',
             detail: 'All jobs are paused.',
-            fixTo: '/rooms/$roomId/jobs',
-            fixLabel: 'Open jobs',
+            fix: { label: 'Open jobs', target: 'jobs' },
         }
     }
 
@@ -252,7 +298,7 @@ function jobsRow(jobs: RoomCronJob[], history: RoomRunHistoryEntry[]): CheckRow 
                 lastJobRun.error ??
                 lastJobRun.summary ??
                 `Last run of ${lastJobRun.jobName ?? 'a job'} failed.`,
-            fixTo: '/rooms/$roomId/jobs',
+            fix: { label: 'Open jobs', target: 'jobs' },
         }
     }
 
@@ -292,7 +338,7 @@ function setupRow(readiness: RoomSetupReadinessSnapshot | null): CheckRow {
             blocking.length === 1
                 ? blocking[0]!.message
                 : `${blocking.length} setup issues need attention. First: ${blocking[0]!.message}`,
-        fixTo: '/rooms/$roomId/settings',
+        fix: { label: 'Finish setup', target: 'operator' },
     }
 }
 
@@ -326,7 +372,7 @@ function capabilitiesRow(config: RoomConfigSnapshot | null): CheckRow {
                 ? 'No optional capabilities are enabled.'
                 : `${enabled.length} capabilities enabled: ${enabled
                       .slice(0, 4)
-                      .map((option) => option.label)
+                      .map((option) => capabilityLabel(option.id))
                       .join(', ')}${enabled.length > 4 ? ', and more' : ''}.`,
     }
 }
