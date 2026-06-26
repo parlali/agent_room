@@ -779,7 +779,7 @@ describe('hosted runtime worker route security gates', () => {
             headers: openRouterRuntimeHeaders(),
             body: {
                 model: hostedManagedModelId,
-                messages: [],
+                messages: [{ role: 'user', content: 'hello' }],
             },
         })
 
@@ -791,6 +791,7 @@ describe('hosted runtime worker route security gates', () => {
         const providerInit = fetchMock.mock.calls[0]![1] as RequestInit
         expect(JSON.parse(String(providerInit.body))).toMatchObject({
             model: hostedManagedModelId,
+            messages: [{ role: 'user', content: 'hello' }],
             max_tokens: hostedManagedModelMaxOutputTokens,
             usage: {
                 include: true,
