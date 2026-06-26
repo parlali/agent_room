@@ -22,7 +22,7 @@ import type { AgentRoomHostedEnv } from './bindings'
 import { resolveHostedConfig } from './hosted-config'
 import { readHostedBillingAccount } from './hosted-billing-repository'
 import { isHostedBillingPlanStatusActive } from './hosted-billing-types'
-import { hostedManagedModelAvailable } from './hosted-model-policy'
+import { resolveHostedManagedModelAvailable } from './hosted-model-policy'
 import { upsertHostedSecret } from './hosted-secret-store'
 import { nowIso, stringifyJson, toJsonValue } from './hosted-json'
 import type { HostedActor } from './hosted-auth'
@@ -166,11 +166,17 @@ export async function getHostedRoomConfigSnapshot(input: {
         isHostedBillingPlanStatusActive(billingAccount.planStatus) &&
         hostedPlanAllowsManagedBrowserbase(billingAccount.planKey),
     )
-    const managedOpenRouterAvailable = hostedManagedModelAvailable({
-        openRouterApiKey: hostedConfig.managedProviders.openRouterApiKey,
-        hostedModelsDisabled: hostedConfig.killSwitches.hostedModels,
-        planKey: billingAccount?.planKey,
-        planStatus: billingAccount?.planStatus,
+    const managedOpenRouterAvailable = await resolveHostedManagedModelAvailable({
+        env: input.env,
+        workspaceId: input.actor.workspaceId,
+        billingAccount,
+    }).catch((error) => {
+        console.warn('Hosted managed model availability lookup failed', {
+            workspaceId: input.actor.workspaceId,
+            roomId: input.roomId,
+            error,
+        })
+        return false
     })
     const codexAuth = await resolveHostedCodexStatus({
         env: input.env,

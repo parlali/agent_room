@@ -16,12 +16,11 @@ import {
     hostedRuntimeAccessDeniedMessage,
 } from './hosted-runtime-access'
 import { enqueueHostedRuntimeReconcile } from './hosted-runtime-jobs'
+import { releaseAuthorizedHostedBillingReservationsForRoom } from './hosted-billing-repository'
 import {
-    readHostedBillingAccount,
-    releaseAuthorizedHostedBillingReservationsForRoom,
-} from './hosted-billing-repository'
-import { resolveHostedConfig } from './hosted-config'
-import { hostedManagedModelAvailable } from './hosted-model-policy'
+    hostedManagedModelUnavailableMessage,
+    resolveHostedManagedModelAvailable,
+} from './hosted-model-policy'
 import {
     assertHostedProviderSelectionReady,
     type ProviderSelectionConfig,
@@ -600,20 +599,13 @@ async function resolveHostedRuntimeProviderAvailabilityForSelection(input: {
         workspaceId: input.workspaceId,
         providers,
     })
-    const hostedConfig = resolveHostedConfig(input.env)
-    const billingAccount = await readHostedBillingAccount({
+    const managedOpenRouterAvailable = await resolveHostedManagedModelAvailable({
         env: input.env,
         workspaceId: input.workspaceId,
     })
-    const managedOpenRouterAvailable = hostedManagedModelAvailable({
-        openRouterApiKey: hostedConfig.managedProviders.openRouterApiKey,
-        hostedModelsDisabled: hostedConfig.killSwitches.hostedModels,
-        planKey: billingAccount.planKey,
-        planStatus: billingAccount.planStatus,
-    })
     if (input.config.providerMode === 'managed_hosted') {
         if (input.requireSelectionReady && !managedOpenRouterAvailable) {
-            throw new Error('Hosted model access is not available for this workspace')
+            throw new Error(hostedManagedModelUnavailableMessage)
         }
         return {
             userKeyAvailable: false,

@@ -39,13 +39,12 @@ import {
 import { providerCatalog } from '../configuration/provider-config'
 import type { HostedActor } from './hosted-auth'
 import type { AgentRoomHostedEnv } from './bindings'
-import { readHostedBillingAccount } from './hosted-billing-repository'
-import { resolveHostedConfig } from './hosted-config'
 import {
-    hostedManagedModelAvailable,
     hostedManagedModelId,
     hostedManagedModelLabel,
+    hostedManagedModelUnavailableMessage,
     hostedManagedModelProvider,
+    resolveHostedManagedModelAvailable,
 } from './hosted-model-policy'
 import { readHostedSecretPlainText, upsertHostedSecret } from './hosted-secret-store'
 import { nowIso, parseJsonValue, stringifyJson, toDate } from './hosted-json'
@@ -415,7 +414,7 @@ export function resolveEffectiveProviderSummary(input: {
     if (input.config.providerMode === 'managed_hosted') {
         const blockedReasons = input.managedOpenRouterAvailable
             ? []
-            : ['Hosted model access is not available for this workspace']
+            : [hostedManagedModelUnavailableMessage]
         blockedReasons.push(
             ...hostedMcpBlockedReasons({
                 mcpConnections: input.mcpConnections,
@@ -717,22 +716,15 @@ export async function getHostedOperatorConfigSnapshot(input: {
         providers,
     })
     const readyProviders = listReadyProviders(providers, codexAuth)
-    const hostedConfig = resolveHostedConfig(input.env)
-    const billingAccount = await readHostedBillingAccount({
+    const managedOpenRouterAvailable = await resolveHostedManagedModelAvailable({
         env: input.env,
         workspaceId: input.actor.workspaceId,
     }).catch((error) => {
-        console.warn('Hosted billing account lookup failed while resolving operator config', {
+        console.warn('Hosted managed model availability lookup failed', {
             workspaceId: input.actor.workspaceId,
             error,
         })
-        return null
-    })
-    const managedOpenRouterAvailable = hostedManagedModelAvailable({
-        openRouterApiKey: hostedConfig.managedProviders.openRouterApiKey,
-        hostedModelsDisabled: hostedConfig.killSwitches.hostedModels,
-        planKey: billingAccount?.planKey,
-        planStatus: billingAccount?.planStatus,
+        return false
     })
     return {
         settings: summarizeHostedSettings(settings, input.env),

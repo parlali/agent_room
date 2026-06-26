@@ -45,10 +45,8 @@ import {
 import { resolveHostedCodexStatus } from './hosted-operator-config-service'
 import { resolveHostedMcpHeaders } from './hosted-mcp-header-secrets'
 import type { HostedProviderCandidate } from './hosted-provider-priority'
-import { readHostedBillingAccount } from './hosted-billing-repository'
-import { resolveHostedConfig } from './hosted-config'
 import {
-    hostedManagedModelAvailable,
+    assertHostedManagedModelAvailable,
     hostedManagedModelId,
     hostedManagedModelLabel,
     hostedManagedModelProvider,
@@ -164,26 +162,6 @@ export function assertHostedProviderSelectionReady(input: {
                     ? input.appConnectionMessage
                     : input.appDefaultMessage),
         )
-    }
-}
-
-async function assertHostedManagedModelAvailable(input: {
-    env: AgentRoomHostedEnv
-    workspaceId: string
-}): Promise<void> {
-    const hostedConfig = resolveHostedConfig(input.env)
-    const billingAccount = await readHostedBillingAccount({
-        env: input.env,
-        workspaceId: input.workspaceId,
-    })
-    const available = hostedManagedModelAvailable({
-        openRouterApiKey: hostedConfig.managedProviders.openRouterApiKey,
-        hostedModelsDisabled: hostedConfig.killSwitches.hostedModels,
-        planKey: billingAccount.planKey,
-        planStatus: billingAccount.planStatus,
-    })
-    if (!available) {
-        throw new Error('Hosted model access is not available for this workspace')
     }
 }
 

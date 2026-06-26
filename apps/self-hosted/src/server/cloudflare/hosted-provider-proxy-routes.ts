@@ -54,6 +54,32 @@ function cappedMaxTokens(value: unknown): number {
         : hostedManagedModelMaxOutputTokens
 }
 
+function hasOwnPayloadField(payload: Record<string, unknown>, key: string): boolean {
+    return Object.prototype.hasOwnProperty.call(payload, key)
+}
+
+function hostedOpenRouterProviderPayload(
+    payload: Record<string, unknown>,
+): Record<string, unknown> {
+    const next: Record<string, unknown> = {
+        ...payload,
+        model: hostedManagedModelId,
+        usage: {
+            ...objectRecord(payload.usage),
+            include: true,
+        },
+    }
+    if (hasOwnPayloadField(payload, 'max_completion_tokens')) {
+        next.max_completion_tokens = cappedMaxTokens(payload.max_completion_tokens)
+        if (hasOwnPayloadField(payload, 'max_tokens')) {
+            next.max_tokens = cappedMaxTokens(payload.max_tokens)
+        }
+        return next
+    }
+    next.max_tokens = cappedMaxTokens(payload.max_tokens)
+    return next
+}
+
 async function assertProviderQuotaOrResponse(input: {
     check: HostedQuotaCheckInput
     reservationId?: string | null
@@ -105,15 +131,7 @@ async function hostedOpenRouterProviderRequestBody(
         }
     }
     return {
-        body: JSON.stringify({
-            ...payload,
-            model: hostedManagedModelId,
-            max_tokens: cappedMaxTokens(payload.max_tokens),
-            usage: {
-                ...objectRecord(payload.usage),
-                include: true,
-            },
-        }),
+        body: JSON.stringify(hostedOpenRouterProviderPayload(payload)),
         model: typeof payload.model === 'string' ? payload.model : null,
     }
 }

@@ -812,6 +812,42 @@ describe('hosted runtime worker route security gates', () => {
         expect(mocks.releaseHostedBillingReservation).not.toHaveBeenCalled()
     })
 
+    it('caps managed OpenRouter max completion tokens without adding max_tokens', async () => {
+        const fetchMock = vi.fn(
+            async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) =>
+                new Response(
+                    JSON.stringify({
+                        id: 'completion_1',
+                        usage: {
+                            cost: 0.123456,
+                        },
+                    }),
+                ),
+        )
+        vi.stubGlobal('fetch', fetchMock)
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
+            headers: openRouterRuntimeHeaders(),
+            body: {
+                model: hostedManagedModelId,
+                messages: [],
+                max_completion_tokens: hostedManagedModelMaxOutputTokens + 1,
+            },
+        })
+
+        expect(response.status).toBe(200)
+        const providerInit = fetchMock.mock.calls[0]![1] as RequestInit
+        expect(JSON.parse(String(providerInit.body))).toMatchObject({
+            model: hostedManagedModelId,
+            max_completion_tokens: hostedManagedModelMaxOutputTokens,
+            usage: {
+                include: true,
+            },
+        })
+        expect(JSON.parse(String(providerInit.body))).not.toHaveProperty('max_tokens')
+    })
+
     it('does not return OpenRouter provider bodies when exact provider cost is missing', async () => {
         const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: 'completion_1' })))
         vi.stubGlobal('fetch', fetchMock)
