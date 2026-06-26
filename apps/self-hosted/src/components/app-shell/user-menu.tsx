@@ -1,15 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import {
-    BarChart3Icon,
-    CreditCardIcon,
-    LogOutIcon,
-    MonitorIcon,
-    MoonIcon,
-    SettingsIcon,
-    SunIcon,
-    UserIcon,
-} from 'lucide-react'
+import { InfoIcon, LogOutIcon, MonitorIcon, MoonIcon, SunIcon } from 'lucide-react'
 
 import { Button } from '#/components/ui/button'
 import {
@@ -21,13 +12,20 @@ import {
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu'
 import { ToggleGroup, ToggleGroupItem } from '#/components/ui/toggle-group'
+import { bottomTabClass } from '#/components/agent-room'
 import { logoutServer } from '#/routes/-auth-server'
 import type { AuthUserSnapshot } from '#/routes/-auth-server'
 import { initialsFromName } from '#/domain/format'
 import { roomQueryKey } from '#/lib/room-query-keys'
 import { useThemeMode } from '#/lib/theme'
 
-export function UserMenu({ user }: { user: AuthUserSnapshot | null }) {
+export function UserMenu({
+    user,
+    variant = 'rail',
+}: {
+    user: AuthUserSnapshot | null
+    variant?: 'rail' | 'tab'
+}) {
     const queryClient = useQueryClient()
     const navigate = useNavigate()
     const [themeMode, setThemeMode] = useThemeMode()
@@ -40,70 +38,42 @@ export function UserMenu({ user }: { user: AuthUserSnapshot | null }) {
         },
     })
 
-    if (!user) return null
-
-    const initials = initialsFromName(user.email.split('@')[0] ?? user.email, '··')
+    const email = user?.email ?? null
+    const initials = initialsFromName(email ? (email.split('@')[0] ?? email) : null, '··')
+    const roleLabel = user ? (user.role === 'root' ? 'Root operator' : 'Operator') : 'Account'
 
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <Button
-                    variant="ghost"
-                    className="h-9 w-full justify-start gap-2 px-2 hover:bg-sidebar-accent"
-                >
-                    <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-foreground text-[0.6875rem] font-semibold text-background">
-                        {initials}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-left text-xs text-muted-foreground">
-                        {user.email}
-                    </span>
-                </Button>
+                {variant === 'tab' ? (
+                    <button type="button" className={bottomTabClass(false)} aria-label="Account">
+                        <span className="flex size-5 items-center justify-center rounded-md bg-foreground text-[0.625rem] font-semibold text-background">
+                            {initials}
+                        </span>
+                        Account
+                    </button>
+                ) : (
+                    <Button
+                        variant="ghost"
+                        className="h-9 w-full justify-start gap-2 px-2 hover:bg-sidebar-accent"
+                    >
+                        <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-foreground text-[0.6875rem] font-semibold text-background">
+                            {initials}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-left text-xs text-muted-foreground">
+                            {email ?? 'Account'}
+                        </span>
+                    </Button>
+                )}
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" side="top" className="w-64 p-1.5">
                 <DropdownMenuLabel className="px-2 py-1.5">
-                    <div className="truncate text-sm font-medium">{user.email}</div>
+                    <div className="truncate text-sm font-medium">{email ?? 'Account'}</div>
                     <div className="mt-0.5 text-xs font-normal text-muted-foreground">
-                        {user.role === 'root' ? 'Root operator' : 'Operator'}
+                        {roleLabel}
                     </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                    className="h-8 px-2 text-sm"
-                    onSelect={() =>
-                        navigate({
-                            to: '/settings',
-                            search: {
-                                installationId: '',
-                                setupAction: '',
-                                githubState: '',
-                            },
-                        })
-                    }
-                >
-                    <SettingsIcon className="size-4" />
-                    Settings
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                    className="h-8 px-2 text-sm"
-                    onSelect={() => navigate({ to: '/usage' })}
-                >
-                    <BarChart3Icon className="size-4" />
-                    Usage & Activity
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                    className="h-8 px-2 text-sm"
-                    onSelect={() =>
-                        navigate({
-                            to: '/billing',
-                            search: {
-                                checkout: null,
-                            },
-                        })
-                    }
-                >
-                    <CreditCardIcon className="size-4" />
-                    Billing
-                </DropdownMenuItem>
                 <div className="px-2 py-1.5">
                     <div className="mb-1.5 text-xs font-medium text-muted-foreground">Theme</div>
                     <ToggleGroup
@@ -146,7 +116,7 @@ export function UserMenu({ user }: { user: AuthUserSnapshot | null }) {
                     className="h-8 px-2 text-sm"
                     onSelect={() => navigate({ to: '/about' })}
                 >
-                    <UserIcon className="size-4" />
+                    <InfoIcon className="size-4" />
                     About
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />

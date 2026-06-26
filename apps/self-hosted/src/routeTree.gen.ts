@@ -9,14 +9,10 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as UsageRouteImport } from './routes/usage'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as LoginRouteImport } from './routes/login'
-import { Route as JobsRouteImport } from './routes/jobs'
-import { Route as FilesRouteImport } from './routes/files'
 import { Route as BillingRouteImport } from './routes/billing'
-import { Route as ActivityRouteImport } from './routes/activity'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as RoomsRoomIdRouteImport } from './routes/rooms.$roomId'
@@ -34,11 +30,6 @@ import { Route as ApiRoomsRoomIdFilesUploadRouteImport } from './routes/api.room
 import { Route as ApiRoomsRoomIdFilesPreviewRouteImport } from './routes/api.rooms.$roomId.files.preview'
 import { Route as ApiRoomsRoomIdSessionsSessionKeyEventsRouteImport } from './routes/api.rooms.$roomId.sessions.$sessionKey.events'
 
-const UsageRoute = UsageRouteImport.update({
-  id: '/usage',
-  path: '/usage',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -54,24 +45,9 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const JobsRoute = JobsRouteImport.update({
-  id: '/jobs',
-  path: '/jobs',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const FilesRoute = FilesRouteImport.update({
-  id: '/files',
-  path: '/files',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const BillingRoute = BillingRouteImport.update({
   id: '/billing',
   path: '/billing',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ActivityRoute = ActivityRouteImport.update({
-  id: '/activity',
-  path: '/activity',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AboutRoute = AboutRouteImport.update({
@@ -162,14 +138,10 @@ const ApiRoomsRoomIdSessionsSessionKeyEventsRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/activity': typeof ActivityRoute
   '/billing': typeof BillingRoute
-  '/files': typeof FilesRoute
-  '/jobs': typeof JobsRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
-  '/usage': typeof UsageRoute
   '/rooms/$roomId': typeof RoomsRoomIdRouteWithChildren
   '/api/github/events': typeof ApiGithubEventsRoute
   '/github/app/callback': typeof GithubAppCallbackRoute
@@ -188,14 +160,10 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/activity': typeof ActivityRoute
   '/billing': typeof BillingRoute
-  '/files': typeof FilesRoute
-  '/jobs': typeof JobsRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
-  '/usage': typeof UsageRoute
   '/rooms/$roomId': typeof RoomsRoomIdRouteWithChildren
   '/api/github/events': typeof ApiGithubEventsRoute
   '/github/app/callback': typeof GithubAppCallbackRoute
@@ -215,14 +183,10 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
-  '/activity': typeof ActivityRoute
   '/billing': typeof BillingRoute
-  '/files': typeof FilesRoute
-  '/jobs': typeof JobsRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
-  '/usage': typeof UsageRoute
   '/rooms/$roomId': typeof RoomsRoomIdRouteWithChildren
   '/api/github/events': typeof ApiGithubEventsRoute
   '/github/app/callback': typeof GithubAppCallbackRoute
@@ -243,14 +207,10 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/about'
-    | '/activity'
     | '/billing'
-    | '/files'
-    | '/jobs'
     | '/login'
     | '/onboarding'
     | '/settings'
-    | '/usage'
     | '/rooms/$roomId'
     | '/api/github/events'
     | '/github/app/callback'
@@ -269,14 +229,10 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/about'
-    | '/activity'
     | '/billing'
-    | '/files'
-    | '/jobs'
     | '/login'
     | '/onboarding'
     | '/settings'
-    | '/usage'
     | '/rooms/$roomId'
     | '/api/github/events'
     | '/github/app/callback'
@@ -295,14 +251,10 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/about'
-    | '/activity'
     | '/billing'
-    | '/files'
-    | '/jobs'
     | '/login'
     | '/onboarding'
     | '/settings'
-    | '/usage'
     | '/rooms/$roomId'
     | '/api/github/events'
     | '/github/app/callback'
@@ -322,14 +274,10 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
-  ActivityRoute: typeof ActivityRoute
   BillingRoute: typeof BillingRoute
-  FilesRoute: typeof FilesRoute
-  JobsRoute: typeof JobsRoute
   LoginRoute: typeof LoginRoute
   OnboardingRoute: typeof OnboardingRoute
   SettingsRoute: typeof SettingsRoute
-  UsageRoute: typeof UsageRoute
   RoomsRoomIdRoute: typeof RoomsRoomIdRouteWithChildren
   ApiGithubEventsRoute: typeof ApiGithubEventsRoute
   GithubAppCallbackRoute: typeof GithubAppCallbackRoute
@@ -341,13 +289,6 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/usage': {
-      id: '/usage'
-      path: '/usage'
-      fullPath: '/usage'
-      preLoaderRoute: typeof UsageRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -369,32 +310,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/jobs': {
-      id: '/jobs'
-      path: '/jobs'
-      fullPath: '/jobs'
-      preLoaderRoute: typeof JobsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/files': {
-      id: '/files'
-      path: '/files'
-      fullPath: '/files'
-      preLoaderRoute: typeof FilesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/billing': {
       id: '/billing'
       path: '/billing'
       fullPath: '/billing'
       preLoaderRoute: typeof BillingRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/activity': {
-      id: '/activity'
-      path: '/activity'
-      fullPath: '/activity'
-      preLoaderRoute: typeof ActivityRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/about': {
@@ -539,14 +459,10 @@ const RoomsRoomIdRouteWithChildren = RoomsRoomIdRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
-  ActivityRoute: ActivityRoute,
   BillingRoute: BillingRoute,
-  FilesRoute: FilesRoute,
-  JobsRoute: JobsRoute,
   LoginRoute: LoginRoute,
   OnboardingRoute: OnboardingRoute,
   SettingsRoute: SettingsRoute,
-  UsageRoute: UsageRoute,
   RoomsRoomIdRoute: RoomsRoomIdRouteWithChildren,
   ApiGithubEventsRoute: ApiGithubEventsRoute,
   GithubAppCallbackRoute: GithubAppCallbackRoute,

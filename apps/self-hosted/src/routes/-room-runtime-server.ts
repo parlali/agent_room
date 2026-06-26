@@ -172,10 +172,6 @@ const clientPerformanceInputSchema = z.object({
     navigationType: z.string().max(80).nullable().optional(),
 })
 
-const usageInputSchema = z.object({
-    limit: z.number().int().positive().max(500).optional(),
-})
-
 const roomFilesInputSchema = z.object({
     roomId: roomIdSchema,
 })
@@ -639,13 +635,6 @@ export const listRoomUsageServer = createServerFn({ method: 'GET' })
     .handler(async ({ data }) => {
         const { listRoomUsageForRoute } = await loadRoomRuntimeRouteService()
         return listRoomUsageForRoute(data)
-    })
-
-export const listUsageServer = createServerFn({ method: 'GET' })
-    .inputValidator((input: unknown) => usageInputSchema.parse(input ?? {}))
-    .handler(async ({ data }) => {
-        const { listUsageForRoute } = await loadRoomRuntimeRouteService()
-        return listUsageForRoute(data)
     })
 
 export const listRoomFilesServer = createServerFn({ method: 'GET' })

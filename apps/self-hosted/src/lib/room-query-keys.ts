@@ -1,9 +1,9 @@
 export const roomQueryKey = {
     authUser: ['auth', 'current-user'] as const,
+    authSurface: ['auth-surface'] as const,
     operatorConfig: ['operator-config'] as const,
     roomsList: ['rooms', 'list'] as const,
     setupReadiness: ['rooms', 'setup-readiness'] as const,
-    globalUsage: (limit?: number) => ['usage', 'global', limit ?? 'default'] as const,
     githubInstallationRepositories: (installationId: string, search: string, page: number) =>
         ['github', 'installation-repositories', installationId, search, page] as const,
     roomExecution: (roomId: string) => ['rooms', roomId, 'execution'] as const,

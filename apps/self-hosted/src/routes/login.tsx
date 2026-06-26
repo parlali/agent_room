@@ -23,7 +23,7 @@ function LoginPage() {
     const navigate = useNavigate()
     const queryClient = useQueryClient()
     const surfaceQuery = useQuery({
-        queryKey: ['auth-surface'],
+        queryKey: roomQueryKey.authSurface,
         queryFn: () => authSurfaceServer(),
         retry: false,
     })
