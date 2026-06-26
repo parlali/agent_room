@@ -213,6 +213,72 @@ async function releaseBrowserbaseProviderSession(input: {
     }
 }
 
+async function cleanupBillingFailedBrowserbaseSession(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+    apiKey: string
+    browserbaseSessionId: string
+    usageRequestId: string
+}): Promise<void> {
+    try {
+        const releaseRequested = await requestHostedBrowserbaseSessionRelease({
+            env: input.env,
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            browserbaseSessionId: input.browserbaseSessionId,
+        })
+        if (!releaseRequested) {
+            console.error('Hosted Browserbase session release request failed after billing error', {
+                workspaceId: input.workspaceId,
+                roomId: input.roomId,
+                browserbaseSessionId: input.browserbaseSessionId,
+                usageRequestId: input.usageRequestId,
+            })
+        }
+    } catch (error) {
+        console.error('Hosted Browserbase session release request failed after billing error', {
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            browserbaseSessionId: input.browserbaseSessionId,
+            usageRequestId: input.usageRequestId,
+            error,
+        })
+    }
+    try {
+        await releaseBrowserbaseProviderSession({
+            apiKey: input.apiKey,
+            browserbaseSessionId: input.browserbaseSessionId,
+            timeoutMs: browserbaseCleanupTimeoutMs,
+        })
+    } catch (error) {
+        console.error('Hosted Browserbase session cleanup failed after billing error', {
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            browserbaseSessionId: input.browserbaseSessionId,
+            usageRequestId: input.usageRequestId,
+            error,
+        })
+        return
+    }
+    try {
+        await markHostedBrowserbaseSessionReleased({
+            env: input.env,
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            browserbaseSessionId: input.browserbaseSessionId,
+        })
+    } catch (error) {
+        console.error('Hosted Browserbase session release record failed after billing error', {
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            browserbaseSessionId: input.browserbaseSessionId,
+            usageRequestId: input.usageRequestId,
+            error,
+        })
+    }
+}
+
 async function assertNoPriorBrowserbaseSessionForUsageRequest(input: {
     env: AgentRoomHostedEnv
     workspaceId: string
@@ -378,6 +444,7 @@ export async function hostedBrowserbaseProxy(
 
     const accept = request.headers.get('accept')
     let response: Response
+    let createdBrowserbaseSessionId: string | null = null
     try {
         response = await fetchBrowserbaseProvider({
             apiKey,
@@ -473,6 +540,7 @@ export async function hostedBrowserbaseProxy(
                 },
             )
         }
+        createdBrowserbaseSessionId = browserbaseSessionId
     }
     if (providerRequest.action === 'release_session' && providerRequest.sessionId) {
         try {
@@ -524,6 +592,16 @@ export async function hostedBrowserbaseProxy(
             },
         })
         if (billingError) {
+            if (providerRequest.action === 'create_session' && createdBrowserbaseSessionId) {
+                await cleanupBillingFailedBrowserbaseSession({
+                    env,
+                    workspaceId: proxyPath.workspaceId,
+                    roomId: proxyPath.roomId,
+                    apiKey,
+                    browserbaseSessionId: createdBrowserbaseSessionId,
+                    usageRequestId: usageRequest.usageRequestId,
+                })
+            }
             return billingError
         }
     }

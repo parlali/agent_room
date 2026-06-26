@@ -1089,6 +1089,85 @@ describe('hosted runtime worker route security gates', () => {
         )
     })
 
+    it('releases and marks managed Browserbase sessions when settlement fails after creation', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const fetchMock = vi
+            .fn()
+            .mockResolvedValueOnce(
+                new Response(
+                    JSON.stringify({
+                        id: 'bb-session-settlement-failed',
+                        connectUrl: 'wss://connect.browserbase.com/session',
+                    }),
+                    {
+                        headers: {
+                            'content-type': 'application/json',
+                        },
+                    },
+                ),
+            )
+            .mockResolvedValueOnce(new Response('{}'))
+        vi.stubGlobal('fetch', fetchMock)
+        mocks.recordHostedProviderUsage.mockRejectedValue(new Error('settlement failed'))
+
+        try {
+            const response = await callRoute({
+                path: '/api/hosted/runtime/provider/browserbase/v1/workspaces/workspace_1/rooms/room_1/sessions',
+                headers: browserbaseRuntimeHeaders(),
+                token: null,
+                body: {
+                    keepAlive: true,
+                    browserSettings: {
+                        timeout: 120,
+                    },
+                },
+            })
+
+            await expectJsonCode(response, 502, 'provider_billing_settlement_failed')
+            expect(mocks.releaseHostedBillingReservation).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    workspaceId: 'workspace_1',
+                    reservationId: 'reservation_1',
+                }),
+            )
+            expect(mocks.recordHostedBrowserbaseSession).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    workspaceId: 'workspace_1',
+                    roomId: 'room_1',
+                    browserbaseSessionId: 'bb-session-settlement-failed',
+                    usageRequestId: 'usage-request-123456',
+                }),
+            )
+            expect(mocks.requestHostedBrowserbaseSessionRelease).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    workspaceId: 'workspace_1',
+                    roomId: 'room_1',
+                    browserbaseSessionId: 'bb-session-settlement-failed',
+                }),
+            )
+            expect(fetchMock).toHaveBeenCalledTimes(2)
+            const [releaseUrl, releaseInit] = fetchMock.mock.calls[1] as unknown as [
+                URL,
+                RequestInit,
+            ]
+            expect(releaseUrl.toString()).toBe(
+                'https://api.browserbase.com/v1/sessions/bb-session-settlement-failed',
+            )
+            expect(JSON.parse(String(releaseInit.body))).toEqual({
+                status: 'REQUEST_RELEASE',
+            })
+            expect(mocks.markHostedBrowserbaseSessionReleased).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    workspaceId: 'workspace_1',
+                    roomId: 'room_1',
+                    browserbaseSessionId: 'bb-session-settlement-failed',
+                }),
+            )
+        } finally {
+            errorSpy.mockRestore()
+        }
+    })
+
     it('blocks duplicate Browserbase session creation after a prior session record for the usage request', async () => {
         const fetchMock = vi.fn(async () => new Response('{}'))
         vi.stubGlobal('fetch', fetchMock)
