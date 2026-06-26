@@ -37,6 +37,8 @@ class FakeQuotaD1 {
     workspaceStorageBytes = 0
     roomStorageBytes = 0
     counters = new Map<string, number>()
+    beforeCounterWrite: (() => void) | null = null
+    forceCounterWriteMiss = false
     quotaEvents: QuotaEventRow[] = []
     auditEvents: AuditEventRow[] = []
     usageEvents: UsageEventRow[] = []
@@ -86,7 +88,7 @@ class FakeQuotaD1 {
 
     private async run(sql: string, args: unknown[]) {
         if (/INSERT INTO hosted_quota_counter/.test(sql)) {
-            return this.incrementCounter(args)
+            return this.incrementCounters(args)
         }
         if (/INSERT INTO hosted_quota_event/.test(sql)) {
             this.quotaEvents.push({
@@ -113,12 +115,10 @@ class FakeQuotaD1 {
         }
     }
 
-    private incrementCounter(args: unknown[]) {
-        const key = counterKey(args)
-        const amount = Number(args[4])
-        const limit = Number(args[6])
-        const current = this.counters.get(key) ?? 0
-        if (amount > limit || current + amount > limit) {
+    private incrementCounters(args: unknown[]) {
+        this.beforeCounterWrite?.()
+        this.beforeCounterWrite = null
+        if (this.forceCounterWriteMiss) {
             return {
                 success: true,
                 meta: {
@@ -127,19 +127,48 @@ class FakeQuotaD1 {
                 results: [],
             }
         }
-        this.counters.set(key, current + amount)
+        const next = new Map(this.counters)
+        for (let index = 0; index < args.length; index += 7) {
+            const key = counterKey(args, index)
+            const amount = Number(args[index + 4])
+            const limit = Number(args[index + 6])
+            const current = next.get(key) ?? 0
+            if (amount > limit || current + amount > limit) {
+                return {
+                    success: true,
+                    meta: {
+                        changes: 0,
+                    },
+                    results: [],
+                }
+            }
+            next.set(key, current + amount)
+        }
+        this.counters = next
         return {
             success: true,
             meta: {
-                changes: 1,
+                changes: args.length / 7,
             },
             results: [],
         }
     }
 }
 
-function counterKey(args: unknown[]): string {
-    return [args[0], args[1], args[2], args[3]].map(String).join('\u0000')
+function counterKey(args: unknown[], offset = 0): string {
+    return [args[offset], args[offset + 1], args[offset + 2], args[offset + 3]]
+        .map(String)
+        .join('\u0000')
+}
+
+function runStartCounterKey(input: {
+    scope: 'workspace' | 'room' | 'ip'
+    scopeId: string
+    now: Date
+}): string {
+    return [input.scope, input.scopeId, `${input.now.toISOString().slice(0, 16)}Z`, 'run_starts']
+        .map(String)
+        .join('\u0000')
 }
 
 function quotaEnv(
@@ -243,6 +272,69 @@ describe('hosted abuse controls', () => {
         expect(error.decision.reason).toBe('scope_rate_limited')
         expect(error.decision.scope).toBe('workspace')
         expect(error.decision.current).toBe(1)
+    })
+
+    it('does not consume partial counters when a concurrent scope wins the quota race', async () => {
+        const db = new FakeQuotaD1()
+        db.policy = {
+            status: 'active',
+            limits: JSON.stringify({
+                maxWorkspaceRunStartsPerMinute: 10,
+                maxRoomRunStartsPerMinute: 1,
+            }),
+            restrictions: '{}',
+        }
+        const env = quotaEnv(db)
+        const now = new Date('2026-01-01T00:00:30.000Z')
+        const workspaceKey = runStartCounterKey({
+            scope: 'workspace',
+            scopeId: 'workspace_1',
+            now,
+        })
+        const roomKey = runStartCounterKey({
+            scope: 'room',
+            scopeId: 'room_1',
+            now,
+        })
+        db.beforeCounterWrite = () => {
+            db.counters.set(roomKey, 1)
+        }
+
+        const error = await expectDenied(() =>
+            assertHostedQuotaAllowed({
+                env,
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                action: 'run_start',
+                amount: {
+                    count: 1,
+                },
+                now,
+            }),
+        )
+
+        expect(error.decision.reason).toBe('scope_rate_limited')
+        expect(error.decision.scope).toBe('room')
+        expect(db.counters.get(roomKey)).toBe(1)
+        expect(db.counters.get(workspaceKey) ?? 0).toBe(0)
+    })
+
+    it('fails closed when counter consumption does not report a committed rule set', async () => {
+        const db = new FakeQuotaD1()
+        db.forceCounterWriteMiss = true
+        const env = quotaEnv(db)
+
+        const error = await expectDenied(() =>
+            assertHostedQuotaAllowed({
+                env,
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                action: 'run_start',
+            }),
+        )
+
+        expect(error.decision.reason).toBe('quota_unavailable')
+        expect(db.counters.size).toBe(0)
     })
 
     it('denies Browserbase session starts at active workspace concurrency cap', async () => {

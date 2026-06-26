@@ -31,8 +31,12 @@ export async function assertHostedRuntimeQuota(input: {
     const token = process.env[hostedRuntimeUsageCallbackTokenEnvKey] ?? null
     const workspaceId = process.env[hostedRuntimeWorkspaceIdEnvKey] ?? null
     const roomId = process.env[hostedRuntimeRoomIdEnvKey] ?? null
-    if (!url || !token || !workspaceId || !roomId) {
+    const configured = [url, token, workspaceId, roomId].filter(Boolean).length
+    if (configured === 0) {
         return
+    }
+    if (configured < 4 || !url || !token || !workspaceId || !roomId) {
+        throw new Error('Hosted quota runtime configuration is incomplete')
     }
     const context = currentToolRunContext()
     const response = await fetch(url, {
