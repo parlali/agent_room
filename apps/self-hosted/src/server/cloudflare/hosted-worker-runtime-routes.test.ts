@@ -4,6 +4,7 @@ import {
     hostedRuntimeWorkerRoute,
     runtimeUsageIdempotencyKey,
 } from './hosted-worker-runtime-routes'
+import { HostedBillingBalanceExhaustedError } from './hosted-billing-types'
 
 const mocks = vi.hoisted(() => ({
     HostedBillingReservationAlreadyExistsError: class HostedBillingReservationAlreadyExistsError extends Error {
@@ -918,7 +919,7 @@ describe('hosted runtime worker route security gates', () => {
         const fetchMock = vi.fn(async () => new Response('{}'))
         vi.stubGlobal('fetch', fetchMock)
         mocks.authorizeHostedBillingReservation.mockRejectedValue(
-            new Error('Hosted billing balance is exhausted'),
+            new HostedBillingBalanceExhaustedError(),
         )
 
         const response = await callRoute({
@@ -931,6 +932,37 @@ describe('hosted runtime worker route security gates', () => {
         await expectJsonCode(response, 402, 'hosted_billing_balance_exhausted')
         expect(fetchMock).not.toHaveBeenCalled()
         expect(mocks.recordHostedProviderUsage).not.toHaveBeenCalled()
+    })
+
+    it('fails managed Brave proxy reservations closed without misclassifying infrastructure errors as exhausted balance', async () => {
+        const fetchMock = vi.fn(async () => new Response('{}'))
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        vi.stubGlobal('fetch', fetchMock)
+        mocks.authorizeHostedBillingReservation.mockRejectedValue(new Error('D1 unavailable'))
+
+        try {
+            const response = await callRoute({
+                method: 'GET',
+                path: '/api/hosted/runtime/provider/brave/v1/workspaces/workspace_1/rooms/room_1/res/v1/web/search?q=agent',
+                headers: braveRuntimeHeaders(),
+                token: null,
+            })
+
+            await expectJsonCode(response, 502, 'provider_billing_reservation_failed')
+            expect(fetchMock).not.toHaveBeenCalled()
+            expect(mocks.recordHostedProviderUsage).not.toHaveBeenCalled()
+            expect(errorSpy).toHaveBeenCalledWith(
+                'Hosted provider preflight reservation failed',
+                expect.objectContaining({
+                    workspaceId: 'workspace_1',
+                    roomId: 'room_1',
+                    provider: 'brave',
+                    usageRequestId: 'usage-request-123456',
+                }),
+            )
+        } finally {
+            errorSpy.mockRestore()
+        }
     })
 
     it('releases managed Brave reservations when the provider rejects the request', async () => {

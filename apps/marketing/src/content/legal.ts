@@ -4,7 +4,7 @@ export const terms: LegalDocument = {
     title: 'Terms of Service',
     summary:
         'These terms cover the hosted Agent Room service while it is in early access. They are written in plain English so you can understand what you are agreeing to before you rely on the product.',
-    updated: 'June 9, 2026',
+    updated: 'June 25, 2026',
     sections: [
         {
             heading: 'Hosted service and acceptance',
@@ -75,7 +75,7 @@ export const terms: LegalDocument = {
             heading: 'Limitation of liability',
             body: [
                 'To the maximum extent permitted by law, the hosted service is provided on an as-is and as-available basis without warranties of any kind, and we are not liable for indirect, incidental, special, consequential, or punitive damages, or for loss of data, profits, or business arising from your use of the service or from AI output.',
-                'Because the service is in early access and currently provided without charge, our aggregate liability is limited to the greatest extent permitted by applicable law. Some jurisdictions do not allow certain limitations, so some of these limitations may not apply to you.',
+                'Our aggregate liability for paid hosted service claims is limited to the amount you paid us for the hosted service in the three months before the claim, and otherwise limited to the greatest extent permitted by applicable law. Some jurisdictions do not allow certain limitations, so some of these limitations may not apply to you.',
             ],
         },
         {

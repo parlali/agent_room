@@ -119,12 +119,16 @@ export function Pricing() {
                     <table className="w-full min-w-[760px] border-separate border-spacing-0 overflow-hidden rounded-panel border border-line bg-panel text-left text-sm shadow-panel">
                         <thead>
                             <tr>
-                                <th className="border-b border-line bg-paper-sunken px-5 py-4 font-medium text-ink-soft">
+                                <th
+                                    scope="col"
+                                    className="border-b border-line bg-paper-sunken px-5 py-4 font-medium text-ink-soft"
+                                >
                                     Feature
                                 </th>
                                 {pricingPlans.map((plan) => (
                                     <th
                                         key={plan.key}
+                                        scope="col"
                                         className="border-b border-line bg-paper-sunken px-5 py-4 font-semibold text-ink"
                                     >
                                         {plan.name}
@@ -135,9 +139,12 @@ export function Pricing() {
                         <tbody>
                             {pricingFeatureRows.map((row) => (
                                 <tr key={row.label}>
-                                    <td className="border-b border-line px-5 py-4 font-medium text-ink">
+                                    <th
+                                        scope="row"
+                                        className="border-b border-line px-5 py-4 text-left font-medium text-ink"
+                                    >
                                         {row.label}
-                                    </td>
+                                    </th>
                                     {pricingPlans.map((plan) => (
                                         <td
                                             key={plan.key}

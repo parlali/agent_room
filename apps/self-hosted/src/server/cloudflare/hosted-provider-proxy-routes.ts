@@ -7,7 +7,6 @@ import {
 import {
     authorizeHostedBillingReservation,
     ensureHostedBillingAccount,
-    HostedBillingReservationAlreadyExistsError,
     findHostedBillingReservationByIdempotencyKey,
     readHostedProviderUsageSettlementByIdempotencyKey,
 } from './hosted-billing-repository'
@@ -20,6 +19,7 @@ import {
 } from './hosted-provider-proxy'
 import {
     hostedFixedCostReservationCents,
+    hostedProviderReservationFailureResponse,
     hostedProviderProxyUsageRequest,
     hostedProviderResponseHeaders,
     releaseHostedProviderPreflightReservation,
@@ -280,28 +280,14 @@ export async function hostedOpenRouterProxy(
         })
         reservationId = reservation.id
     } catch (error) {
-        if (error instanceof HostedBillingReservationAlreadyExistsError) {
-            return hostedJsonResponse(
-                {
-                    ok: false,
-                    code: 'runtime_usage_request_already_in_flight',
-                },
-                {
-                    status: 409,
-                },
-            )
-        }
-        return hostedJsonResponse(
-            {
-                ok: false,
-                code: 'hosted_billing_balance_exhausted',
-                message:
-                    error instanceof Error ? error.message : 'Hosted billing balance is exhausted',
-            },
-            {
-                status: 402,
-            },
-        )
+        return hostedProviderReservationFailureResponse({
+            error,
+            workspaceId: proxyPath.workspaceId,
+            roomId: proxyPath.roomId,
+            provider: 'openrouter',
+            targetPath: proxyPath.targetPath,
+            usageRequestId,
+        })
     }
 
     const headers = new Headers()
@@ -566,28 +552,14 @@ export async function hostedBraveProxy(
         })
         reservationId = reservation.id
     } catch (error) {
-        if (error instanceof HostedBillingReservationAlreadyExistsError) {
-            return hostedJsonResponse(
-                {
-                    ok: false,
-                    code: 'runtime_usage_request_already_in_flight',
-                },
-                {
-                    status: 409,
-                },
-            )
-        }
-        return hostedJsonResponse(
-            {
-                ok: false,
-                code: 'hosted_billing_balance_exhausted',
-                message:
-                    error instanceof Error ? error.message : 'Hosted billing balance is exhausted',
-            },
-            {
-                status: 402,
-            },
-        )
+        return hostedProviderReservationFailureResponse({
+            error,
+            workspaceId: proxyPath.workspaceId,
+            roomId: proxyPath.roomId,
+            provider: 'brave',
+            targetPath: proxyPath.targetPath,
+            usageRequestId,
+        })
     }
 
     const headers = new Headers()

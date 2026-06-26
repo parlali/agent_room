@@ -49,6 +49,13 @@ export type HostedUsageBillingStatus = (typeof hostedUsageBillingStatuses)[numbe
 export type HostedBillingReservationStatus = (typeof hostedBillingReservationStatuses)[number]
 export type HostedBillingReservationProvider = (typeof hostedBillingReservationProviders)[number]
 
+export class HostedBillingBalanceExhaustedError extends Error {
+    constructor() {
+        super('Hosted billing balance is exhausted')
+        this.name = 'HostedBillingBalanceExhaustedError'
+    }
+}
+
 export interface HostedBillingAccountSnapshot {
     workspaceId: string
     stripeCustomerId: string | null

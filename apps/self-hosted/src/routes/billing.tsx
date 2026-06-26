@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { hostedBillingCatalog } from '@agent-room/billing'
+import { formatHostedUsd, hostedBillingCatalog } from '@agent-room/billing'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
     CreditCardIcon,
@@ -94,13 +94,6 @@ export const Route = createFileRoute('/billing')({
     }),
     component: BillingPage,
 })
-
-function formatUsd(cents: number): string {
-    return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-    }).format(cents / 100)
-}
 
 function BillingPage() {
     const search = Route.useSearch()
@@ -264,24 +257,26 @@ function BillingPage() {
                     <BillingMetric
                         icon={GaugeIcon}
                         label="Available usage"
-                        value={hosted ? formatUsd(hosted.remainingUsageCents) : 'Not connected'}
+                        value={
+                            hosted ? formatHostedUsd(hosted.remainingUsageCents) : 'Not connected'
+                        }
                     />
                     {hosted ? (
                         <div className="mt-3 grid gap-2 sm:grid-cols-3">
                             <BillingMetric
                                 icon={WalletCardsIcon}
                                 label="Included"
-                                value={formatUsd(hosted.account.includedBalanceCents)}
+                                value={formatHostedUsd(hosted.account.includedBalanceCents)}
                             />
                             <BillingMetric
                                 icon={CreditCardIcon}
                                 label="Purchased"
-                                value={formatUsd(hosted.account.purchasedBalanceCents)}
+                                value={formatHostedUsd(hosted.account.purchasedBalanceCents)}
                             />
                             <BillingMetric
                                 icon={ShieldCheckIcon}
                                 label="Reserved"
-                                value={formatUsd(hosted.account.reservedBalanceCents)}
+                                value={formatHostedUsd(hosted.account.reservedBalanceCents)}
                             />
                         </div>
                     ) : null}
@@ -390,7 +385,7 @@ function BillingPage() {
                                         </div>
                                     </div>
                                     <div className="font-medium">
-                                        {formatUsd(Math.ceil(event.costMicros / 10000))}
+                                        {formatHostedUsd(Math.ceil(event.costMicros / 10000))}
                                     </div>
                                 </div>
                             ))}
@@ -421,7 +416,7 @@ function PlanCard({
 }) {
     const includedLabel =
         plan.includedCents > 0
-            ? `${formatUsd(plan.includedCents)} included usage / month`
+            ? `${formatHostedUsd(plan.includedCents)} included usage / month`
             : 'No included managed usage'
     return (
         <div className="flex flex-col rounded-lg border border-border/70 bg-background p-4">
@@ -432,7 +427,7 @@ function PlanCard({
                 </Badge>
             </div>
             <div className="mt-2 text-2xl font-semibold tracking-tight">
-                {formatUsd(plan.monthlyCents)}
+                {formatHostedUsd(plan.monthlyCents)}
                 <span className="text-sm font-normal text-muted-foreground"> / month</span>
             </div>
             <div className="mt-1 text-xs font-medium text-muted-foreground">{includedLabel}</div>

@@ -151,7 +151,14 @@ export async function getHostedRoomConfigSnapshot(input: {
     const billingAccount = await readHostedBillingAccount({
         env: input.env,
         workspaceId: input.actor.workspaceId,
-    }).catch(() => null)
+    }).catch((error) => {
+        console.warn('Hosted billing account lookup failed while resolving room config', {
+            workspaceId: input.actor.workspaceId,
+            roomId: input.roomId,
+            error,
+        })
+        return null
+    })
     const managedBrowserbaseAvailable = Boolean(
         hostedConfig.managedProviders.browserbaseApiKey &&
         billingAccount &&

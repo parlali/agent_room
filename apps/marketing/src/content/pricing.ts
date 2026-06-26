@@ -27,63 +27,50 @@ export const pricingPlans = hostedBillingCatalog.plans.map((plan) => ({
     ].filter((feature): feature is string => feature !== null),
 }))
 
+type PricingPlanKey = (typeof hostedBillingCatalog.plans)[number]['key']
+
+function valuesByPlan(
+    valueForPlan: (plan: (typeof hostedBillingCatalog.plans)[number]) => string,
+): Record<PricingPlanKey, string> {
+    return Object.fromEntries(
+        hostedBillingCatalog.plans.map((plan) => [plan.key, valueForPlan(plan)]),
+    ) as Record<PricingPlanKey, string>
+}
+
+function managedCreditValue(enabled: boolean): string {
+    return enabled ? 'Credits' : 'Not included'
+}
+
 export const pricingFeatureRows = [
     {
         label: 'Hosted runtime isolation',
-        values: {
-            starter: 'Included',
-            standard: 'Included',
-            pro: 'Included',
-        },
+        values: valuesByPlan(() => 'Included'),
     },
     {
         label: 'Bring your own keys',
-        values: {
-            starter: 'Models, Brave, Browserbase',
-            standard: 'Models, Brave, Browserbase',
-            pro: 'Models, Brave, Browserbase',
-        },
+        values: valuesByPlan(() => 'Models, Brave, Browserbase'),
     },
     {
         label: 'Managed OpenRouter fallback',
-        values: {
-            starter: 'Credits',
-            standard: 'Credits',
-            pro: 'Credits',
-        },
+        values: valuesByPlan((plan) => managedCreditValue(plan.managedOpenRouter)),
     },
     {
         label: 'Managed Brave search fallback',
-        values: {
-            starter: 'Credits',
-            standard: 'Credits',
-            pro: 'Credits',
-        },
+        values: valuesByPlan((plan) => managedCreditValue(plan.managedBrave)),
     },
     {
         label: 'Managed fetch_url proxy',
-        values: {
-            starter: 'Credits',
-            standard: 'Credits',
-            pro: 'Credits',
-        },
+        values: valuesByPlan((plan) => managedCreditValue(plan.managedFetchUrl)),
     },
     {
         label: 'Managed Browserbase',
-        values: {
-            starter: 'BYOK only',
-            standard: 'BYOK only',
-            pro: 'Credits',
-        },
+        values: valuesByPlan((plan) => (plan.managedBrowserbase ? 'Credits' : 'BYOK only')),
     },
     {
         label: 'Included managed usage',
-        values: Object.fromEntries(
-            hostedBillingCatalog.plans.map((plan) => [
-                plan.key,
-                plan.includedCents > 0 ? formatHostedUsd(plan.includedCents) : 'None',
-            ]),
-        ) as Record<(typeof hostedBillingCatalog.plans)[number]['key'], string>,
+        values: valuesByPlan((plan) =>
+            plan.includedCents > 0 ? formatHostedUsd(plan.includedCents) : 'None',
+        ),
     },
 ]
 

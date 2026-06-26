@@ -1,4 +1,4 @@
-PRAGMA foreign_keys = OFF;
+PRAGMA defer_foreign_keys = ON;
 
 DROP TABLE IF EXISTS hosted_billing_ledger_entry_migrated;
 DROP TABLE IF EXISTS hosted_billing_reservation_migrated;
@@ -259,4 +259,4 @@ BEGIN
       AND usage_event_id = OLD.id;
 END;
 
-PRAGMA foreign_keys = ON;
+PRAGMA defer_foreign_keys = OFF;

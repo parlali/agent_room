@@ -13,6 +13,7 @@ import {
 import {
     applyUsageMarkupMicros,
     centsFromMicrosCeil,
+    HostedBillingBalanceExhaustedError,
     hostedBillingLedgerSourceForProvider,
     hostedProviderBillingGateCents,
     type HostedBillingReservationProvider,
@@ -61,7 +62,7 @@ export async function assertHostedProviderCreditsAvailable(input: {
     })
     const account = await readHostedBillingAccount(input)
     if (account.availableBalanceCents < hostedProviderBillingGateCents) {
-        throw new Error('Hosted billing balance is exhausted')
+        throw new HostedBillingBalanceExhaustedError()
     }
 }
 

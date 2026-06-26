@@ -2,6 +2,7 @@ import type { AgentRoomHostedEnv } from './bindings'
 import {
     assertPositiveCents,
     bucketForCreditSource,
+    HostedBillingBalanceExhaustedError,
     type HostedBillingCreditSource,
     type HostedBillingLedgerEntry,
     type HostedBillingLedgerSource,
@@ -376,7 +377,7 @@ export async function debitHostedBalance(input: {
                 workspaceId: input.workspaceId,
                 usageEventId: input.usageEventId,
             })
-            throw new Error('Hosted billing balance is exhausted')
+            throw new HostedBillingBalanceExhaustedError()
         }
         const includedDrawn = Math.min(includedSpendable, input.amountCents)
         const purchasedDrawn = input.amountCents - includedDrawn

@@ -466,17 +466,31 @@ describe('hosted D1 schema contract', () => {
     it('migrates existing billing enum constraints for managed web usage without writable schema', async () => {
         const db = createClient({ url: 'file::memory:' })
         try {
-            const oldControlPlaneMigration = readHostedMigrationFile(
-                '0001_hosted_control_plane.sql',
-            ).replace(", 'hosted_browserbase_usage', 'hosted_fetch_url_usage'", '')
-            const oldReservationMigration = readHostedMigrationFile(
+            const controlPlaneMigration = readHostedMigrationFile('0001_hosted_control_plane.sql')
+            const reservationMigration = readHostedMigrationFile(
                 '0003_hosted_billing_reservations.sql',
-            ).replace(", 'browserbase', 'fetch_url'", '')
+            )
+            expect(controlPlaneMigration).toContain(
+                ", 'hosted_browserbase_usage', 'hosted_fetch_url_usage'",
+            )
+            expect(reservationMigration).toContain(", 'browserbase', 'fetch_url'")
+            const oldControlPlaneMigration = controlPlaneMigration.replace(
+                ", 'hosted_browserbase_usage', 'hosted_fetch_url_usage'",
+                '',
+            )
+            const oldReservationMigration = reservationMigration.replace(
+                ", 'browserbase', 'fetch_url'",
+                '',
+            )
             const managedWebMigration = readHostedMigrationFile(
                 '0004_hosted_managed_web_billing.sql',
             )
 
             expect(managedWebMigration).not.toMatch(/writable_schema/i)
+            expect(managedWebMigration).not.toMatch(/PRAGMA\s+foreign_keys/i)
+            expect(managedWebMigration).toMatch(/PRAGMA\s+defer_foreign_keys\s*=\s*ON/i)
+            expect(oldControlPlaneMigration).not.toContain('hosted_browserbase_usage')
+            expect(oldReservationMigration).not.toContain("'fetch_url'")
 
             await db.executeMultiple(oldControlPlaneMigration)
             await db.executeMultiple(readHostedMigrationFile('0002_hosted_runtime_execution.sql'))

@@ -2,6 +2,7 @@ import type { AgentRoomHostedEnv } from './bindings'
 import {
     applyUsageMarkupMicros,
     centsFromMicrosCeil,
+    HostedBillingBalanceExhaustedError,
     type HostedBillingReservationProvider,
 } from './hosted-billing-types'
 import {
@@ -157,6 +158,56 @@ export function hostedFixedCostReservationCents(input: {
     return centsFromMicrosCeil(applyUsageMarkupMicros(input.costMicros, input.usageMarkupBps))
 }
 
+export function hostedProviderReservationFailureResponse(input: {
+    error: unknown
+    workspaceId: string
+    roomId: string
+    provider: HostedBillingReservationProvider
+    targetPath: string | null
+    usageRequestId: string
+}): Response {
+    if (input.error instanceof HostedBillingReservationAlreadyExistsError) {
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'runtime_usage_request_already_in_flight',
+            },
+            {
+                status: 409,
+            },
+        )
+    }
+    if (input.error instanceof HostedBillingBalanceExhaustedError) {
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'hosted_billing_balance_exhausted',
+                message: input.error.message,
+            },
+            {
+                status: 402,
+            },
+        )
+    }
+    console.error('Hosted provider preflight reservation failed', {
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+        provider: input.provider,
+        targetPath: input.targetPath,
+        usageRequestId: input.usageRequestId,
+        error: input.error,
+    })
+    return hostedJsonResponse(
+        {
+            ok: false,
+            code: 'provider_billing_reservation_failed',
+        },
+        {
+            status: 502,
+        },
+    )
+}
+
 export async function authorizeFixedProviderReservation(input: {
     env: AgentRoomHostedEnv
     workspaceId: string
@@ -192,28 +243,14 @@ export async function authorizeFixedProviderReservation(input: {
         })
         return reservation.id
     } catch (error) {
-        if (error instanceof HostedBillingReservationAlreadyExistsError) {
-            return hostedJsonResponse(
-                {
-                    ok: false,
-                    code: 'runtime_usage_request_already_in_flight',
-                },
-                {
-                    status: 409,
-                },
-            )
-        }
-        return hostedJsonResponse(
-            {
-                ok: false,
-                code: 'hosted_billing_balance_exhausted',
-                message:
-                    error instanceof Error ? error.message : 'Hosted billing balance is exhausted',
-            },
-            {
-                status: 402,
-            },
-        )
+        return hostedProviderReservationFailureResponse({
+            error,
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            provider: input.provider,
+            targetPath: input.targetPath,
+            usageRequestId: input.usageRequestId,
+        })
     }
 }
 
@@ -262,7 +299,16 @@ export async function recordFixedProviderUsage(input: {
             idempotencyKey: input.idempotencyKey,
         })
         return null
-    } catch {
+    } catch (error) {
+        console.error('Hosted provider usage settlement failed', {
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            provider: input.provider,
+            targetPath: input.targetPath,
+            reservationId: input.reservationId,
+            usageRequestId: input.usageRequestId,
+            error,
+        })
         await releaseHostedProviderSettlementFailureReservation({
             env: input.env,
             workspaceId: input.workspaceId,

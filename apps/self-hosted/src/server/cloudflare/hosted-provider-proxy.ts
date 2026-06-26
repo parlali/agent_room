@@ -23,15 +23,11 @@ export interface HostedManagedFetchPath {
 
 function makeHostedProxyPathHelpers(
     prefix: string,
-    allowedPaths: Set<string>,
+    targetPath: (suffix: string) => string | null,
 ): {
     targetPath: (suffix: string) => string | null
     parse: (pathname: string) => HostedProxyPath | null
 } {
-    const targetPath = (suffix: string): string | null => {
-        const path = suffix.startsWith('/') ? suffix : `/${suffix}`
-        return allowedPaths.has(path) ? path : null
-    }
     const parse = (pathname: string): HostedProxyPath | null => {
         if (!pathname.startsWith(prefix)) {
             return null
@@ -54,13 +50,20 @@ function makeHostedProxyPathHelpers(
     return { targetPath, parse }
 }
 
+function targetPathFromAllowedPaths(allowedPaths: Set<string>): (suffix: string) => string | null {
+    return (suffix: string): string | null => {
+        const path = suffix.startsWith('/') ? suffix : `/${suffix}`
+        return allowedPaths.has(path) ? path : null
+    }
+}
+
 const hostedOpenRouterProxyPathHelpers = makeHostedProxyPathHelpers(
     hostedOpenRouterProxyPathPrefix,
-    hostedOpenRouterProxyAllowedPaths,
+    targetPathFromAllowedPaths(hostedOpenRouterProxyAllowedPaths),
 )
 const hostedBraveProxyPathHelpers = makeHostedProxyPathHelpers(
     hostedBraveProxyPathPrefix,
-    hostedBraveProxyAllowedPaths,
+    targetPathFromAllowedPaths(hostedBraveProxyAllowedPaths),
 )
 
 function browserbaseTargetPath(suffix: string): string | null {
@@ -74,25 +77,10 @@ function browserbaseTargetPath(suffix: string): string | null {
     return null
 }
 
-function parseHostedBrowserbaseProxyPath(pathname: string): HostedBrowserbaseProxyPath | null {
-    if (!pathname.startsWith(hostedBrowserbaseProxyPathPrefix)) {
-        return null
-    }
-    const suffix = pathname.slice(hostedBrowserbaseProxyPathPrefix.length)
-    const match = suffix.match(/^\/workspaces\/([^/]+)\/rooms\/([^/]+)(\/.*)$/)
-    if (!match) {
-        return null
-    }
-    const resolved = browserbaseTargetPath(match[3]!)
-    if (!resolved) {
-        return null
-    }
-    return {
-        workspaceId: decodeURIComponent(match[1]!),
-        roomId: decodeURIComponent(match[2]!),
-        targetPath: resolved,
-    }
-}
+const hostedBrowserbaseProxyPathHelpers = makeHostedProxyPathHelpers(
+    hostedBrowserbaseProxyPathPrefix,
+    browserbaseTargetPath,
+)
 
 export function parseHostedManagedFetchPath(pathname: string): HostedManagedFetchPath | null {
     if (!pathname.startsWith(hostedManagedFetchPathPrefix)) {
@@ -147,12 +135,10 @@ export function hostedManagedFetchProxyUrl(input: {
 
 export const hostedOpenRouterProxyTargetPath = hostedOpenRouterProxyPathHelpers.targetPath
 export const hostedBraveProxyTargetPath = hostedBraveProxyPathHelpers.targetPath
+export const hostedBrowserbaseProxyTargetPath = hostedBrowserbaseProxyPathHelpers.targetPath
 export const parseHostedOpenRouterProxyPath = hostedOpenRouterProxyPathHelpers.parse
 export const parseHostedBraveProxyPath = hostedBraveProxyPathHelpers.parse
-export {
-    browserbaseTargetPath as hostedBrowserbaseProxyTargetPath,
-    parseHostedBrowserbaseProxyPath,
-}
+export const parseHostedBrowserbaseProxyPath = hostedBrowserbaseProxyPathHelpers.parse
 
 function openRouterCostDollars(value: unknown): number | null {
     const numeric =

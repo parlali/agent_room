@@ -57,7 +57,7 @@ export const hostedSearchDefaults = {
 
 export function normalizeHostedSearchBackendUrl(value: string): string {
     const normalized = value.trim().replace(/\/$/, '')
-    if (normalized && normalized !== 'http://searxng:8080') {
+    if (normalized) {
         throw new Error('Hosted SearXNG search backend is disabled')
     }
     return ''

@@ -139,7 +139,11 @@ export async function fetchPublicTextUrl(input: {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), input.timeoutMs)
     timeout.unref?.()
-    input.signal?.addEventListener('abort', () => controller.abort(), { once: true })
+    const abort = () => controller.abort()
+    input.signal?.addEventListener('abort', abort, { once: true })
+    if (input.signal?.aborted) {
+        abort()
+    }
 
     try {
         let response: Response | null = null
@@ -185,6 +189,7 @@ export async function fetchPublicTextUrl(input: {
             truncated: body.truncated || bounded.truncated,
         }
     } finally {
+        input.signal?.removeEventListener('abort', abort)
         clearTimeout(timeout)
     }
 }
