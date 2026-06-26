@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import { PDFDocument } from 'pdf-lib'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
-import { createRoomTools, roomToolNamesForCapabilities } from './room-tools'
+import { createNativeWorkspaceTools } from './native-workspace-tools'
+import {
+    createRoomTools,
+    nativeWorkspaceToolNamesForCapabilities,
+    roomToolNamesForCapabilities,
+} from './room-tools'
 import { createDocumentTools } from './document-tools'
 import {
     createTestPiRuntimeConfig,
@@ -105,6 +110,57 @@ function resultDetails(result: Awaited<ReturnType<typeof executeRoomTool>>['resu
 }
 
 describe('room Pi tools', () => {
+    it('keeps exported tool-name contracts aligned with registered tools', async () => {
+        await withRoom(async (config) => {
+            const disabledShellConfig: PiRuntimeConfig = {
+                ...config,
+                capabilities: {
+                    ...config.capabilities,
+                    shellCoding: false,
+                },
+            }
+            const programmerConfig: PiRuntimeConfig = {
+                ...config,
+                roomMode: 'programmer',
+            }
+
+            expect(
+                createNativeWorkspaceTools({ config, audit: async () => {} }).map(
+                    (tool) => tool.name,
+                ),
+            ).toEqual(nativeWorkspaceToolNamesForCapabilities(config.capabilities))
+            expect(
+                createNativeWorkspaceTools({
+                    config: disabledShellConfig,
+                    audit: async () => {},
+                }).map((tool) => tool.name),
+            ).toEqual(nativeWorkspaceToolNamesForCapabilities(disabledShellConfig.capabilities))
+            expect(
+                createRoomTools({ config, audit: async () => {} }).map((tool) => tool.name),
+            ).toEqual(roomToolNamesForCapabilities(config.roomMode, config.capabilities))
+            expect(
+                createRoomTools({ config: programmerConfig, audit: async () => {} }).map(
+                    (tool) => tool.name,
+                ),
+            ).toEqual(
+                roomToolNamesForCapabilities(
+                    programmerConfig.roomMode,
+                    programmerConfig.capabilities,
+                ),
+            )
+            expect(
+                createRoomTools({ config: disabledShellConfig, audit: async () => {} }).map(
+                    (tool) => tool.name,
+                ),
+            ).toEqual(
+                roomToolNamesForCapabilities(
+                    disabledShellConfig.roomMode,
+                    disabledShellConfig.capabilities,
+                ),
+            )
+        })
+    })
+
     it('removes shell and artifact tool names when shell coding is disabled', () => {
         const names = roomToolNamesForCapabilities('coworker', {
             ...testCapabilities,
@@ -301,6 +357,43 @@ describe('room Pi tools', () => {
             expect(resultDetails(inspectedPdf.result)).toMatchObject({
                 root: 'store',
                 format: 'pdf',
+            })
+        })
+    })
+
+    it('reports unsupported PDF reads without silently falling back to text extraction', async () => {
+        await withRoom(async (config) => {
+            await executeDocumentTool(config, 'pdf', {
+                operation: 'create',
+                path: 'source.pdf',
+                paragraphs: ['Unsupported PDF path text'],
+            })
+
+            const readPdf = await executeDocumentTool(
+                config,
+                'read_pdf',
+                {
+                    path: 'source.pdf',
+                },
+                undefined,
+                {
+                    model: {
+                        input: ['text'],
+                    },
+                },
+            )
+
+            expect(resultText(readPdf.result)).toContain('unsupported')
+            expect(resultText(readPdf.result)).toContain(
+                'Degraded: PDF reading requires a vision-capable model for rendered pages.',
+            )
+            expect(readPdf.result.content).toHaveLength(1)
+            expect(resultDetails(readPdf.result)).toMatchObject({
+                ingestionMode: 'unsupported',
+                backend: 'unsupported',
+                inputBlocks: 0,
+                degraded: true,
+                degradedReason: 'PDF reading requires a vision-capable model for rendered pages.',
             })
         })
     })
