@@ -132,10 +132,12 @@ describe('hosted provider cost extraction', () => {
                     'data: [DONE]',
                 ].join('\n'),
             ),
-        ).toMatchObject({
+        ).toEqual({
             costMicros: 123,
             inputTokens: 10,
             outputTokens: 2,
+            cachedTokens: null,
+            reasoningTokens: null,
             totalTokens: 12,
         })
     })
