@@ -17,11 +17,13 @@ import { CardButton } from '#/components/ui/card'
 import { cn } from '#/lib/utils'
 import { describeRoomState } from '#/domain/state'
 import { formatRelativeTime } from '#/domain/format'
+import { isHostedBalanceLow } from '@agent-room/billing'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import type { RoomRuntimeOverview } from '#/domain/room-execution-types'
 import { listRoomsServer } from './-room-runtime-server'
 import { requireRouteUser } from './-route-auth'
 import { getOperatorConfigServer } from './-operator-config-server'
+import { hostedAvailableCents, useHostedBillingQuery } from './-billing/billing-data'
 
 export const Route = createFileRoute('/')({
     beforeLoad: async () => {
@@ -54,6 +56,7 @@ function HomePage() {
                 />
             }
         >
+            <LowCreditBanner />
             {roomsQuery.isLoading ? (
                 <LoadingCards count={6} />
             ) : roomsQuery.isError ? (
@@ -88,6 +91,28 @@ function HomePage() {
                 </div>
             )}
         </Page>
+    )
+}
+
+function LowCreditBanner() {
+    const billingQuery = useHostedBillingQuery()
+    if (billingQuery.data?.status !== 'active') return null
+    const summary = billingQuery.data.summary
+    if (!isHostedBalanceLow(hostedAvailableCents(summary))) return null
+    return (
+        <AttentionBanner
+            tone="attention"
+            className="mb-4"
+            title="You are running low on credits"
+            description="Top up to keep your rooms working without interruption."
+            action={
+                <Button asChild size="sm">
+                    <Link to="/billing" search={{ checkout: null }}>
+                        Buy credits
+                    </Link>
+                </Button>
+            }
+        />
     )
 }
 

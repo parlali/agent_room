@@ -1,167 +1,62 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
-import { BrainIcon, PlusIcon, SaveIcon, Trash2Icon } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+    BotIcon,
+    BrainIcon,
+    LockIcon,
+    PlusIcon,
+    RepeatIcon,
+    Trash2Icon,
+    UserIcon,
+} from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '#/components/ui/button'
+import { Input } from '#/components/ui/input'
+import { Label } from '#/components/ui/label'
 import { Textarea } from '#/components/ui/textarea'
+import { Progress } from '#/components/ui/progress'
+import {
+    Accordion,
+    AccordionContent,
+    AccordionItem,
+    AccordionTrigger,
+} from '#/components/ui/accordion'
 import { RoomDashboardLayout } from '#/components/room-dashboard'
-import { EmptyState, LoadingRows, Section } from '#/components/agent-room'
+import {
+    AttentionBanner,
+    EmptyState,
+    LoadingRows,
+    ProvenanceChip,
+    SaveBar,
+    Section,
+} from '#/components/agent-room'
+import { cn } from '#/lib/utils'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
-import { getRoomMemoryServer, updateRoomMemoryServer } from '#/routes/-room-runtime-server'
-
-type MemoryItem = {
-    id: string
-    text: string
-    createdAt: string
-    updatedAt?: string
-    source?: string
-    priority?: number
-    tags?: string[]
-    dueAt?: string
-    expiresAt?: string
-    completedAt?: string
-}
-
-type RoomMemory = {
-    version: 1
-    identity: {
-        role: string
-        responsibilities: MemoryItem[]
-        boundaries: MemoryItem[]
-    }
-    operator: {
-        facts: MemoryItem[]
-        preferences: MemoryItem[]
-    }
-    behavior: {
-        rules: MemoryItem[]
-        communication: MemoryItem[]
-    }
-    currentWork: {
-        goals: MemoryItem[]
-        projects: MemoryItem[]
-        context: MemoryItem[]
-    }
-    schedule: {
-        reminders: MemoryItem[]
-        deadlines: MemoryItem[]
-        recurring: MemoryItem[]
-    }
-    decisions: MemoryItem[]
-    doNotForget: MemoryItem[]
-}
-
-type MemorySectionKey =
-    | 'identity.responsibilities'
-    | 'identity.boundaries'
-    | 'operator.facts'
-    | 'operator.preferences'
-    | 'behavior.rules'
-    | 'behavior.communication'
-    | 'currentWork.goals'
-    | 'currentWork.projects'
-    | 'currentWork.context'
-    | 'schedule.reminders'
-    | 'schedule.deadlines'
-    | 'schedule.recurring'
-    | 'decisions'
-    | 'doNotForget'
-
-type MemorySectionDefinition = {
-    key: MemorySectionKey
-    title: string
-    description: string
-    placeholder: string
-}
-
-const memorySections: MemorySectionDefinition[] = [
-    {
-        key: 'identity.responsibilities',
-        title: 'Responsibilities',
-        description: 'What this room should take care of.',
-        placeholder: 'Remember what this room is responsible for...',
-    },
-    {
-        key: 'identity.boundaries',
-        title: 'Boundaries',
-        description: 'Limits the room should respect.',
-        placeholder: 'Add a boundary this room should not cross...',
-    },
-    {
-        key: 'operator.facts',
-        title: 'Operator facts',
-        description: 'Stable facts about the person using this room.',
-        placeholder: 'Add a stable fact about the operator...',
-    },
-    {
-        key: 'operator.preferences',
-        title: 'Operator preferences',
-        description: 'How the operator likes work to be handled.',
-        placeholder: 'Add a preference to remember...',
-    },
-    {
-        key: 'behavior.rules',
-        title: 'Behavior rules',
-        description: 'Standing instructions for the room.',
-        placeholder: 'Add a behavior rule...',
-    },
-    {
-        key: 'behavior.communication',
-        title: 'Communication',
-        description: 'How the room should communicate.',
-        placeholder: 'Add a communication preference...',
-    },
-    {
-        key: 'currentWork.goals',
-        title: 'Current goals',
-        description: 'Outcomes currently in progress.',
-        placeholder: 'Add a current goal...',
-    },
-    {
-        key: 'currentWork.projects',
-        title: 'Projects',
-        description: 'Active project context.',
-        placeholder: 'Add project context...',
-    },
-    {
-        key: 'currentWork.context',
-        title: 'Context',
-        description: 'Short-lived context that still matters.',
-        placeholder: 'Add current context...',
-    },
-    {
-        key: 'schedule.reminders',
-        title: 'Reminders',
-        description: 'Things the room should bring back later.',
-        placeholder: 'Add a reminder...',
-    },
-    {
-        key: 'schedule.deadlines',
-        title: 'Deadlines',
-        description: 'Important dates and time-bound commitments.',
-        placeholder: 'Add a deadline...',
-    },
-    {
-        key: 'schedule.recurring',
-        title: 'Recurring',
-        description: 'Repeated routines or recurring work.',
-        placeholder: 'Add recurring work...',
-    },
-    {
-        key: 'decisions',
-        title: 'Decisions',
-        description: 'Decisions that should not need to be re-made.',
-        placeholder: 'Add a decision...',
-    },
-    {
-        key: 'doNotForget',
-        title: 'Do not forget',
-        description: 'Important memory that should stay visible.',
-        placeholder: 'Add something important...',
-    },
-]
+import {
+    canonicalMemoryJson,
+    maxMemoryBytes,
+    maxSectionItems,
+    memoryGroups,
+    memorySectionPaths,
+    nowIso,
+    sectionItems,
+    setSectionItems,
+    timedSections,
+    type MemoryItem,
+    type MemorySectionMeta,
+    type MemorySectionPath,
+    type RoomMemory,
+    type TimedMemoryItem,
+} from '#/domain/room-memory'
+import {
+    getRoomMemoryServer,
+    listRoomsServer,
+    updateRoomMemoryServer,
+} from '#/routes/-room-runtime-server'
+import { IdentitySection } from '#/routes/-room-settings/identity-section'
+import { PersonalitySection } from '#/routes/-room-settings/personality-section'
 
 export const Route = createFileRoute('/rooms/$roomId/memory')({
     component: RoomMemoryPage,
@@ -171,215 +66,200 @@ function RoomMemoryPage() {
     const { roomId } = Route.useParams()
     return (
         <RoomDashboardLayout roomId={roomId} activeTab="memory">
-            <MemoryContent roomId={roomId} />
+            <IdentityAndMemory roomId={roomId} />
         </RoomDashboardLayout>
     )
 }
 
 function cloneMemory(memory: RoomMemory): RoomMemory {
-    return JSON.parse(JSON.stringify(memory)) as RoomMemory
+    return structuredClone(memory)
 }
 
-function getSectionItems(memory: RoomMemory, key: MemorySectionKey): MemoryItem[] {
-    switch (key) {
-        case 'identity.responsibilities':
-            return memory.identity.responsibilities
-        case 'identity.boundaries':
-            return memory.identity.boundaries
-        case 'operator.facts':
-            return memory.operator.facts
-        case 'operator.preferences':
-            return memory.operator.preferences
-        case 'behavior.rules':
-            return memory.behavior.rules
-        case 'behavior.communication':
-            return memory.behavior.communication
-        case 'currentWork.goals':
-            return memory.currentWork.goals
-        case 'currentWork.projects':
-            return memory.currentWork.projects
-        case 'currentWork.context':
-            return memory.currentWork.context
-        case 'schedule.reminders':
-            return memory.schedule.reminders
-        case 'schedule.deadlines':
-            return memory.schedule.deadlines
-        case 'schedule.recurring':
-            return memory.schedule.recurring
-        case 'decisions':
-            return memory.decisions
-        case 'doNotForget':
-            return memory.doNotForget
-    }
-}
-
-function withSectionItems(
-    memory: RoomMemory,
-    key: MemorySectionKey,
-    items: MemoryItem[],
-): RoomMemory {
-    const next = cloneMemory(memory)
-    switch (key) {
-        case 'identity.responsibilities':
-            next.identity.responsibilities = items
-            break
-        case 'identity.boundaries':
-            next.identity.boundaries = items
-            break
-        case 'operator.facts':
-            next.operator.facts = items
-            break
-        case 'operator.preferences':
-            next.operator.preferences = items
-            break
-        case 'behavior.rules':
-            next.behavior.rules = items
-            break
-        case 'behavior.communication':
-            next.behavior.communication = items
-            break
-        case 'currentWork.goals':
-            next.currentWork.goals = items
-            break
-        case 'currentWork.projects':
-            next.currentWork.projects = items
-            break
-        case 'currentWork.context':
-            next.currentWork.context = items
-            break
-        case 'schedule.reminders':
-            next.schedule.reminders = items
-            break
-        case 'schedule.deadlines':
-            next.schedule.deadlines = items
-            break
-        case 'schedule.recurring':
-            next.schedule.recurring = items
-            break
-        case 'decisions':
-            next.decisions = items
-            break
-        case 'doNotForget':
-            next.doNotForget = items
-            break
-    }
-    return next
-}
-
-function createMemoryItem(): MemoryItem {
+function createItem(): MemoryItem {
     return {
         id: crypto.randomUUID(),
         text: '',
-        createdAt: new Date().toISOString(),
+        createdAt: nowIso(),
         source: 'operator',
     }
 }
 
-function normaliseMemoryForSave(memory: RoomMemory): RoomMemory {
-    let next = cloneMemory(memory)
-    next.identity.role = next.identity.role.trim()
-    for (const section of memorySections) {
-        next = withSectionItems(
-            next,
-            section.key,
-            getSectionItems(next, section.key)
-                .map((item) => ({
-                    ...item,
-                    text: item.text.trim(),
-                }))
-                .filter((item) => item.text.length > 0),
-        )
+function normaliseForSave(memory: RoomMemory): RoomMemory {
+    let next: RoomMemory = {
+        ...memory,
+        identity: { ...memory.identity, role: memory.identity.role.trim() },
+    }
+    for (const path of memorySectionPaths) {
+        const items = sectionItems(next, path)
+            .map((item) => ({ ...item, text: item.text.trim() }))
+            .filter((item) => item.text.length > 0)
+        next = setSectionItems(next, path, items)
     }
     return next
 }
 
-function updateItemText(
+function patchItem(
     memory: RoomMemory,
-    key: MemorySectionKey,
-    itemId: string,
-    text: string,
+    path: MemorySectionPath,
+    id: string,
+    patch: Partial<TimedMemoryItem>,
 ): RoomMemory {
-    const items = getSectionItems(memory, key).map((item) =>
-        item.id === itemId ? { ...item, text, updatedAt: new Date().toISOString() } : item,
+    const items = sectionItems(memory, path).map((item) =>
+        item.id === id ? { ...item, ...patch, updatedAt: nowIso() } : item,
     )
-    return withSectionItems(memory, key, items)
+    return setSectionItems(memory, path, items)
 }
 
-function addItem(memory: RoomMemory, key: MemorySectionKey): RoomMemory {
-    return withSectionItems(memory, key, [...getSectionItems(memory, key), createMemoryItem()])
+function isoToLocalInput(iso?: string): string {
+    if (!iso) return ''
+    const date = new Date(iso)
+    if (Number.isNaN(date.getTime())) return ''
+    const pad = (value: number) => String(value).padStart(2, '0')
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+        date.getHours(),
+    )}:${pad(date.getMinutes())}`
 }
 
-function deleteItem(memory: RoomMemory, key: MemorySectionKey, itemId: string): RoomMemory {
-    return withSectionItems(
-        memory,
-        key,
-        getSectionItems(memory, key).filter((item) => item.id !== itemId),
+function localInputToIso(value: string): string | undefined {
+    if (!value) return undefined
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return undefined
+    return date.toISOString()
+}
+
+type Provenance = { label: string; icon: typeof UserIcon; locked: boolean }
+
+function provenanceFor(source: string | undefined): Provenance {
+    if (source === 'system') return { label: 'System', icon: LockIcon, locked: true }
+    if (source === 'agent') return { label: 'From this room', icon: BotIcon, locked: false }
+    return { label: 'You', icon: UserIcon, locked: false }
+}
+
+function IdentityAndMemory({ roomId }: { roomId: string }) {
+    const roomsQuery = useQuery({
+        queryKey: roomQueryKey.roomsList,
+        queryFn: () => listRoomsServer(),
+        staleTime: roomQueryPolicy.warmStaleMs,
+    })
+    const queryClient = useQueryClient()
+    const room = roomsQuery.data?.find((entry) => entry.roomId === roomId) ?? null
+
+    return (
+        <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+            <Section
+                title="Identity and memory"
+                description="Shape who this room is and what it remembers. Think of it as a brief for a coworker who keeps notes of their own."
+            >
+                <p className="text-sm text-muted-foreground">
+                    This room also updates its own memory as it works. Your edits and its notes
+                    share the same brief.
+                </p>
+            </Section>
+
+            <IdentitySection
+                roomId={roomId}
+                loading={roomsQuery.isLoading}
+                defaultDisplayName={room?.displayName ?? ''}
+                defaultSlug={room?.slug ?? ''}
+                onSaved={async () => {
+                    await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
+                }}
+            />
+
+            <PersonalitySection roomId={roomId} />
+
+            <MemoryEditor roomId={roomId} />
+        </div>
     )
 }
 
-function MemoryContent({ roomId }: { roomId: string }) {
+function MemoryEditor({ roomId }: { roomId: string }) {
     const queryClient = useQueryClient()
     const memoryQuery = useQuery({
         queryKey: roomQueryKey.roomMemory(roomId),
         queryFn: () => getRoomMemoryServer({ data: { roomId } }),
         staleTime: roomQueryPolicy.hotStaleMs,
     })
-    const memory = memoryQuery.data?.memory as RoomMemory | undefined
-    const memoryHash = typeof memoryQuery.data?.hash === 'string' ? memoryQuery.data.hash : null
-    const [draftMemory, setDraftMemory] = useState<RoomMemory | null>(null)
+    const serverMemory = (memoryQuery.data?.memory as RoomMemory | undefined) ?? null
+    const serverHash = typeof memoryQuery.data?.hash === 'string' ? memoryQuery.data.hash : null
+
+    const [draft, setDraft] = useState<RoomMemory | null>(null)
+    const [baseline, setBaseline] = useState<RoomMemory | null>(null)
+    const [baselineHash, setBaselineHash] = useState<string | null>(null)
+    const [conflict, setConflict] = useState<{ memory: RoomMemory; hash: string } | null>(null)
+
+    const adopt = useCallback((memory: RoomMemory, hash: string) => {
+        setDraft(cloneMemory(memory))
+        setBaseline(cloneMemory(memory))
+        setBaselineHash(hash)
+        setConflict(null)
+    }, [])
+
+    const normalisedDraft = useMemo(() => (draft ? normaliseForSave(draft) : null), [draft])
+    const normalisedBaseline = useMemo(
+        () => (baseline ? normaliseForSave(baseline) : null),
+        [baseline],
+    )
+    const dirty = useMemo(() => {
+        if (!normalisedDraft || !normalisedBaseline) return false
+        return JSON.stringify(normalisedDraft) !== JSON.stringify(normalisedBaseline)
+    }, [normalisedDraft, normalisedBaseline])
 
     useEffect(() => {
-        if (memory) {
-            setDraftMemory(cloneMemory(memory))
+        if (!serverMemory || !serverHash) return
+        if (serverHash === baselineHash) return
+        if (!draft || !dirty) {
+            adopt(serverMemory, serverHash)
+            return
         }
-    }, [memory])
-
-    const dirty = useMemo(() => {
-        if (!memory || !draftMemory) return false
-        return (
-            JSON.stringify(normaliseMemoryForSave(draftMemory)) !==
-            JSON.stringify(normaliseMemoryForSave(memory))
-        )
-    }, [memory, draftMemory])
+        setConflict({ memory: serverMemory, hash: serverHash })
+    }, [serverMemory, serverHash, baselineHash, draft, dirty, adopt])
 
     const saveMutation = useMutation({
         mutationFn: () => {
-            if (!draftMemory) {
-                throw new Error('Memory is not loaded yet')
-            }
+            if (!draft) throw new Error('Memory is not loaded yet')
             return updateRoomMemoryServer({
                 data: {
                     roomId,
-                    memory: normaliseMemoryForSave(draftMemory),
-                    expectedHash: memoryHash,
+                    memory: normaliseForSave(draft),
+                    expectedHash: baselineHash,
                 },
             })
         },
-        onSuccess: async () => {
+        onSuccess: async (result) => {
+            adopt(result.memory as RoomMemory, result.hash)
             await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomMemory(roomId) })
-            toast.success('Memory updated')
+            toast.success('Memory saved')
         },
-        onError: (error: unknown) => {
-            toast.error('Could not update memory', {
-                description: error instanceof Error ? error.message : 'Unexpected error',
-            })
+        onError: async (error: unknown) => {
+            const message = error instanceof Error ? error.message : 'Unexpected error'
+            if (message.includes('changed before update')) {
+                await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomMemory(roomId) })
+                return
+            }
+            toast.error('Could not save memory', { description: message })
         },
     })
 
-    if (memoryQuery.isLoading) {
-        return (
-            <div className="mx-auto w-full max-w-5xl">
-                <Section title="Memory" description="Room-local persistent memory.">
-                    <LoadingRows count={5} />
-                </Section>
-            </div>
+    const bytes = useMemo(
+        () =>
+            normalisedDraft
+                ? new TextEncoder().encode(canonicalMemoryJson(normalisedDraft)).length
+                : 0,
+        [normalisedDraft],
+    )
+    const overBudget = bytes > maxMemoryBytes
+    const oversizeSections = useMemo(() => {
+        if (!normalisedDraft) return []
+        return memorySectionPaths.filter(
+            (path) => sectionItems(normalisedDraft, path).length > maxSectionItems,
         )
-    }
+    }, [normalisedDraft])
 
-    if (memoryQuery.isError || !memory || !draftMemory) {
-        return (
-            <div className="mx-auto w-full max-w-5xl">
-                <Section title="Memory" description="Room-local persistent memory.">
+    if (memoryQuery.isLoading || !draft) {
+        if (memoryQuery.isError) {
+            return (
+                <Section title="Memory">
                     <EmptyState
                         icon={BrainIcon}
                         title="Could not load memory"
@@ -390,117 +270,223 @@ function MemoryContent({ roomId }: { roomId: string }) {
                         }
                     />
                 </Section>
-            </div>
+            )
+        }
+        return (
+            <Section title="Memory">
+                <LoadingRows count={5} />
+            </Section>
         )
     }
 
+    const updateItems = (mutate: (memory: RoomMemory) => RoomMemory) => {
+        setDraft((current) => (current ? mutate(current) : current))
+    }
+
     return (
-        <div className="mx-auto w-full max-w-6xl">
-            <Section
-                title="Memory"
-                description="Edit what this room remembers as plain-language entries."
-                actions={
-                    <Button
-                        size="sm"
-                        onClick={() => saveMutation.mutate()}
-                        disabled={!dirty || saveMutation.isPending}
-                    >
-                        <SaveIcon />
-                        Save memory
-                    </Button>
+        <Section
+            title="Memory"
+            description="Plain-language notes this room keeps across sessions and scheduled tasks."
+            bodyClassName="space-y-5 p-4"
+        >
+            {conflict ? (
+                <AttentionBanner
+                    tone="attention"
+                    title="This room updated its own memory"
+                    description="It saved new notes while you were editing. Load the latest brief to keep working from the current version. This discards your unsaved edits."
+                    action={
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => adopt(conflict.memory, conflict.hash)}
+                        >
+                            Load latest
+                        </Button>
+                    }
+                />
+            ) : null}
+
+            <RoleEditor
+                value={draft.identity.role}
+                onChange={(role) =>
+                    setDraft((current) =>
+                        current ? { ...current, identity: { ...current.identity, role } } : current,
+                    )
                 }
-            >
-                <div className="grid gap-4">
-                    <RoleEditor
-                        value={draftMemory.identity.role}
-                        onChange={(role) =>
-                            setDraftMemory((current) =>
-                                current
-                                    ? {
-                                          ...current,
-                                          identity: {
-                                              ...current.identity,
-                                              role,
-                                          },
-                                      }
-                                    : current,
-                            )
-                        }
-                    />
-                    <div className="grid gap-3 md:grid-cols-2">
-                        {memorySections.map((section) => (
-                            <EditableMemorySection
-                                key={section.key}
-                                section={section}
-                                items={getSectionItems(draftMemory, section.key)}
-                                onAdd={() =>
-                                    setDraftMemory((current) =>
-                                        current ? addItem(current, section.key) : current,
-                                    )
-                                }
-                                onDelete={(itemId) =>
-                                    setDraftMemory((current) =>
-                                        current
-                                            ? deleteItem(current, section.key, itemId)
-                                            : current,
-                                    )
-                                }
-                                onChange={(itemId, text) =>
-                                    setDraftMemory((current) =>
-                                        current
-                                            ? updateItemText(current, section.key, itemId, text)
-                                            : current,
-                                    )
-                                }
-                            />
-                        ))}
-                    </div>
-                </div>
-            </Section>
-        </div>
+            />
+
+            <BudgetMeter
+                bytes={bytes}
+                overBudget={overBudget}
+                oversizeSections={oversizeSections}
+            />
+
+            <Accordion type="multiple" className="gap-2">
+                {memoryGroups.map((group) => {
+                    const count = group.sections.reduce(
+                        (total, meta) => total + sectionItems(draft, meta.path).length,
+                        0,
+                    )
+                    return (
+                        <AccordionItem
+                            key={group.id}
+                            value={group.id}
+                            className="rounded-lg border border-border/60 not-last:border-b"
+                        >
+                            <AccordionTrigger className="px-3">
+                                <span className="flex min-w-0 flex-col gap-0.5">
+                                    <span className="truncate">{group.title}</span>
+                                    <span className="text-xs font-normal text-muted-foreground">
+                                        {group.description}
+                                    </span>
+                                </span>
+                                <span className="mr-2 shrink-0 self-center text-xs font-normal text-muted-foreground">
+                                    {count}
+                                </span>
+                            </AccordionTrigger>
+                            <AccordionContent className="space-y-4 px-3">
+                                {group.sections.map((meta) => (
+                                    <MemorySectionEditor
+                                        key={meta.path}
+                                        meta={meta}
+                                        items={sectionItems(draft, meta.path)}
+                                        onAdd={() =>
+                                            updateItems((memory) =>
+                                                setSectionItems(memory, meta.path, [
+                                                    ...sectionItems(memory, meta.path),
+                                                    createItem(),
+                                                ]),
+                                            )
+                                        }
+                                        onPatch={(id, patch) =>
+                                            updateItems((memory) =>
+                                                patchItem(memory, meta.path, id, patch),
+                                            )
+                                        }
+                                        onDelete={(id) =>
+                                            updateItems((memory) =>
+                                                setSectionItems(
+                                                    memory,
+                                                    meta.path,
+                                                    sectionItems(memory, meta.path).filter(
+                                                        (item) => item.id !== id,
+                                                    ),
+                                                ),
+                                            )
+                                        }
+                                    />
+                                ))}
+                            </AccordionContent>
+                        </AccordionItem>
+                    )
+                })}
+            </Accordion>
+
+            <SaveBar
+                className="mx-0 sm:mx-0"
+                dirty={dirty}
+                saving={saveMutation.isPending}
+                onSave={() => {
+                    if (overBudget) {
+                        toast.error('Memory is over the size limit', {
+                            description: 'Remove some entries before saving to avoid losing notes.',
+                        })
+                        return
+                    }
+                    saveMutation.mutate()
+                }}
+                onRevert={() => {
+                    if (baseline && baselineHash) adopt(baseline, baselineHash)
+                }}
+                saveLabel="Save memory"
+            />
+        </Section>
     )
 }
 
 function RoleEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
     return (
-        <div className="rounded-lg border border-border/60 bg-card p-4">
-            <div className="flex items-start justify-between gap-3">
-                <div>
-                    <h2 className="text-sm font-semibold text-foreground">Room identity</h2>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                        The short role description used to introduce this room to the agent.
-                    </p>
-                </div>
-            </div>
+        <div className="space-y-1.5">
+            <Label htmlFor="memory-role">One-line role</Label>
             <Textarea
+                id="memory-role"
                 value={value}
                 onChange={(event) => onChange(event.target.value)}
-                className="mt-3 min-h-20 resize-y"
+                className="min-h-20 resize-y"
                 placeholder="Describe who this room is and what it should generally do..."
             />
+            <p className="text-xs text-muted-foreground">
+                The short introduction this room leads with.
+            </p>
         </div>
     )
 }
 
-function EditableMemorySection({
-    section,
+function BudgetMeter({
+    bytes,
+    overBudget,
+    oversizeSections,
+}: {
+    bytes: number
+    overBudget: boolean
+    oversizeSections: MemorySectionPath[]
+}) {
+    const percent = Math.min(100, Math.round((bytes / maxMemoryBytes) * 100))
+    const near = !overBudget && percent >= 85
+    return (
+        <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>Memory size</span>
+                <span>
+                    {Math.round(bytes / 1000)}k / {Math.round(maxMemoryBytes / 1000)}k
+                </span>
+            </div>
+            <Progress
+                value={percent}
+                className={cn(overBudget && '[&>[data-slot=progress-indicator]]:bg-danger')}
+            />
+            {overBudget ? (
+                <AttentionBanner
+                    tone="danger"
+                    title="Memory is over the size limit"
+                    description="Saving now would let maintenance drop the lowest-priority notes. Remove some entries first."
+                />
+            ) : null}
+            {near ? (
+                <p className="text-xs text-attention-fg">
+                    Memory is close to its size limit. Keep notes concise.
+                </p>
+            ) : null}
+            {oversizeSections.length > 0 ? (
+                <p className="text-xs text-attention-fg">
+                    Some sections have more than {maxSectionItems} entries and may be trimmed.
+                </p>
+            ) : null}
+        </div>
+    )
+}
+
+function MemorySectionEditor({
+    meta,
     items,
     onAdd,
+    onPatch,
     onDelete,
-    onChange,
 }: {
-    section: MemorySectionDefinition
-    items: MemoryItem[]
+    meta: MemorySectionMeta
+    items: Array<MemoryItem | TimedMemoryItem>
     onAdd: () => void
-    onDelete: (itemId: string) => void
-    onChange: (itemId: string, text: string) => void
+    onPatch: (id: string, patch: Partial<TimedMemoryItem>) => void
+    onDelete: (id: string) => void
 }) {
+    const timed = timedSections.has(meta.path)
+    const recurring = meta.path === 'schedule.recurring'
     return (
-        <div className="rounded-lg border border-border/60 bg-card p-4">
+        <div className="rounded-lg border border-border/50 bg-background/40 p-3">
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                    <h2 className="text-sm font-semibold text-foreground">{section.title}</h2>
-                    <p className="mt-1 text-xs text-muted-foreground">{section.description}</p>
+                    <h3 className="text-sm font-medium text-foreground">{meta.title}</h3>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{meta.description}</p>
                 </div>
                 <Button type="button" variant="outline" size="sm" onClick={onAdd}>
                     <PlusIcon />
@@ -508,32 +494,118 @@ function EditableMemorySection({
                 </Button>
             </div>
             {items.length === 0 ? (
-                <p className="mt-4 rounded-md border border-dashed border-border/70 px-3 py-4 text-sm text-muted-foreground">
-                    No entries yet.
+                <p className="mt-3 text-xs text-muted-foreground">
+                    Nothing here yet. This room fills it in as it works, or you can add a note.
                 </p>
             ) : (
-                <ul className="mt-4 space-y-3">
+                <ul className="mt-3 space-y-3">
                     {items.map((item) => (
-                        <li key={item.id} className="flex items-start gap-2">
-                            <Textarea
-                                value={item.text}
-                                onChange={(event) => onChange(item.id, event.target.value)}
-                                className="min-h-16 flex-1 resize-y"
-                                placeholder={section.placeholder}
-                            />
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                aria-label={`Delete ${section.title} memory`}
-                                onClick={() => onDelete(item.id)}
-                            >
-                                <Trash2Icon />
-                            </Button>
-                        </li>
+                        <MemoryItemRow
+                            key={item.id}
+                            item={item}
+                            placeholder={meta.placeholder}
+                            timed={timed}
+                            recurring={recurring}
+                            onPatch={(patch) => onPatch(item.id, patch)}
+                            onDelete={() => onDelete(item.id)}
+                        />
                     ))}
                 </ul>
             )}
         </div>
+    )
+}
+
+function MemoryItemRow({
+    item,
+    placeholder,
+    timed,
+    recurring,
+    onPatch,
+    onDelete,
+}: {
+    item: MemoryItem | TimedMemoryItem
+    placeholder: string
+    timed: boolean
+    recurring: boolean
+    onPatch: (patch: Partial<TimedMemoryItem>) => void
+    onDelete: () => void
+}) {
+    const provenance = provenanceFor(item.source)
+    const ProvenanceIcon = provenance.icon
+    const dueAt = 'dueAt' in item ? item.dueAt : undefined
+    const recurrenceRule = 'recurrence' in item ? item.recurrence?.rule : undefined
+    return (
+        <li className="rounded-md border border-border/50 bg-card p-2.5">
+            <div className="flex items-start gap-2">
+                <Textarea
+                    value={item.text}
+                    onChange={(event) => onPatch({ text: event.target.value })}
+                    className="min-h-16 flex-1 resize-y"
+                    placeholder={placeholder}
+                    disabled={provenance.locked}
+                />
+                {provenance.locked ? null : (
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Delete memory entry"
+                        onClick={onDelete}
+                    >
+                        <Trash2Icon />
+                    </Button>
+                )}
+            </div>
+            {timed ? (
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <div className="space-y-1">
+                        <Label className="text-xs" htmlFor={`due-${item.id}`}>
+                            Due
+                        </Label>
+                        <Input
+                            id={`due-${item.id}`}
+                            type="datetime-local"
+                            value={isoToLocalInput(dueAt)}
+                            disabled={provenance.locked}
+                            onChange={(event) =>
+                                onPatch({ dueAt: localInputToIso(event.target.value) })
+                            }
+                        />
+                    </div>
+                    {recurring ? (
+                        <div className="space-y-1">
+                            <Label className="text-xs" htmlFor={`recurrence-${item.id}`}>
+                                Repeats
+                            </Label>
+                            <Input
+                                id={`recurrence-${item.id}`}
+                                value={recurrenceRule ?? ''}
+                                disabled={provenance.locked}
+                                placeholder="e.g. every Monday 9am"
+                                onChange={(event) =>
+                                    onPatch({
+                                        recurrence: event.target.value
+                                            ? { rule: event.target.value }
+                                            : undefined,
+                                    })
+                                }
+                            />
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
+            <div className="mt-2 flex items-center gap-2">
+                <ProvenanceChip icon={<ProvenanceIcon />}>{provenance.label}</ProvenanceChip>
+                {recurring && recurrenceRule ? (
+                    <ProvenanceChip icon={<RepeatIcon />}>Recurring</ProvenanceChip>
+                ) : null}
+                {provenance.locked ? (
+                    <span className="text-xs text-muted-foreground">
+                        Safety note. Protected from edits.
+                    </span>
+                ) : null}
+            </div>
+        </li>
     )
 }

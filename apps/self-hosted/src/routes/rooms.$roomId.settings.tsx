@@ -9,9 +9,7 @@ import { listRoomsServer } from '#/routes/-room-runtime-server'
 import {
     ConfigSections,
     DangerZoneSection,
-    IdentitySection,
     PauseAndArchiveSection,
-    PersonalitySection,
     SecretsSection,
 } from './-room-settings/sections'
 
@@ -61,23 +59,6 @@ function RoomSettingsPage() {
                             description={snapshot.effective.blockedReasons.join('; ')}
                         />
                     ) : null}
-
-                    <IdentitySection
-                        roomId={roomId}
-                        loading={roomsQuery.isLoading}
-                        defaultDisplayName={room?.displayName ?? ''}
-                        defaultSlug={room?.slug ?? ''}
-                        onSaved={async () => {
-                            await Promise.all([
-                                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList }),
-                                queryClient.invalidateQueries({
-                                    queryKey: roomQueryKey.roomConfig(roomId),
-                                }),
-                            ])
-                        }}
-                    />
-
-                    <PersonalitySection roomId={roomId} />
 
                     <ConfigSections
                         roomId={roomId}

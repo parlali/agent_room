@@ -1,7 +1,12 @@
 import { Link } from '@tanstack/react-router'
+import { formatHostedUsd } from '@agent-room/billing'
 import { Badge } from '#/components/ui/badge'
-import { RoomGlyph } from '#/components/agent-room'
-import { formatCostUsd, formatDurationMs, formatRelativeTime, formatTokens } from '#/domain/format'
+import { RoomGlyph, Stat, StatGrid } from '#/components/agent-room'
+import { formatDurationMs, formatRelativeTime, formatTokens } from '#/domain/format'
+
+function formatUsageCost(usd: number): string {
+    return formatHostedUsd(usd * 100)
+}
 
 interface UsageEventLike {
     id: string
@@ -53,11 +58,6 @@ function toolLabel(toolName: string | null): string {
     return cleaned
 }
 
-function providerModel(event: UsageEventLike): string | null {
-    if (event.provider && event.model) return `${event.provider}/${event.model}`
-    return event.model ?? event.provider
-}
-
 function formatCount(value: number | null): string {
     return value === null ? 'Not reported' : value.toLocaleString()
 }
@@ -83,7 +83,7 @@ function standaloneTitle(event: UsageEventLike): string {
 function usageSummary(event: UsageEventLike): string | null {
     const tokens = event.totalTokens === null ? null : formatTokens(event.totalTokens)
     const cost =
-        event.estimatedCostUsd === null ? null : formatCostUsd(Number(event.estimatedCostUsd))
+        event.estimatedCostUsd === null ? null : formatUsageCost(Number(event.estimatedCostUsd))
     if (tokens && cost) return `${tokens} tokens · ${cost}`
     if (tokens) return `${tokens} tokens`
     if (cost) return cost
@@ -119,10 +119,8 @@ function buildTimelineItems(events: UsageEventLike[]): UsageTimelineItem[] {
                         entry.kind === 'image'),
             )
             const toolNames = [...new Set(relatedTools.map((entry) => toolLabel(entry.toolName)))]
-            const model = providerModel(event)
             const usage = usageSummary(event)
             const details = [
-                model,
                 formatDurationMs(event.durationMs),
                 usage,
                 relatedTools.length > 0
@@ -140,7 +138,7 @@ function buildTimelineItems(events: UsageEventLike[]): UsageTimelineItem[] {
                     details.length > 0
                         ? details.join(' · ')
                         : event.totalTokens === null
-                          ? 'Provider did not report token usage'
+                          ? 'No token usage reported'
                           : 'Usage recorded',
                 kindLabel:
                     event.kind === 'run'
@@ -245,15 +243,6 @@ function UsageTimelineRow({
     )
 }
 
-export function UsageMetric({ label, value }: { label: string; value: string }) {
-    return (
-        <div className="rounded-md border border-border/60 bg-card p-3">
-            <div className="text-xs text-muted-foreground">{label}</div>
-            <div className="mt-1 text-lg font-semibold text-foreground">{value}</div>
-        </div>
-    )
-}
-
 export function UsageTotalsGrid({
     totals,
 }: {
@@ -265,10 +254,10 @@ export function UsageTotalsGrid({
     } | null
 }) {
     return (
-        <div className="grid gap-3 sm:grid-cols-4">
-            <UsageMetric label="Activities" value={formatCount(totals?.eventCount ?? null)} />
-            <UsageMetric label="Runtime" value={formatDurationMs(totals?.durationMs ?? null)} />
-            <UsageMetric
+        <StatGrid className="sm:grid-cols-4 lg:grid-cols-4">
+            <Stat label="Activities" value={formatCount(totals?.eventCount ?? null)} />
+            <Stat label="Runtime" value={formatDurationMs(totals?.durationMs ?? null)} />
+            <Stat
                 label="Tokens"
                 value={
                     totals?.totalTokens === null || totals?.totalTokens === undefined
@@ -276,14 +265,15 @@ export function UsageTotalsGrid({
                         : formatTokens(totals.totalTokens)
                 }
             />
-            <UsageMetric
+            <Stat
                 label="Estimated cost"
+                hint="Estimate. Charged credits appear on Billing."
                 value={
                     totals?.estimatedCostUsd === null || totals?.estimatedCostUsd === undefined
                         ? 'Not reported'
-                        : formatCostUsd(totals.estimatedCostUsd)
+                        : formatUsageCost(totals.estimatedCostUsd)
                 }
             />
-        </div>
+        </StatGrid>
     )
 }

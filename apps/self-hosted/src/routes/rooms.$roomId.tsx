@@ -26,6 +26,7 @@ import {
     useStartRoomSession,
 } from '#/components/agent-room'
 import { describeSchedule, describeSessionState } from '#/domain/state'
+import { isScheduledTaskFailure } from './-jobs/last-run'
 import { formatBytes, formatRelativeTime, pluralize } from '#/domain/format'
 import { markChatSelection } from '#/lib/browser-performance'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
@@ -165,6 +166,10 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
             .slice(0, 5)
     }, [jobs])
 
+    const failedJobs = useMemo(() => {
+        return jobs.filter((j) => isScheduledTaskFailure(j.lastRunStatus) || j.lastError !== null)
+    }, [jobs])
+
     const recentFiles = useMemo(() => {
         return [...files]
             .filter((f) => f.kind === 'file')
@@ -185,7 +190,10 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
     }
 
     const showAttention =
-        needsSetup || blockingIssues.length > 0 || (room?.lastError ?? null) !== null
+        needsSetup ||
+        blockingIssues.length > 0 ||
+        (room?.lastError ?? null) !== null ||
+        failedJobs.length > 0
 
     return (
         <RoomDashboardLayout
@@ -249,6 +257,20 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                                     >
                                         <Button variant="outline" size="sm">
                                             Open Operator console
+                                        </Button>
+                                    </Link>
+                                }
+                            />
+                        ) : null}
+                        {failedJobs.length > 0 ? (
+                            <AttentionBanner
+                                tone="danger"
+                                title={`${failedJobs.length} scheduled ${pluralize(failedJobs.length, 'task')} failed`}
+                                description={`Last failure: ${failedJobs[0]!.name}${failedJobs[0]!.lastError ? ` — ${failedJobs[0]!.lastError}` : ''}`}
+                                action={
+                                    <Link to="/rooms/$roomId/jobs" params={{ roomId }}>
+                                        <Button variant="outline" size="sm">
+                                            Review tasks
                                         </Button>
                                     </Link>
                                 }
@@ -343,12 +365,16 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                                                 </Link>
                                                 <span className="flex shrink-0 flex-col items-end gap-1 text-xs text-muted-foreground">
                                                     <SessionRunStatus thread={thread} compact />
-                                                    <span>{formatRelativeTime(thread.updatedAt)}</span>
+                                                    <span>
+                                                        {formatRelativeTime(thread.updatedAt)}
+                                                    </span>
                                                 </span>
                                                 <SessionContextMenu
                                                     roomId={roomId}
                                                     sessionKey={thread.key}
-                                                    sessionTitle={thread.title || 'Untitled session'}
+                                                    sessionTitle={
+                                                        thread.title || 'Untitled session'
+                                                    }
                                                 >
                                                     <SessionContextMenuTrigger />
                                                 </SessionContextMenu>

@@ -1,102 +1,63 @@
-import { Edit3Icon, FileTextIcon, Loader2Icon, PlayIcon, Trash2Icon } from 'lucide-react'
+import {
+    Edit3Icon,
+    FileTextIcon,
+    Loader2Icon,
+    MoreHorizontalIcon,
+    PlayIcon,
+    Trash2Icon,
+} from 'lucide-react'
 import { Button } from '#/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
-import { describeJobSchedule } from '#/domain/job-schedule'
-import { formatDurationMs, formatRelativeTime } from '#/domain/format'
-import type { RoomCronJob } from '#/domain/room-execution-types'
-import { JobListRow } from './job-row'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '#/components/ui/dropdown-menu'
 
-export function JobRow({
-    job,
+export function JobRowActions({
     busy,
-    onToggle,
+    running,
     onRun,
     onDetails,
     onEdit,
     onDelete,
 }: {
-    job: RoomCronJob
     busy: boolean
-    onToggle: (enabled: boolean) => void
+    running: boolean
     onRun: () => void
     onDetails: () => void
     onEdit: () => void
     onDelete: () => void
 }) {
-    const schedule = job.scheduleSummary || describeJobSchedule(job.schedule)
-    const running = job.runningAt !== null
     return (
-        <JobListRow
-            job={job}
-            busy={busy}
-            schedule={schedule}
-            onToggle={onToggle}
-            secondaryTiming={
-                <>
-                    <span>Next: {formatRelativeTime(job.nextRunAt)}</span>
-                    {job.lastDurationMs ? (
-                        <span>Last took {formatDurationMs(job.lastDurationMs)}</span>
-                    ) : null}
-                </>
-            }
-            actions={
-                <>
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                onClick={onDetails}
-                                aria-label="Job details"
-                            >
-                                <FileTextIcon />
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Details</TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                onClick={onRun}
-                                disabled={busy || running}
-                                aria-label="Run now"
-                            >
-                                {busy ? <Loader2Icon className="animate-spin" /> : <PlayIcon />}
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Run now</TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                onClick={onEdit}
-                                aria-label="Edit job"
-                            >
-                                <Edit3Icon />
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Edit</TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                onClick={onDelete}
-                                aria-label="Delete job"
-                                className="text-muted-foreground hover:text-destructive"
-                            >
-                                <Trash2Icon />
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Delete</TooltipContent>
-                    </Tooltip>
-                </>
-            }
-        />
+        <div className="flex items-center gap-1.5">
+            <Button size="sm" variant="outline" onClick={onRun} disabled={busy || running}>
+                {busy ? <Loader2Icon className="animate-spin" /> : <PlayIcon />}
+                Run now
+            </Button>
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon-sm" aria-label="More task actions">
+                        <MoreHorizontalIcon />
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuItem onSelect={onDetails}>
+                        <FileTextIcon className="size-4" />
+                        View details
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={onEdit}>
+                        <Edit3Icon className="size-4" />
+                        Edit
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+                        <Trash2Icon className="size-4" />
+                        Delete
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        </div>
     )
 }

@@ -989,6 +989,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const chatAttention = resolveChatAttention(
         snapshot?.executionState ?? null,
         snapshot?.setup.phase ?? null,
+        snapshot?.executionMessage ?? null,
         streamError,
     )
 
@@ -1056,6 +1057,12 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                                 <Button asChild variant="outline" size="sm">
                                     <Link to="/rooms/$roomId" params={{ roomId }}>
                                         Finish setup
+                                    </Link>
+                                </Button>
+                            ) : chatAttention.kind === 'out_of_credits' ? (
+                                <Button asChild size="sm">
+                                    <Link to="/billing" search={{ checkout: null }}>
+                                        Buy credits
                                     </Link>
                                 </Button>
                             ) : (
@@ -1491,18 +1498,40 @@ function SessionArtifactsShell({
 }
 
 type ChatAttention = {
-    kind: 'runtime_error' | 'setup_required' | 'stream_paused'
+    kind: 'runtime_error' | 'setup_required' | 'stream_paused' | 'out_of_credits'
     tone: 'danger' | 'attention'
     title: string
     description: string
 }
 
+const outOfCreditsAttention: ChatAttention = {
+    kind: 'out_of_credits',
+    tone: 'attention',
+    title: 'You are out of credits',
+    description: 'Top up your credits to keep this room working.',
+}
+
+function isOutOfCreditsMessage(message: string | null): boolean {
+    if (!message) return false
+    const normalized = message.toLowerCase()
+    return (
+        normalized.includes('spend cap') ||
+        normalized.includes('out of credit') ||
+        normalized.includes('insufficient credit') ||
+        normalized.includes('not enough credit')
+    )
+}
+
 function resolveChatAttention(
     executionState: RoomSessionShellSnapshot['executionState'] | null,
     setupPhase: RoomSessionShellSnapshot['setup']['phase'] | null,
+    executionMessage: string | null,
     streamError: string | null,
 ): ChatAttention | null {
     if (executionState === 'error') {
+        if (isOutOfCreditsMessage(executionMessage)) {
+            return outOfCreditsAttention
+        }
         if (setupPhase === 'setup_required') {
             return {
                 kind: 'setup_required',
@@ -1519,6 +1548,9 @@ function resolveChatAttention(
         }
     }
     if (streamError) {
+        if (isOutOfCreditsMessage(streamError)) {
+            return outOfCreditsAttention
+        }
         return {
             kind: 'stream_paused',
             tone: 'attention',

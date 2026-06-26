@@ -60,7 +60,7 @@ const ROOM_TABS: TabDef[] = [
     { id: 'home', label: 'Home', icon: HomeIcon, to: '/rooms/$roomId' },
     { id: 'files', label: 'Files', icon: FolderIcon, to: '/rooms/$roomId/files' },
     { id: 'jobs', label: 'Jobs', icon: CalendarClockIcon, to: '/rooms/$roomId/jobs' },
-    { id: 'memory', label: 'Memory', icon: BrainIcon, to: '/rooms/$roomId/memory' },
+    { id: 'memory', label: 'Identity & memory', icon: BrainIcon, to: '/rooms/$roomId/memory' },
     { id: 'usage', label: 'Usage', icon: BarChart3Icon, to: '/rooms/$roomId/usage' },
     { id: 'status', label: 'Status', icon: ActivityIcon, to: '/rooms/$roomId/status' },
     { id: 'settings', label: 'Settings', icon: SettingsIcon, to: '/rooms/$roomId/settings' },

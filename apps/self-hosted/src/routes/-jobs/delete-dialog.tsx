@@ -26,7 +26,7 @@ export function JobDeleteDialog({
         <Dialog open={jobName !== null} onOpenChange={onOpenChange}>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>Delete this job?</DialogTitle>
+                    <DialogTitle>Delete this scheduled task?</DialogTitle>
                     <DialogDescription>
                         {jobName ? `"${jobName}" will stop running. This cannot be undone.` : null}
                     </DialogDescription>

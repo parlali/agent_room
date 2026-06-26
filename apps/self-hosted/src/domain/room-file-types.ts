@@ -1,5 +1,11 @@
 export type RoomFileSurface = 'workspace' | 'store'
 
+export interface RoomFileProvenance {
+    sessionKey: string | null
+    runId: string | null
+    messageId: string | null
+}
+
 export interface RoomFileEntry {
     name: string
     relativePath: string
@@ -7,6 +13,7 @@ export interface RoomFileEntry {
     kind: 'file' | 'directory'
     byteLength: number | null
     updatedAt: string | null
+    producedBy?: RoomFileProvenance | null
 }
 
 export interface RoomDirectoryListing {

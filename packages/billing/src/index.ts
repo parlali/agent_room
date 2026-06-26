@@ -100,7 +100,39 @@ export function hostedPlanAllowsManagedFetchUrl(planKey: string | null | undefin
     return Boolean(hostedPlanTierByKey(planKey)?.managedFetchUrl)
 }
 
+export const hostedLowCreditThresholdCents = 200
+
+export function isHostedBalanceLow(availableCents: number): boolean {
+    return Number.isFinite(availableCents) && availableCents <= hostedLowCreditThresholdCents
+}
+
+export function hostedCreditTopupCreditCents(): number {
+    return hostedBillingCatalog.topups[0].creditCents
+}
+
+export function hostedPlanHighlights(planKey: string | null | undefined): string[] {
+    const plan = hostedPlanTierByKey(planKey)
+    if (!plan) return []
+    const highlights: string[] = []
+    if (plan.includedCents > 0) {
+        highlights.push(`${formatHostedUsd(plan.includedCents)} of monthly usage included`)
+        highlights.push('AI model usage included')
+    } else {
+        highlights.push('No monthly usage included')
+        highlights.push('Add credits or your own key to run')
+    }
+    if (plan.managedBrave || plan.managedFetchUrl) {
+        highlights.push('Web access included')
+    }
+    if (plan.managedBrowserbase) {
+        highlights.push('Live web browsing included')
+    }
+    return highlights
+}
+
 export function formatHostedUsd(cents: number): string {
+    if (!Number.isFinite(cents)) return '-'
+    if (cents > 0 && cents < 1) return '<$0.01'
     const dollars = cents / 100
     return new Intl.NumberFormat('en-US', {
         style: 'currency',

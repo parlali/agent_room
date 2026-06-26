@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { StateBadge, LoadingRows } from '#/components/agent-room'
+import { Stat, StatGrid, StateBadge, LoadingRows } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
 import {
     Sheet,
@@ -8,84 +8,98 @@ import {
     SheetHeader,
     SheetTitle,
 } from '#/components/ui/sheet'
-import { formatCostUsd, formatDurationMs, formatRelativeTime, formatTokens } from '#/domain/format'
-import { describeJobLastRun } from '#/domain/state'
-import type { UsageEventRecord } from '#/domain/domain-types'
+import {
+    formatCostUsd,
+    formatDurationMs,
+    formatRelativeTime,
+    formatTokens,
+    pluralize,
+} from '#/domain/format'
 import type { RoomCronJob } from '#/domain/room-execution-types'
+import { describeScheduledTaskLastRun } from './last-run'
+import type { ScheduledTaskUsage } from './usage-server'
 
 export function JobDetailSheet({
     roomId,
     job,
-    usageEvents,
+    usage,
     usageLoading,
     onOpenChange,
 }: {
     roomId: string
     job: RoomCronJob | null
-    usageEvents: UsageEventRecord[]
+    usage: ScheduledTaskUsage | null
     usageLoading: boolean
     onOpenChange: (open: boolean) => void
 }) {
-    const events = job ? usageEvents.filter((event) => event.jobId === job.id) : []
-    const durationMs =
-        events.reduce((sum, event) => sum + (event.durationMs ?? 0), 0) ||
-        job?.lastDurationMs ||
-        null
-    const knownTokenEvents = events.filter((event) => event.totalTokens !== null)
-    const knownCostEvents = events.filter((event) => event.estimatedCostUsd !== null)
-    const totalTokens =
-        knownTokenEvents.length === 0
-            ? null
-            : knownTokenEvents.reduce((sum, event) => sum + (event.totalTokens ?? 0), 0)
-    const estimatedCost =
-        knownCostEvents.length === 0
-            ? null
-            : knownCostEvents.reduce((sum, event) => sum + Number(event.estimatedCostUsd ?? 0), 0)
+    const totals = usage?.totals ?? null
+    const events = usage?.events ?? []
+    const runCount = totals?.runCount ?? 0
+    const lastRun = job ? describeScheduledTaskLastRun(job.lastRunStatus) : null
+    const acrossRuns = `Across ${runCount} ${pluralize(runCount, 'run')}`
 
     return (
         <Sheet open={job !== null} onOpenChange={onOpenChange}>
             <SheetContent side="right" className="flex w-full flex-col gap-0 sm:max-w-lg">
                 <SheetHeader>
-                    <SheetTitle>{job?.name ?? 'Job details'}</SheetTitle>
+                    <SheetTitle>{job?.name ?? 'Scheduled task'}</SheetTitle>
                     <SheetDescription>
                         {job ? `${job.scheduleSummary} · ${job.timezone}` : 'Scheduled work'}
                     </SheetDescription>
                 </SheetHeader>
-                {job ? (
+                {job && lastRun ? (
                     <div className="flex-1 space-y-4 overflow-y-auto px-4 pb-4">
                         <div className="flex flex-wrap gap-2">
-                            <StateBadge
-                                tone={describeJobLastRun(job.lastRunStatus).tone}
-                                label={describeJobLastRun(job.lastRunStatus).label}
-                            />
+                            <StateBadge tone={lastRun.tone} label={lastRun.label} />
                             <StateBadge
                                 tone={job.enabled ? 'ready' : 'muted'}
                                 label={job.enabled ? 'Enabled' : 'Paused'}
                             />
                             {job.runningAt !== null ? (
-                                <StateBadge tone="working" label="Running" />
+                                <StateBadge tone="working" label="Running" pulse />
                             ) : null}
                         </div>
 
-                        <div className="grid gap-3 sm:grid-cols-3">
-                            <Metric label="Duration" value={formatDurationMs(durationMs)} />
-                            <Metric
-                                label="Tokens"
-                                value={totalTokens === null ? 'Unknown' : formatTokens(totalTokens)}
+                        <StatGrid className="sm:grid-cols-3 lg:grid-cols-3">
+                            <Stat
+                                label="Total time"
+                                value={usageLoading ? '…' : formatDurationMs(totals?.durationMs)}
+                                hint={acrossRuns}
                             />
-                            <Metric
-                                label="Cost"
+                            <Stat
+                                label="Total tokens"
                                 value={
-                                    estimatedCost === null
-                                        ? 'Unknown'
-                                        : formatCostUsd(estimatedCost)
+                                    usageLoading
+                                        ? '…'
+                                        : totals === null || totals.totalTokens === null
+                                          ? 'Not recorded'
+                                          : formatTokens(totals.totalTokens)
                                 }
+                                hint={acrossRuns}
                             />
-                        </div>
+                            <Stat
+                                label="Total cost"
+                                value={
+                                    usageLoading
+                                        ? '…'
+                                        : totals === null || totals.estimatedCostUsd === null
+                                          ? 'Not recorded'
+                                          : formatCostUsd(totals.estimatedCostUsd)
+                                }
+                                hint={acrossRuns}
+                            />
+                        </StatGrid>
+
+                        {usage?.windowed ? (
+                            <p className="text-xs text-muted-foreground">
+                                Totals cover this task&apos;s most recent activity in a busy room
+                                and may understate older runs.
+                            </p>
+                        ) : null}
 
                         <DetailBlock
                             title="Instruction"
-                            body={job.payloadSummary ?? 'No prompt stored'}
+                            body={job.payloadSummary ?? 'No instruction stored'}
                         />
                         {job.lastError ? (
                             <DetailBlock title="Last error" body={job.lastError} danger />
@@ -97,12 +111,24 @@ export function JobDetailSheet({
                             />
                             <DetailLine
                                 label="Last run"
-                                value={formatRelativeTime(job.lastRunAt)}
+                                value={
+                                    job.lastRunAt === null
+                                        ? 'Not run yet'
+                                        : formatRelativeTime(job.lastRunAt)
+                                }
                             />
-                            <DetailLine
-                                label="Running since"
-                                value={formatRelativeTime(job.runningAt)}
-                            />
+                            {job.runningAt !== null ? (
+                                <DetailLine
+                                    label="Running since"
+                                    value={formatRelativeTime(job.runningAt)}
+                                />
+                            ) : null}
+                            {job.lastDurationMs ? (
+                                <DetailLine
+                                    label="Last run took"
+                                    value={formatDurationMs(job.lastDurationMs)}
+                                />
+                            ) : null}
                         </div>
 
                         <div className="flex flex-wrap gap-2">
@@ -118,7 +144,7 @@ export function JobDetailSheet({
                             ) : null}
                             <Button asChild variant="outline" size="sm">
                                 <Link to="/rooms/$roomId/files" params={{ roomId }}>
-                                    Open artifacts
+                                    Open files
                                 </Link>
                             </Button>
                             <Button asChild variant="outline" size="sm">
@@ -130,7 +156,7 @@ export function JobDetailSheet({
 
                         <div>
                             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                                Usage events
+                                Recent runs
                             </div>
                             {usageLoading ? (
                                 <div className="mt-2">
@@ -138,7 +164,7 @@ export function JobDetailSheet({
                                 </div>
                             ) : events.length === 0 ? (
                                 <p className="mt-1 text-sm text-muted-foreground">
-                                    No job-specific usage events recorded yet.
+                                    No usage recorded for this task yet.
                                 </p>
                             ) : (
                                 <ul className="mt-2 divide-y divide-border/60 rounded-md border border-border/60">
@@ -163,15 +189,6 @@ export function JobDetailSheet({
                 ) : null}
             </SheetContent>
         </Sheet>
-    )
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-    return (
-        <div className="rounded-md border border-border/60 bg-card p-3">
-            <div className="text-xs text-muted-foreground">{label}</div>
-            <div className="mt-1 text-sm font-semibold text-foreground">{value}</div>
-        </div>
     )
 }
 
