@@ -18,7 +18,6 @@ export interface AgentRoomHostedEnv {
         fetch: typeof fetch
     }
     AGENT_ROOM_AUTH_MODE: string
-    AGENT_ROOM_BILLING_PLANS: string
     AGENT_ROOM_BILLING_USAGE_MARKUP_BPS: string
     AGENT_ROOM_BILLING_TAX_MODE: string
     AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS: string
@@ -31,9 +30,9 @@ export interface AgentRoomHostedEnv {
     GOOGLE_CLIENT_SECRET?: string
     STRIPE_SECRET_KEY?: string
     STRIPE_WEBHOOK_SECRET?: string
-    STRIPE_CREDIT_TOPUP_PRICE_ID?: string
     AGENT_ROOM_HOSTED_OPENROUTER_API_KEY?: string
     AGENT_ROOM_HOSTED_BRAVE_API_KEY?: string
+    AGENT_ROOM_HOSTED_BROWSERBASE_API_KEY?: string
     AGENT_ROOM_EMAIL_WEBHOOK_URL: string
     AGENT_ROOM_EMAIL_WEBHOOK_BEARER_TOKEN: string
     AGENT_ROOM_EMAIL_FROM: string

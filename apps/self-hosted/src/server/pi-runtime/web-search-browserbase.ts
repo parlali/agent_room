@@ -16,6 +16,14 @@ import {
 
 const browserbaseSearchApiUrl = 'https://api.browserbase.com/v1/search'
 
+function browserbaseSearchUrl(config: SearchRuntimeConfigScope): string {
+    const baseUrl = config.search.browserbase.baseUrl
+    if (!baseUrl) {
+        return browserbaseSearchApiUrl
+    }
+    return `${baseUrl.replace(/\/$/, '')}/search`
+}
+
 export class BrowserbaseSearchProvider implements SearchProvider {
     id = 'browserbase' as const
     label = 'Browserbase Search'
@@ -47,7 +55,7 @@ export class BrowserbaseSearchProvider implements SearchProvider {
             providerId: this.id,
             timeoutMs,
             signal: input.signal,
-            url: browserbaseSearchApiUrl,
+            url: browserbaseSearchUrl(input.config),
             init: {
                 method: 'POST',
                 headers: {

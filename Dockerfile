@@ -42,6 +42,7 @@ RUN apt-get update \
 COPY package.json bun.lock turbo.json ./
 COPY apps/marketing/package.json apps/marketing/package.json
 COPY apps/self-hosted/package.json apps/self-hosted/package.json
+COPY packages/billing/package.json packages/billing/package.json
 COPY packages/brand/package.json packages/brand/package.json
 COPY packages/typescript-config/package.json packages/typescript-config/package.json
 RUN bun install --frozen-lockfile

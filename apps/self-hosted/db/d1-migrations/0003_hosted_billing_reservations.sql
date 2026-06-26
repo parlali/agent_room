@@ -10,7 +10,7 @@ CREATE TABLE hosted_billing_reservation (
     session_key TEXT,
     run_id TEXT,
     job_id TEXT,
-    provider TEXT NOT NULL CHECK (provider IN ('openrouter', 'brave')),
+    provider TEXT NOT NULL CHECK (provider IN ('openrouter', 'brave', 'browserbase', 'fetch_url')),
     status TEXT NOT NULL CHECK (status IN ('authorized', 'settled', 'released', 'expired')),
     reserved_cents INTEGER NOT NULL CHECK (reserved_cents > 0),
     included_reserved_cents INTEGER NOT NULL DEFAULT 0 CHECK (included_reserved_cents >= 0),

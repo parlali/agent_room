@@ -1,0 +1,21 @@
+{
+    "name": "@agent-room/billing",
+    "private": true,
+    "version": "0.0.0",
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "build": "bun run typecheck",
+        "typecheck": "tsc --noEmit",
+        "lint": "eslint .",
+        "format": "prettier --check .",
+        "format:write": "prettier --write .",
+        "check": "bun run format && bun run lint && bun run typecheck"
+    },
+    "devDependencies": {
+        "@agent-room/typescript-config": "workspace:*",
+        "typescript": "^5.7.2"
+    }
+}

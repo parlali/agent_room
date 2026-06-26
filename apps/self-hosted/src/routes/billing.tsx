@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { formatHostedUsd, hostedBillingCatalog } from '@agent-room/billing'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
     CreditCardIcon,
@@ -44,7 +45,7 @@ interface HostedBillingSummary {
     plans: HostedBillingPlan[]
     usage: Array<{
         id: string
-        provider: 'openrouter' | 'brave'
+        provider: 'openrouter' | 'brave' | 'browserbase' | 'fetch_url'
         model: string | null
         costMicros: number
         billingStatus: string
@@ -73,29 +74,13 @@ function hostedBillingSummaryFromPayload(
     return isRecord(payload.billing) ? (payload.billing as unknown as HostedBillingSummary) : null
 }
 
-const placeholderPlans: PlaceholderPlan[] = [
-    {
-        key: 'starter',
-        name: 'Starter',
-        monthlyCents: 700,
-        includedCents: 0,
-        summary: 'Subscription access with no included managed usage.',
-    },
-    {
-        key: 'standard',
-        name: 'Standard',
-        monthlyCents: 2000,
-        includedCents: 1200,
-        summary: 'Includes monthly hosted usage that resets each cycle.',
-    },
-    {
-        key: 'pro',
-        name: 'Pro',
-        monthlyCents: 5000,
-        includedCents: 3500,
-        summary: 'More included monthly hosted usage for heavier workloads.',
-    },
-]
+const placeholderPlans: PlaceholderPlan[] = hostedBillingCatalog.plans.map((plan) => ({
+    key: plan.key,
+    name: plan.name,
+    monthlyCents: plan.monthlyCents,
+    includedCents: plan.includedCents,
+    summary: plan.summary,
+}))
 
 export const Route = createFileRoute('/billing')({
     beforeLoad: () => requireRouteUser({ requireHostedSubscription: false }),
@@ -109,13 +94,6 @@ export const Route = createFileRoute('/billing')({
     }),
     component: BillingPage,
 })
-
-function formatUsd(cents: number): string {
-    return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-    }).format(cents / 100)
-}
 
 function BillingPage() {
     const search = Route.useSearch()
@@ -194,7 +172,7 @@ function BillingPage() {
         includedCents: plan.includedCents,
         summary:
             plan.includedCents > 0
-                ? 'Includes monthly managed OpenRouter and Brave usage.'
+                ? 'Includes monthly managed provider usage.'
                 : 'Subscription access with no included managed usage.',
     }))
     const plans = livePlans?.length ? livePlans : placeholderPlans
@@ -223,7 +201,7 @@ function BillingPage() {
         <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">
             <PageHeader
                 title="Billing"
-                subtitle="Managed OpenRouter and Brave usage draws included credits first, then purchased credits."
+                subtitle="Managed OpenRouter, Brave, Browserbase, and fetch usage draws included credits first, then purchased credits."
             />
 
             {subscriptionCheckoutReturned && !hosted?.active ? (
@@ -240,7 +218,7 @@ function BillingPage() {
 
             <Section
                 title="Plans"
-                description="Placeholder tiers. Final pricing and included usage are configured in the hosted deployment."
+                description="Hosted tiers are shared with Stripe checkout and the public pricing page."
             >
                 <div className="grid gap-3 sm:grid-cols-3">
                     {plans.map((plan) => (
@@ -261,8 +239,8 @@ function BillingPage() {
                 <div className="mt-4 rounded-lg border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">
                     Included usage resets monthly and is spent first; it does not carry over.
                     Purchased credits persist and are spent after included usage runs out. Hosted
-                    OpenRouter and Brave usage is billed against this balance. VAT is added at
-                    checkout where required.
+                    managed provider usage is billed against this balance. VAT is added at checkout
+                    where required.
                 </div>
             </Section>
 
@@ -279,24 +257,26 @@ function BillingPage() {
                     <BillingMetric
                         icon={GaugeIcon}
                         label="Available usage"
-                        value={hosted ? formatUsd(hosted.remainingUsageCents) : 'Not connected'}
+                        value={
+                            hosted ? formatHostedUsd(hosted.remainingUsageCents) : 'Not connected'
+                        }
                     />
                     {hosted ? (
                         <div className="mt-3 grid gap-2 sm:grid-cols-3">
                             <BillingMetric
                                 icon={WalletCardsIcon}
                                 label="Included"
-                                value={formatUsd(hosted.account.includedBalanceCents)}
+                                value={formatHostedUsd(hosted.account.includedBalanceCents)}
                             />
                             <BillingMetric
                                 icon={CreditCardIcon}
                                 label="Purchased"
-                                value={formatUsd(hosted.account.purchasedBalanceCents)}
+                                value={formatHostedUsd(hosted.account.purchasedBalanceCents)}
                             />
                             <BillingMetric
                                 icon={ShieldCheckIcon}
                                 label="Reserved"
-                                value={formatUsd(hosted.account.reservedBalanceCents)}
+                                value={formatHostedUsd(hosted.account.reservedBalanceCents)}
                             />
                         </div>
                     ) : null}
@@ -386,7 +366,7 @@ function BillingPage() {
 
                 <Section
                     title="Recent billable usage"
-                    description="Managed OpenRouter and Brave usage appears here after it is debited."
+                    description="Managed provider usage appears here after it is debited."
                 >
                     {hosted?.usage.length ? (
                         <div className="divide-y rounded-lg border border-border/70">
@@ -405,7 +385,7 @@ function BillingPage() {
                                         </div>
                                     </div>
                                     <div className="font-medium">
-                                        {formatUsd(Math.ceil(event.costMicros / 10000))}
+                                        {formatHostedUsd(Math.ceil(event.costMicros / 10000))}
                                     </div>
                                 </div>
                             ))}
@@ -414,7 +394,7 @@ function BillingPage() {
                         <EmptyState
                             icon={CreditCardIcon}
                             title="No hosted billable usage"
-                            description="Managed OpenRouter and Brave usage will appear here after runs complete."
+                            description="Managed provider usage will appear here after runs complete."
                         />
                     )}
                 </Section>
@@ -436,7 +416,7 @@ function PlanCard({
 }) {
     const includedLabel =
         plan.includedCents > 0
-            ? `${formatUsd(plan.includedCents)} included usage / month`
+            ? `${formatHostedUsd(plan.includedCents)} included usage / month`
             : 'No included managed usage'
     return (
         <div className="flex flex-col rounded-lg border border-border/70 bg-background p-4">
@@ -447,7 +427,7 @@ function PlanCard({
                 </Badge>
             </div>
             <div className="mt-2 text-2xl font-semibold tracking-tight">
-                {formatUsd(plan.monthlyCents)}
+                {formatHostedUsd(plan.monthlyCents)}
                 <span className="text-sm font-normal text-muted-foreground"> / month</span>
             </div>
             <div className="mt-1 text-xs font-medium text-muted-foreground">{includedLabel}</div>

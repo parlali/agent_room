@@ -1,4 +1,5 @@
 import type { MaterializedRoomConfiguration } from '#/domain/domain-types'
+import { hostedPlanAllowsManagedBrowserbase } from '@agent-room/billing'
 import {
     mergeCapabilities,
     normalizeBudgets,
@@ -12,7 +13,10 @@ import {
     imageProviderEnvKey,
 } from '../configuration/operator-configuration/helpers'
 import { buildPiRuntimeConfig } from '../rooms/pi-runtime-config'
-import { hostedRuntimeUsageCallbackUrlEnvKey } from '../rooms/pi-runtime-contract'
+import {
+    hostedRuntimeUsageCallbackTokenEnvKey,
+    hostedRuntimeUsageCallbackUrlEnvKey,
+} from '../rooms/pi-runtime-contract'
 import { assertNoReservedRoomRuntimeEnvKeys } from '../security/process-env'
 import type { AgentRoomHostedEnv } from './bindings'
 import type { HostedActor } from './hosted-auth'
@@ -44,7 +48,13 @@ import {
     hostedRuntimeConfigPath,
     hostedRuntimePort,
 } from './hosted-runtime-paths'
-import { hostedBraveProxyBaseUrl } from './hosted-provider-proxy'
+import {
+    hostedBraveProxyBaseUrl,
+    hostedBrowserbaseProxyBaseUrl,
+    hostedManagedFetchProxyUrl,
+} from './hosted-provider-proxy'
+import { ensureHostedBillingAccount } from './hosted-billing-repository'
+import { isHostedBillingPlanStatusActive } from './hosted-billing-types'
 import {
     getHostedWorkspaceSettings,
     hostedSearchDefaults,
@@ -181,17 +191,32 @@ export async function materializeHostedRuntime(input: {
         config: settings.searchConfig,
         provider: 'browserbase',
     })
-    const browserbaseSecret =
-        searchEnabled && search.browserbase.enabled
-            ? await readRequiredHostedSecretPlainText({
-                  env: input.env,
-                  workspaceId: input.actor.workspaceId,
-                  secretId: browserbaseSecretId,
-                  label: 'Browserbase search credential',
-              })
-            : null
-    if (browserbaseSecret) {
-        env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = browserbaseSecret
+    const managedBrowserbase = searchEnabled && search.browserbase.enabled && !browserbaseSecretId
+    if (searchEnabled && search.browserbase.enabled) {
+        if (browserbaseSecretId) {
+            env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = await readRequiredHostedSecretPlainText({
+                env: input.env,
+                workspaceId: input.actor.workspaceId,
+                secretId: browserbaseSecretId,
+                label: 'Browserbase search credential',
+            })
+        } else {
+            const hostedConfig = resolveHostedConfig(input.env)
+            if (!hostedConfig.managedProviders.browserbaseApiKey) {
+                throw new Error('Managed Browserbase is not configured')
+            }
+            const billingAccount = await ensureHostedBillingAccount({
+                env: input.env,
+                workspaceId: input.actor.workspaceId,
+            })
+            if (
+                !isHostedBillingPlanStatusActive(billingAccount.planStatus) ||
+                !hostedPlanAllowsManagedBrowserbase(billingAccount.planKey)
+            ) {
+                throw new Error('Managed Browserbase requires an active Pro plan')
+            }
+            env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = token
+        }
     }
     const appImage = normalizeImageConfig({
         appConfig: settings.imageConfig,
@@ -259,7 +284,23 @@ export async function materializeHostedRuntime(input: {
                   })
                 : null,
             browserbaseApiKeyAvailable: Boolean(env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY),
+            browserbaseBaseUrl: managedBrowserbase
+                ? hostedBrowserbaseProxyBaseUrl({
+                      publicOrigin,
+                      workspaceId: input.actor.workspaceId,
+                      roomId: input.roomId,
+                  })
+                : null,
         }),
+        urlFetch: {
+            mode: 'managed',
+            proxyUrl: hostedManagedFetchProxyUrl({
+                publicOrigin,
+                workspaceId: input.actor.workspaceId,
+                roomId: input.roomId,
+            }),
+            tokenEnvKey: hostedRuntimeUsageCallbackTokenEnvKey,
+        },
         image: materializedImageConfig({
             settings,
             config,

@@ -44,6 +44,11 @@ function roomConfiguration(): MaterializedRoomConfiguration {
         roomMode: 'coworker',
         capabilities: testCapabilities,
         search: testSearch,
+        urlFetch: {
+            mode: 'direct',
+            proxyUrl: null,
+            tokenEnvKey: null,
+        },
         image: testImage,
         budgets: testBudgets,
         provider: {

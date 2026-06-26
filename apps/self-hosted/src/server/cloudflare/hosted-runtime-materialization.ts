@@ -510,6 +510,13 @@ export async function hostedRuntimeAllowedHosts(input: {
     if (input.runtimeConfig.search.enabled) {
         addUrlHost(hosts, input.runtimeConfig.search.backendUrl, 'Hosted search backend')
     }
+    if (
+        input.runtimeConfig.urlFetch.mode === 'managed' &&
+        input.runtimeConfig.urlFetch.proxyUrl &&
+        input.runtimeConfig.urlFetch.tokenEnvKey
+    ) {
+        addUrlHost(hosts, input.runtimeConfig.urlFetch.proxyUrl, 'Hosted fetch URL proxy')
+    }
     if (input.runtimeConfig.search.brave.enabled && input.runtimeConfig.search.brave.envKey) {
         addUrlHost(
             hosts,
@@ -523,7 +530,14 @@ export async function hostedRuntimeAllowedHosts(input: {
         input.runtimeConfig.search.browserbase.enabled &&
         input.runtimeConfig.search.browserbase.envKey
     ) {
-        addUrlHost(hosts, 'https://api.browserbase.com', 'Browserbase API')
+        addUrlHost(
+            hosts,
+            input.runtimeConfig.search.browserbase.baseUrl ?? 'https://api.browserbase.com',
+            input.runtimeConfig.search.browserbase.baseUrl
+                ? 'Hosted Browserbase proxy'
+                : 'Browserbase API',
+        )
+        addUrlHost(hosts, 'https://connect.browserbase.com', 'Browserbase CDP')
     }
     if (input.runtimeConfig.image.enabled && input.runtimeConfig.image.provider === 'openai') {
         addUrlHost(hosts, 'https://api.openai.com', 'OpenAI image API')

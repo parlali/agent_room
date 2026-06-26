@@ -247,7 +247,11 @@ export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promi
     const enabledTools = enabledToolNames(config)
     const enabledCapabilities = [
         config.capabilities.webSearch ? 'web search' : null,
-        config.capabilities.urlFetch ? 'direct URL fetch' : null,
+        config.capabilities.urlFetch
+            ? config.urlFetch.mode === 'managed'
+                ? 'managed URL fetch'
+                : 'direct URL fetch'
+            : null,
         browserAutomationEnabled ? 'Browserbase browser automation' : null,
         config.capabilities.documents ? 'DOCX documents' : null,
         config.capabilities.spreadsheets ? 'XLSX spreadsheets' : null,

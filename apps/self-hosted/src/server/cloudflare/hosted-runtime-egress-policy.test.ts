@@ -9,12 +9,18 @@ function runtimeConfigWithMcp(url: string): PiRuntimeConfig {
         },
         search: {
             enabled: false,
+            backendUrl: '',
             brave: {
                 enabled: false,
             },
             browserbase: {
                 enabled: false,
             },
+        },
+        urlFetch: {
+            mode: 'direct',
+            proxyUrl: null,
+            tokenEnvKey: null,
         },
         image: {
             enabled: false,
@@ -78,6 +84,38 @@ describe('hosted runtime egress policy', () => {
         })
 
         expect(hosts).toContain('rooms.example.test')
+        expect(hosts).not.toContain('searxng')
         expect(hosts).not.toContain('api.search.brave.com')
+    })
+
+    it('allowlists managed fetch and managed Browserbase proxy origins without SearXNG', async () => {
+        const runtimeConfig = runtimeConfigWithMcp('https://mcp.example.test/sse')
+        runtimeConfig.search.enabled = true
+        runtimeConfig.search.backendUrl = ''
+        runtimeConfig.search.browserbase = {
+            enabled: true,
+            envKey: 'AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY',
+            baseUrl:
+                'https://rooms.example.test/api/hosted/runtime/provider/browserbase/v1/workspaces/workspace_1/rooms/room_1',
+            timeoutMs: 10000,
+            resultCount: 5,
+        }
+        runtimeConfig.urlFetch = {
+            mode: 'managed',
+            proxyUrl:
+                'https://rooms.example.test/api/hosted/runtime/fetch/workspaces/workspace_1/rooms/room_1',
+            tokenEnvKey: 'AGENT_ROOM_HOSTED_USAGE_CALLBACK_TOKEN',
+        }
+
+        const hosts = await hostedRuntimeAllowedHosts({
+            runtimeConfig,
+            usageCallbackUrl: 'https://rooms.example.test/api/hosted/runtime/usage',
+            resolveTenantHostnameAddresses: async () => ['93.184.216.34'],
+        })
+
+        expect(hosts).toContain('rooms.example.test')
+        expect(hosts).toContain('connect.browserbase.com')
+        expect(hosts).not.toContain('searxng')
+        expect(hosts).not.toContain('api.browserbase.com')
     })
 })

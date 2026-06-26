@@ -16,6 +16,7 @@
         "check": "bun run format && bun run lint && bun run typecheck && bun run build"
     },
     "dependencies": {
+        "@agent-room/billing": "workspace:*",
         "@agent-room/brand": "workspace:*",
         "@fontsource-variable/geist": "^5.2.8",
         "@fontsource-variable/jetbrains-mono": "^5.2.5",

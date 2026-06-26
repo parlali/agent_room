@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { hostedBillingCatalog } from '@agent-room/billing'
 import { ensureHostedBillingAccount } from './hosted-billing-repository'
 import { createHostedStripePortalSession, verifyStripeWebhookPayload } from './hosted-stripe'
 import {
@@ -12,6 +13,9 @@ afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
 })
+
+const standardPlan = hostedBillingCatalog.plans.find((plan) => plan.key === 'standard')!
+const proPlan = hostedBillingCatalog.plans.find((plan) => plan.key === 'pro')!
 
 describe('hosted billing stripe webhooks', () => {
     it('credits the purchased bucket with the pre-tax subtotal on a top-up', async () => {
@@ -91,7 +95,7 @@ describe('hosted billing stripe webhooks', () => {
                         data: [
                             {
                                 price: {
-                                    id: 'price_test_standard_000000',
+                                    id: standardPlan.priceId,
                                 },
                             },
                         ],
@@ -153,7 +157,7 @@ describe('hosted billing stripe webhooks', () => {
                     status: 'paid',
                     metadata: { workspace_id: 'workspace_1' },
                     lines: {
-                        data: [{ price: { id: 'price_test_standard_000000' } }],
+                        data: [{ price: { id: standardPlan.priceId } }],
                     },
                 },
             },
@@ -223,7 +227,7 @@ describe('hosted billing stripe webhooks', () => {
                             data: [
                                 {
                                     price: {
-                                        id: 'price_test_pro_000000',
+                                        id: proPlan.priceId,
                                     },
                                 },
                             ],
@@ -273,7 +277,7 @@ describe('hosted billing stripe webhooks', () => {
                             data: [
                                 {
                                     price: {
-                                        id: 'price_test_standard_000000',
+                                        id: standardPlan.priceId,
                                     },
                                 },
                             ],

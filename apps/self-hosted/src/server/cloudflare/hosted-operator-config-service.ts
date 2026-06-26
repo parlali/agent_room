@@ -49,7 +49,7 @@ import {
 
 export const hostedSearchDefaults = {
     enabled: true,
-    backendUrl: 'http://searxng:8080',
+    backendUrl: '',
     defaultResultCount: 5,
     timeoutMs: 10000,
     maxSearchesPerRun: 20,
@@ -57,10 +57,10 @@ export const hostedSearchDefaults = {
 
 export function normalizeHostedSearchBackendUrl(value: string): string {
     const normalized = value.trim().replace(/\/$/, '')
-    if (normalized !== hostedSearchDefaults.backendUrl) {
-        throw new Error('Hosted search backend URL is fixed by the hosted deployment')
+    if (normalized) {
+        throw new Error('Hosted SearXNG search backend is disabled')
     }
-    return normalized
+    return ''
 }
 
 const defaultSearchConfig = {
@@ -309,14 +309,16 @@ export function materializedSearchConfig(input: {
     braveApiKeyAvailable: boolean
     braveBaseUrl?: string | null
     browserbaseApiKeyAvailable: boolean
+    browserbaseBaseUrl?: string | null
 }): MaterializedRoomConfiguration['search'] {
     const search = normalizeSearchConfig(input.settings.searchConfig, hostedSearchDefaults)
-    normalizeHostedSearchBackendUrl(search.backendUrl)
+    const backendUrl = normalizeHostedSearchBackendUrl(search.backendUrl)
     const enabled = input.enabled && search.enabled
     return withSearchProviderEnvKeys(
         {
             ...search,
             enabled,
+            backendUrl,
             brave: {
                 ...search.brave,
                 enabled: enabled && search.brave.enabled,
@@ -325,6 +327,7 @@ export function materializedSearchConfig(input: {
             browserbase: {
                 ...search.browserbase,
                 enabled: enabled && search.browserbase.enabled,
+                baseUrl: input.browserbaseBaseUrl ?? search.browserbase.baseUrl,
             },
         },
         {

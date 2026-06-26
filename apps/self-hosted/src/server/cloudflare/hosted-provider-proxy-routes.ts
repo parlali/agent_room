@@ -1,18 +1,13 @@
 import type { AgentRoomHostedEnv } from './bindings'
 import {
-    applyUsageMarkupMicros,
-    centsFromMicrosCeil,
     hostedBraveSearchCostMicros,
     hostedProviderBillingGateCents,
     type HostedBillingReservationProvider,
 } from './hosted-billing-types'
 import {
-    authorizeHostedBillingReservation,
     ensureHostedBillingAccount,
-    HostedBillingReservationAlreadyExistsError,
     findHostedBillingReservationByIdempotencyKey,
     readHostedProviderUsageSettlementByIdempotencyKey,
-    releaseHostedBillingReservation,
 } from './hosted-billing-repository'
 import { resolveHostedConfig } from './hosted-config'
 import { objectRecord, nullableObjectRecord } from './hosted-json'
@@ -20,28 +15,24 @@ import {
     openRouterCostMicrosFromProviderText,
     parseHostedBraveProxyPath,
     parseHostedOpenRouterProxyPath,
-    type HostedBraveProxyPath,
-    type HostedOpenRouterProxyPath,
 } from './hosted-provider-proxy'
 import {
-    boundedHeaderToken,
-    requireHostedRuntimeProviderProxy,
-    runtimeUsageContext,
-    type HostedRuntimeUsageContext,
-} from './hosted-runtime-worker-auth'
+    authorizeFixedProviderReservation,
+    hostedFixedCostReservationCents,
+    hostedProviderReservationFailureResponse,
+    hostedProviderProxyUsageRequest,
+    hostedProviderResponseHeaders,
+    releaseHostedProviderPreflightReservation,
+    releaseHostedProviderSettlementFailureReservation,
+    type HostedProviderProxyBillingAuthority,
+} from './hosted-provider-proxy-billing'
 import { recordHostedProviderUsage, recordHostedProviderUsageBlocked } from './hosted-usage-billing'
 import { hostedJsonResponse } from './hosted-worker-response'
+import { requireHostedRuntimeProviderProxy } from './hosted-runtime-worker-auth'
 
 interface HostedOpenRouterProviderRequest {
     body: BodyInit | null
     model: string | null
-}
-
-type HostedProviderProxyPath = HostedOpenRouterProxyPath | HostedBraveProxyPath
-
-interface HostedProviderProxyUsageRequest {
-    usageRequestId: string
-    usageContext: HostedRuntimeUsageContext
 }
 
 async function hostedOpenRouterProviderRequestBody(
@@ -83,125 +74,17 @@ async function hostedOpenRouterProviderRequestBody(
     }
 }
 
-async function releaseHostedProviderPreflightReservation(input: {
-    env: AgentRoomHostedEnv
-    workspaceId: string
-    reservationId: string | null
-}): Promise<void> {
-    if (!input.reservationId) {
-        return
-    }
-    await releaseHostedBillingReservation({
-        env: input.env,
-        workspaceId: input.workspaceId,
-        reservationId: input.reservationId,
-    })
-}
-
-async function runtimeUsageContextReferences(
-    env: AgentRoomHostedEnv,
-    input: {
-        workspaceId: string
-        roomId: string
-        context: HostedRuntimeUsageContext
-    },
-): Promise<Response | null> {
-    if (!input.context.jobId) {
-        return null
-    }
-    const job = await env.AGENT_ROOM_DB.prepare(
-        `
-            SELECT id
-            FROM hosted_room_job
-            WHERE workspace_id = ?1
-              AND room_id = ?2
-              AND id = ?3
-            LIMIT 1
-        `,
-    )
-        .bind(input.workspaceId, input.roomId, input.context.jobId)
-        .first<{ id: string }>()
-    if (job) {
-        return null
-    }
-    return hostedJsonResponse(
-        {
-            ok: false,
-            code: 'runtime_usage_context_invalid',
-        },
-        {
-            status: 400,
-        },
-    )
-}
-
-async function hostedProviderProxyUsageRequest(input: {
-    env: AgentRoomHostedEnv
-    request: Request
-    proxyPath: HostedProviderProxyPath
-}): Promise<HostedProviderProxyUsageRequest | Response> {
-    const usageRequestId = boundedHeaderToken(
-        input.request.headers.get('x-agent-room-usage-request-id'),
-    )
-    if (!usageRequestId) {
-        return hostedJsonResponse(
-            {
-                ok: false,
-                code: 'runtime_usage_request_id_required',
-            },
-            {
-                status: 400,
-            },
-        )
-    }
-    const usageContext = runtimeUsageContext(input.request)
-    if (usageContext instanceof Response) {
-        return usageContext
-    }
-    const usageContextReferenceError = await runtimeUsageContextReferences(input.env, {
-        workspaceId: input.proxyPath.workspaceId,
-        roomId: input.proxyPath.roomId,
-        context: usageContext,
-    })
-    if (usageContextReferenceError) {
-        return usageContextReferenceError
-    }
-    return {
-        usageRequestId,
-        usageContext,
-    }
-}
-
-async function releaseHostedProviderSettlementFailureReservation(input: {
-    env: AgentRoomHostedEnv
-    workspaceId: string
-    reservationId: string | null
-}): Promise<void> {
-    try {
-        await releaseHostedProviderPreflightReservation(input)
-    } catch (error) {
-        console.warn(
-            'Hosted provider preflight reservation release failed after settlement error',
-            {
-                workspaceId: input.workspaceId,
-                reservationId: input.reservationId,
-                error,
-            },
-        )
-    }
-}
-
 async function repairExistingProviderUsageSettlement(input: {
     env: AgentRoomHostedEnv
     workspaceId: string
     roomId: string
     provider: HostedBillingReservationProvider
     model: string
-    billedBy: 'hosted_openrouter_proxy' | 'hosted_brave_proxy'
+    billedBy: HostedProviderProxyBillingAuthority
     usageIdempotencyKey: string
     reservationIdempotencyKey: string
     usageRequestId: string
-    targetPath: string
+    targetPath: string | null
 }): Promise<boolean> {
     const [usage, reservation] = await Promise.all([
         readHostedProviderUsageSettlementByIdempotencyKey({
@@ -251,7 +134,7 @@ async function repairExistingProviderUsageSettlement(input: {
                 providerProxyBillingAuthority: 'worker_proxy',
                 reservationId: settlementReservation?.id ?? null,
                 usageRequestId: input.usageRequestId,
-                targetPath: input.targetPath,
+                ...(input.targetPath ? { targetPath: input.targetPath } : {}),
                 settlementRepair: true,
             },
             idempotencyKey: input.usageIdempotencyKey,
@@ -269,19 +152,11 @@ async function repairExistingProviderUsageSettlement(input: {
     return true
 }
 
-function hostedProviderResponseHeaders(response: Response): Headers {
-    const headers = new Headers(response.headers)
-    headers.delete('content-encoding')
-    headers.delete('content-length')
-    headers.delete('set-cookie')
-    headers.set('cache-control', 'no-store')
-    return headers
-}
-
 function hostedBraveSearchReservationCents(input: { usageMarkupBps: number }): number {
-    return centsFromMicrosCeil(
-        applyUsageMarkupMicros(hostedBraveSearchCostMicros, input.usageMarkupBps),
-    )
+    return hostedFixedCostReservationCents({
+        costMicros: hostedBraveSearchCostMicros,
+        usageMarkupBps: input.usageMarkupBps,
+    })
 }
 
 export async function hostedOpenRouterProxy(
@@ -382,51 +257,30 @@ export async function hostedOpenRouterProxy(
             env,
             workspaceId: proxyPath.workspaceId,
         })
-        const reservation = await authorizeHostedBillingReservation({
+        const reservationIdOrResponse = await authorizeFixedProviderReservation({
             env,
             workspaceId: proxyPath.workspaceId,
             roomId: proxyPath.roomId,
-            sessionKey: usageContext.sessionKey,
-            runId: usageContext.runId,
-            jobId: usageContext.jobId,
+            usageContext,
             provider: 'openrouter',
             amountCents: hostedProviderBillingGateCents,
             idempotencyKey: reservationIdempotencyKey,
-            metadata: {
-                targetPath: proxyPath.targetPath,
-                usageRequestId,
-                sessionKey: usageContext.sessionKey,
-                runId: usageContext.runId,
-                jobId: usageContext.jobId,
-                reservationPurpose: 'provider_preflight',
-            },
-            expiresAt: new Date(Date.now() + 15 * 60 * 1000),
-            allowExisting: false,
+            targetPath: proxyPath.targetPath,
+            usageRequestId,
         })
-        reservationId = reservation.id
-    } catch (error) {
-        if (error instanceof HostedBillingReservationAlreadyExistsError) {
-            return hostedJsonResponse(
-                {
-                    ok: false,
-                    code: 'runtime_usage_request_already_in_flight',
-                },
-                {
-                    status: 409,
-                },
-            )
+        if (reservationIdOrResponse instanceof Response) {
+            return reservationIdOrResponse
         }
-        return hostedJsonResponse(
-            {
-                ok: false,
-                code: 'hosted_billing_balance_exhausted',
-                message:
-                    error instanceof Error ? error.message : 'Hosted billing balance is exhausted',
-            },
-            {
-                status: 402,
-            },
-        )
+        reservationId = reservationIdOrResponse
+    } catch (error) {
+        return hostedProviderReservationFailureResponse({
+            error,
+            workspaceId: proxyPath.workspaceId,
+            roomId: proxyPath.roomId,
+            provider: 'openrouter',
+            targetPath: proxyPath.targetPath,
+            usageRequestId,
+        })
     }
 
     const headers = new Headers()
@@ -666,53 +520,32 @@ export async function hostedBraveProxy(
             env,
             workspaceId: proxyPath.workspaceId,
         })
-        const reservation = await authorizeHostedBillingReservation({
+        const reservationIdOrResponse = await authorizeFixedProviderReservation({
             env,
             workspaceId: proxyPath.workspaceId,
             roomId: proxyPath.roomId,
-            sessionKey: usageContext.sessionKey,
-            runId: usageContext.runId,
-            jobId: usageContext.jobId,
+            usageContext,
             provider: 'brave',
             amountCents: hostedBraveSearchReservationCents({
                 usageMarkupBps: config.billing.usageMarkupBps,
             }),
             idempotencyKey: reservationIdempotencyKey,
-            metadata: {
-                targetPath: proxyPath.targetPath,
-                usageRequestId,
-                sessionKey: usageContext.sessionKey,
-                runId: usageContext.runId,
-                jobId: usageContext.jobId,
-                reservationPurpose: 'provider_preflight',
-            },
-            expiresAt: new Date(Date.now() + 15 * 60 * 1000),
-            allowExisting: false,
+            targetPath: proxyPath.targetPath,
+            usageRequestId,
         })
-        reservationId = reservation.id
-    } catch (error) {
-        if (error instanceof HostedBillingReservationAlreadyExistsError) {
-            return hostedJsonResponse(
-                {
-                    ok: false,
-                    code: 'runtime_usage_request_already_in_flight',
-                },
-                {
-                    status: 409,
-                },
-            )
+        if (reservationIdOrResponse instanceof Response) {
+            return reservationIdOrResponse
         }
-        return hostedJsonResponse(
-            {
-                ok: false,
-                code: 'hosted_billing_balance_exhausted',
-                message:
-                    error instanceof Error ? error.message : 'Hosted billing balance is exhausted',
-            },
-            {
-                status: 402,
-            },
-        )
+        reservationId = reservationIdOrResponse
+    } catch (error) {
+        return hostedProviderReservationFailureResponse({
+            error,
+            workspaceId: proxyPath.workspaceId,
+            roomId: proxyPath.roomId,
+            provider: 'brave',
+            targetPath: proxyPath.targetPath,
+            usageRequestId,
+        })
     }
 
     const headers = new Headers()

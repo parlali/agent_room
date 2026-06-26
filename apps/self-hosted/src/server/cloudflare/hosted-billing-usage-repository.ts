@@ -1,13 +1,17 @@
 import type { D1Result } from '@cloudflare/workers-types'
 import type { AgentRoomHostedEnv } from './bindings'
-import type { HostedBillableUsageEvent, HostedUsageBillingStatus } from './hosted-billing-types'
+import type {
+    HostedBillableUsageEvent,
+    HostedBillingReservationProvider,
+    HostedUsageBillingStatus,
+} from './hosted-billing-types'
 import { nowIso } from './hosted-json'
 
 interface BillableUsageRow {
     id: string
     workspaceId: string
     roomId: string | null
-    provider: 'openrouter' | 'brave'
+    provider: HostedBillingReservationProvider
     model: string | null
     costMicros: number
     billingStatus: HostedUsageBillingStatus
@@ -24,7 +28,7 @@ interface ProviderUsageSettlementRow {
     sessionKey: string | null
     runId: string | null
     jobId: string | null
-    provider: 'openrouter' | 'brave'
+    provider: HostedBillingReservationProvider
     model: string | null
     costMicros: number | null
     billingStatus: HostedUsageBillingStatus
@@ -232,7 +236,7 @@ export async function readHostedProviderUsageSettlementByIdempotencyKey(input: {
             WHERE workspace_id = ?1
               AND idempotency_key = ?2
               AND kind = 'provider'
-              AND provider IN ('openrouter', 'brave')
+              AND provider IN ('openrouter', 'brave', 'browserbase', 'fetch_url')
             LIMIT 1
         `,
     )
@@ -259,7 +263,7 @@ export async function listRecentHostedBillableUsage(input: {
                 created_at AS createdAt
             FROM hosted_usage_event
             WHERE workspace_id = ?1
-              AND provider IN ('openrouter', 'brave')
+              AND provider IN ('openrouter', 'brave', 'browserbase', 'fetch_url')
               AND billing_status IN ('pending', 'debited', 'blocked')
             ORDER BY created_at DESC
             LIMIT ?2

@@ -1,3 +1,4 @@
+import { hostedBillingPlans, hostedCreditTopupPriceId } from '@agent-room/billing'
 import type { AgentRoomHostedEnv } from './bindings'
 import type { HostedBillingPlan } from './hosted-billing-types'
 import { hostedConfigSchema } from './hosted-config-contract'
@@ -34,6 +35,7 @@ export interface HostedConfig {
     managedProviders: {
         openRouterApiKey: string
         braveApiKey: string
+        browserbaseApiKey: string
     }
     emailWebhook: HostedEmailWebhookConfig
 }
@@ -50,14 +52,14 @@ export function resolveHostedConfig(env: AgentRoomHostedEnv): HostedConfig {
     return {
         authMode: data.AGENT_ROOM_AUTH_MODE,
         billing: {
-            plans: data.AGENT_ROOM_BILLING_PLANS,
+            plans: hostedBillingPlans(),
             usageMarkupBps: data.AGENT_ROOM_BILLING_USAGE_MARKUP_BPS,
             taxMode: data.AGENT_ROOM_BILLING_TAX_MODE,
             maxConcurrentRoomsPerWorkspace: data.AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS,
             stripe: {
                 secretKey: data.STRIPE_SECRET_KEY,
                 webhookSecret: data.STRIPE_WEBHOOK_SECRET,
-                creditTopupPriceId: data.STRIPE_CREDIT_TOPUP_PRICE_ID,
+                creditTopupPriceId: hostedCreditTopupPriceId(),
             },
         },
         runtimeBackend: data.AGENT_ROOM_RUNTIME_BACKEND,
@@ -76,6 +78,7 @@ export function resolveHostedConfig(env: AgentRoomHostedEnv): HostedConfig {
         managedProviders: {
             openRouterApiKey: data.AGENT_ROOM_HOSTED_OPENROUTER_API_KEY,
             braveApiKey: data.AGENT_ROOM_HOSTED_BRAVE_API_KEY,
+            browserbaseApiKey: data.AGENT_ROOM_HOSTED_BROWSERBASE_API_KEY,
         },
         emailWebhook: {
             url: data.AGENT_ROOM_EMAIL_WEBHOOK_URL,

@@ -4,6 +4,8 @@ export const hostedOpenRouterProxyPathPrefix = '/api/hosted/runtime/provider/ope
 const hostedOpenRouterProxyAllowedPaths = new Set(['/chat/completions'])
 export const hostedBraveProxyPathPrefix = '/api/hosted/runtime/provider/brave/v1'
 const hostedBraveProxyAllowedPaths = new Set(['/res/v1/web/search'])
+export const hostedBrowserbaseProxyPathPrefix = '/api/hosted/runtime/provider/browserbase/v1'
+export const hostedManagedFetchPathPrefix = '/api/hosted/runtime/fetch'
 
 interface HostedProxyPath {
     workspaceId: string
@@ -13,18 +15,19 @@ interface HostedProxyPath {
 
 export type HostedOpenRouterProxyPath = HostedProxyPath
 export type HostedBraveProxyPath = HostedProxyPath
+export type HostedBrowserbaseProxyPath = HostedProxyPath
+export interface HostedManagedFetchPath {
+    workspaceId: string
+    roomId: string
+}
 
 function makeHostedProxyPathHelpers(
     prefix: string,
-    allowedPaths: Set<string>,
+    targetPath: (suffix: string) => string | null,
 ): {
     targetPath: (suffix: string) => string | null
     parse: (pathname: string) => HostedProxyPath | null
 } {
-    const targetPath = (suffix: string): string | null => {
-        const path = suffix.startsWith('/') ? suffix : `/${suffix}`
-        return allowedPaths.has(path) ? path : null
-    }
     const parse = (pathname: string): HostedProxyPath | null => {
         if (!pathname.startsWith(prefix)) {
             return null
@@ -47,14 +50,52 @@ function makeHostedProxyPathHelpers(
     return { targetPath, parse }
 }
 
+function targetPathFromAllowedPaths(allowedPaths: Set<string>): (suffix: string) => string | null {
+    return (suffix: string): string | null => {
+        const path = suffix.startsWith('/') ? suffix : `/${suffix}`
+        return allowedPaths.has(path) ? path : null
+    }
+}
+
 const hostedOpenRouterProxyPathHelpers = makeHostedProxyPathHelpers(
     hostedOpenRouterProxyPathPrefix,
-    hostedOpenRouterProxyAllowedPaths,
+    targetPathFromAllowedPaths(hostedOpenRouterProxyAllowedPaths),
 )
 const hostedBraveProxyPathHelpers = makeHostedProxyPathHelpers(
     hostedBraveProxyPathPrefix,
-    hostedBraveProxyAllowedPaths,
+    targetPathFromAllowedPaths(hostedBraveProxyAllowedPaths),
 )
+
+function browserbaseTargetPath(suffix: string): string | null {
+    const path = suffix.startsWith('/') ? suffix : `/${suffix}`
+    if (path === '/search' || path === '/sessions') {
+        return path
+    }
+    if (/^\/sessions\/[^/]+$/.test(path) || /^\/sessions\/[^/]+\/debug$/.test(path)) {
+        return path
+    }
+    return null
+}
+
+const hostedBrowserbaseProxyPathHelpers = makeHostedProxyPathHelpers(
+    hostedBrowserbaseProxyPathPrefix,
+    browserbaseTargetPath,
+)
+
+export function parseHostedManagedFetchPath(pathname: string): HostedManagedFetchPath | null {
+    if (!pathname.startsWith(hostedManagedFetchPathPrefix)) {
+        return null
+    }
+    const suffix = pathname.slice(hostedManagedFetchPathPrefix.length)
+    const match = suffix.match(/^\/workspaces\/([^/]+)\/rooms\/([^/]+)$/)
+    if (!match) {
+        return null
+    }
+    return {
+        workspaceId: decodeURIComponent(match[1]!),
+        roomId: decodeURIComponent(match[2]!),
+    }
+}
 
 export function hostedOpenRouterProxyBaseUrl(input: {
     publicOrigin: string
@@ -74,10 +115,30 @@ export function hostedBraveProxyBaseUrl(input: {
     return `${origin}${hostedBraveProxyPathPrefix}/workspaces/${encodeURIComponent(input.workspaceId)}/rooms/${encodeURIComponent(input.roomId)}/res/v1/web/search`
 }
 
+export function hostedBrowserbaseProxyBaseUrl(input: {
+    publicOrigin: string
+    workspaceId: string
+    roomId: string
+}): string {
+    const origin = input.publicOrigin.replace(/\/$/, '')
+    return `${origin}${hostedBrowserbaseProxyPathPrefix}/workspaces/${encodeURIComponent(input.workspaceId)}/rooms/${encodeURIComponent(input.roomId)}`
+}
+
+export function hostedManagedFetchProxyUrl(input: {
+    publicOrigin: string
+    workspaceId: string
+    roomId: string
+}): string {
+    const origin = input.publicOrigin.replace(/\/$/, '')
+    return `${origin}${hostedManagedFetchPathPrefix}/workspaces/${encodeURIComponent(input.workspaceId)}/rooms/${encodeURIComponent(input.roomId)}`
+}
+
 export const hostedOpenRouterProxyTargetPath = hostedOpenRouterProxyPathHelpers.targetPath
 export const hostedBraveProxyTargetPath = hostedBraveProxyPathHelpers.targetPath
+export const hostedBrowserbaseProxyTargetPath = hostedBrowserbaseProxyPathHelpers.targetPath
 export const parseHostedOpenRouterProxyPath = hostedOpenRouterProxyPathHelpers.parse
 export const parseHostedBraveProxyPath = hostedBraveProxyPathHelpers.parse
+export const parseHostedBrowserbaseProxyPath = hostedBrowserbaseProxyPathHelpers.parse
 
 function openRouterCostDollars(value: unknown): number | null {
     const numeric =

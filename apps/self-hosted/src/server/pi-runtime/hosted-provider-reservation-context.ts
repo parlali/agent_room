@@ -1,6 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import {
+    hostedBrowserbaseProxyPathPrefix,
     hostedBraveProxyPathPrefix,
+    hostedManagedFetchPathPrefix,
     hostedOpenRouterProxyPathPrefix,
     openRouterCostMicrosFromProviderText,
 } from '../cloudflare/hosted-provider-proxy'
@@ -8,6 +10,8 @@ import { currentToolRunContext } from './tool-run-context'
 
 const hostedOpenRouterProxyMarker = `${hostedOpenRouterProxyPathPrefix}/`
 const hostedBraveProxyMarker = `${hostedBraveProxyPathPrefix}/`
+const hostedBrowserbaseProxyMarker = `${hostedBrowserbaseProxyPathPrefix}/`
+const hostedManagedFetchMarker = `${hostedManagedFetchPathPrefix}/`
 const usageRequestIdHeader = 'x-agent-room-usage-request-id'
 const billingReservationIdHeader = 'x-agent-room-billing-reservation-id'
 const usageSessionKeyHeader = 'x-agent-room-session-key'
@@ -59,7 +63,9 @@ function shouldTrackProviderRequest(url: string): boolean {
         const pathname = new URL(url).pathname
         return (
             pathname.includes(hostedOpenRouterProxyMarker) ||
-            pathname.includes(hostedBraveProxyMarker)
+            pathname.includes(hostedBraveProxyMarker) ||
+            pathname.includes(hostedBrowserbaseProxyMarker) ||
+            pathname.includes(hostedManagedFetchMarker)
         )
     } catch {
         return false

@@ -13,7 +13,10 @@ import {
 import {
     applyUsageMarkupMicros,
     centsFromMicrosCeil,
+    HostedBillingBalanceExhaustedError,
+    hostedBillingLedgerSourceForProvider,
     hostedProviderBillingGateCents,
+    type HostedBillingReservationProvider,
 } from './hosted-billing-types'
 import { resolveHostedConfig } from './hosted-config'
 import { nowIso } from './hosted-json'
@@ -25,7 +28,7 @@ export interface HostedProviderUsageInput {
     sessionKey: string | null
     runId: string | null
     jobId: string | null
-    provider: 'openrouter' | 'brave'
+    provider: HostedBillingReservationProvider
     model: string | null
     inputTokens: number | null
     outputTokens: number | null
@@ -59,7 +62,7 @@ export async function assertHostedProviderCreditsAvailable(input: {
     })
     const account = await readHostedBillingAccount(input)
     if (account.availableBalanceCents < hostedProviderBillingGateCents) {
-        throw new Error('Hosted billing balance is exhausted')
+        throw new HostedBillingBalanceExhaustedError()
     }
 }
 
@@ -142,8 +145,7 @@ export async function recordHostedProviderUsage(input: HostedProviderUsageInput)
         ledger = await debitHostedBalance({
             env: input.env,
             workspaceId: input.workspaceId,
-            source:
-                input.provider === 'openrouter' ? 'hosted_openrouter_usage' : 'hosted_brave_usage',
+            source: hostedBillingLedgerSourceForProvider(input.provider),
             amountCents,
             usageEventId,
             idempotencyKey: `hosted_usage:${usageEventId}`,
@@ -197,7 +199,7 @@ export async function recordHostedProviderUsageBlocked(input: {
     sessionKey: string | null
     runId: string | null
     jobId: string | null
-    provider: 'openrouter' | 'brave'
+    provider: HostedBillingReservationProvider
     model: string | null
     metadata: Record<string, unknown>
     idempotencyKey: string

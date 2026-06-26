@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { AgentRoomHostedEnv, AgentRoomRuntimeJobMessage } from './bindings'
 import { hostedRuntimeConfigPath, reconcileHostedRuntimeJob } from './hosted-runtime-adapter'
 import { hostedProviderAuthPath } from './hosted-runtime-paths'
+import { hostedRuntimeDeniedHosts } from './runtime-contract'
 import { encryptHostedSecret } from './hosted-secret-store'
 import { hostedRuntimeManagedOpenRouterEnvKey } from '../rooms/pi-runtime-contract'
 
@@ -300,14 +301,11 @@ function hostedEnv(input: {
             }),
         } as unknown as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME'],
         AGENT_ROOM_AUTH_MODE: 'better-auth',
-        AGENT_ROOM_BILLING_PLANS:
-            '[{"key":"standard","priceId":"price_test_standard_000000","monthlyCents":2000,"includedCents":1200}]',
         AGENT_ROOM_BILLING_USAGE_MARKUP_BPS: '13000',
         AGENT_ROOM_BILLING_TAX_MODE: 'automatic',
         AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS: '3',
         STRIPE_SECRET_KEY: 'stripe-secret-test-value',
         STRIPE_WEBHOOK_SECRET: 'stripe-webhook-test-value',
-        STRIPE_CREDIT_TOPUP_PRICE_ID: 'price_test_topup_000000',
         AGENT_ROOM_RUNTIME_BACKEND: 'cloudflare-containers',
         AGENT_ROOM_RUNTIME_STORAGE: 'r2',
         BETTER_AUTH_SECRET: 'a'.repeat(32),
@@ -320,6 +318,7 @@ function hostedEnv(input: {
         AGENT_ROOM_EMAIL_FROM: 'Agent Room <noreply@example.test>',
         AGENT_ROOM_HOSTED_OPENROUTER_API_KEY: 'openrouter-platform-key',
         AGENT_ROOM_HOSTED_BRAVE_API_KEY: 'brave-platform-key',
+        AGENT_ROOM_HOSTED_BROWSERBASE_API_KEY: 'browserbase-platform-key',
     }
     return hosted
 }
@@ -335,11 +334,12 @@ function runtimeMessage(): AgentRoomRuntimeJobMessage {
 }
 
 describe('hosted runtime reconciliation', () => {
-    it('starts the canonical room container after D1 and R2 state are verified', async () => {
+    it('starts the canonical room container with direct egress disabled after D1 and R2 state are verified', async () => {
         const updates: RuntimeUpdate[] = []
         const batches: RuntimeUpdate[][] = []
         const starts: Array<{ name: string; args: unknown }> = []
         const allowedHosts: Array<{ name: string; hosts: string[] }> = []
+        const deniedHosts: Array<{ name: string; hosts: string[] }> = []
         const env = hostedEnv({
             updates,
             batches,
@@ -362,6 +362,9 @@ describe('hosted runtime reconciliation', () => {
             setAllowedHosts: async (name, hosts) => {
                 allowedHosts.push({ name, hosts })
             },
+            setDeniedHosts: async (name, hosts) => {
+                deniedHosts.push({ name, hosts })
+            },
         })
 
         await reconcileHostedRuntimeJob(env, runtimeMessage())
@@ -370,7 +373,13 @@ describe('hosted runtime reconciliation', () => {
         expect(allowedHosts).toEqual([
             {
                 name: 'workspace:workspace_1:room:room_1',
-                hosts: ['openrouter.ai', 'rooms.example.test', 'searxng'],
+                hosts: ['openrouter.ai', 'rooms.example.test'],
+            },
+        ])
+        expect(deniedHosts).toEqual([
+            {
+                name: 'workspace:workspace_1:room:room_1',
+                hosts: hostedRuntimeDeniedHosts,
             },
         ])
         expect(starts[0]?.name).toBe('workspace:workspace_1:room:room_1')

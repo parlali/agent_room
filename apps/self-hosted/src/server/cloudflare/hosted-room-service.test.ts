@@ -13,6 +13,9 @@ describe('hosted room search readiness', () => {
                 braveEnabled: true,
                 braveSecretId: null,
                 managedBraveAvailable: true,
+                browserbaseEnabled: false,
+                browserbaseSecretId: null,
+                managedBrowserbaseAvailable: false,
             }),
         ).toBe(true)
     })
@@ -24,6 +27,9 @@ describe('hosted room search readiness', () => {
                 braveEnabled: true,
                 braveSecretId: 'secret_brave',
                 managedBraveAvailable: false,
+                browserbaseEnabled: false,
+                browserbaseSecretId: null,
+                managedBrowserbaseAvailable: false,
             }),
         ).toBe(true)
     })
@@ -35,6 +41,49 @@ describe('hosted room search readiness', () => {
                 braveEnabled: true,
                 braveSecretId: null,
                 managedBraveAvailable: false,
+                browserbaseEnabled: false,
+                browserbaseSecretId: null,
+                managedBrowserbaseAvailable: false,
+            }),
+        ).toBe(false)
+    })
+
+    it('marks Browserbase ready with a stored workspace key', () => {
+        expect(
+            resolveHostedRoomSearchReady({
+                searchEnabled: true,
+                braveEnabled: false,
+                braveSecretId: null,
+                managedBraveAvailable: false,
+                browserbaseEnabled: true,
+                browserbaseSecretId: 'secret_browserbase',
+                managedBrowserbaseAvailable: false,
+            }),
+        ).toBe(true)
+    })
+
+    it('marks Browserbase ready only when managed Browserbase is available', () => {
+        expect(
+            resolveHostedRoomSearchReady({
+                searchEnabled: true,
+                braveEnabled: false,
+                braveSecretId: null,
+                managedBraveAvailable: false,
+                browserbaseEnabled: true,
+                browserbaseSecretId: null,
+                managedBrowserbaseAvailable: true,
+            }),
+        ).toBe(true)
+
+        expect(
+            resolveHostedRoomSearchReady({
+                searchEnabled: true,
+                braveEnabled: false,
+                braveSecretId: null,
+                managedBraveAvailable: false,
+                browserbaseEnabled: true,
+                browserbaseSecretId: null,
+                managedBrowserbaseAvailable: false,
             }),
         ).toBe(false)
     })

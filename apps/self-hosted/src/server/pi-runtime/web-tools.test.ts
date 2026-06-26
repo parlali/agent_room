@@ -13,6 +13,10 @@ import { parseSearxngHtmlResults, SearxngSearchProvider, searxngSearch } from '.
 import { createTestPiRuntimeConfig } from './test-runtime-defaults'
 import { withToolRunContext } from './tool-run-context'
 import {
+    installHostedProviderReservationFetchRecorder,
+    withHostedProviderReservationCollection,
+} from './hosted-provider-reservation-context'
+import {
     FakeSearchProvider,
     executeWebTool,
     resetWebToolTestGlobals,
@@ -21,6 +25,114 @@ import {
 
 describe('web tools', () => {
     afterEach(resetWebToolTestGlobals)
+
+    it('routes fetch_url through the managed hosted fetch proxy when configured', async () => {
+        process.env.AGENT_ROOM_HOSTED_USAGE_CALLBACK_TOKEN = 'runtime-token-value-123456'
+        const requests: Array<{ url: string; headers: Headers; body: unknown }> = []
+        globalThis.fetch = (async (input, init) => {
+            requests.push({
+                url: String(input),
+                headers: new Headers(init?.headers),
+                body: JSON.parse(String(init?.body ?? '{}')),
+            })
+            return new Response(
+                JSON.stringify({
+                    url: 'https://example.com/page',
+                    finalUrl: 'https://example.com/page',
+                    status: 200,
+                    contentType: 'text/html',
+                    title: 'Example',
+                    text: 'Example page',
+                    byteLength: 42,
+                    truncated: false,
+                }),
+                {
+                    headers: {
+                        'content-type': 'application/json',
+                    },
+                },
+            )
+        }) as typeof fetch
+        const events: Array<{ event: string; payload: unknown }> = []
+        const tools = createWebTools({
+            config: createTestPiRuntimeConfig({
+                urlFetch: {
+                    mode: 'managed',
+                    proxyUrl:
+                        'https://rooms.example.test/api/hosted/runtime/fetch/workspaces/workspace_1/rooms/room_1',
+                    tokenEnvKey: 'AGENT_ROOM_HOSTED_USAGE_CALLBACK_TOKEN',
+                },
+            }),
+            audit: async (event, payload) => {
+                events.push({ event, payload })
+            },
+        })
+        const tool = tools.find((entry) => entry.name === 'fetch_url')
+        if (!tool) {
+            throw new Error('Missing fetch_url tool')
+        }
+        const runContext = {
+            sessionKey: 'thread_1',
+            runId: 'run_1',
+            jobId: 'job_1',
+        }
+        const abortController = new AbortController()
+        const uninstallRecorder = installHostedProviderReservationFetchRecorder()
+
+        const { result } = await (async () => {
+            try {
+                return await withHostedProviderReservationCollection(
+                    () =>
+                        withToolRunContext(
+                            {
+                                ...runContext,
+                                signal: abortController.signal,
+                            },
+                            () =>
+                                tool.execute(
+                                    'call-1',
+                                    {
+                                        url: 'https://example.com/page?secret=1',
+                                    },
+                                    undefined,
+                                    undefined,
+                                    {} as never,
+                                ),
+                        ),
+                    runContext,
+                )
+            } finally {
+                uninstallRecorder()
+            }
+        })()
+
+        expect(requests).toHaveLength(1)
+        expect(requests[0]!.url).toBe(
+            'https://rooms.example.test/api/hosted/runtime/fetch/workspaces/workspace_1/rooms/room_1',
+        )
+        expect(requests[0]!.headers.get('authorization')).toBe('Bearer runtime-token-value-123456')
+        const usageRequestId = requests[0]!.headers.get('x-agent-room-usage-request-id')
+        expect(usageRequestId).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/))
+        expect(requests[0]!.headers.get('x-agent-room-session-key')).toBe('thread_1')
+        expect(requests[0]!.headers.get('x-agent-room-run-id')).toBe('run_1')
+        expect(requests[0]!.headers.get('x-agent-room-job-id')).toBe('job_1')
+        expect(requests[0]!.body).toMatchObject({
+            url: 'https://example.com/page?secret=1',
+        })
+        expect(resultDetails(result)).toMatchObject({
+            finalUrl: 'https://example.com/page',
+            status: 200,
+        })
+        expect(events).toEqual([
+            {
+                event: 'tool.fetch_url',
+                payload: expect.objectContaining({
+                    provider: 'fetch_url',
+                    source: 'managed',
+                }),
+            },
+        ])
+    })
 
     it('parses bounded SearXNG results into canonical search results', () => {
         const results = parseSearxngResults(

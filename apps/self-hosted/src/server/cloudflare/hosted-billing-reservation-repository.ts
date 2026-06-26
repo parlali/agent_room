@@ -1,6 +1,7 @@
 import type { AgentRoomHostedEnv } from './bindings'
 import {
     assertPositiveCents,
+    HostedBillingBalanceExhaustedError,
     type HostedBillingReservationProvider,
     type HostedBillingReservationStatus,
 } from './hosted-billing-types'
@@ -281,7 +282,7 @@ export async function authorizeHostedBillingReservation(input: {
 
         const account = await readHostedBillingAccount(input)
         if (account.availableBalanceCents < input.amountCents) {
-            throw new Error('Hosted billing balance is exhausted')
+            throw new HostedBillingBalanceExhaustedError()
         }
         const includedAvailable = account.includedBalanceCents - account.includedReservedCents
         const includedReserved = Math.min(includedAvailable, input.amountCents)

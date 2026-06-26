@@ -26,13 +26,16 @@ interface FakeBrowserState {
     sent: unknown[]
 }
 
-function configuredBrowserbaseConfig(input: { browserActionsPerTurn?: number } = {}) {
+function configuredBrowserbaseConfig(
+    input: { browserActionsPerTurn?: number; browserbaseBaseUrl?: string | null } = {},
+) {
     return createTestPiRuntimeConfig({
         search: {
             ...createTestPiRuntimeConfig().search,
             browserbase: {
                 enabled: true,
                 envKey: 'AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY',
+                baseUrl: input.browserbaseBaseUrl ?? null,
                 timeoutMs: 10000,
                 resultCount: 5,
             },
@@ -48,12 +51,14 @@ function createManager(
         events?: Array<{ event: string; payload: unknown }>
         broadcasts?: Array<{ sessionKey: string; event: string; payload: unknown }>
         browserActionsPerTurn?: number
+        browserbaseBaseUrl?: string | null
     } = {},
 ) {
     const events = input.events ?? []
     const broadcasts = input.broadcasts ?? []
     const config = configuredBrowserbaseConfig({
         browserActionsPerTurn: input.browserActionsPerTurn,
+        browserbaseBaseUrl: input.browserbaseBaseUrl,
     })
     const manager = new BrowserbaseBrowserAutomationManager({
         config,
@@ -86,6 +91,7 @@ function installBrowserbaseFakes(
         releaseStatus?: number
         sessionCreateStatus?: number
         state?: FakeBrowserState
+        apiBaseUrl?: string
     } = {},
 ) {
     const state = input.state ?? {
@@ -98,6 +104,7 @@ function installBrowserbaseFakes(
     const readyStateResults = [...(input.readyStateResults ?? [])]
     let sessionCount = 0
     let releaseFailuresRemaining = input.releaseFailures ?? null
+    const apiBaseUrl = input.apiBaseUrl ?? 'https://api.browserbase.com/v1'
     globalThis.fetch = (async (request, init) => {
         const url = String(request)
         const body = init?.body ? JSON.parse(String(init.body)) : null
@@ -107,7 +114,7 @@ function installBrowserbaseFakes(
             body,
             apiKey: new Headers(init?.headers).get('x-bb-api-key'),
         })
-        if (url === 'https://api.browserbase.com/v1/sessions' && init?.method === 'POST') {
+        if (url === `${apiBaseUrl}/sessions` && init?.method === 'POST') {
             if (input.sessionCreateStatus) {
                 return Response.json(
                     {
@@ -454,6 +461,43 @@ describe('Browserbase browser automation', () => {
         expect(payloadText(manager.snapshot())).not.toContain('live-secret')
         expect(broadcasts.some((entry) => entry.event === 'browser.session_changed')).toBe(true)
         expect(payloadText(broadcasts)).not.toContain('live-secret')
+    })
+
+    it('uses the configured Browserbase proxy base URL for managed hosted sessions', async () => {
+        process.env.AGENT_ROOM_SEARCH_BROWSERBASE_API_KEY = 'runtime-token-value-123456'
+        const apiBaseUrl =
+            'https://rooms.example.test/api/hosted/runtime/provider/browserbase/v1/workspaces/workspace_1/rooms/room_1'
+        const { fetchCalls } = installBrowserbaseFakes({
+            apiBaseUrl,
+        })
+        const { manager } = createManager({
+            browserbaseBaseUrl: apiBaseUrl,
+        })
+
+        await withToolRunContext(
+            {
+                sessionKey: 'thread-1',
+                runId: 'run-1',
+                signal: new AbortController().signal,
+            },
+            () =>
+                manager.open(
+                    {
+                        action: 'open',
+                        toolCallId: 'call-1',
+                        sessionKey: 'thread-1',
+                        runId: 'run-1',
+                    },
+                    {
+                        url: 'https://93.184.216.34/start',
+                    },
+                ),
+        )
+
+        expect(fetchCalls.map((call) => [call.method, call.url])).toEqual([
+            ['POST', `${apiBaseUrl}/sessions`],
+        ])
+        expect(fetchCalls[0]?.apiKey).toBe('runtime-token-value-123456')
     })
 
     it('fails closed when the per-turn browser action budget is exhausted but still allows close', async () => {

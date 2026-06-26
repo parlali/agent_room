@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { hostedBillingCatalog } from '@agent-room/billing'
 import {
     authorizeHostedBillingReservation,
     creditHostedBalance,
@@ -14,6 +15,9 @@ afterEach(() => {
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
 })
+
+const standardPlan = hostedBillingCatalog.plans.find((plan) => plan.key === 'standard')!
+const creditTopup = hostedBillingCatalog.topups[0]
 
 describe('hosted billing usage markup', () => {
     it('debits the marked-up cents and keeps the raw provider cost on the usage event', async () => {
@@ -715,7 +719,7 @@ describe('hosted billing service API', () => {
             authorization: 'Bearer stripe-secret-test-value',
         })
         expect(String(init?.body)).toContain('metadata%5Bworkspace_id%5D=workspace_1')
-        expect(String(init?.body)).toContain('line_items%5B0%5D%5Bprice%5D=price_test_topup_000000')
+        expect(String(init?.body)).toContain(`line_items%5B0%5D%5Bprice%5D=${creditTopup.priceId}`)
         expect(String(init?.body)).toContain(
             'success_url=https%3A%2F%2Frooms.example.test%2Fbilling%3Fcheckout%3Dtopup_success',
         )
@@ -729,7 +733,7 @@ describe('hosted billing service API', () => {
         })
         const [, subscriptionInit] = fetchMock.mock.calls[1] ?? []
         expect(String(subscriptionInit?.body)).toContain(
-            'line_items%5B0%5D%5Bprice%5D=price_test_standard_000000',
+            `line_items%5B0%5D%5Bprice%5D=${standardPlan.priceId}`,
         )
         expect(String(subscriptionInit?.body)).toContain(
             'success_url=https%3A%2F%2Frooms.example.test%2Fbilling%3Fcheckout%3Dsubscription_success',
