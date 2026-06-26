@@ -150,6 +150,30 @@ export interface RoomExecutionMessagePart {
 
 export type RoomToolActivityStatus = 'pending' | 'in_progress' | 'stopped' | 'complete' | 'error'
 
+export type RoomWebActivityKind = 'search' | 'fetch' | 'browser'
+
+export type RoomWebActivityState =
+    | 'ok'
+    | 'unavailable'
+    | 'setup_required'
+    | 'degraded'
+    | 'rate_limited'
+
+export interface RoomWebActivitySource {
+    title: string
+    url: string
+    host: string
+}
+
+export interface RoomWebActivity {
+    kind: RoomWebActivityKind
+    state: RoomWebActivityState
+    query: string | null
+    summary: string | null
+    sources: RoomWebActivitySource[]
+    page: RoomWebActivitySource | null
+}
+
 export interface RoomToolActivityTask {
     id: string
     title: string
@@ -157,6 +181,7 @@ export interface RoomToolActivityTask {
     status: RoomToolActivityStatus
     detail: string | null
     result: string | null
+    web?: RoomWebActivity | null
 }
 
 export type RunTranscriptStatus =

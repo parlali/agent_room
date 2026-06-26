@@ -5,6 +5,7 @@ import { PaperclipIcon, SendIcon, SquareIcon } from 'lucide-react'
 import { Button } from '#/components/ui/button'
 import { Textarea } from '#/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
+import { cn } from '#/lib/utils'
 import type { RoomAttachment } from '#/domain/room-attachments'
 import type { RoomExecutionModelState } from '#/domain/room-execution-types'
 import { maxSessionComposerDraftLength } from '#/domain/session-composer-draft'
@@ -75,6 +76,7 @@ export function Composer({
     const primaryActionDisabled = showingStopAction ? false : attaching || !canSend
     const primaryActionLabel = showingStopAction ? 'Stop generation' : 'Send message'
     const primaryActionTooltip = showingStopAction ? 'Stop' : 'Send · Cmd+Enter'
+    const touchTargetSize = 'size-9 sm:size-8'
     const onFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files
         if (files && files.length > 0) {
@@ -108,79 +110,84 @@ export function Composer({
             onSubmit={onSubmit}
             onDragOver={onComposerDragOver}
             onDrop={onComposerDrop}
-            className="sticky bottom-0 border-t border-border bg-background/95 px-3 py-3 backdrop-blur sm:px-6"
+            className="sticky bottom-0 border-t border-border bg-background/95 px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:px-6"
         >
-            {attachments.length > 0 ? (
-                <div className="mx-auto mb-2 w-full max-w-5xl">
-                    <AttachmentCards
-                        roomId={roomId}
-                        attachments={attachments}
-                        onRemove={onRemoveAttachment}
+            <div className="mx-auto w-full max-w-5xl">
+                {attachments.length > 0 ? (
+                    <div className="mb-2">
+                        <AttachmentCards
+                            roomId={roomId}
+                            attachments={attachments}
+                            onRemove={onRemoveAttachment}
+                        />
+                    </div>
+                ) : null}
+                <div className="rounded-xl border border-input bg-background shadow-xs transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 dark:bg-input/30">
+                    <Textarea
+                        value={draft}
+                        onChange={(event) => onChangeDraft(event.target.value)}
+                        onKeyDown={onKeyDown}
+                        onPaste={onComposerPaste}
+                        placeholder={`Message ${roomDisplayName}`}
+                        className="max-h-48 min-h-10 resize-none border-0 bg-transparent px-3 py-2.5 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent"
+                        maxLength={maxSessionComposerDraftLength}
+                        rows={1}
                     />
+                    <div className="flex items-center gap-1 px-2 pb-2">
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className={touchTargetSize}
+                                    aria-label="Attach a file"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    disabled={sending}
+                                    loading={attaching}
+                                >
+                                    <PaperclipIcon />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Attach a file</TooltipContent>
+                        </Tooltip>
+                        <ModelModeMenu
+                            state={modelState}
+                            disabled={sending || stopping || canStop}
+                            updating={modelUpdating}
+                            onChange={onChangeModel}
+                        />
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    type={showingStopAction ? 'button' : 'submit'}
+                                    variant={showingStopAction ? 'outline' : 'default'}
+                                    size="icon"
+                                    className={cn('ml-auto', touchTargetSize)}
+                                    onClick={showingStopAction ? onStop : undefined}
+                                    disabled={primaryActionDisabled}
+                                    loading={primaryActionLoading}
+                                    aria-label={primaryActionLabel}
+                                >
+                                    {showingStopAction ? (
+                                        <SquareIcon className="size-3.5" />
+                                    ) : (
+                                        <SendIcon />
+                                    )}
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">{primaryActionTooltip}</TooltipContent>
+                        </Tooltip>
+                    </div>
                 </div>
-            ) : null}
-            <div className="mx-auto flex w-full max-w-5xl items-end gap-2">
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label="Attach a file"
-                            onClick={() => fileInputRef.current?.click()}
-                            disabled={sending}
-                            loading={attaching}
-                        >
-                            <PaperclipIcon />
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Attach a file</TooltipContent>
-                </Tooltip>
-                <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    className="hidden"
-                    onChange={onFileInputChange}
-                />
-                <Textarea
-                    value={draft}
-                    onChange={(event) => onChangeDraft(event.target.value)}
-                    onKeyDown={onKeyDown}
-                    onPaste={onComposerPaste}
-                    placeholder={`Message ${roomDisplayName}`}
-                    className="max-h-48 min-h-10 flex-1 resize-none"
-                    maxLength={maxSessionComposerDraftLength}
-                    rows={1}
-                />
-                <ModelModeMenu
-                    state={modelState}
-                    disabled={sending || stopping || canStop}
-                    updating={modelUpdating}
-                    onChange={onChangeModel}
-                />
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button
-                            type={showingStopAction ? 'button' : 'submit'}
-                            variant={showingStopAction ? 'outline' : 'default'}
-                            size="icon"
-                            onClick={showingStopAction ? onStop : undefined}
-                            disabled={primaryActionDisabled}
-                            loading={primaryActionLoading}
-                            aria-label={primaryActionLabel}
-                            className={
-                                showingStopAction
-                                    ? 'active:not-aria-[haspopup]:translate-y-0'
-                                    : undefined
-                            }
-                        >
-                            {showingStopAction ? <SquareIcon className="size-3.5" /> : <SendIcon />}
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">{primaryActionTooltip}</TooltipContent>
-                </Tooltip>
             </div>
+            <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={onFileInputChange}
+            />
         </form>
     )
 }

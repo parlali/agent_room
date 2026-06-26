@@ -2,6 +2,8 @@ import type { CapabilityId, UsageEventKind } from './domain-types'
 
 export const WEB_ACCESS_CAPABILITY_IDS: CapabilityId[] = ['web_search', 'url_fetch']
 
+export const WEB_ACCESS_CAPABILITY_LABEL = 'Web access'
+
 const capabilityLabels: Record<CapabilityId, string> = {
     web_search: 'Web search',
     url_fetch: 'Web page fetch',

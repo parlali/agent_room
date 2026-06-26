@@ -1,9 +1,17 @@
 import { Link } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
-import { ArrowLeftIcon, FilesIcon, Loader2Icon, MonitorIcon, PencilIcon } from 'lucide-react'
+import {
+    ArrowLeftIcon,
+    ChevronDownIcon,
+    FilesIcon,
+    Loader2Icon,
+    MonitorIcon,
+    PencilIcon,
+} from 'lucide-react'
 
 import { RoomGlyph, StateBadge } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '#/components/ui/collapsible'
 import {
     Dialog,
     DialogContent,
@@ -13,6 +21,7 @@ import {
     DialogTitle,
 } from '#/components/ui/dialog'
 import { Input } from '#/components/ui/input'
+import { cn } from '#/lib/utils'
 import { Label } from '#/components/ui/label'
 import type { describeSessionState } from '#/domain/state'
 import type { RoomExecutionSnapshot, RoomRuntimeOverview } from '#/domain/room-execution-types'
@@ -110,11 +119,24 @@ export function ChatHeader({
                             <PencilIcon className="size-3.5" />
                         </Button>
                     </div>
-                    {modelLabel ? (
-                        <span className="truncate text-[0.6875rem] text-muted-foreground">
-                            {modelLabel}
-                            {compactionLabel ? ` · ${compactionLabel}` : ''}
-                        </span>
+                    {modelLabel || compactionLabel ? (
+                        <Collapsible>
+                            <CollapsibleTrigger
+                                className={cn(
+                                    'group flex items-center gap-1 text-[0.6875rem] text-muted-foreground',
+                                    'hover:text-foreground',
+                                )}
+                            >
+                                Advanced
+                                <ChevronDownIcon className="size-3 transition-transform group-data-[state=open]:rotate-180" />
+                            </CollapsibleTrigger>
+                            <CollapsibleContent className="flex flex-col text-[0.6875rem] text-muted-foreground">
+                                {modelLabel ? <span className="truncate">{modelLabel}</span> : null}
+                                {compactionLabel ? (
+                                    <span className="truncate">{compactionLabel}</span>
+                                ) : null}
+                            </CollapsibleContent>
+                        </Collapsible>
                     ) : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">

@@ -3,6 +3,10 @@ import type {
     RoomExecutionMessagePart,
     RoomToolActivityStatus,
     RoomToolActivityTask,
+    RoomWebActivity,
+    RoomWebActivityKind,
+    RoomWebActivityState,
+    RoomWebActivitySource,
 } from './room-execution-types'
 import { categorizeAgentRoomTool, type AgentRoomToolCategory } from './agent-room-tool-categories'
 
@@ -88,9 +92,9 @@ const TOOL_COPY: Record<Exclude<AgentRoomToolCategory, 'other'>, ToolCopy> = {
         completeResult: 'Image generation completed',
     },
     browser: {
-        title: 'Used browser',
+        title: 'Browser activity',
         action: 'browsed',
-        completeResult: 'Browser automation completed',
+        completeResult: 'Browser work completed',
     },
     subagent: {
         title: 'Asked another agent',
@@ -320,7 +324,146 @@ function projectToolTask(input: ToolProjectionInput, index = 0): ToolActivityTas
         status: input.status,
         detail: safeInputDetail(input.name, input.input),
         result: errorText ?? safeResultText(input.status, copy),
+        web: projectWebActivity(input),
     }
+}
+
+function projectWebActivity(input: ToolProjectionInput): RoomWebActivity | null {
+    const category = categorizeAgentRoomTool(input.name)
+    if (category === 'research_search') {
+        return buildWebActivity('search', input, {
+            query: webQuery(input.input),
+            sources: parseSearchSources(input.text),
+        })
+    }
+    if (category === 'research_fetch') {
+        return buildWebActivity('fetch', input, {
+            page: webPageFromFetch(input.input, input.text),
+        })
+    }
+    if (category === 'browser') {
+        return buildWebActivity('browser', input, {
+            summary: browserSummary(input.name, input.input),
+            page: webSourceFromUrl(firstSafeString(asRecord(input.input), ['url']), null),
+        })
+    }
+    return null
+}
+
+function buildWebActivity(
+    kind: RoomWebActivityKind,
+    input: ToolProjectionInput,
+    partial: {
+        query?: string | null
+        summary?: string | null
+        sources?: RoomWebActivitySource[]
+        page?: RoomWebActivitySource | null
+    },
+): RoomWebActivity {
+    return {
+        kind,
+        state: webActivityState(input),
+        query: partial.query ?? null,
+        summary: partial.summary ?? null,
+        sources: partial.sources ?? [],
+        page: partial.page ?? null,
+    }
+}
+
+function webActivityState(input: ToolProjectionInput): RoomWebActivityState {
+    if (input.status !== 'error') return 'ok'
+    const message = safeErrorText(input.text, input.result).toLowerCase()
+    if (/rate.?limit|too many request|quota|429/.test(message)) return 'rate_limited'
+    if (/not configured|not materialized|missing .*key|no .*provider|set up|setup|not enabled/.test(message)) {
+        return 'setup_required'
+    }
+    if (/unavailable|disabled|not available|turned off/.test(message)) return 'unavailable'
+    return 'degraded'
+}
+
+function webQuery(input: unknown): string | null {
+    return firstSafeString(asRecord(input), ['query', 'q'])
+}
+
+function parseSearchSources(text: string | null): RoomWebActivitySource[] {
+    if (!text) return []
+    const sources: RoomWebActivitySource[] = []
+    const seen = new Set<string>()
+    for (const block of text.split(/\n\s*\n/)) {
+        const lines = block.split('\n')
+        const urlLine = lines.find((line) => /^\s*URL:\s*/i.test(line))
+        if (!urlLine) continue
+        const url = urlLine.replace(/^\s*URL:\s*/i, '').trim()
+        const source = webSourceFromUrl(url, searchResultTitle(lines))
+        if (!source || seen.has(source.url)) continue
+        seen.add(source.url)
+        sources.push(source)
+        if (sources.length >= 6) break
+    }
+    return sources
+}
+
+function searchResultTitle(lines: string[]): string | null {
+    for (const line of lines) {
+        const match = line.match(/^\s*\d+\.\s+(.*\S)\s*$/)
+        if (match && match[1]) return truncateDisplay(match[1], 120)
+    }
+    return null
+}
+
+function webPageFromFetch(input: unknown, text: string | null): RoomWebActivitySource | null {
+    const url = firstSafeString(asRecord(input), ['url'])
+    const title = fetchTitle(text)
+    return webSourceFromUrl(url, title)
+}
+
+function fetchTitle(text: string | null): string | null {
+    if (!text) return null
+    for (const line of text.split('\n').slice(0, 12)) {
+        const match = line.match(/^\s*Title:\s*(.*\S)\s*$/i)
+        if (match && match[1]) return truncateDisplay(match[1], 120)
+    }
+    return null
+}
+
+function browserSummary(name: string | null, input: unknown): string {
+    const action = browserActionFromName(name)
+    const host = webSourceFromUrl(firstSafeString(asRecord(input), ['url']), null)?.host ?? null
+    if (action === 'navigate') return host ? `Opened ${host}` : 'Opened a web page'
+    if (action === 'open') return 'Started a browser session'
+    if (action === 'close') return 'Closed the browser session'
+    if (action === 'click') return 'Clicked on the page'
+    if (action === 'type') return 'Typed into the page'
+    if (action === 'scroll') return 'Scrolled the page'
+    if (action === 'screenshot') return 'Captured the page'
+    if (action === 'read_text') return 'Read the page'
+    return host ? `Browsed ${host}` : 'Browsed the web'
+}
+
+function browserActionFromName(name: string | null): string {
+    if (!name) return ''
+    const match = name.match(/browser_(.+)$/)
+    return match?.[1] ?? ''
+}
+
+function webSourceFromUrl(value: string | null, title: string | null): RoomWebActivitySource | null {
+    if (!value) return null
+    try {
+        const url = new URL(value)
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+        const host = url.hostname.replace(/^www\./, '')
+        return {
+            title: title?.trim() || host,
+            url: url.toString(),
+            host,
+        }
+    } catch {
+        return null
+    }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+    return isRecord(value) ? value : {}
 }
 
 function toolCopy(name: string | null): ToolCopy {

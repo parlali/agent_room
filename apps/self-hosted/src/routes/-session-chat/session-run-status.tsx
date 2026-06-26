@@ -6,6 +6,7 @@ import { transcriptHasExpandableContent } from '#/domain/message-list-model'
 import { describeSessionState } from '#/domain/state'
 import { formatDurationMs } from '#/domain/format'
 import { cn } from '#/lib/utils'
+import { isActiveRunStatus } from './conversation-utils'
 import type { RoomExecutionThread, RunTranscriptRow } from '#/domain/room-execution-types'
 
 export function SessionRunStatus({
@@ -154,14 +155,5 @@ function WorkingDots() {
                 style={{ animationDelay: '300ms' }}
             />
         </span>
-    )
-}
-
-function isActiveRunStatus(status: RunTranscriptRow['status']): boolean {
-    return (
-        status === 'queued' ||
-        status === 'thinking' ||
-        status === 'working' ||
-        status === 'responding'
     )
 }

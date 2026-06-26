@@ -3,13 +3,19 @@ import {
     AlertTriangleIcon,
     CheckIcon,
     ChevronDownIcon,
+    ExternalLinkIcon,
+    GlobeIcon,
+    LinkIcon,
     LoaderIcon,
+    MonitorIcon,
     SquareIcon,
     WrenchIcon,
 } from 'lucide-react'
 
 import { Button } from '#/components/ui/button'
 import { cn } from '#/lib/utils'
+import { WEB_ACCESS_CAPABILITY_LABEL } from '#/domain/capability-labels'
+import type { RoomWebActivity, RoomWebActivityState } from '#/domain/room-execution-types'
 
 import {
     summarizeToolTasks,
@@ -29,24 +35,57 @@ export function ToolActivity({
     onLayoutChange?: () => void
 }) {
     const visibleTasks = useMemo(() => tasks.filter((task) => task.title.trim()), [tasks])
-    const status = activityStatus(visibleTasks)
+    const webTasks = useMemo(
+        () => visibleTasks.filter((task): task is ToolActivityTask & { web: RoomWebActivity } =>
+            Boolean(task.web),
+        ),
+        [visibleTasks],
+    )
+    const otherTasks = useMemo(() => visibleTasks.filter((task) => !task.web), [visibleTasks])
+
+    if (visibleTasks.length === 0) return null
+
+    return (
+        <div
+            className={cn(
+                'flex w-full max-w-[min(42rem,100%)] flex-col items-start gap-2 text-muted-foreground',
+                className,
+            )}
+        >
+            {webTasks.map((task) => (
+                <WebActivityCard key={task.id} task={task} onLayoutChange={onLayoutChange} />
+            ))}
+            {otherTasks.length > 0 ? (
+                <ToolDisclosure
+                    id={id}
+                    tasks={otherTasks}
+                    onLayoutChange={onLayoutChange}
+                />
+            ) : null}
+        </div>
+    )
+}
+
+function ToolDisclosure({
+    id,
+    tasks,
+    onLayoutChange,
+}: {
+    id: string
+    tasks: ToolActivityTask[]
+    onLayoutChange?: () => void
+}) {
+    const status = activityStatus(tasks)
     const [open, setOpen] = useState(false)
 
     useEffect(() => {
         onLayoutChange?.()
     }, [onLayoutChange, open, status, tasks])
 
-    if (visibleTasks.length === 0) return null
-
     const Icon = statusIcon(status)
 
     return (
-        <div
-            className={cn(
-                'flex w-full max-w-[min(42rem,100%)] flex-col items-start gap-1 text-muted-foreground',
-                className,
-            )}
-        >
+        <div className="flex w-full flex-col items-start gap-1">
             <Button
                 type="button"
                 variant="ghost"
@@ -72,7 +111,7 @@ export function ToolActivity({
                         status === 'error' && 'text-attention-fg',
                     )}
                 />
-                <span className="min-w-0 truncate">{summarizeToolTasks(visibleTasks)}</span>
+                <span className="min-w-0 truncate">{summarizeToolTasks(tasks)}</span>
                 <span className="shrink-0 text-muted-foreground/70">
                     {activityStatusLabel(status)}
                 </span>
@@ -82,13 +121,123 @@ export function ToolActivity({
             </Button>
             {open ? (
                 <div id={`${id}-details`} className="flex w-full max-w-full flex-col gap-1 pl-5">
-                    {visibleTasks.map((task) => (
+                    {tasks.map((task) => (
                         <ToolTaskRow key={task.id} task={task} />
                     ))}
                 </div>
             ) : null}
         </div>
     )
+}
+
+function WebActivityCard({
+    task,
+    onLayoutChange,
+}: {
+    task: ToolActivityTask & { web: RoomWebActivity }
+    onLayoutChange?: () => void
+}) {
+    const { web } = task
+    const Icon = web.kind === 'browser' ? MonitorIcon : web.kind === 'fetch' ? LinkIcon : GlobeIcon
+
+    useEffect(() => {
+        onLayoutChange?.()
+    }, [onLayoutChange, web])
+
+    return (
+        <div className="flex w-full max-w-full flex-col gap-1.5 rounded-lg border border-border/60 bg-card/60 px-3 py-2 text-xs">
+            <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+                <Icon className="size-3.5 shrink-0" />
+                <span className="font-medium text-foreground">{WEB_ACCESS_CAPABILITY_LABEL}</span>
+                <span className="text-muted-foreground/70">{webActionLabel(web)}</span>
+            </div>
+            {web.kind === 'search' ? <WebSearchBody web={web} /> : null}
+            {web.kind === 'fetch' ? <WebFetchBody web={web} /> : null}
+            {web.kind === 'browser' ? <WebBrowserBody web={web} /> : null}
+            {web.state !== 'ok' ? <WebStateNote state={web.state} /> : null}
+        </div>
+    )
+}
+
+function WebSearchBody({ web }: { web: RoomWebActivity }) {
+    return (
+        <div className="flex min-w-0 flex-col gap-1.5">
+            {web.query ? (
+                <p className="min-w-0 break-words text-foreground">
+                    Searched for <span className="font-medium">{web.query}</span>
+                </p>
+            ) : null}
+            {web.sources.length > 0 ? (
+                <ul className="flex min-w-0 flex-col gap-1">
+                    {web.sources.map((source) => (
+                        <li key={source.url} className="min-w-0">
+                            <WebSourceLink title={source.title} url={source.url} host={source.host} />
+                        </li>
+                    ))}
+                </ul>
+            ) : null}
+        </div>
+    )
+}
+
+function WebFetchBody({ web }: { web: RoomWebActivity }) {
+    if (!web.page) {
+        return <p className="text-muted-foreground">Read a web page.</p>
+    }
+    return (
+        <WebSourceLink title={web.page.title} url={web.page.url} host={web.page.host} />
+    )
+}
+
+function WebBrowserBody({ web }: { web: RoomWebActivity }) {
+    return (
+        <div className="flex min-w-0 flex-col gap-1">
+            <p className="min-w-0 break-words text-foreground">{web.summary ?? 'Browsed the web.'}</p>
+            {web.page ? (
+                <WebSourceLink title={web.page.title} url={web.page.url} host={web.page.host} />
+            ) : null}
+        </div>
+    )
+}
+
+function WebSourceLink({ title, url, host }: { title: string; url: string; host: string }) {
+    return (
+        <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="group/source flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 hover:bg-muted/60"
+        >
+            <span className="min-w-0 flex-1 truncate text-foreground group-hover/source:underline">
+                {title}
+            </span>
+            <span className="shrink-0 text-muted-foreground/70">{host}</span>
+            <ExternalLinkIcon className="size-3 shrink-0 text-muted-foreground/70" />
+        </a>
+    )
+}
+
+function WebStateNote({ state }: { state: RoomWebActivityState }) {
+    return (
+        <p className="flex items-center gap-1.5 text-attention-fg">
+            <AlertTriangleIcon className="size-3.5 shrink-0" />
+            {webStateMessage(state)}
+        </p>
+    )
+}
+
+function webStateMessage(state: RoomWebActivityState): string {
+    if (state === 'setup_required') return 'Web access needs to finish setup before this can run.'
+    if (state === 'unavailable') return 'Web access is unavailable right now.'
+    if (state === 'rate_limited') return 'Web access is busy. Try again in a moment.'
+    if (state === 'degraded') return 'Web access could not complete this.'
+    return ''
+}
+
+function webActionLabel(web: RoomWebActivity): string {
+    if (web.kind === 'search') return 'searched the web'
+    if (web.kind === 'fetch') return 'read a page'
+    return 'used the browser'
 }
 
 function ToolTaskRow({ task }: { task: ToolActivityTask }) {

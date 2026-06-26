@@ -122,7 +122,7 @@ const markdownComponents = {
     },
     table({ children }: ComponentPropsWithoutRef<'table'>) {
         return (
-            <div className="overflow-x-auto">
+            <div className="max-w-full overflow-x-auto">
                 <table className="w-full min-w-80 border-collapse text-left text-xs">
                     {children}
                 </table>
