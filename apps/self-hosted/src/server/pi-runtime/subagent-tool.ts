@@ -5,6 +5,7 @@ import type { RoomExecutionMessage } from '../rooms/execution-types'
 import type { ThreadKind, ThreadRecord } from './thread-records'
 import type { RunKind } from './run-budget'
 import { finalAssistantText } from './thread-results'
+import { assertHostedRuntimeQuota } from './hosted-runtime-quota'
 
 export interface CreateSubagentToolInput {
     parentRecord: ThreadRecord
@@ -59,6 +60,13 @@ export function createSubagentTool(input: CreateSubagentToolInput): ToolDefiniti
             }
 
             const runId = randomUUID()
+            await assertHostedRuntimeQuota({
+                action: 'run_start',
+                amount: {
+                    count: 1,
+                },
+                runId,
+            })
             const name =
                 typeof params.name === 'string' && params.name.trim()
                     ? input.shortText(params.name, 80)

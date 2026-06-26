@@ -25,9 +25,13 @@ const mocks = vi.hoisted(() => ({
     ensureHostedBillingAccount: vi.fn(),
     authorizeHostedBillingReservation: vi.fn(),
     releaseHostedBillingReservation: vi.fn(),
+    appendHostedUsageEvent: vi.fn(),
     findHostedBillingReservationByIdempotencyKey: vi.fn(),
     readHostedProviderUsageSettlementByIdempotencyKey: vi.fn(),
     recordHostedBrowserbaseSession: vi.fn(),
+    reserveHostedBrowserbaseSessionSlot: vi.fn(),
+    activateHostedBrowserbaseSessionSlot: vi.fn(),
+    releaseHostedBrowserbaseSessionSlot: vi.fn(),
     readHostedBrowserbaseSession: vi.fn(),
     readHostedBrowserbaseSessionByUsageRequestId: vi.fn(),
     requestHostedBrowserbaseSessionRelease: vi.fn(),
@@ -65,11 +69,15 @@ vi.mock('./hosted-billing-repository', () => ({
     ensureHostedBillingAccount: mocks.ensureHostedBillingAccount,
     authorizeHostedBillingReservation: mocks.authorizeHostedBillingReservation,
     releaseHostedBillingReservation: mocks.releaseHostedBillingReservation,
+    appendHostedUsageEvent: mocks.appendHostedUsageEvent,
     findHostedBillingReservationByIdempotencyKey:
         mocks.findHostedBillingReservationByIdempotencyKey,
     readHostedProviderUsageSettlementByIdempotencyKey:
         mocks.readHostedProviderUsageSettlementByIdempotencyKey,
     recordHostedBrowserbaseSession: mocks.recordHostedBrowserbaseSession,
+    reserveHostedBrowserbaseSessionSlot: mocks.reserveHostedBrowserbaseSessionSlot,
+    activateHostedBrowserbaseSessionSlot: mocks.activateHostedBrowserbaseSessionSlot,
+    releaseHostedBrowserbaseSessionSlot: mocks.releaseHostedBrowserbaseSessionSlot,
     readHostedBrowserbaseSession: mocks.readHostedBrowserbaseSession,
     readHostedBrowserbaseSessionByUsageRequestId:
         mocks.readHostedBrowserbaseSessionByUsageRequestId,
@@ -90,6 +98,14 @@ function hostedEnv(): AgentRoomHostedEnv {
             prepare: () => ({
                 bind: (...args: unknown[]) => ({
                     first: async () => (args[2] === 'job_1' ? { id: 'job_1' } : null),
+                    all: async () => ({ results: [] }),
+                    run: async () => ({
+                        success: true,
+                        meta: {
+                            changes: 1,
+                        },
+                        results: [],
+                    }),
                 }),
             }),
         } as unknown as AgentRoomHostedEnv['AGENT_ROOM_DB'],
@@ -279,7 +295,11 @@ describe('hosted runtime worker route security gates', () => {
         })
         mocks.findHostedBillingReservationByIdempotencyKey.mockResolvedValue(null)
         mocks.readHostedProviderUsageSettlementByIdempotencyKey.mockResolvedValue(null)
+        mocks.appendHostedUsageEvent.mockResolvedValue('usage_quota_1')
         mocks.recordHostedBrowserbaseSession.mockResolvedValue(undefined)
+        mocks.reserveHostedBrowserbaseSessionSlot.mockResolvedValue(true)
+        mocks.activateHostedBrowserbaseSessionSlot.mockResolvedValue(true)
+        mocks.releaseHostedBrowserbaseSessionSlot.mockResolvedValue(undefined)
         mocks.readHostedBrowserbaseSession.mockResolvedValue({
             browserbaseSessionId: 'bb-session-1',
             workspaceId: 'workspace_1',
@@ -1058,17 +1078,23 @@ describe('hosted runtime worker route security gates', () => {
                 timeout: 120,
             },
         })
-        expect(mocks.recordHostedBrowserbaseSession).toHaveBeenCalledWith(
+        expect(mocks.reserveHostedBrowserbaseSessionSlot).toHaveBeenCalledWith(
             expect.objectContaining({
                 workspaceId: 'workspace_1',
                 roomId: 'room_1',
+                pendingBrowserbaseSessionId: 'creating:workspace_1:room_1:usage-request-123456',
+                usageRequestId: 'usage-request-123456',
+                maxWorkspaceActiveSessions: 3,
+                maxRoomActiveSessions: 1,
+            }),
+        )
+        expect(mocks.activateHostedBrowserbaseSessionSlot).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                pendingBrowserbaseSessionId: 'creating:workspace_1:room_1:usage-request-123456',
                 browserbaseSessionId: 'bb-session-1',
                 usageRequestId: 'usage-request-123456',
-                usageContext: expect.objectContaining({
-                    sessionKey: 'thread_1',
-                    runId: 'run_1',
-                    jobId: 'job_1',
-                }),
             }),
         )
         expect(mocks.authorizeHostedBillingReservation).toHaveBeenCalledWith(
@@ -1130,10 +1156,11 @@ describe('hosted runtime worker route security gates', () => {
                     reservationId: 'reservation_1',
                 }),
             )
-            expect(mocks.recordHostedBrowserbaseSession).toHaveBeenCalledWith(
+            expect(mocks.activateHostedBrowserbaseSessionSlot).toHaveBeenCalledWith(
                 expect.objectContaining({
                     workspaceId: 'workspace_1',
                     roomId: 'room_1',
+                    pendingBrowserbaseSessionId: 'creating:workspace_1:room_1:usage-request-123456',
                     browserbaseSessionId: 'bb-session-settlement-failed',
                     usageRequestId: 'usage-request-123456',
                 }),
@@ -1200,7 +1227,67 @@ describe('hosted runtime worker route security gates', () => {
         await expectJsonCode(response, 409, 'runtime_usage_request_already_in_flight')
         expect(fetchMock).not.toHaveBeenCalled()
         expect(mocks.authorizeHostedBillingReservation).not.toHaveBeenCalled()
-        expect(mocks.recordHostedBrowserbaseSession).not.toHaveBeenCalled()
+        expect(mocks.reserveHostedBrowserbaseSessionSlot).not.toHaveBeenCalled()
+        expect(mocks.activateHostedBrowserbaseSessionSlot).not.toHaveBeenCalled()
+        expect(mocks.recordHostedProviderUsage).not.toHaveBeenCalled()
+    })
+
+    it('releases the billing reservation when the Browserbase active slot cap is reached', async () => {
+        const fetchMock = vi.fn(async () => new Response('{}'))
+        vi.stubGlobal('fetch', fetchMock)
+        mocks.reserveHostedBrowserbaseSessionSlot.mockResolvedValue(false)
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/provider/browserbase/v1/workspaces/workspace_1/rooms/room_1/sessions',
+            headers: browserbaseRuntimeHeaders(),
+            token: null,
+            body: {
+                keepAlive: true,
+                browserSettings: {
+                    timeout: 120,
+                },
+            },
+        })
+
+        await expectJsonCode(response, 429, 'hosted_quota_denied')
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect(mocks.releaseHostedBillingReservation).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                reservationId: 'reservation_1',
+            }),
+        )
+        expect(mocks.activateHostedBrowserbaseSessionSlot).not.toHaveBeenCalled()
+        expect(mocks.recordHostedProviderUsage).not.toHaveBeenCalled()
+    })
+
+    it('releases the billing reservation when Browserbase active slot reservation fails', async () => {
+        const fetchMock = vi.fn(async () => new Response('{}'))
+        vi.stubGlobal('fetch', fetchMock)
+        mocks.reserveHostedBrowserbaseSessionSlot.mockRejectedValue(new Error('D1 unavailable'))
+
+        await expect(
+            callRoute({
+                path: '/api/hosted/runtime/provider/browserbase/v1/workspaces/workspace_1/rooms/room_1/sessions',
+                headers: browserbaseRuntimeHeaders(),
+                token: null,
+                body: {
+                    keepAlive: true,
+                    browserSettings: {
+                        timeout: 120,
+                    },
+                },
+            }),
+        ).rejects.toThrow('D1 unavailable')
+
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect(mocks.releaseHostedBillingReservation).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                reservationId: 'reservation_1',
+            }),
+        )
+        expect(mocks.activateHostedBrowserbaseSessionSlot).not.toHaveBeenCalled()
         expect(mocks.recordHostedProviderUsage).not.toHaveBeenCalled()
     })
 
@@ -1223,7 +1310,7 @@ describe('hosted runtime worker route security gates', () => {
             )
             .mockResolvedValueOnce(new Response('{}'))
         vi.stubGlobal('fetch', fetchMock)
-        mocks.recordHostedBrowserbaseSession.mockRejectedValue(new Error('D1 unavailable'))
+        mocks.activateHostedBrowserbaseSessionSlot.mockRejectedValue(new Error('D1 unavailable'))
 
         try {
             const response = await callRoute({
@@ -1243,6 +1330,13 @@ describe('hosted runtime worker route security gates', () => {
                 expect.objectContaining({
                     workspaceId: 'workspace_1',
                     reservationId: 'reservation_1',
+                }),
+            )
+            expect(mocks.releaseHostedBrowserbaseSessionSlot).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    workspaceId: 'workspace_1',
+                    roomId: 'room_1',
+                    pendingBrowserbaseSessionId: 'creating:workspace_1:room_1:usage-request-123456',
                 }),
             )
             expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -1282,7 +1376,8 @@ describe('hosted runtime worker route security gates', () => {
         await expectJsonCode(response, 400, 'invalid_managed_browserbase_request')
         expect(fetchMock).not.toHaveBeenCalled()
         expect(mocks.authorizeHostedBillingReservation).not.toHaveBeenCalled()
-        expect(mocks.recordHostedBrowserbaseSession).not.toHaveBeenCalled()
+        expect(mocks.reserveHostedBrowserbaseSessionSlot).not.toHaveBeenCalled()
+        expect(mocks.activateHostedBrowserbaseSessionSlot).not.toHaveBeenCalled()
     })
 
     it('rejects Browserbase query options before using the platform key', async () => {
@@ -1304,7 +1399,8 @@ describe('hosted runtime worker route security gates', () => {
         await expectJsonCode(response, 400, 'invalid_managed_browserbase_request')
         expect(fetchMock).not.toHaveBeenCalled()
         expect(mocks.authorizeHostedBillingReservation).not.toHaveBeenCalled()
-        expect(mocks.recordHostedBrowserbaseSession).not.toHaveBeenCalled()
+        expect(mocks.reserveHostedBrowserbaseSessionSlot).not.toHaveBeenCalled()
+        expect(mocks.activateHostedBrowserbaseSessionSlot).not.toHaveBeenCalled()
     })
 
     it('blocks Browserbase debug for session ids not owned by the requesting room', async () => {
@@ -1507,5 +1603,37 @@ describe('hosted runtime worker route security gates', () => {
         await expectJsonCode(response, 400, 'invalid_state_callback')
         expect(mocks.putHostedRuntimeStateFile).not.toHaveBeenCalled()
         expect(mocks.deleteHostedRuntimeStateFile).not.toHaveBeenCalled()
+    })
+
+    it('rejects malformed quota callback amounts before consuming quota', async () => {
+        const response = await callRoute({
+            path: '/api/hosted/runtime/quota',
+            body: {
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                action: 'shell_command',
+                amount: {
+                    count: 0,
+                },
+            },
+        })
+
+        await expectJsonCode(response, 400, 'invalid_quota_callback')
+    })
+
+    it('rejects quota callback actions that are not runtime-owned', async () => {
+        const response = await callRoute({
+            path: '/api/hosted/runtime/quota',
+            body: {
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                action: 'provider_openrouter',
+                amount: {
+                    count: 1,
+                },
+            },
+        })
+
+        await expectJsonCode(response, 400, 'invalid_quota_callback')
     })
 })

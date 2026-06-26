@@ -315,6 +315,8 @@ export async function createRoomThread(input: {
             env: context.env,
             workspaceId: actor.workspaceId,
             roomId: input.roomId,
+            actorUserId: actor.userId,
+            request: context.request,
         })
     }
     const request = createThreadRuntimeRequest({
@@ -343,17 +345,20 @@ export async function sendRoomThreadMessage(input: {
     awaitCompletion?: boolean
 }): Promise<RoomThreadSendResult> {
     const { context, actor } = await requireHosted()
-    await assertHostedRunAllowed({
-        env: context.env,
-        workspaceId: actor.workspaceId,
-        roomId: input.roomId,
-    })
     const request = sendThreadRuntimeRequest({
         sessionKey: input.sessionKey,
         message: input.message,
         awaitCompletion: input.awaitCompletion,
         runKind: 'manual',
         hideUserMessage: false,
+    })
+    await assertHostedRunAllowed({
+        env: context.env,
+        workspaceId: actor.workspaceId,
+        roomId: input.roomId,
+        actorUserId: actor.userId,
+        request: context.request,
+        sessionKey: input.sessionKey,
     })
     return requestHostedPiRuntime({
         env: context.env,
@@ -415,6 +420,9 @@ export async function compactRoomThread(input: {
         env: context.env,
         workspaceId: actor.workspaceId,
         roomId: input.roomId,
+        actorUserId: actor.userId,
+        request: context.request,
+        sessionKey: input.sessionKey,
     })
     const request = compactThreadRuntimeRequest(input)
     return requestHostedPiRuntime({
@@ -454,12 +462,15 @@ export async function editRoomThreadMessage(input: {
     message: string
 }): Promise<RoomThreadSendResult> {
     const { context, actor } = await requireHosted()
+    const request = editThreadMessageRuntimeRequest(input)
     await assertHostedRunAllowed({
         env: context.env,
         workspaceId: actor.workspaceId,
         roomId: input.roomId,
+        actorUserId: actor.userId,
+        request: context.request,
+        sessionKey: input.sessionKey,
     })
-    const request = editThreadMessageRuntimeRequest(input)
     return requestHostedPiRuntime({
         env: context.env,
         workspaceId: actor.workspaceId,

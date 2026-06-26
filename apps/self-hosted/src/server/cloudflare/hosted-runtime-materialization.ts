@@ -22,6 +22,7 @@ import { defaultRuntimeSandboxHardening } from '../rooms/runtime-sandbox-hardeni
 import {
     hostedRuntimeFileCallbackUrlEnvKey,
     hostedRuntimeManagedOpenRouterEnvKey,
+    hostedRuntimeQuotaCallbackUrlEnvKey,
     hostedRuntimeRoomIdEnvKey,
     hostedRuntimeStateCallbackUrlEnvKey,
     hostedRuntimeUsageCallbackTokenEnvKey,
@@ -452,6 +453,7 @@ export function buildHostedRuntimeEnv(input: {
         [hostedRuntimeUsageCallbackTokenEnvKey]: input.token,
         [hostedRuntimeFileCallbackUrlEnvKey]: `${input.publicOrigin}/api/hosted/runtime/file`,
         [hostedRuntimeStateCallbackUrlEnvKey]: `${input.publicOrigin}/api/hosted/runtime/state`,
+        [hostedRuntimeQuotaCallbackUrlEnvKey]: `${input.publicOrigin}/api/hosted/runtime/quota`,
         [hostedRuntimeWorkspaceIdEnvKey]: input.workspaceId,
         [hostedRuntimeRoomIdEnvKey]: input.roomId,
         HOME: '/workspace/runtime/pi-state/home',
@@ -502,11 +504,13 @@ async function addTenantUrlHost(
 export async function hostedRuntimeAllowedHosts(input: {
     runtimeConfig: PiRuntimeConfig
     usageCallbackUrl: string | undefined
+    quotaCallbackUrl: string | undefined
     resolveTenantHostnameAddresses?: HostedRuntimeDnsResolver
 }): Promise<string[]> {
     const hosts = new Set<string>()
     addUrlHost(hosts, input.runtimeConfig.provider.baseUrl, 'Provider base')
     addUrlHost(hosts, input.usageCallbackUrl, 'Hosted runtime usage callback')
+    addUrlHost(hosts, input.quotaCallbackUrl, 'Hosted runtime quota callback')
     if (input.runtimeConfig.search.enabled) {
         addUrlHost(hosts, input.runtimeConfig.search.backendUrl, 'Hosted search backend')
     }

@@ -10,11 +10,8 @@ import {
     HostedBillingReservationAlreadyExistsError,
     releaseHostedBillingReservation,
 } from './hosted-billing-repository'
-import {
-    boundedHeaderToken,
-    runtimeUsageContext,
-    type HostedRuntimeUsageContext,
-} from './hosted-runtime-worker-auth'
+import { boundedHeaderToken, runtimeUsageContext } from './hosted-runtime-worker-auth'
+import type { HostedRuntimeUsageContext } from './hosted-runtime-usage-context'
 import { recordHostedProviderUsage } from './hosted-usage-billing'
 import { hostedJsonResponse } from './hosted-worker-response'
 
@@ -47,6 +44,22 @@ export async function releaseHostedProviderPreflightReservation(input: {
         workspaceId: input.workspaceId,
         reservationId: input.reservationId,
     })
+}
+
+export async function releaseHostedProviderQuotaFailureReservation(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    reservationId: string | null
+}): Promise<void> {
+    try {
+        await releaseHostedProviderPreflightReservation(input)
+    } catch (error) {
+        console.error('Hosted provider reservation release failed after quota check', {
+            workspaceId: input.workspaceId,
+            reservationId: input.reservationId,
+            error,
+        })
+    }
 }
 
 async function runtimeUsageContextReferences(

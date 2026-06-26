@@ -5,6 +5,7 @@ import {
     shellVisibleStoreDirEnvKey,
     shellVisibleWorkspaceDirEnvKey,
 } from '../../security/process-env'
+import { assertHostedRuntimeQuota } from '../hosted-runtime-quota'
 import { ensureShellWritableFile, shellSandboxSpawnCommand } from '../shell-sandbox'
 import type { DocumentToolContext } from './types'
 
@@ -18,6 +19,12 @@ export async function runDocumentWorker(input: {
     outputLimitBytes?: number
     outputMode?: 'head' | 'tail'
 }): Promise<string> {
+    await assertHostedRuntimeQuota({
+        action: 'document_worker',
+        amount: {
+            count: 1,
+        },
+    })
     return await new Promise((resolvePromise, reject) => {
         let settled = false
         const sandboxedCommand = shellSandboxSpawnCommand(input.config, input.command, input.args)

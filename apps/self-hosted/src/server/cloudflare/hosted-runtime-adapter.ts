@@ -1,4 +1,5 @@
 import type { AgentRoomHostedEnv, AgentRoomRuntimeJobMessage } from './bindings'
+import { assertHostedQuotaAllowed } from './hosted-abuse-controls'
 import {
     evaluateHostedRuntimeAccess,
     hostedRuntimeAccessDeniedMessage,
@@ -157,7 +158,6 @@ export async function reconcileHostedRuntimeJob(
             })
             return
         }
-
         const expectedContainerName = hostedRuntimeContainerName({
             workspaceId: runtime.workspaceId,
             roomId: runtime.roomId,
@@ -229,6 +229,15 @@ export async function reconcileHostedRuntimeJob(
         await container.setAllowedHosts(materialization.egressAllowedHosts)
         await container.setDeniedHosts(hostedRuntimeDeniedHosts)
         await assertHostedRuntimeStillDesiredRunning(env, runtime)
+        await assertHostedQuotaAllowed({
+            env,
+            workspaceId: runtime.workspaceId,
+            roomId: runtime.roomId,
+            action: 'runtime_start',
+            amount: {
+                count: 1,
+            },
+        })
         await container.startAndWaitForPorts({
             ports: hostedRuntimeContainerPort,
             startOptions,

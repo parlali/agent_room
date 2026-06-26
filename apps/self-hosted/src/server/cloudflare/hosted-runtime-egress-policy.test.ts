@@ -41,12 +41,18 @@ describe('hosted runtime egress policy', () => {
             hostedRuntimeAllowedHosts({
                 runtimeConfig: runtimeConfigWithMcp('https://mcp.example.test/sse'),
                 usageCallbackUrl: 'https://rooms.example.test/api/hosted/runtime/usage',
+                quotaCallbackUrl: 'https://quota.example.test/api/hosted/runtime/quota',
                 resolveTenantHostnameAddresses: async (hostname) => {
                     expect(hostname).toBe('mcp.example.test')
                     return ['93.184.216.34']
                 },
             }),
-        ).resolves.toEqual(['93.184.216.34', 'openrouter.ai', 'rooms.example.test'])
+        ).resolves.toEqual([
+            '93.184.216.34',
+            'openrouter.ai',
+            'quota.example.test',
+            'rooms.example.test',
+        ])
     })
 
     it('rejects tenant MCP hosts that resolve to private network addresses', async () => {
@@ -54,6 +60,7 @@ describe('hosted runtime egress policy', () => {
             hostedRuntimeAllowedHosts({
                 runtimeConfig: runtimeConfigWithMcp('https://mcp.example.test/sse'),
                 usageCallbackUrl: 'https://rooms.example.test/api/hosted/runtime/usage',
+                quotaCallbackUrl: 'https://rooms.example.test/api/hosted/runtime/quota',
                 resolveTenantHostnameAddresses: async (hostname) => {
                     expect(hostname).toBe('mcp.example.test')
                     return ['10.0.0.8']
@@ -80,6 +87,7 @@ describe('hosted runtime egress policy', () => {
         const hosts = await hostedRuntimeAllowedHosts({
             runtimeConfig,
             usageCallbackUrl: 'https://rooms.example.test/api/hosted/runtime/usage',
+            quotaCallbackUrl: 'https://rooms.example.test/api/hosted/runtime/quota',
             resolveTenantHostnameAddresses: async () => ['93.184.216.34'],
         })
 
@@ -110,6 +118,7 @@ describe('hosted runtime egress policy', () => {
         const hosts = await hostedRuntimeAllowedHosts({
             runtimeConfig,
             usageCallbackUrl: 'https://rooms.example.test/api/hosted/runtime/usage',
+            quotaCallbackUrl: 'https://rooms.example.test/api/hosted/runtime/quota',
             resolveTenantHostnameAddresses: async () => ['93.184.216.34'],
         })
 

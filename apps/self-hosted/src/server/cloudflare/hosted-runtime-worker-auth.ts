@@ -2,17 +2,12 @@ import type { AgentRoomHostedEnv } from './bindings'
 import { readHostedRuntimeToken } from './hosted-runtime-client'
 import { getHostedRuntimeEndpointState } from './hosted-room-service'
 import { hostedJsonResponse } from './hosted-worker-response'
+import type { HostedRuntimeUsageContext } from './hosted-runtime-usage-context'
 import { timingSafeEqualString } from '../security/timing-safe'
 
 type HostedRuntimeEndpointState = NonNullable<
     Awaited<ReturnType<typeof getHostedRuntimeEndpointState>>
 >
-
-export interface HostedRuntimeUsageContext {
-    sessionKey: string
-    runId: string | null
-    jobId: string | null
-}
 
 function bearerToken(request: Request): string | null {
     const authorization = request.headers.get('authorization') ?? ''

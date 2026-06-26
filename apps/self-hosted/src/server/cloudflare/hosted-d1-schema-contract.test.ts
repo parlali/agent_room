@@ -11,6 +11,12 @@ import {
     usageEventKinds,
 } from '../../domain/domain-types'
 import {
+    hostedQuotaActions,
+    hostedQuotaDecisions,
+    hostedQuotaPolicyStatuses,
+    hostedQuotaScopes,
+} from './hosted-abuse-controls'
+import {
     hostedBillingLedgerDirections,
     hostedBillingLedgerSources,
     hostedBillingPlanStatuses,
@@ -142,6 +148,41 @@ describe('hosted D1 schema contract', () => {
                 columnName: 'status',
             }),
         ).toEqual([...hostedBillingReservationStatuses])
+        expect(
+            extractCheckValues({
+                sql,
+                tableName: 'hosted_quota_policy',
+                columnName: 'status',
+            }),
+        ).toEqual([...hostedQuotaPolicyStatuses])
+        expect(
+            extractCheckValues({
+                sql,
+                tableName: 'hosted_quota_counter',
+                columnName: 'scope',
+            }),
+        ).toEqual([...hostedQuotaScopes])
+        expect(
+            extractCheckValues({
+                sql,
+                tableName: 'hosted_quota_event',
+                columnName: 'scope',
+            }),
+        ).toEqual([...hostedQuotaScopes])
+        expect(
+            extractCheckValues({
+                sql,
+                tableName: 'hosted_quota_event',
+                columnName: 'action',
+            }),
+        ).toEqual([...hostedQuotaActions])
+        expect(
+            extractCheckValues({
+                sql,
+                tableName: 'hosted_quota_event',
+                columnName: 'decision',
+            }),
+        ).toEqual([...hostedQuotaDecisions])
     })
 
     it('constrains scheduled job enabled flags to boolean integers', () => {
@@ -151,6 +192,23 @@ describe('hosted D1 schema contract', () => {
             sql,
             tableName: 'hosted_room_job',
             constraint: 'enabled INTEGER NOT NULL CHECK (enabled IN (0, 1))',
+        })
+    })
+
+    it('constrains hosted quota policy JSON columns to objects', () => {
+        const sql = readHostedMigration()
+
+        expectTableConstraint({
+            sql,
+            tableName: 'hosted_quota_policy',
+            constraint:
+                "limits TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(limits) AND json_type(limits) = 'object')",
+        })
+        expectTableConstraint({
+            sql,
+            tableName: 'hosted_quota_policy',
+            constraint:
+                "restrictions TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(restrictions) AND json_type(restrictions) = 'object')",
         })
     })
 

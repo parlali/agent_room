@@ -5,6 +5,7 @@ import {
     RoomFileUploadPolicyError,
 } from '#/domain/room-file-upload-policy'
 import type { AgentRoomHostedEnv } from './bindings'
+import { assertHostedQuotaAllowed } from './hosted-abuse-controls'
 import { hostedRoomFileObjectKey } from './workspace-storage'
 import { nowIso } from './hosted-json'
 import { sanitizeUploadName } from '../rooms/upload-name'
@@ -298,6 +299,23 @@ export async function writeHostedRoomUploadedFile(input: {
     if (existing) {
         throw new Error(`File already exists: ${relativePath}`)
     }
+    await assertNoFileAncestors({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+        surface: input.surface,
+        relativePath,
+    })
+    await assertHostedQuotaAllowed({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+        action: 'file_upload',
+        amount: {
+            bytes: input.content.byteLength,
+            storageBytes: input.content.byteLength,
+        },
+    })
     const persisted = await persistHostedRoomFileContent({
         env: input.env,
         workspaceId: input.workspaceId,
@@ -336,7 +354,8 @@ export async function upsertHostedRoomRuntimeFile(input: {
     const existing = await input.env.AGENT_ROOM_DB.prepare(
         `
             SELECT object_key AS objectKey,
-                   kind
+                   kind,
+                   byte_length AS byteLength
             FROM hosted_room_file_index
             WHERE workspace_id = ?1
               AND room_id = ?2
@@ -345,10 +364,27 @@ export async function upsertHostedRoomRuntimeFile(input: {
         `,
     )
         .bind(input.workspaceId, input.roomId, input.surface, relativePath)
-        .first<{ objectKey: string; kind: string }>()
+        .first<{ objectKey: string; kind: string; byteLength: number | null }>()
     if (existing?.kind === 'directory') {
         throw new Error(`File path is already a directory: ${relativePath}`)
     }
+    await assertNoFileAncestors({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+        surface: input.surface,
+        relativePath,
+    })
+    await assertHostedQuotaAllowed({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+        action: 'runtime_file_sync',
+        amount: {
+            bytes: input.content.byteLength,
+            storageBytes: Math.max(0, input.content.byteLength - (existing?.byteLength ?? 0)),
+        },
+    })
     const persisted = await persistHostedRoomFileContent({
         env: input.env,
         workspaceId: input.workspaceId,

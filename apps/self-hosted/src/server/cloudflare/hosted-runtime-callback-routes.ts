@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer'
 import type { AgentRoomHostedEnv } from './bindings'
+import { assertHostedQuotaAllowed, hostedQuotaDeniedResponse } from './hosted-abuse-controls'
 import { upsertHostedRoomRuntimeFile } from './hosted-file-store'
 import { objectRecord } from './hosted-json'
 import {
@@ -9,9 +10,70 @@ import {
 import { requireHostedRuntimeCallback } from './hosted-runtime-worker-auth'
 import { recordHostedRuntimeUsageEvent } from './hosted-usage-billing'
 import { hostedJsonResponse } from './hosted-worker-response'
+import {
+    parseHostedRuntimeQuotaAction,
+    type HostedQuotaAmount,
+} from '../rooms/hosted-quota-contract'
 import { parseHostedRuntimeStateOperation } from '../rooms/hosted-runtime-state-contract'
 import { runtimeUsageEventFromLogEntry } from '../rooms/pi-execution-adapter/usage-sync'
 import type { RoomFileSurface } from '../rooms/file-store'
+
+type QuotaAmountParseResult =
+    | {
+          ok: true
+          amount: HostedQuotaAmount
+      }
+    | {
+          ok: false
+      }
+
+function quotaAmount(value: unknown): QuotaAmountParseResult {
+    if (value === undefined) {
+        return {
+            ok: true,
+            amount: {},
+        }
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return {
+            ok: false,
+        }
+    }
+    const amount = value as Record<string, unknown>
+    const count = finiteWholeNumber(amount.count)
+    if (amount.count !== undefined && (!count || count < 1)) {
+        return {
+            ok: false,
+        }
+    }
+    const bytes = finiteWholeNumber(amount.bytes)
+    const storageBytes = finiteWholeNumber(amount.storageBytes)
+    const cents = finiteWholeNumber(amount.cents)
+    if (
+        (amount.bytes !== undefined && bytes === undefined) ||
+        (amount.storageBytes !== undefined && storageBytes === undefined) ||
+        (amount.cents !== undefined && cents === undefined)
+    ) {
+        return {
+            ok: false,
+        }
+    }
+    return {
+        ok: true,
+        amount: {
+            count,
+            bytes,
+            storageBytes,
+            cents,
+        },
+    }
+}
+
+function finiteWholeNumber(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+        ? value
+        : undefined
+}
 
 export function runtimeUsageIdempotencyKey(input: {
     workspaceId: string
@@ -255,5 +317,81 @@ export async function hostedRuntimeStateCallback(
     return hostedJsonResponse({
         ok: true,
         state: saved,
+    })
+}
+
+export async function hostedRuntimeQuotaCallback(
+    env: AgentRoomHostedEnv,
+    request: Request,
+): Promise<Response> {
+    let record: Record<string, unknown>
+    try {
+        const parsed = (await request.json()) as unknown
+        record = objectRecord(parsed)
+    } catch {
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'invalid_request_body',
+            },
+            {
+                status: 400,
+            },
+        )
+    }
+    const callback = await requireHostedRuntimeCallback({
+        env,
+        request,
+        record,
+    })
+    if (callback instanceof Response) {
+        return callback
+    }
+    const action = parseHostedRuntimeQuotaAction(record.action)
+    if (!action) {
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'invalid_quota_callback',
+                message: 'action is required',
+            },
+            {
+                status: 400,
+            },
+        )
+    }
+    const parsedAmount = quotaAmount(record.amount)
+    if (!parsedAmount.ok) {
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'invalid_quota_callback',
+                message: 'amount fields must be non-negative integers and count must be at least 1',
+            },
+            {
+                status: 400,
+            },
+        )
+    }
+    try {
+        await assertHostedQuotaAllowed({
+            env,
+            workspaceId: callback.workspaceId,
+            roomId: callback.roomId,
+            action,
+            sessionKey: typeof record.sessionKey === 'string' ? record.sessionKey : null,
+            runId: typeof record.runId === 'string' ? record.runId : null,
+            jobId: typeof record.jobId === 'string' ? record.jobId : null,
+            amount: parsedAmount.amount,
+        })
+    } catch (error) {
+        const response = hostedQuotaDeniedResponse(error)
+        if (response) {
+            return response
+        }
+        throw error
+    }
+    return hostedJsonResponse({
+        ok: true,
     })
 }
