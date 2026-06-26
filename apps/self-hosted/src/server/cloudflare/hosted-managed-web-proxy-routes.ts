@@ -10,12 +10,14 @@ import {
     ensureHostedBillingAccount,
     markHostedBrowserbaseSessionReleased,
     readHostedBrowserbaseSession,
+    readHostedBrowserbaseSessionByUsageRequestId,
     recordHostedBrowserbaseSession,
     requestHostedBrowserbaseSessionRelease,
     readHostedProviderUsageSettlementByIdempotencyKey,
 } from './hosted-billing-repository'
 import {
     browserbaseProviderRequest,
+    browserbaseReleaseSessionRequestBody,
     browserbaseSessionIdFromProviderResponse,
     type BrowserbaseProviderRequest,
 } from './hosted-browserbase-proxy-request'
@@ -39,6 +41,8 @@ import { assertHostedRuntimeEgressDestination } from './hosted-runtime-egress-po
 import { requireHostedRuntimeProviderProxy } from './hosted-runtime-worker-auth'
 import { hostedJsonResponse } from './hosted-worker-response'
 import { fetchPublicTextUrl } from '../web/web-fetch-core'
+
+const browserbaseCleanupTimeoutMs = 10000
 
 function browserbaseOperation(proxyPath: HostedBrowserbaseProxyPath): {
     model: string
@@ -146,29 +150,93 @@ async function assertHostedBrowserbaseSessionAccess(input: {
     return null
 }
 
-async function releaseUntrackedBrowserbaseSession(input: {
+function browserbaseProviderHeaders(input: {
     apiKey: string
-    browserbaseSessionId: string
-}): Promise<void> {
+    accept: string | null
+    hasBody: boolean
+}): Headers {
     const headers = new Headers()
-    headers.set('content-type', 'application/json')
+    if (input.accept) {
+        headers.set('accept', input.accept)
+    }
+    if (input.hasBody) {
+        headers.set('content-type', 'application/json')
+    }
     headers.set('user-agent', 'AgentRoom/1.0')
     headers.set('x-bb-api-key', input.apiKey)
-    const response = await fetch(
-        new URL(
-            `https://api.browserbase.com/v1/sessions/${encodeURIComponent(input.browserbaseSessionId)}`,
-        ),
-        {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-                status: 'REQUEST_RELEASE',
+    return headers
+}
+
+async function fetchBrowserbaseProvider(input: {
+    apiKey: string
+    accept?: string | null
+    targetPath: string
+    method: string
+    body: string | null
+    timeoutMs?: number
+}): Promise<Response> {
+    const controller = input.timeoutMs ? new AbortController() : null
+    const timeout = controller ? setTimeout(() => controller.abort(), input.timeoutMs) : null
+    timeout?.unref?.()
+    try {
+        return await fetch(new URL(`https://api.browserbase.com/v1${input.targetPath}`), {
+            method: input.method,
+            headers: browserbaseProviderHeaders({
+                apiKey: input.apiKey,
+                accept: input.accept ?? null,
+                hasBody: input.body !== null,
             }),
-        },
-    )
+            body: input.body,
+            signal: controller?.signal,
+        })
+    } finally {
+        if (timeout) {
+            clearTimeout(timeout)
+        }
+    }
+}
+
+async function releaseBrowserbaseProviderSession(input: {
+    apiKey: string
+    browserbaseSessionId: string
+    timeoutMs?: number
+}): Promise<void> {
+    const response = await fetchBrowserbaseProvider({
+        apiKey: input.apiKey,
+        targetPath: `/sessions/${encodeURIComponent(input.browserbaseSessionId)}`,
+        method: 'POST',
+        body: browserbaseReleaseSessionRequestBody,
+        timeoutMs: input.timeoutMs,
+    })
     if (!response.ok) {
         throw new Error(`Browserbase cleanup release failed with status ${response.status}`)
     }
+}
+
+async function assertNoPriorBrowserbaseSessionForUsageRequest(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+    usageRequestId: string
+}): Promise<Response | null> {
+    const existingSession = await readHostedBrowserbaseSessionByUsageRequestId({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+        usageRequestId: input.usageRequestId,
+    })
+    if (!existingSession) {
+        return null
+    }
+    return hostedJsonResponse(
+        {
+            ok: false,
+            code: 'runtime_usage_request_already_in_flight',
+        },
+        {
+            status: 409,
+        },
+    )
 }
 
 export async function hostedBrowserbaseProxy(
@@ -277,6 +345,17 @@ export async function hostedBrowserbaseProxy(
                 },
             )
         }
+        if (providerRequest.action === 'create_session') {
+            const existingSessionError = await assertNoPriorBrowserbaseSessionForUsageRequest({
+                env,
+                workspaceId: proxyPath.workspaceId,
+                roomId: proxyPath.roomId,
+                usageRequestId: usageRequest.usageRequestId,
+            })
+            if (existingSessionError) {
+                return existingSessionError
+            }
+        }
         const reservation = await authorizeFixedProviderReservation({
             env,
             workspaceId: proxyPath.workspaceId,
@@ -297,23 +376,14 @@ export async function hostedBrowserbaseProxy(
         reservationId = reservation
     }
 
-    const headers = new Headers()
     const accept = request.headers.get('accept')
-    if (accept) {
-        headers.set('accept', accept)
-    }
-    if (providerRequest.body !== null) {
-        headers.set('content-type', 'application/json')
-    }
-    headers.set('user-agent', 'AgentRoom/1.0')
-    headers.set('x-bb-api-key', apiKey)
-
-    const providerUrl = new URL(`https://api.browserbase.com/v1${proxyPath.targetPath}`)
     let response: Response
     try {
-        response = await fetch(providerUrl, {
+        response = await fetchBrowserbaseProvider({
+            apiKey,
+            accept,
+            targetPath: proxyPath.targetPath,
             method: request.method,
-            headers,
             body: providerRequest.body,
         })
     } catch (error) {
@@ -379,9 +449,10 @@ export async function hostedBrowserbaseProxy(
                 reservationId,
             })
             try {
-                await releaseUntrackedBrowserbaseSession({
+                await releaseBrowserbaseProviderSession({
                     apiKey,
                     browserbaseSessionId,
+                    timeoutMs: browserbaseCleanupTimeoutMs,
                 })
             } catch (cleanupError) {
                 console.error('Hosted Browserbase untracked session cleanup failed', {

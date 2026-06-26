@@ -10,13 +10,10 @@ CREATE TABLE hosted_browserbase_session (
     created_at DATE NOT NULL,
     updated_at DATE NOT NULL,
     released_at DATE,
-    UNIQUE(workspace_id, room_id, browserbase_session_id),
+    UNIQUE(workspace_id, room_id, usage_request_id),
     FOREIGN KEY (workspace_id, room_id)
         REFERENCES hosted_room(workspace_id, id)
         ON DELETE CASCADE,
-    FOREIGN KEY (workspace_id, job_id)
-        REFERENCES hosted_room_job(workspace_id, id)
-        ON DELETE RESTRICT,
     FOREIGN KEY (workspace_id, room_id, job_id)
         REFERENCES hosted_room_job(workspace_id, room_id, id)
         ON DELETE RESTRICT

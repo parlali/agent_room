@@ -125,6 +125,28 @@ export async function readHostedBrowserbaseSession(input: {
     return row ? mapBrowserbaseSession(row) : null
 }
 
+export async function readHostedBrowserbaseSessionByUsageRequestId(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+    usageRequestId: string
+}): Promise<HostedBrowserbaseSession | null> {
+    const row = await input.env.AGENT_ROOM_DB.prepare(
+        `
+            SELECT
+                ${browserbaseSessionProjection}
+            FROM hosted_browserbase_session
+            WHERE workspace_id = ?1
+              AND room_id = ?2
+              AND usage_request_id = ?3
+            LIMIT 1
+        `,
+    )
+        .bind(input.workspaceId, input.roomId, input.usageRequestId)
+        .first<HostedBrowserbaseSessionRow>()
+    return row ? mapBrowserbaseSession(row) : null
+}
+
 export async function requestHostedBrowserbaseSessionRelease(input: {
     env: AgentRoomHostedEnv
     workspaceId: string

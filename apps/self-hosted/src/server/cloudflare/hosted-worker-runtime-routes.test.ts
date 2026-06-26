@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
     readHostedProviderUsageSettlementByIdempotencyKey: vi.fn(),
     recordHostedBrowserbaseSession: vi.fn(),
     readHostedBrowserbaseSession: vi.fn(),
+    readHostedBrowserbaseSessionByUsageRequestId: vi.fn(),
     requestHostedBrowserbaseSessionRelease: vi.fn(),
     markHostedBrowserbaseSessionReleased: vi.fn(),
     readHostedRoomConfig: vi.fn(),
@@ -70,6 +71,8 @@ vi.mock('./hosted-billing-repository', () => ({
         mocks.readHostedProviderUsageSettlementByIdempotencyKey,
     recordHostedBrowserbaseSession: mocks.recordHostedBrowserbaseSession,
     readHostedBrowserbaseSession: mocks.readHostedBrowserbaseSession,
+    readHostedBrowserbaseSessionByUsageRequestId:
+        mocks.readHostedBrowserbaseSessionByUsageRequestId,
     requestHostedBrowserbaseSessionRelease: mocks.requestHostedBrowserbaseSessionRelease,
     markHostedBrowserbaseSessionReleased: mocks.markHostedBrowserbaseSessionReleased,
 }))
@@ -292,6 +295,7 @@ describe('hosted runtime worker route security gates', () => {
         })
         mocks.requestHostedBrowserbaseSessionRelease.mockResolvedValue(true)
         mocks.markHostedBrowserbaseSessionReleased.mockResolvedValue(undefined)
+        mocks.readHostedBrowserbaseSessionByUsageRequestId.mockResolvedValue(null)
         mocks.authorizeHostedBillingReservation.mockResolvedValue({
             id: 'reservation_1',
         })
@@ -1083,6 +1087,42 @@ describe('hosted runtime worker route security gates', () => {
                     'provider_proxy:browserbase:workspace_1:room_1:usage-request-123456',
             }),
         )
+    })
+
+    it('blocks duplicate Browserbase session creation after a prior session record for the usage request', async () => {
+        const fetchMock = vi.fn(async () => new Response('{}'))
+        vi.stubGlobal('fetch', fetchMock)
+        mocks.readHostedBrowserbaseSessionByUsageRequestId.mockResolvedValue({
+            browserbaseSessionId: 'bb-session-existing',
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            sessionKey: 'thread_1',
+            runId: 'run_1',
+            jobId: 'job_1',
+            usageRequestId: 'usage-request-123456',
+            status: 'active',
+            createdAt: new Date(0).toISOString(),
+            updatedAt: new Date(0).toISOString(),
+            releasedAt: null,
+        })
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/provider/browserbase/v1/workspaces/workspace_1/rooms/room_1/sessions',
+            headers: browserbaseRuntimeHeaders(),
+            token: null,
+            body: {
+                keepAlive: true,
+                browserSettings: {
+                    timeout: 120,
+                },
+            },
+        })
+
+        await expectJsonCode(response, 409, 'runtime_usage_request_already_in_flight')
+        expect(fetchMock).not.toHaveBeenCalled()
+        expect(mocks.authorizeHostedBillingReservation).not.toHaveBeenCalled()
+        expect(mocks.recordHostedBrowserbaseSession).not.toHaveBeenCalled()
+        expect(mocks.recordHostedProviderUsage).not.toHaveBeenCalled()
     })
 
     it('releases untracked Browserbase sessions when ownership recording fails', async () => {

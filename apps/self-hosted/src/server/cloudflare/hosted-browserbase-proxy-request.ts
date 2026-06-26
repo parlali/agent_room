@@ -18,6 +18,9 @@ const browserbaseSearchBodyKeys = new Set(['query', 'numResults'])
 const browserbaseSessionBodyKeys = new Set(['keepAlive', 'browserSettings'])
 const browserbaseSessionSettingsKeys = new Set(['timeout'])
 const browserbaseReleaseBodyKeys = new Set(['status'])
+export const browserbaseReleaseSessionRequestBody = JSON.stringify({
+    status: 'REQUEST_RELEASE',
+})
 
 export function invalidManagedBrowserbaseRequest(): Response {
     return hostedJsonResponse(
@@ -103,9 +106,7 @@ function canonicalBrowserbaseReleaseBody(record: Record<string, unknown>): strin
     if (!hasOnlyKeys(record, browserbaseReleaseBodyKeys) || record.status !== 'REQUEST_RELEASE') {
         return null
     }
-    return JSON.stringify({
-        status: 'REQUEST_RELEASE',
-    })
+    return browserbaseReleaseSessionRequestBody
 }
 
 export async function browserbaseProviderRequest(input: {

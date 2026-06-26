@@ -536,6 +536,28 @@ describe('hosted D1 schema contract', () => {
                 }),
             ).rejects.toThrow()
 
+            await expect(
+                db.execute({
+                    sql: `
+                        INSERT INTO hosted_browserbase_session (
+                            browserbase_session_id,
+                            workspace_id,
+                            room_id,
+                            session_key,
+                            run_id,
+                            job_id,
+                            usage_request_id,
+                            status,
+                            created_at,
+                            updated_at,
+                            released_at
+                        )
+                        VALUES ('bb-session-duplicate-usage', 'workspace_1', 'room_1', 'thread_1', 'run_1', NULL, 'usage_request_1', 'active', ?1, ?1, NULL)
+                    `,
+                    args: [now],
+                }),
+            ).rejects.toThrow()
+
             await db.execute({
                 sql: `
                     DELETE FROM hosted_room
