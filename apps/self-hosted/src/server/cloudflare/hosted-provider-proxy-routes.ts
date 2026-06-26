@@ -5,7 +5,6 @@ import {
     type HostedBillingReservationProvider,
 } from './hosted-billing-types'
 import {
-    authorizeHostedBillingReservation,
     ensureHostedBillingAccount,
     findHostedBillingReservationByIdempotencyKey,
     readHostedProviderUsageSettlementByIdempotencyKey,
@@ -18,6 +17,7 @@ import {
     parseHostedOpenRouterProxyPath,
 } from './hosted-provider-proxy'
 import {
+    authorizeFixedProviderReservation,
     hostedFixedCostReservationCents,
     hostedProviderReservationFailureResponse,
     hostedProviderProxyUsageRequest,
@@ -257,28 +257,21 @@ export async function hostedOpenRouterProxy(
             env,
             workspaceId: proxyPath.workspaceId,
         })
-        const reservation = await authorizeHostedBillingReservation({
+        const reservationIdOrResponse = await authorizeFixedProviderReservation({
             env,
             workspaceId: proxyPath.workspaceId,
             roomId: proxyPath.roomId,
-            sessionKey: usageContext.sessionKey,
-            runId: usageContext.runId,
-            jobId: usageContext.jobId,
+            usageContext,
             provider: 'openrouter',
             amountCents: hostedProviderBillingGateCents,
             idempotencyKey: reservationIdempotencyKey,
-            metadata: {
-                targetPath: proxyPath.targetPath,
-                usageRequestId,
-                sessionKey: usageContext.sessionKey,
-                runId: usageContext.runId,
-                jobId: usageContext.jobId,
-                reservationPurpose: 'provider_preflight',
-            },
-            expiresAt: new Date(Date.now() + 15 * 60 * 1000),
-            allowExisting: false,
+            targetPath: proxyPath.targetPath,
+            usageRequestId,
         })
-        reservationId = reservation.id
+        if (reservationIdOrResponse instanceof Response) {
+            return reservationIdOrResponse
+        }
+        reservationId = reservationIdOrResponse
     } catch (error) {
         return hostedProviderReservationFailureResponse({
             error,
@@ -527,30 +520,23 @@ export async function hostedBraveProxy(
             env,
             workspaceId: proxyPath.workspaceId,
         })
-        const reservation = await authorizeHostedBillingReservation({
+        const reservationIdOrResponse = await authorizeFixedProviderReservation({
             env,
             workspaceId: proxyPath.workspaceId,
             roomId: proxyPath.roomId,
-            sessionKey: usageContext.sessionKey,
-            runId: usageContext.runId,
-            jobId: usageContext.jobId,
+            usageContext,
             provider: 'brave',
             amountCents: hostedBraveSearchReservationCents({
                 usageMarkupBps: config.billing.usageMarkupBps,
             }),
             idempotencyKey: reservationIdempotencyKey,
-            metadata: {
-                targetPath: proxyPath.targetPath,
-                usageRequestId,
-                sessionKey: usageContext.sessionKey,
-                runId: usageContext.runId,
-                jobId: usageContext.jobId,
-                reservationPurpose: 'provider_preflight',
-            },
-            expiresAt: new Date(Date.now() + 15 * 60 * 1000),
-            allowExisting: false,
+            targetPath: proxyPath.targetPath,
+            usageRequestId,
         })
-        reservationId = reservation.id
+        if (reservationIdOrResponse instanceof Response) {
+            return reservationIdOrResponse
+        }
+        reservationId = reservationIdOrResponse
     } catch (error) {
         return hostedProviderReservationFailureResponse({
             error,
