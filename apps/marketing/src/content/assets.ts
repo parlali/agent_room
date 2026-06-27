@@ -16,8 +16,8 @@ export const assets = {
     heroMobile: {
         src: `${base}/hero-mobile-room-console.png`,
         alt: 'Agent Room mobile room interface showing a single room with its session, files, and status.',
-        width: 941,
-        height: 1672,
+        width: 643,
+        height: 1010,
     },
     capabilitiesDashboard: {
         src: `${base}/capabilities-artifacts-dashboard.png`,
