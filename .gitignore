@@ -29,3 +29,7 @@ db/schema.sql
 plan.md
 plan/
 packages/brand/exports/marketing/og-share.png
+
+# wrangler local secrets
+.dev.vars
+*.dev.vars

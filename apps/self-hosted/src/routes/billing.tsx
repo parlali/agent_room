@@ -91,18 +91,9 @@ function BillingPage() {
     const billingQuery = useHostedBillingQuery()
     const summary = billingQuery.data?.status === 'active' ? billingQuery.data.summary : null
 
-    const header = (
-        <PageHeader
-            title="Billing"
-            subtitle="Usage and credits for your managed AI rooms."
-            status={summary ? <ManagedCreditsBadge managed={hostedManaged(summary)} /> : undefined}
-            actions={summary ? <BillingHeaderActions summary={summary} /> : undefined}
-        />
-    )
-
     if (billingQuery.isLoading) {
         return (
-            <Page width="lg" header={header}>
+            <Page width="lg" header={<BillingBaseHeader />}>
                 <BillingLoading />
             </Page>
         )
@@ -110,7 +101,7 @@ function BillingPage() {
 
     if (billingQuery.isError) {
         return (
-            <Page width="lg" header={header}>
+            <Page width="lg" header={<BillingBaseHeader />}>
                 <AttentionBanner
                     tone="danger"
                     title="Billing is temporarily unavailable"
@@ -133,7 +124,7 @@ function BillingPage() {
 
     if (!summary) {
         return (
-            <Page width="lg" header={header}>
+            <Page width="lg" header={<BillingBaseHeader />}>
                 <EmptyState
                     icon={WalletCardsIcon}
                     title="Billing is not available here"
@@ -143,11 +134,11 @@ function BillingPage() {
         )
     }
 
-    return (
-        <Page width="lg" header={header}>
-            <BillingActiveContent summary={summary} refetch={billingQuery.refetch} />
-        </Page>
-    )
+    return <BillingResolved summary={summary} refetch={billingQuery.refetch} />
+}
+
+function BillingBaseHeader() {
+    return <PageHeader title="Billing" subtitle="Usage and credits for your managed AI rooms." />
 }
 
 function BillingLoading() {
@@ -195,7 +186,7 @@ function BillingHeaderActions({ summary }: { summary: HostedBillingSummary }) {
     )
 }
 
-function BillingActiveContent({
+function BillingResolved({
     summary,
     refetch,
 }: {
@@ -211,8 +202,6 @@ function BillingActiveContent({
     })
     const [activationTimedOut, setActivationTimedOut] = useState(false)
 
-    const available = hostedAvailableCents(summary)
-    const low = isHostedBalanceLow(available)
     const subscriptionReturned = search.checkout === 'subscription_success'
     const awaitingActivation = subscriptionReturned && !summary.active
 
@@ -260,88 +249,135 @@ function BillingActiveContent({
         navigate,
     ])
 
-    return (
-        <div className="flex flex-col gap-4">
-            {awaitingActivation ? (
-                <AttentionBanner
-                    tone={activationTimedOut ? 'attention' : 'info'}
-                    title={
-                        activationTimedOut
-                            ? 'This is taking longer than expected'
-                            : 'Activating your subscription'
+    const activationBanner = awaitingActivation ? (
+        <AttentionBanner
+            tone={activationTimedOut ? 'attention' : 'info'}
+            title={
+                activationTimedOut
+                    ? 'This is taking longer than expected'
+                    : 'Activating your subscription'
+            }
+            description={
+                activationTimedOut
+                    ? 'Your payment went through but activation has not confirmed yet. Refresh in a moment, or contact support if this persists.'
+                    : 'Your payment completed. We are confirming your subscription.'
+            }
+            action={
+                activationTimedOut ? (
+                    <Button variant="outline" size="sm" onClick={() => void refetch()}>
+                        <RefreshCwIcon /> Refresh
+                    </Button>
+                ) : (
+                    <Loader2Icon className="size-4 animate-spin" aria-hidden />
+                )
+            }
+        />
+    ) : null
+
+    const planPicker = (
+        <div className="grid gap-3 sm:grid-cols-3">
+            {hostedBillingCatalog.plans.map((plan) => (
+                <PlanCard
+                    key={plan.key}
+                    plan={plan}
+                    current={summary.account.planKey === plan.key}
+                    onSubscribe={() =>
+                        checkoutMutation.mutate({
+                            kind: 'subscription',
+                            planKey: plan.key,
+                        })
                     }
-                    description={
-                        activationTimedOut
-                            ? 'Your payment went through but activation has not confirmed yet. Refresh in a moment, or contact support if this persists.'
-                            : 'Your payment completed. We are confirming your subscription.'
-                    }
-                    action={
-                        activationTimedOut ? (
-                            <Button variant="outline" size="sm" onClick={() => void refetch()}>
-                                <RefreshCwIcon /> Refresh
-                            </Button>
-                        ) : (
-                            <Loader2Icon className="size-4 animate-spin" aria-hidden />
-                        )
-                    }
+                    disabled={checkoutMutation.isPending}
+                    primary={!summary.active}
                 />
-            ) : null}
-
-            {low ? (
-                <AttentionBanner
-                    tone="attention"
-                    title="You are running low on credits"
-                    description="Top up to keep your rooms working without interruption."
-                    action={
-                        <Button
-                            size="sm"
-                            disabled={checkoutMutation.isPending}
-                            onClick={() => checkoutMutation.mutate({ kind: 'credit_topup' })}
-                        >
-                            Buy credits
-                        </Button>
-                    }
-                />
-            ) : null}
-
-            <Section
-                title="Available credits"
-                description="What you have left to spend on AI rooms."
-            >
-                <Stat
-                    label="Available"
-                    value={formatHostedUsd(available)}
-                    tone={low ? 'danger' : undefined}
-                    hint="Included usage is spent first, then purchased credits."
-                />
-                <BalanceDetails summary={summary} />
-            </Section>
-
-            <Section title="Plans" description="Pick the monthly usage and capabilities you need.">
-                <div className="grid gap-3 sm:grid-cols-3">
-                    {hostedBillingCatalog.plans.map((plan) => (
-                        <PlanCard
-                            key={plan.key}
-                            plan={plan}
-                            current={summary.account.planKey === plan.key}
-                            onSubscribe={() =>
-                                checkoutMutation.mutate({
-                                    kind: 'subscription',
-                                    planKey: plan.key,
-                                })
-                            }
-                            disabled={checkoutMutation.isPending}
-                        />
-                    ))}
-                </div>
-            </Section>
-
-            <Section title="Recent usage" description="Charges against your credits, newest first.">
-                <BillingUsageList events={summary.usage} />
-            </Section>
-
-            <AdvancedDisclosure />
+            ))}
         </div>
+    )
+
+    if (!summary.active) {
+        return (
+            <Page
+                width="lg"
+                header={
+                    <PageHeader
+                        title="Choose a plan to get started"
+                        subtitle="Pick a plan to activate your managed AI rooms. You can change or cancel anytime."
+                    />
+                }
+            >
+                <div className="flex flex-col gap-6">
+                    {activationBanner}
+                    {planPicker}
+                </div>
+            </Page>
+        )
+    }
+
+    const available = hostedAvailableCents(summary)
+    const low = isHostedBalanceLow(available)
+
+    return (
+        <Page
+            width="lg"
+            header={
+                <PageHeader
+                    title="Billing"
+                    subtitle="Usage and credits for your managed AI rooms."
+                    status={<ManagedCreditsBadge managed={hostedManaged(summary)} />}
+                    actions={<BillingHeaderActions summary={summary} />}
+                />
+            }
+        >
+            <div className="flex flex-col gap-4">
+                {activationBanner}
+
+                {low ? (
+                    <AttentionBanner
+                        tone="attention"
+                        title="You are running low on credits"
+                        description="Top up to keep your rooms working without interruption."
+                        action={
+                            <Button
+                                size="sm"
+                                disabled={checkoutMutation.isPending}
+                                onClick={() => checkoutMutation.mutate({ kind: 'credit_topup' })}
+                            >
+                                Buy credits
+                            </Button>
+                        }
+                    />
+                ) : null}
+
+                <Section
+                    title="Available credits"
+                    description="What you have left to spend on AI rooms."
+                >
+                    <Stat
+                        label="Available"
+                        value={formatHostedUsd(available)}
+                        tone={low ? 'danger' : undefined}
+                        hint="Included usage is spent first, then purchased credits."
+                    />
+                    <BalanceDetails summary={summary} />
+                </Section>
+
+                <Section
+                    title="Plans"
+                    description="Pick the monthly usage and capabilities you need."
+                >
+                    {planPicker}
+                </Section>
+
+                <Section
+                    title="Recent usage"
+                    description="Charges against your credits, newest first."
+                >
+                    <BillingUsageList events={summary.usage} />
+                </Section>
+
+                <AdvancedDisclosure />
+            </div>
+        </Page>
     )
 }
 
@@ -387,11 +423,13 @@ function PlanCard({
     current,
     onSubscribe,
     disabled,
+    primary = false,
 }: {
     plan: HostedPlanTier
     current: boolean
     onSubscribe: () => void
     disabled: boolean
+    primary?: boolean
 }) {
     const highlights = hostedPlanHighlights(plan.key)
     return (
@@ -417,12 +455,12 @@ function PlanCard({
             </ul>
             <div className="mt-4">
                 <Button
-                    variant="outline"
+                    variant={primary ? 'default' : 'outline'}
                     disabled={current || disabled}
                     className="w-full"
                     onClick={onSubscribe}
                 >
-                    {current ? 'Current plan' : 'Choose plan'}
+                    {current ? 'Current plan' : primary ? 'Get started' : 'Choose plan'}
                 </Button>
             </div>
         </div>

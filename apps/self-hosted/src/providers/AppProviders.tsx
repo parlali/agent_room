@@ -125,7 +125,7 @@ function BrowserPerformanceProbe() {
 }
 
 function shouldUsePersistentShell(pathname: string): boolean {
-    if (pathname === '/login' || pathname === '/onboarding') {
+    if (pathname === '/login' || pathname === '/onboarding' || pathname === '/billing') {
         return false
     }
     if (

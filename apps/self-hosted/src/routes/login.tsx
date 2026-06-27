@@ -63,8 +63,19 @@ function LoginPage() {
     const [name, setName] = useState('')
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
+    const [confirmPassword, setConfirmPassword] = useState('')
+    const [confirmError, setConfirmError] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
     const [notice, setNotice] = useState<string | null>(null)
+
+    const switchMode = (next: 'sign-in' | 'sign-up') => {
+        if (next === mode) return
+        setMode(next)
+        setError(null)
+        setConfirmError(null)
+        setPassword('')
+        setConfirmPassword('')
+    }
 
     const login = useMutation({
         mutationFn: (payload: { email: string; password: string }) =>
@@ -87,7 +98,9 @@ function LoginPage() {
                 `Check ${result.email} for the verification link. You will continue to billing after verifying.`,
             )
             setMode('sign-in')
+            setConfirmError(null)
             setPassword('')
+            setConfirmPassword('')
         },
         onError: (signupError) => {
             setNotice(null)
@@ -128,7 +141,13 @@ function LoginPage() {
             setError('Password must be at least 12 characters.')
             return
         }
+        if (mode === 'sign-up' && password !== confirmPassword) {
+            setConfirmError('Passwords do not match.')
+            setError('Passwords do not match.')
+            return
+        }
         setError(null)
+        setConfirmError(null)
         setNotice(null)
         if (mode === 'sign-up') {
             signup.mutate({ email: normalizedEmail, password, name: trimmedName })
@@ -137,7 +156,7 @@ function LoginPage() {
         login.mutate({ email: normalizedEmail, password })
     }
     const pending = login.isPending || signup.isPending || googleSignIn.isPending
-    const title = mode === 'sign-up' ? 'Create your account' : 'Agent Room'
+    const title = mode === 'sign-up' ? 'Create your account' : 'Welcome back'
     const subtitle =
         mode === 'sign-up' ? 'Start with a paid hosted workspace.' : 'Sign in to your portal.'
 
@@ -204,31 +223,6 @@ function LoginPage() {
                             </Alert>
                         ) : null}
 
-                        {hostedSignupEnabled ? (
-                            <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted p-1">
-                                <Button
-                                    type="button"
-                                    variant={mode === 'sign-in' ? 'secondary' : 'ghost'}
-                                    onClick={() => {
-                                        setMode('sign-in')
-                                        setError(null)
-                                    }}
-                                >
-                                    Sign in
-                                </Button>
-                                <Button
-                                    type="button"
-                                    variant={mode === 'sign-up' ? 'secondary' : 'ghost'}
-                                    onClick={() => {
-                                        setMode('sign-up')
-                                        setError(null)
-                                    }}
-                                >
-                                    Create account
-                                </Button>
-                            </div>
-                        ) : null}
-
                         {mode === 'sign-up' ? (
                             <div className="space-y-1.5">
                                 <Label htmlFor="name">Name</Label>
@@ -249,7 +243,7 @@ function LoginPage() {
                                 type="email"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
-                                autoComplete="username"
+                                autoComplete="email"
                                 placeholder="root@agent-room.local"
                                 autoFocus
                                 required
@@ -263,10 +257,41 @@ function LoginPage() {
                                 type="password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                autoComplete="current-password"
+                                autoComplete={
+                                    mode === 'sign-up' ? 'new-password' : 'current-password'
+                                }
                                 required
                             />
                         </div>
+
+                        {mode === 'sign-up' ? (
+                            <div className="space-y-1.5">
+                                <Label htmlFor="confirm-password">Confirm password</Label>
+                                <Input
+                                    id="confirm-password"
+                                    type="password"
+                                    value={confirmPassword}
+                                    onChange={(e) => {
+                                        setConfirmPassword(e.target.value)
+                                        if (confirmError) setConfirmError(null)
+                                    }}
+                                    autoComplete="new-password"
+                                    aria-invalid={confirmError ? true : undefined}
+                                    aria-describedby={
+                                        confirmError ? 'confirm-password-error' : undefined
+                                    }
+                                    required
+                                />
+                                {confirmError ? (
+                                    <p
+                                        id="confirm-password-error"
+                                        className="text-sm text-destructive"
+                                    >
+                                        {confirmError}
+                                    </p>
+                                ) : null}
+                            </div>
+                        ) : null}
 
                         <Button type="submit" size="lg" disabled={pending} className="w-full">
                             {pending
@@ -278,6 +303,23 @@ function LoginPage() {
                                   : 'Sign in'}
                             <ArrowRightIcon />
                         </Button>
+
+                        {hostedSignupEnabled ? (
+                            <p className="text-center text-sm text-muted-foreground">
+                                {mode === 'sign-up'
+                                    ? 'Already have an account? '
+                                    : 'New here? '}
+                                <button
+                                    type="button"
+                                    className="font-medium text-foreground underline-offset-4 hover:underline"
+                                    onClick={() =>
+                                        switchMode(mode === 'sign-up' ? 'sign-in' : 'sign-up')
+                                    }
+                                >
+                                    {mode === 'sign-up' ? 'Sign in' : 'Create an account'}
+                                </button>
+                            </p>
+                        ) : null}
                     </form>
                 </div>
 

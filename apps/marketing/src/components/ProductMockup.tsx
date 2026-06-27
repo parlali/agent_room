@@ -207,31 +207,40 @@ const phoneRooms: {
     },
 ]
 
+function RoomsGlyph({ active = false }: { active?: boolean }) {
+    return (
+        <span className="grid grid-cols-2 gap-[1.5px]" aria-hidden>
+            {Array.from({ length: 4 }).map((_, index) => (
+                <span
+                    key={index}
+                    className={`h-1.5 w-1.5 rounded-[1px] ${active ? 'bg-ink' : 'bg-ink-faint'}`}
+                />
+            ))}
+        </span>
+    )
+}
+
 export function PhoneMockup() {
     return (
-        <div
-            className="mx-auto w-[272px] max-w-full rounded-[2.75rem] border border-line bg-night p-2.5 shadow-float"
+        <figure
+            className="mx-auto w-[272px] max-w-full overflow-hidden rounded-[var(--radius-media)] border border-line bg-panel shadow-float"
             aria-label="Agent Room on mobile: the rooms list with each coworker's status."
         >
-            <div className="overflow-hidden rounded-[2.25rem] bg-paper">
-                <div
-                    className="mx-auto mt-2 mb-1 h-1 w-16 rounded-full bg-line-strong/70"
-                    aria-hidden
-                />
-                <div className="flex items-center justify-between px-4 pt-2 pb-2.5">
-                    <div className="flex items-center gap-2">
-                        <Glyph initials="AR" className="h-5 w-5" />
-                        <span className="text-xs font-semibold text-ink">Agent Room</span>
-                    </div>
-                    <span className="relative" aria-hidden>
-                        <Glyph initials="RO" className="h-6 w-6 rounded-full" />
-                        <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border border-paper bg-accent-blue" />
-                    </span>
+            <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
+                <div className="flex items-center gap-2">
+                    <Glyph initials="AR" className="h-5 w-5" />
+                    <span className="text-xs font-semibold text-ink">Agent Room</span>
                 </div>
-                <div className="flex items-center justify-between px-4 pb-2.5">
+                <span className="relative" aria-hidden>
+                    <Glyph initials="RO" className="h-6 w-6 rounded-full" />
+                    <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border border-panel bg-accent-blue" />
+                </span>
+            </div>
+            <div className="bg-paper-sunken/40">
+                <div className="flex items-center justify-between px-4 pt-3 pb-2">
                     <span className="text-base font-semibold text-ink">Rooms</span>
                     <span
-                        className="flex h-6 w-6 items-center justify-center rounded-md bg-ink text-sm text-paper"
+                        className="flex h-6 w-6 items-center justify-center rounded-md bg-ink text-sm leading-none text-paper"
                         aria-hidden
                     >
                         +
@@ -239,7 +248,7 @@ export function PhoneMockup() {
                 </div>
                 <div className="space-y-2 px-3 pb-3">
                     {phoneRooms.map((room) => (
-                        <div key={room.name} className="rounded-xl border border-line bg-panel p-3">
+                        <div key={room.name} className="rounded-xl border border-line bg-panel p-3 shadow-panel">
                             <div className="flex items-center gap-2.5">
                                 <span
                                     className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg font-mono text-[0.5625rem] font-semibold ${toneTint[room.tone]}`}
@@ -277,20 +286,22 @@ export function PhoneMockup() {
                         </div>
                     ))}
                 </div>
-                <div className="flex items-center justify-around border-t border-line bg-panel px-2 py-2">
-                    <span className="flex flex-1 flex-col items-center gap-0.5 text-[0.5625rem] font-medium text-ink">
-                        <span className="text-sm leading-none" aria-hidden>
-                            {'▦'}
-                        </span>
-                        Rooms
-                    </span>
-                    <span className="flex flex-1 flex-col items-center gap-0.5 text-[0.5625rem] font-medium text-ink-faint">
-                        <Glyph initials="RO" className="h-4 w-4 rounded-full" />
-                        Account
-                    </span>
-                </div>
             </div>
-        </div>
+            <div className="flex items-center justify-around border-t border-line bg-panel px-2 py-2">
+                <span className="flex flex-1 flex-col items-center gap-1 text-[0.5625rem] font-medium text-ink">
+                    <span className="flex h-4 items-center">
+                        <RoomsGlyph active />
+                    </span>
+                    Rooms
+                </span>
+                <span className="flex flex-1 flex-col items-center gap-1 text-[0.5625rem] font-medium text-ink-faint">
+                    <span className="flex h-4 items-center">
+                        <Glyph initials="RO" className="h-4 w-4 rounded-full" />
+                    </span>
+                    Account
+                </span>
+            </div>
+        </figure>
     )
 }
 
