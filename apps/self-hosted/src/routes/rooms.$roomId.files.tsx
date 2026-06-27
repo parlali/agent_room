@@ -395,7 +395,7 @@ function FilesContent({ roomId }: { roomId: string }) {
             >
                 {streamError ? (
                     <div className="border-b border-border/60 px-4 py-2 text-sm text-danger-fg">
-                        {streamError}
+                        {sanitizeRuntimeError(streamError)}
                     </div>
                 ) : null}
                 <FilesToolbar

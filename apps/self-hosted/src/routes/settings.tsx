@@ -4,6 +4,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { SettingsIcon } from 'lucide-react'
 import { KeyValueList, LoadingRows, Page, PageHeader, Section } from '#/components/agent-room'
 import { cn } from '#/lib/utils'
+import { roleLabel } from '#/domain/format'
 import { roomQueryKey } from '#/lib/room-query-keys'
 import { currentUserServer } from './-auth-server'
 import { ThemeControl } from '#/components/app-shell/theme-control'
@@ -141,11 +142,7 @@ function SettingsPage() {
                                     { label: 'Email', value: user?.email ?? 'Unknown' },
                                     {
                                         label: 'Role',
-                                        value: user
-                                            ? user.role === 'root'
-                                                ? 'Root operator'
-                                                : 'Operator'
-                                            : 'Account',
+                                        value: user ? roleLabel(user.role) : 'Account',
                                     },
                                 ]}
                             />
