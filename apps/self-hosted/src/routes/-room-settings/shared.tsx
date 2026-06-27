@@ -1,11 +1,8 @@
 import type { ReactNode } from 'react'
 import { ChevronDownIcon } from 'lucide-react'
-import { ModelSelect } from '#/components/agent-room/model-select'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '#/components/ui/collapsible'
 import { CardButton } from '#/components/ui/card'
 import { cn } from '#/lib/utils'
-
-export { ModelSelect }
 
 export function ModeRadio({
     label,

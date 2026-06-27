@@ -4,7 +4,7 @@ import { normalizeBudgets } from '../../configuration/capabilities'
 import { getRoomConfigSnapshot } from '../../configuration/operator-configuration'
 import { roomCronRepository, roomRuntimeMetadataRepository } from '../../db/repositories'
 import type { RoomCronJobRecord, RoomCronRunRecord } from '#/domain/domain-types'
-import type { RoomCronJob, RoomRunHistorySnapshot } from '../execution-types'
+import type { RoomCronJob } from '../execution-types'
 
 import { createRoomThread, sendRoomThreadMessage } from './thread-operations'
 import {
@@ -395,43 +395,3 @@ function mapCronJobRecord(job: RoomCronJobRecord): RoomCronJob {
     }
 }
 
-function mapCronRunRecord(run: RoomCronRunRecord): RoomRunHistorySnapshot['entries'][number] {
-    return {
-        id: run.id,
-        ts: run.startedAt.getTime(),
-        jobId: run.jobId ?? '',
-        jobName: run.jobName,
-        status: run.status,
-        summary: run.summary,
-        error: run.error,
-        sessionId: run.sessionId,
-        sessionKey: run.sessionKey,
-        declaredAgentId: 'main',
-        effectiveAgentId: 'main',
-        resolvedSessionAgentId: run.sessionKey ? 'main' : null,
-        ownership: run.sessionKey ? 'owned' : 'unknown',
-        durationMs: run.durationMs,
-        nextRunAtMs: run.nextRunAt ? run.nextRunAt.getTime() : null,
-        model: run.model,
-        provider: run.provider,
-    }
-}
-
-export async function listRoomRunHistory(input: {
-    roomId: string
-    limit?: number
-}): Promise<RoomRunHistorySnapshot> {
-    const limit =
-        input.limit && Number.isFinite(input.limit)
-            ? Math.max(1, Math.min(200, Math.floor(input.limit)))
-            : 100
-    const runs = await roomCronRepository.listRunsByRoomId({
-        roomId: input.roomId,
-        limit,
-    })
-    return {
-        roomId: input.roomId,
-        mismatchCount: 0,
-        entries: runs.map(mapCronRunRecord),
-    }
-}

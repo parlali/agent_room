@@ -3,20 +3,6 @@ import type { AgentRoomHostedEnv } from './bindings'
 import type { HostedActor } from './hosted-auth'
 import { nowIso, parseJsonValue, toDate } from './hosted-json'
 
-export async function hostedRoomSetupReadiness(): Promise<{
-    command: string
-    generatedAt: string
-    hasBlockingIssues: boolean
-    issues: Array<{ code: string; severity: 'blocking' | 'warning'; message: string }>
-}> {
-    return {
-        command: 'cloudflare-containers',
-        generatedAt: new Date().toISOString(),
-        hasBlockingIssues: false,
-        issues: [],
-    }
-}
-
 export async function readHostedRoomOnboarding(input: {
     env: AgentRoomHostedEnv
     workspaceId: string

@@ -11,7 +11,7 @@ import {
     XIcon,
 } from 'lucide-react'
 
-import { EmptyState, ProvenanceChip } from '#/components/agent-room'
+import { Chip, EmptyState } from '#/components/agent-room'
 import { RoomFileMetadata, RoomFilePreviewContent } from '#/components/room-files/file-preview'
 import { RoomFileDownloadMenu } from '#/components/room-files/file-download-menu'
 import { roomFileEntryIcon } from '#/components/room-files/file-kinds'
@@ -317,10 +317,10 @@ function ArtifactRow({
                     <span className="block truncate text-sm font-medium text-foreground">
                         {artifact.name}
                     </span>
-                    <ProvenanceChip icon={<SparklesIcon />} className="mt-0.5">
+                    <Chip bordered={false} icon={<SparklesIcon />} className="mt-0.5">
                         {artifactProvenanceLabel(artifact.kind)}
                         {artifact.timestamp ? ` · ${formatRelativeTime(artifact.timestamp)}` : ''}
-                    </ProvenanceChip>
+                    </Chip>
                     <span className="mt-0.5 block truncate font-mono text-[0.6875rem]">
                         {artifact.relativePath}
                     </span>

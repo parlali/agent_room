@@ -7,13 +7,13 @@ import type { OperatorConfigSnapshot } from '#/server/configuration/operator-con
 
 import { type ProviderFormState, resolveProviderFormProtocol } from './-form-model'
 import {
+    CredentialField as MaskedSecretField,
     FieldGroup,
     FormShell,
-    MaskedSecretField,
     ModelSelectField,
     SelectField,
     TextField,
-} from './-form-controls'
+} from '#/components/agent-room/form'
 
 export function ProviderForm({
     form,

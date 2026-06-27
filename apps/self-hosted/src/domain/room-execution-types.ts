@@ -488,29 +488,3 @@ export interface RoomExecutionTruthSnapshot {
     } | null
     agents: RoomAgentExecutionTruth[]
 }
-
-export interface RoomRunHistoryEntry {
-    id: string
-    ts: number
-    jobId: string
-    jobName: string | null
-    status: string | null
-    summary: string | null
-    error: string | null
-    sessionId: string | null
-    sessionKey: string | null
-    declaredAgentId: string | null
-    effectiveAgentId: string | null
-    resolvedSessionAgentId: string | null
-    ownership: 'owned' | 'mismatch' | 'unknown'
-    durationMs: number | null
-    nextRunAtMs: number | null
-    model: string | null
-    provider: string | null
-}
-
-export interface RoomRunHistorySnapshot {
-    roomId: string
-    mismatchCount: number
-    entries: RoomRunHistoryEntry[]
-}

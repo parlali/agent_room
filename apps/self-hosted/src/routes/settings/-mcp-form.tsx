@@ -4,7 +4,13 @@ import { WrenchIcon } from 'lucide-react'
 import { Textarea } from '#/components/ui/textarea'
 
 import { TRANSPORT_OPTIONS, type McpAuthMode, type McpFormState } from './-form-model'
-import { FieldGroup, FormShell, MaskedSecretField, SelectField, TextField } from './-form-controls'
+import {
+    CredentialField as MaskedSecretField,
+    FieldGroup,
+    FormShell,
+    SelectField,
+    TextField,
+} from '#/components/agent-room/form'
 
 export function McpForm({
     form,

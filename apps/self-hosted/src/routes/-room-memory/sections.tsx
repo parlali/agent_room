@@ -14,8 +14,8 @@ import {
 } from '#/components/ui/accordion'
 import {
     AttentionBanner,
+    Chip,
     FieldGroup,
-    ProvenanceChip,
     SelectField,
     TextField,
 } from '#/components/agent-room'
@@ -506,9 +506,13 @@ function MemoryItemRow({
                 </div>
             ) : null}
             <div className="mt-2 flex items-center gap-2">
-                <ProvenanceChip icon={<ProvenanceIcon />}>{provenance.label}</ProvenanceChip>
+                <Chip bordered={false} icon={<ProvenanceIcon />}>
+                    {provenance.label}
+                </Chip>
                 {recurring && recurrenceRule ? (
-                    <ProvenanceChip icon={<RepeatIcon />}>Recurring</ProvenanceChip>
+                    <Chip bordered={false} icon={<RepeatIcon />}>
+                        Recurring
+                    </Chip>
                 ) : null}
                 {provenance.locked ? (
                     <span className="text-xs text-muted-foreground">

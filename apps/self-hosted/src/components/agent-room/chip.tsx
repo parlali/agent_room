@@ -5,12 +5,28 @@ import { cn } from '#/lib/utils'
 export function Chip({
     icon,
     children,
+    bordered = true,
     className,
 }: {
     icon?: ReactNode
     children: ReactNode
+    bordered?: boolean
     className?: string
 }) {
+    if (!bordered) {
+        return (
+            <span
+                data-slot="chip"
+                className={cn(
+                    'inline-flex items-center gap-1 text-xs text-muted-foreground [&>svg]:size-3',
+                    className,
+                )}
+            >
+                {icon}
+                <span className="truncate">{children}</span>
+            </span>
+        )
+    }
     return (
         <span
             data-slot="chip"

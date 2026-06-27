@@ -38,9 +38,9 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '#/components/ui/sh
 import { RoomSetupRequiredState } from '#/components/room-dashboard'
 import {
     AttentionBanner,
+    Chip,
     EmptyState,
     LoadingRows,
-    ProvenanceChip,
     Section,
 } from '#/components/agent-room'
 import { RoomFileMetadata, RoomFilePreviewContent } from '#/components/room-files/file-preview'
@@ -869,7 +869,7 @@ function FileRow({
             </CardButton>
             {provenance?.sessionKey ? (
                 <div className="px-2 pb-1.5 pl-12">
-                    <ProvenanceChip icon={<HistoryIcon />}>
+                    <Chip bordered={false} icon={<HistoryIcon />}>
                         <Link
                             to="/rooms/$roomId/sessions/$sessionKey"
                             params={{ roomId, sessionKey: provenance.sessionKey }}
@@ -877,7 +877,7 @@ function FileRow({
                         >
                             From a session
                         </Link>
-                    </ProvenanceChip>
+                    </Chip>
                 </div>
             ) : null}
         </li>

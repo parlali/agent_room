@@ -24,7 +24,6 @@ import {
 } from '#/server/cloudflare/hosted-room-service'
 import {
     getHostedSessionComposerDraft,
-    hostedRoomSetupReadiness,
     listHostedUsage,
     saveHostedSessionComposerDraft,
 } from '#/server/cloudflare/hosted-room-read-model-service'
@@ -222,18 +221,6 @@ export async function requireApiRoomOwner(input: {
         room: access.room,
         hosted: null,
     }
-}
-
-export async function getRoomSetupReadinessForRoute() {
-    await requireAuthenticatedActor()
-    setResponseHeaders({
-        'cache-control': 'no-store',
-    })
-    if (readHostedRequestContext()) {
-        return hostedRoomSetupReadiness()
-    }
-    const { getRoomSetupReadiness } = await import('#/server/rooms/runtime-readiness')
-    return getRoomSetupReadiness()
 }
 
 export async function createRoomForRoute(data: {
@@ -483,44 +470,6 @@ export async function getRoomPersonalityForRoute(data: { roomId: string }) {
     await requireRoomOwner(actor, data.roomId)
     const { getRoomPersonality } = await import('#/server/rooms/room-onboarding')
     const form = await getRoomPersonality(data.roomId)
-    return { roomId: data.roomId, form }
-}
-
-export async function saveRoomPersonalityForRoute(data: {
-    roomId: string
-    form: Record<string, unknown>
-}) {
-    const hosted = await requireCurrentHostedMutationActor()
-    if (hosted) {
-        await requireRoomOwner(hosted.actor, data.roomId)
-        const { sanitizePersonalityForm } = await import('#/server/rooms/personality/form')
-        const form = sanitizePersonalityForm(data.form)
-        const current = await getHostedRoomMemory({
-            env: hosted.context.env,
-            actor: hosted.actor,
-            roomId: data.roomId,
-        })
-        const memory =
-            current.memory && typeof current.memory === 'object' && !Array.isArray(current.memory)
-                ? { ...(current.memory as Record<string, unknown>), personality: form }
-                : { personality: form }
-        await updateHostedRoomMemory({
-            env: hosted.context.env,
-            actor: hosted.actor,
-            roomId: data.roomId,
-            memory,
-            expectedHash: current.hash,
-        })
-        return { roomId: data.roomId, form }
-    }
-    const actor = await requireMutationActor()
-    await requireRoomOwner(actor, data.roomId)
-    const { saveRoomPersonality } = await import('#/server/rooms/room-onboarding')
-    const form = await saveRoomPersonality({
-        roomId: data.roomId,
-        form: data.form,
-        actorUserId: actor.userId,
-    })
     return { roomId: data.roomId, form }
 }
 

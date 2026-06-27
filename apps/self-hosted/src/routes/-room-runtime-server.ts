@@ -138,11 +138,6 @@ const roomExecutionTruthInputSchema = z.object({
     roomId: roomIdSchema,
 })
 
-const roomRunHistoryInputSchema = z.object({
-    roomId: roomIdSchema,
-    limit: z.number().int().positive().max(200).optional(),
-})
-
 const roomUsageInputSchema = z.object({
     roomId: roomIdSchema,
     limit: z.number().int().positive().max(200).optional(),
@@ -263,11 +258,6 @@ export const listRoomsServer = createServerFn({ method: 'GET' }).handler(async (
     return listRoomsWithRuntime({
         actorUserId: actor.userId,
     })
-})
-
-export const getRoomSetupReadinessServer = createServerFn({ method: 'GET' }).handler(async () => {
-    const { getRoomSetupReadinessForRoute } = await loadRoomRuntimeRouteService()
-    return getRoomSetupReadinessForRoute()
 })
 
 export const createRoomServer = createServerFn({ method: 'POST' })
@@ -412,18 +402,6 @@ export const getRoomPersonalityServer = createServerFn({ method: 'GET' })
     .handler(async ({ data }) => {
         const { getRoomPersonalityForRoute } = await loadRoomRuntimeRouteService()
         return getRoomPersonalityForRoute(data)
-    })
-
-const savePersonalityInputSchema = z.object({
-    roomId: roomIdSchema,
-    form: z.record(z.string(), z.unknown()),
-})
-
-export const saveRoomPersonalityServer = createServerFn({ method: 'POST' })
-    .inputValidator((input: unknown) => savePersonalityInputSchema.parse(input))
-    .handler(async ({ data }) => {
-        const { saveRoomPersonalityForRoute } = await loadRoomRuntimeRouteService()
-        return saveRoomPersonalityForRoute(data)
     })
 
 export const editMessageServer = createServerFn({ method: 'POST' })
@@ -613,24 +591,6 @@ export const getRoomExecutionTruthServer = createServerFn({ method: 'GET' })
         const { getRoomExecutionTruthSnapshot } = await import('#/server/rooms/execution-engine')
         return getRoomExecutionTruthSnapshot({
             roomId: data.roomId,
-        })
-    })
-
-export const listRoomRunHistoryServer = createServerFn({ method: 'GET' })
-    .inputValidator((input: unknown) => roomRunHistoryInputSchema.parse(input))
-    .handler(async ({ data }) => {
-        const { requireAuthenticatedActor, requireRoomOwner, ensureRuntimeSupervisorBoot } =
-            await loadRoomRuntimeRouteService()
-        const actor = await requireAuthenticatedActor()
-        setResponseHeaders({
-            'cache-control': 'no-store',
-        })
-        await requireRoomOwner(actor, data.roomId)
-        await ensureRuntimeSupervisorBoot()
-        const { listRoomRunHistory } = await import('#/server/rooms/execution-engine')
-        return listRoomRunHistory({
-            roomId: data.roomId,
-            limit: data.limit ?? 100,
         })
     })
 

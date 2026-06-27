@@ -1,23 +1,12 @@
 import type { CapabilityId, UsageEventKind } from './domain-types'
+import { CAPABILITY_OPTIONS } from './capabilities'
 
 export const WEB_ACCESS_CAPABILITY_IDS: CapabilityId[] = ['web_search', 'url_fetch']
 
 export const WEB_ACCESS_CAPABILITY_LABEL = 'Web access'
 
-const capabilityLabels: Record<CapabilityId, string> = {
-    web_search: 'Web search',
-    url_fetch: 'Web page fetch',
-    documents: 'Documents',
-    spreadsheets: 'Spreadsheets',
-    presentations: 'Presentations',
-    pdf: 'PDF',
-    images: 'Images',
-    mcp: 'Connected tools',
-    shell_coding: 'Files and code',
-}
-
 export function capabilityLabel(id: CapabilityId): string {
-    return capabilityLabels[id] ?? humanize(id)
+    return CAPABILITY_OPTIONS.find((option) => option.id === id)?.label ?? humanize(id)
 }
 
 const usageProviderLabels: Record<string, string> = {

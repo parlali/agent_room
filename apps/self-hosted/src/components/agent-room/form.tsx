@@ -231,40 +231,6 @@ export function EditSheet({
     )
 }
 
-export function ThemeChoice({
-    active,
-    icon,
-    label,
-    onClick,
-}: {
-    active: boolean
-    icon: ReactNode
-    label: string
-    onClick: () => void
-}) {
-    return (
-        <Button
-            type="button"
-            variant="outline"
-            onClick={onClick}
-            data-active={active}
-            className="h-auto justify-between gap-2 px-3 py-2.5 text-sm font-normal data-[active=true]:border-primary data-[active=true]:bg-primary/5"
-        >
-            <span className="flex items-center gap-2">
-                {icon}
-                {label}
-            </span>
-            <span
-                aria-hidden
-                className={cn(
-                    'size-2 rounded-full ring-1 ring-border',
-                    active && 'bg-primary ring-primary',
-                )}
-            />
-        </Button>
-    )
-}
-
 export function FormShell({
     onSubmit,
     onCancel,

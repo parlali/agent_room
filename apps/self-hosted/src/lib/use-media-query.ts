@@ -1,20 +1,16 @@
 import { useEffect, useState } from 'react'
 
-export function useMediaQuery(query: string): boolean {
-    const [matches, setMatches] = useState(false)
+export function useIsMobile(): boolean {
+    const [isMobile, setIsMobile] = useState(false)
 
     useEffect(() => {
         if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
-        const mql = window.matchMedia(query)
-        const sync = () => setMatches(mql.matches)
+        const mql = window.matchMedia('(min-width: 640px)')
+        const sync = () => setIsMobile(!mql.matches)
         sync()
         mql.addEventListener('change', sync)
         return () => mql.removeEventListener('change', sync)
-    }, [query])
+    }, [])
 
-    return matches
-}
-
-export function useIsMobile(): boolean {
-    return !useMediaQuery('(min-width: 640px)')
+    return isMobile
 }
