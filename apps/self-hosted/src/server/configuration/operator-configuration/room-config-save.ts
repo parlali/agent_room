@@ -76,6 +76,7 @@ export async function saveRoomConfig(
     const existing = await roomConfigRepository.getOrCreate(input.roomId)
     const previousImageSecretId = existing.imageSecretId
     let imageSecretId = existing.imageSecretId
+    const instructions = input.instructions?.trim() ?? existing.instructions
 
     if (input.providerMode === 'app_connection') {
         if (!input.providerConnectionId) {
@@ -120,7 +121,7 @@ export async function saveRoomConfig(
 
     const config = await roomConfigRepository.upsert({
         roomId: input.roomId,
-        instructions: input.instructions.trim(),
+        instructions,
         providerMode: input.providerMode,
         providerConnectionId:
             input.providerMode === 'app_connection' ? (input.providerConnectionId ?? null) : null,
@@ -206,6 +207,37 @@ export async function saveRoomConfig(
         })
     }
     return snapshot
+}
+
+export async function saveRoomInstructions(
+    input: {
+        roomId: string
+        instructions: string
+    },
+    actorUserId: string,
+): Promise<RoomConfigSnapshot> {
+    const room = await roomRepository.findRoomById(input.roomId)
+    if (!room) {
+        throw new Error(`Room ${input.roomId} does not exist`)
+    }
+
+    const config = await roomConfigRepository.updateInstructions({
+        roomId: input.roomId,
+        instructions: input.instructions.trim(),
+    })
+    await auditRepository.appendEvent({
+        actorUserId,
+        roomId: input.roomId,
+        action: 'room_instructions.updated',
+        payload: {
+            hasInstructions: config.instructions.length > 0,
+        },
+    })
+    await reconcileRuntimeAfterRoomConfigSave({
+        roomId: input.roomId,
+        actorUserId,
+    })
+    return getRoomConfigSnapshot(input.roomId)
 }
 
 export const __testing = {

@@ -65,6 +65,17 @@ function hostedAuthErrorMessage(payload: unknown, fallback: string): string {
     return typeof record.message === 'string' && record.message.trim() ? record.message : fallback
 }
 
+function parseHttpRedirectUrl(value: unknown): string | null {
+    if (typeof value !== 'string' || !value.trim()) return null
+    try {
+        const url = new URL(value)
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+        return url.toString()
+    } catch {
+        return null
+    }
+}
+
 export const authSurfaceServer = createServerFn({ method: 'GET' }).handler(async () => {
     setResponseHeaders({
         'cache-control': 'no-store',
@@ -274,12 +285,13 @@ export const googleSignInServer = createServerFn({ method: 'POST' }).handler(asy
     const payload = (await response.json()) as {
         url?: unknown
     }
-    if (typeof payload.url !== 'string' || !payload.url.trim()) {
+    const redirectUrl = parseHttpRedirectUrl(payload.url)
+    if (!redirectUrl) {
         console.warn('Hosted Google sign-in did not return a redirect URL')
         throw new Error('Google sign-in response was invalid')
     }
     return {
-        url: payload.url,
+        url: redirectUrl,
     }
 })
 

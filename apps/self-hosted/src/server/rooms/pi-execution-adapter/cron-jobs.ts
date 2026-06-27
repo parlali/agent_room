@@ -394,4 +394,3 @@ function mapCronJobRecord(job: RoomCronJobRecord): RoomCronJob {
         lastDurationMs: job.lastDurationMs,
     }
 }
-

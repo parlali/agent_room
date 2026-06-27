@@ -1,6 +1,7 @@
 import { GlobeIcon, KeyRoundIcon, SparklesIcon } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
+import { sanitizeRuntimeError } from '#/domain/runtime-error'
 import { describeRoomState, type Tone } from '#/domain/state'
 import type { RoomRuntimeOverview, RoomSetupSnapshot } from '#/domain/room-execution-types'
 import type { RoomConfigSnapshot } from '#/server/configuration/operator-configuration'
@@ -128,7 +129,9 @@ function conversationsCheck(setup: RoomSetupSnapshot): RoomReadinessCheck {
         icon: SparklesIcon,
         tone: 'attention',
         label: 'Conversations',
-        detail: setup.message ?? 'Finish setup to enable conversations.',
+        detail: setup.message
+            ? sanitizeRuntimeError(setup.message)
+            : 'Finish setup to enable conversations.',
     }
 }
 

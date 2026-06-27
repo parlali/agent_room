@@ -16,6 +16,7 @@ import {
 import { Alert, AlertDescription } from '#/components/ui/alert'
 import { Button } from '#/components/ui/button'
 import { Skeleton } from '#/components/ui/skeleton'
+import { sanitizeRuntimeError } from '#/domain/runtime-error'
 import { markChatSelection } from '#/lib/browser-performance'
 import { roomQueryKey } from '#/lib/room-query-keys'
 
@@ -43,6 +44,11 @@ function messageFromError(error: unknown, fallback: string): string {
     if (error instanceof Error && error.message) return error.message
     if (typeof error === 'string' && error.length > 0) return error
     return fallback
+}
+
+function safeOnboardingNotice(error: unknown, fallback: string): string {
+    const message = messageFromError(error, fallback)
+    return sanitizeRuntimeError(friendlyNotice(message) ?? message)
 }
 
 function OnboardingShell({ children }: { children: ReactNode }) {
@@ -129,7 +135,7 @@ function OnboardingPage() {
             await queryClient.invalidateQueries({ queryKey: roomQueryKey.operatorConfig })
         },
         onError: (error: unknown) => {
-            setKeyError(messageFromError(error, 'Could not save your model key.'))
+            setKeyError(safeOnboardingNotice(error, 'Could not save your model key.'))
         },
     })
 
@@ -144,26 +150,19 @@ function OnboardingPage() {
                 },
             })
             await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
+            let sessionKey: string
             try {
                 const thread = await createThreadServer({ data: { roomId: room.id } })
-                await updateAppDefaultsServer({
-                    data: {
-                        defaultProviderConnectionId: finishDefaults.defaultProviderConnectionId,
-                        defaultModel: finishDefaults.defaultModel,
-                        onboardingCompleted: true,
-                    },
-                })
-                await queryClient.invalidateQueries({ queryKey: roomQueryKey.operatorConfig })
-                return { ok: true as const, roomId: room.id, sessionKey: thread.key }
+                sessionKey = thread.key
             } catch (error) {
                 return {
                     ok: false as const,
                     roomId: room.id,
-                    reason:
-                        friendlyNotice(messageFromError(error, sessionFallbackNotice)) ??
-                        sessionFallbackNotice,
+                    reason: safeOnboardingNotice(error, sessionFallbackNotice),
                 }
             }
+            await finishOnboardingDefaults()
+            return { ok: true as const, roomId: room.id, sessionKey }
         },
         onSuccess: (result) => {
             if (result.ok) {
@@ -178,7 +177,7 @@ function OnboardingPage() {
             setBlockedReason(result.reason)
         },
         onError: (error: unknown) => {
-            setRoomError(messageFromError(error, 'Could not create the room.'))
+            setRoomError(safeOnboardingNotice(error, 'Could not create the room.'))
         },
     })
 
@@ -186,14 +185,7 @@ function OnboardingPage() {
         mutationFn: async () => {
             if (!createdRoomId) throw new Error('No room is waiting to start.')
             const thread = await createThreadServer({ data: { roomId: createdRoomId } })
-            await updateAppDefaultsServer({
-                data: {
-                    defaultProviderConnectionId: finishDefaults.defaultProviderConnectionId,
-                    defaultModel: finishDefaults.defaultModel,
-                    onboardingCompleted: true,
-                },
-            })
-            await queryClient.invalidateQueries({ queryKey: roomQueryKey.operatorConfig })
+            await finishOnboardingDefaults()
             return { roomId: createdRoomId, sessionKey: thread.key }
         },
         onSuccess: (target) => {
@@ -204,12 +196,27 @@ function OnboardingPage() {
             })
         },
         onError: (error: unknown) => {
-            setBlockedReason(
-                friendlyNotice(messageFromError(error, sessionFallbackNotice)) ??
-                    sessionFallbackNotice,
-            )
+            setBlockedReason(safeOnboardingNotice(error, sessionFallbackNotice))
         },
     })
+
+    async function finishOnboardingDefaults(): Promise<void> {
+        try {
+            await updateAppDefaultsServer({
+                data: {
+                    defaultProviderConnectionId: finishDefaults.defaultProviderConnectionId,
+                    defaultModel: finishDefaults.defaultModel,
+                    onboardingCompleted: true,
+                },
+            })
+            await queryClient.invalidateQueries({ queryKey: roomQueryKey.operatorConfig })
+        } catch (error) {
+            console.warn(
+                'Onboarding session started but defaults finalization failed',
+                error instanceof Error ? error.message : error,
+            )
+        }
+    }
 
     if (configQuery.isLoading) {
         return (

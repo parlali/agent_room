@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 
 import type { RoomFileEntry, RoomFilePreview } from '#/domain/room-file-types'
 import { fileExtensionLabel, isOfficeFile, roomFileSurfaceLabel } from '#/domain/file-kinds'
+import { sanitizeRuntimeError } from '#/domain/runtime-error'
 import { roomFileEntryIcon } from './file-kinds'
 import { formatBytes, formatRelativeTime } from '#/domain/format'
 import { Button } from '#/components/ui/button'
@@ -98,7 +99,7 @@ export function RoomFilePreviewContent({
                 tone="danger"
                 icon={<TriangleAlertIcon className="size-5" />}
                 title="Could not load this file"
-                description={error instanceof Error ? error.message : 'The preview failed to load.'}
+                description={sanitizeRuntimeError(error instanceof Error ? error.message : null)}
                 action={
                     onRetry ? (
                         <Button type="button" variant="outline" size="sm" onClick={onRetry}>

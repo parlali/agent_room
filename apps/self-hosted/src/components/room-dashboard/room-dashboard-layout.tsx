@@ -164,7 +164,7 @@ function RoomHeader({ roomId }: { roomId: string }) {
         },
         onError: (e: unknown) =>
             toast.error('Could not change room state', {
-                description: e instanceof Error ? e.message : 'Unexpected error',
+                description: sanitizeRuntimeError(e instanceof Error ? e.message : null),
             }),
     })
 
@@ -205,11 +205,9 @@ function RoomHeader({ roomId }: { roomId: string }) {
                 title="Room not found"
                 subtitle="This room may have been removed or you do not have access."
                 actions={
-                    <Link to="/">
-                        <Button variant="outline" size="sm">
-                            Back to home
-                        </Button>
-                    </Link>
+                    <Button asChild variant="outline" size="sm">
+                        <Link to="/">Back to home</Link>
+                    </Button>
                 }
             />
         )

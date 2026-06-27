@@ -81,14 +81,11 @@ export function DataTable<T>({
                         className="space-y-1.5 px-4 py-3 text-sm outline-none"
                     >
                         {columns.map((column) => (
-                            <div
-                                key={column.id}
-                                className="flex items-start justify-between gap-3"
-                            >
-                                <span className="shrink-0 text-xs text-muted-foreground">
+                            <div key={column.id} className="flex items-start justify-between gap-3">
+                                <div className="shrink-0 text-xs text-muted-foreground">
                                     {column.header}
-                                </span>
-                                <span className="min-w-0 text-right">{column.cell(row)}</span>
+                                </div>
+                                <div className="min-w-0 text-right">{column.cell(row)}</div>
                             </div>
                         ))}
                     </div>

@@ -61,6 +61,17 @@ async function readJsonRecord(response: Response): Promise<Record<string, unknow
     return isRecord(payload) ? payload : {}
 }
 
+function parseHttpRedirectUrl(value: unknown): string | null {
+    if (typeof value !== 'string' || !value.trim()) return null
+    try {
+        const url = new URL(value)
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+        return url.toString()
+    } catch {
+        return null
+    }
+}
+
 export const Route = createFileRoute('/billing')({
     beforeLoad: () => requireRouteUser({ requireHostedSubscription: false }),
     validateSearch: (
@@ -506,10 +517,11 @@ function useBillingCheckout() {
             const payload = await readJsonRecord(response)
             const checkout = isRecord(payload.checkout) ? payload.checkout : {}
             const message = typeof payload.message === 'string' ? payload.message : null
-            if (!response.ok || typeof checkout.url !== 'string') {
+            const url = parseHttpRedirectUrl(checkout.url)
+            if (!response.ok || !url) {
                 throw new Error(message ?? 'Checkout is not available')
             }
-            return checkout.url
+            return url
         },
         onSuccess: (url) => {
             window.location.href = url
@@ -533,10 +545,11 @@ function useBillingPortal() {
             const payload = await readJsonRecord(response)
             const portal = isRecord(payload.portal) ? payload.portal : {}
             const message = typeof payload.message === 'string' ? payload.message : null
-            if (!response.ok || typeof portal.url !== 'string') {
+            const url = parseHttpRedirectUrl(portal.url)
+            if (!response.ok || !url) {
                 throw new Error(message ?? 'Billing portal is not available')
             }
-            return portal.url
+            return url
         },
         onSuccess: (url) => {
             window.location.href = url

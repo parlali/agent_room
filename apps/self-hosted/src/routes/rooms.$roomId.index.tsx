@@ -47,7 +47,7 @@ function RoomChatLanding({ roomId }: { roomId: string }) {
     }, [navigate, roomId, shouldOpenLatest, latestThread])
 
     const content =
-        sidebarQuery.isLoading || shouldOpenLatest || onboarding ? (
+        sidebarQuery.isLoading || shouldOpenLatest ? (
             <LoadingPage />
         ) : sidebarQuery.isError ? (
             <EmptyState
@@ -61,6 +61,21 @@ function RoomChatLanding({ roomId }: { roomId: string }) {
                         disabled={sidebarQuery.isFetching}
                     >
                         <RotateCwIcon /> Try again
+                    </Button>
+                }
+            />
+        ) : onboarding ? (
+            <EmptyState
+                icon={RotateCwIcon}
+                title="This room is still starting"
+                description="The setup session is being prepared. This page will update when it is ready."
+                action={
+                    <Button
+                        variant="outline"
+                        onClick={() => void sidebarQuery.refetch()}
+                        disabled={sidebarQuery.isFetching}
+                    >
+                        <RotateCwIcon /> Check again
                     </Button>
                 }
             />

@@ -12,13 +12,7 @@ import {
     AccordionItem,
     AccordionTrigger,
 } from '#/components/ui/accordion'
-import {
-    AttentionBanner,
-    Chip,
-    FieldGroup,
-    SelectField,
-    TextField,
-} from '#/components/agent-room'
+import { AttentionBanner, Chip, FieldGroup, SelectField, TextField } from '#/components/agent-room'
 import { cn } from '#/lib/utils'
 import {
     maxMemoryBytes,

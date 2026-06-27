@@ -90,7 +90,7 @@ export const appCapabilitySettingsSaveSchema = z.object({
 
 export const roomConfigSaveSchema = z.object({
     roomId: z.string().uuid(),
-    instructions: z.string().default(''),
+    instructions: z.string().optional(),
     providerMode: z.enum(roomProviderModes),
     providerConnectionId: z.string().uuid().nullable().optional(),
     roomMode: z.enum(roomModes).default('coworker'),

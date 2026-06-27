@@ -449,6 +449,24 @@ export const roomConfigRepository = {
             .returning()
         return mapRoomConfig(row)
     },
+
+    async updateInstructions(input: {
+        roomId: string
+        instructions: string
+    }): Promise<RoomConfigRecord> {
+        await this.getOrCreate(input.roomId)
+        const db = await repositoryDatabase()
+        const now = nowDate()
+        const [row] = await db
+            .update(roomConfigs)
+            .set({
+                instructions: input.instructions,
+                updatedAt: now,
+            })
+            .where(eq(roomConfigs.roomId, input.roomId))
+            .returning()
+        return mapRoomConfig(row)
+    },
 }
 
 export const roomMcpBindingRepository = {

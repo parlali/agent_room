@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { PlugIcon } from 'lucide-react'
@@ -22,12 +22,9 @@ import {
     SelectValue,
 } from '#/components/ui/select'
 import { describeProviderStatus } from '#/domain/state'
+import { sanitizeRuntimeError } from '#/domain/runtime-error'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
-import {
-    getOperatorConfigServer,
-    getRoomConfigServer,
-    saveRoomConfigServer,
-} from '#/routes/-operator-config-server'
+import { getOperatorConfigServer, saveRoomConfigServer } from '#/routes/-operator-config-server'
 import type { RoomConfigSnapshot } from '#/server/configuration/operator-configuration'
 import type { ConfigDraft } from './model'
 import { COMMON_TIMEZONES, configFromSnapshot, configsEqual } from './model'
@@ -65,23 +62,30 @@ export function RoomSettingsBody({
     })
 
     const [draft, setDraft] = useState<ConfigDraft | null>(null)
+    const [baseline, setBaseline] = useState<ConfigDraft | null>(null)
+    const baselineRef = useRef<ConfigDraft | null>(null)
 
     useEffect(() => {
-        if (snapshot) {
-            setDraft(configFromSnapshot(snapshot))
-        }
+        if (!snapshot) return
+        const nextBaseline = configFromSnapshot(snapshot)
+        const currentBaseline = baselineRef.current
+        baselineRef.current = nextBaseline
+        setBaseline(nextBaseline)
+        setDraft((currentDraft) => {
+            if (!currentDraft || !currentBaseline || configsEqual(currentDraft, currentBaseline)) {
+                return nextBaseline
+            }
+            return currentDraft
+        })
     }, [snapshot])
 
-    const baseline = useMemo(() => (snapshot ? configFromSnapshot(snapshot) : null), [snapshot])
     const dirty = draft !== null && baseline !== null && !configsEqual(draft, baseline)
 
     const mutation = useMutation({
         mutationFn: async (input: ConfigDraft) => {
-            const latest = await getRoomConfigServer({ data: { roomId } })
             return saveRoomConfigServer({
                 data: {
                     roomId,
-                    instructions: latest.config.instructions ?? '',
                     providerMode: input.providerMode,
                     providerConnectionId:
                         input.providerMode === 'app_connection'
@@ -108,7 +112,7 @@ export function RoomSettingsBody({
         },
         onError: (e: unknown) =>
             toast.error('Could not save room settings', {
-                description: e instanceof Error ? e.message : 'Unexpected error',
+                description: sanitizeRuntimeError(e instanceof Error ? e.message : null),
             }),
     })
 

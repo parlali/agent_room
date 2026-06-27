@@ -14,6 +14,7 @@ import {
     DialogTrigger,
 } from '#/components/ui/dialog'
 import { CreateRoomForm, type CreateRoomFormValues } from '#/components/agent-room/create-room-form'
+import { sanitizeRuntimeError } from '#/domain/runtime-error'
 import { createRoomServer } from '#/routes/-room-runtime-server'
 import { roomQueryKey } from '#/lib/room-query-keys'
 
@@ -64,7 +65,7 @@ export function CreateRoomButton({
         },
         onError: (error: unknown) => {
             toast.error('Could not create room', {
-                description: error instanceof Error ? error.message : 'Unexpected error',
+                description: sanitizeRuntimeError(error instanceof Error ? error.message : null),
             })
         },
     })

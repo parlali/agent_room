@@ -91,8 +91,8 @@ export function Pricing() {
                     <div>
                         <p className="text-lg font-semibold text-ink">{pricingTopup.label}</p>
                         <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-                            {pricingTopup.credit} for managed AI, web search, page reading, and
-                            live browsing.
+                            {pricingTopup.credit} for managed AI, web search, page reading, and live
+                            browsing.
                         </p>
                     </div>
                     <p className="text-3xl font-semibold text-ink">{pricingTopup.price}</p>

@@ -56,6 +56,7 @@ function LoginPage() {
         queryFn: () => authSurfaceServer(),
         retry: false,
     })
+    const selfHosted = surfaceQuery.data?.hosted === false
     const hostedSignupEnabled = surfaceQuery.data?.signupEnabled === true
     const googleEnabled = surfaceQuery.data?.googleEnabled === true
     const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in')
@@ -156,6 +157,14 @@ function LoginPage() {
                 </div>
 
                 <div className="rounded-xl border border-border/70 bg-card p-6 shadow-sm">
+                    {surfaceQuery.isError ? (
+                        <Alert className="mb-4">
+                            <AlertDescription>
+                                Sign-in options could not be loaded. You can still sign in with
+                                email and password.
+                            </AlertDescription>
+                        </Alert>
+                    ) : null}
                     {googleEnabled ? (
                         <div className="mb-4 space-y-4">
                             <Button
@@ -272,7 +281,7 @@ function LoginPage() {
                     </form>
                 </div>
 
-                {!hostedSignupEnabled ? (
+                {selfHosted ? (
                     <p className="text-center text-xs text-muted-foreground">
                         First-run credentials live in your Docker bootstrap file. If you have lost
                         them, consult your deployment notes.

@@ -234,6 +234,7 @@ function isAppRouteHref(href: string): boolean {
     if (pathname.startsWith('/_serverFn/')) return false
     return (
         pathname === '/about' ||
+        pathname === '/billing' ||
         pathname === '/login' ||
         pathname === '/onboarding' ||
         pathname === '/settings' ||

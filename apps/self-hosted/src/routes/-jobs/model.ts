@@ -21,5 +21,10 @@ export function jobToForm(job: RoomCronJob): JobFormState {
 }
 
 export function describeJobMutationError(error: unknown): string {
-    return sanitizeRuntimeError(error instanceof Error ? error.message : '')
+    if (!(error instanceof Error)) return 'Unexpected error'
+
+    const message = error.message.trim()
+    if (!message) return 'Unexpected error'
+    const safeMessage = sanitizeRuntimeError(message)
+    return safeMessage === message ? safeMessage : 'Unexpected error'
 }

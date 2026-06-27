@@ -23,6 +23,10 @@ import {
     type ToolTaskStatus,
 } from '#/domain/tool-activity'
 
+type OrderedToolActivity =
+    | { kind: 'web'; task: ToolActivityTask & { web: RoomWebActivity } }
+    | { kind: 'tools'; tasks: ToolActivityTask[] }
+
 export function ToolActivity({
     id,
     tasks,
@@ -35,14 +39,7 @@ export function ToolActivity({
     onLayoutChange?: () => void
 }) {
     const visibleTasks = useMemo(() => tasks.filter((task) => task.title.trim()), [tasks])
-    const webTasks = useMemo(
-        () =>
-            visibleTasks.filter((task): task is ToolActivityTask & { web: RoomWebActivity } =>
-                Boolean(task.web),
-            ),
-        [visibleTasks],
-    )
-    const otherTasks = useMemo(() => visibleTasks.filter((task) => !task.web), [visibleTasks])
+    const orderedActivity = useMemo(() => orderedToolActivity(visibleTasks), [visibleTasks])
 
     if (visibleTasks.length === 0) return null
 
@@ -53,14 +50,46 @@ export function ToolActivity({
                 className,
             )}
         >
-            {webTasks.map((task) => (
-                <WebActivityCard key={task.id} task={task} onLayoutChange={onLayoutChange} />
-            ))}
-            {otherTasks.length > 0 ? (
-                <ToolDisclosure id={id} tasks={otherTasks} onLayoutChange={onLayoutChange} />
-            ) : null}
+            {orderedActivity.map((item, index) =>
+                item.kind === 'web' ? (
+                    <WebActivityCard
+                        key={item.task.id}
+                        task={item.task}
+                        onLayoutChange={onLayoutChange}
+                    />
+                ) : (
+                    <ToolDisclosure
+                        key={`${id}-tools-${index}`}
+                        id={`${id}-tools-${index}`}
+                        tasks={item.tasks}
+                        onLayoutChange={onLayoutChange}
+                    />
+                ),
+            )}
         </div>
     )
+}
+
+function orderedToolActivity(tasks: ToolActivityTask[]): OrderedToolActivity[] {
+    const ordered: OrderedToolActivity[] = []
+    let pendingTools: ToolActivityTask[] = []
+
+    const flushTools = () => {
+        if (pendingTools.length === 0) return
+        ordered.push({ kind: 'tools', tasks: pendingTools })
+        pendingTools = []
+    }
+
+    for (const task of tasks) {
+        if (task.web) {
+            flushTools()
+            ordered.push({ kind: 'web', task: task as ToolActivityTask & { web: RoomWebActivity } })
+        } else {
+            pendingTools.push(task)
+        }
+    }
+    flushTools()
+    return ordered
 }
 
 function ToolDisclosure({

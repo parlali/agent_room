@@ -36,13 +36,7 @@ import {
 } from '#/components/ui/dialog'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '#/components/ui/sheet'
 import { RoomSetupRequiredState } from '#/components/room-dashboard'
-import {
-    AttentionBanner,
-    Chip,
-    EmptyState,
-    LoadingRows,
-    Section,
-} from '#/components/agent-room'
+import { AttentionBanner, Chip, EmptyState, LoadingRows, Section } from '#/components/agent-room'
 import { RoomFileMetadata, RoomFilePreviewContent } from '#/components/room-files/file-preview'
 import { RoomFileDownloadMenu } from '#/components/room-files/file-download-menu'
 import { roomFileEntryIcon } from '#/components/room-files/file-kinds'
@@ -54,7 +48,6 @@ import {
 import { formatBytes, formatRelativeTime } from '#/domain/format'
 import { sanitizeRuntimeError } from '#/domain/runtime-error'
 import { roomFileDownloadUrl, roomFilePreviewUrl } from '#/domain/room-file-links'
-import { validateRoomFileUpload } from '#/domain/room-file-upload-policy'
 import { uploadRoomFiles } from '#/lib/room-file-upload'
 import { useIsMobile } from '#/lib/use-media-query'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
@@ -171,7 +164,8 @@ function FilesContent({ roomId }: { roomId: string }) {
         staleTime: roomQueryPolicy.hotStaleMs,
     })
     const runtimeNotice = runtimeNoticeFor(sidebarQuery.data)
-    const notReady = sidebarQuery.data?.setup.phase === 'setup_required'
+    const setupRequired = sidebarQuery.data?.setup.phase === 'setup_required'
+    const uploadDisabled = Boolean(runtimeNotice && runtimeNotice.tone !== 'info')
 
     const directoryQuery = useQuery({
         queryKey: roomQueryKey.roomDirectory(roomId, surface, path),
@@ -249,19 +243,31 @@ function FilesContent({ roomId }: { roomId: string }) {
         onEvent: onRealtimeEvent,
     })
 
+    const selectedEntrySource = searching ? allFilesQuery.data : listing?.entries
+
     useEffect(() => {
         if (!selectedEntry) return
-        const refreshed = (allFilesQuery.data ?? []).find(
+        const refreshed = (selectedEntrySource ?? []).find(
             (entry) => entryKey(entry) === entryKey(selectedEntry),
         )
-        if (!refreshed) return
+        if (!refreshed) {
+            const sourceLoaded = searching ? allFilesQuery.isSuccess : directoryQuery.isSuccess
+            if (sourceLoaded) setSelectedEntry(null)
+            return
+        }
         if (
             refreshed.byteLength !== selectedEntry.byteLength ||
             refreshed.updatedAt !== selectedEntry.updatedAt
         ) {
             setSelectedEntry(refreshed)
         }
-    }, [allFilesQuery.data, selectedEntry])
+    }, [
+        allFilesQuery.isSuccess,
+        directoryQuery.isSuccess,
+        searching,
+        selectedEntry,
+        selectedEntrySource,
+    ])
 
     const navigateTo = useCallback((nextSurface: RoomFileSurface, nextPath: string) => {
         setSurface(nextSurface)
@@ -290,74 +296,50 @@ function FilesContent({ roomId }: { roomId: string }) {
     const runUpload = useCallback(
         async (files: File[]) => {
             if (files.length === 0 || uploadingRef.current) return
-            try {
-                validateRoomFileUpload(files)
-            } catch (error) {
-                toast.error(error instanceof Error ? error.message : 'Upload failed')
-                return
-            }
             uploadingRef.current = true
             const items: UploadItem[] = files.map((file, index) => ({
                 id: `${Date.now()}:${index}:${file.name}`,
                 name: file.name,
-                status: 'pending',
+                status: 'uploading',
                 error: null,
             }))
             setUploadItems(items)
-            let lastUploaded: RoomFileEntry | null = null
-            let failures = 0
-            for (let index = 0; index < files.length; index += 1) {
+            try {
+                const result = await uploadRoomFiles({
+                    roomId,
+                    files,
+                    surface,
+                    path,
+                })
                 setUploadItems((current) =>
-                    current.map((item, itemIndex) =>
-                        itemIndex === index ? { ...item, status: 'uploading' } : item,
-                    ),
+                    current.map((item) => ({
+                        ...item,
+                        status: 'done',
+                    })),
                 )
-                try {
-                    const result = await uploadRoomFiles({
-                        roomId,
-                        files: [files[index]!],
-                        surface,
-                        path,
-                    })
-                    lastUploaded = result.files[0] ?? lastUploaded
-                    setUploadItems((current) =>
-                        current.map((item, itemIndex) =>
-                            itemIndex === index ? { ...item, status: 'done' } : item,
-                        ),
-                    )
-                } catch (error) {
-                    failures += 1
-                    setUploadItems((current) =>
-                        current.map((item, itemIndex) =>
-                            itemIndex === index
-                                ? {
-                                      ...item,
-                                      status: 'error',
-                                      error: describeFileError(error),
-                                  }
-                                : item,
-                        ),
-                    )
+                const lastUploaded = result.files.at(-1) ?? null
+                if (lastUploaded) {
+                    setSelectedEntry(lastUploaded)
                 }
-            }
-            uploadingRef.current = false
-            invalidateFileQueries()
-            if (lastUploaded) {
-                setSelectedEntry(lastUploaded)
-            }
-            if (failures === 0) {
                 toast.success(
                     files.length === 1
                         ? `Uploaded ${files[0]!.name}`
                         : `Uploaded ${files.length} files`,
                 )
                 setUploadItems([])
-            } else {
-                toast.error(
-                    failures === files.length
-                        ? 'Upload failed'
-                        : `${failures} of ${files.length} files failed to upload`,
+            } catch (error) {
+                const message = describeFileError(error)
+                setUploadItems((current) =>
+                    current.map((item) => ({
+                        ...item,
+                        status: 'error',
+                        error: message,
+                    })),
                 )
+                toast.error('Upload failed')
+            } finally {
+                uploadingRef.current = false
+                invalidateFileQueries()
             }
         },
         [invalidateFileQueries, path, roomId, surface],
@@ -399,7 +381,7 @@ function FilesContent({ roomId }: { roomId: string }) {
                     path={path}
                     search={search}
                     uploading={uploading}
-                    notReady={notReady}
+                    uploadDisabled={uploadDisabled}
                     onSearchChange={setSearch}
                     onUploadFiles={(files) => void runUpload(files)}
                 />
@@ -429,14 +411,14 @@ function FilesContent({ roomId }: { roomId: string }) {
                     </div>
                 ) : null}
                 <UploadDropZone
-                    disabled={uploading || notReady}
+                    disabled={uploading || uploadDisabled}
                     onUploadFiles={(files) => void runUpload(files)}
                 >
                     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(24rem,1.4fr)]">
                         <DirectoryList
                             entries={entries}
                             searching={searching}
-                            notReady={notReady}
+                            setupRequired={setupRequired}
                             loading={searching ? allFilesQuery.isLoading : directoryQuery.isLoading}
                             error={searching ? allFilesQuery.error : directoryQuery.error}
                             selectedEntry={selectedEntry}
@@ -529,7 +511,7 @@ function FilesToolbar({
     path,
     search,
     uploading,
-    notReady,
+    uploadDisabled,
     onSearchChange,
     onUploadFiles,
 }: {
@@ -537,7 +519,7 @@ function FilesToolbar({
     path: string
     search: string
     uploading: boolean
-    notReady: boolean
+    uploadDisabled: boolean
     onSearchChange: (value: string) => void
     onUploadFiles: (files: File[]) => void
 }) {
@@ -580,7 +562,7 @@ function FilesToolbar({
                     variant="outline"
                     size="sm"
                     onClick={() => uploadInputRef.current?.click()}
-                    disabled={uploading || notReady}
+                    disabled={uploading || uploadDisabled}
                 >
                     <UploadCloudIcon />
                     Upload
@@ -750,7 +732,7 @@ function FilesBreadcrumb({
 function DirectoryList({
     entries,
     searching,
-    notReady,
+    setupRequired,
     loading,
     error,
     selectedEntry,
@@ -760,7 +742,7 @@ function DirectoryList({
 }: {
     entries: RoomFileEntry[]
     searching: boolean
-    notReady: boolean
+    setupRequired: boolean
     loading: boolean
     error: unknown
     selectedEntry: RoomFileEntry | null
@@ -771,7 +753,7 @@ function DirectoryList({
     return (
         <main className="min-w-0 lg:border-r lg:border-border/60">
             <div className="max-h-[34rem] overflow-y-auto p-3 lg:max-h-[calc(100vh-20rem)]">
-                {notReady ? (
+                {setupRequired ? (
                     <RoomSetupRequiredState description="Finish setup to upload files and see what this room creates." />
                 ) : loading ? (
                     <LoadingRows count={6} />

@@ -10,7 +10,7 @@ import type {
 } from '#/domain/room-execution-types'
 
 import type { EditingMessageDraft } from '#/domain/message-list-model'
-import { createRunTranscriptRow } from '#/domain/message-list-model'
+import { createRunTranscriptRow, rowContainsMessage } from '#/domain/message-list-model'
 import { DisplayRow } from './message-rows'
 import { ChatEmptyState } from './chat-empty-state'
 import { isActiveRunStatus } from './conversation-utils'
@@ -38,6 +38,8 @@ export function MessageList({
     onSubmitEditingMessage,
     onCancelEditingMessage,
     onSuggestPrompt,
+    scrollToMessageId,
+    scrollRequestId,
 }: {
     sessionKey: string
     room: RoomRuntimeOverview
@@ -57,6 +59,8 @@ export function MessageList({
     onSubmitEditingMessage: () => void
     onCancelEditingMessage: () => void
     onSuggestPrompt: (text: string) => void
+    scrollToMessageId?: string | null
+    scrollRequestId?: number
 }) {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const stickToBottomRef = useRef(true)
@@ -110,6 +114,16 @@ export function MessageList({
     useEffect(() => {
         if (stickToBottomRef.current) scrollToBottom()
     }, [timelineRows, stream.updatedAt, isWorking, scrollToBottom])
+
+    useEffect(() => {
+        if (!scrollToMessageId || !scrollRequestId) return
+        const rowIndex = timelineRows.findIndex(
+            (row) => rowContainsMessage(row) && row.message.id === scrollToMessageId,
+        )
+        if (rowIndex < 0) return
+        stickToBottomRef.current = false
+        rowVirtualizer.scrollToIndex(rowIndex, { align: 'center' })
+    }, [rowVirtualizer, scrollRequestId, scrollToMessageId, timelineRows])
 
     const measureVisibleRows = useCallback(() => {
         const measure = () => {

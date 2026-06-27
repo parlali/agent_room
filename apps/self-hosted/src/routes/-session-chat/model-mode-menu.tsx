@@ -35,7 +35,14 @@ const THINKING_LABELS: Record<RoomExecutionThinkingLevel, string> = {
     xhigh: 'Smartest',
 }
 
-const PRIMARY_THINKING_LEVELS: RoomExecutionThinkingLevel[] = ['low', 'medium', 'high', 'xhigh']
+const ORDERED_THINKING_LEVELS: RoomExecutionThinkingLevel[] = [
+    'off',
+    'minimal',
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+]
 const SPEED_LABELS: Record<RoomExecutionSpeedMode, string> = {
     normal: 'Normal',
     fast: 'Faster',
@@ -194,7 +201,7 @@ function ModelRadioItems({
 }
 
 function menuThinkingLevels(state: RoomExecutionModelState): RoomExecutionThinkingLevel[] {
-    const visible = PRIMARY_THINKING_LEVELS.filter((level) =>
+    const visible = ORDERED_THINKING_LEVELS.filter((level) =>
         state.availableThinkingLevels.includes(level),
     )
 

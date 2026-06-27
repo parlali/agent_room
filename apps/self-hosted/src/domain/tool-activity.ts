@@ -458,6 +458,10 @@ function webSourceFromUrl(
     try {
         const url = new URL(value)
         if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+        url.username = ''
+        url.password = ''
+        url.search = ''
+        url.hash = ''
         const host = url.hostname.replace(/^www\./, '')
         return {
             title: title?.trim() || host,

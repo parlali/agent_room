@@ -189,10 +189,14 @@ export function ProvidersIntegrationsSection({ githubReturn }: { githubReturn: G
     const [appSearch, setAppSearch] = useState<AppSearchDraft | null>(null)
     const [githubPublicOrigin, setGithubPublicOrigin] = useState('')
     const [githubTargetOwner, setGithubTargetOwner] = useState('')
+    const defaultProviderBaselineRef = useRef<string | null | undefined>(undefined)
+    const capabilitiesBaselineRef = useRef<OperatorConfigSnapshot | null>(null)
     const autoGitHubRefreshKeyRef = useRef<string | null>(null)
 
     const applyDefaultsFromConfig = useCallback((snapshot: OperatorConfigSnapshot) => {
-        setDefaultProviderId(snapshot.settings.defaultProviderConnectionId)
+        const providerId = snapshot.settings.defaultProviderConnectionId
+        defaultProviderBaselineRef.current = providerId
+        setDefaultProviderId(providerId)
     }, [])
     const applyCapabilitiesFromConfig = useCallback((snapshot: OperatorConfigSnapshot) => {
         const imageProvider = snapshot.settings.image.provider ?? 'none'
@@ -200,6 +204,7 @@ export function ProvidersIntegrationsSection({ githubReturn }: { githubReturn: G
             imageProvider === 'none'
                 ? []
                 : imageModelOptionsForProvider(imageProvider, snapshot.settings.image.model)
+        capabilitiesBaselineRef.current = snapshot
         setCapabilityDefaults({ ...snapshot.settings.capabilityDefaults })
         setAppImageProvider(imageProvider)
         setAppImageModel(snapshot.settings.image.model ?? imageOptions[0]?.value ?? '')
@@ -208,15 +213,64 @@ export function ProvidersIntegrationsSection({ githubReturn }: { githubReturn: G
         setAppImageHasCredential(snapshot.settings.image.hasCredential)
         setAppSearch(toSearchDraft(snapshot.settings.search))
     }, [])
+    const capabilitiesDraftDirtyAgainst = useCallback(
+        (snapshot: OperatorConfigSnapshot): boolean => {
+            if (!capabilityDefaults || !appSearch) return false
+            return (
+                !capabilityDefaultsEqual(
+                    capabilityDefaults,
+                    snapshot.settings.capabilityDefaults,
+                ) ||
+                searchDraftDirty(appSearch, snapshot.settings.search) ||
+                (appImageProvider === 'none' ? null : appImageProvider) !==
+                    snapshot.settings.image.provider ||
+                appImageModel.trim() !== (snapshot.settings.image.model ?? '') ||
+                (appImageProvider !== 'none' &&
+                    appImageReplaceApiKey &&
+                    appImageApiKey.trim().length > 0)
+            )
+        },
+        [
+            appImageApiKey,
+            appImageModel,
+            appImageProvider,
+            appImageReplaceApiKey,
+            appSearch,
+            capabilityDefaults,
+        ],
+    )
 
     useEffect(() => {
         if (!config) return
-        applyDefaultsFromConfig(config)
-        applyCapabilitiesFromConfig(config)
+        const defaultBaseline = defaultProviderBaselineRef.current
+        const nextDefaultProviderId = config.settings.defaultProviderConnectionId
+        if (defaultBaseline === undefined || (defaultProviderId ?? null) === defaultBaseline) {
+            applyDefaultsFromConfig(config)
+        } else {
+            defaultProviderBaselineRef.current = nextDefaultProviderId
+        }
+        const capabilitiesBaseline = capabilitiesBaselineRef.current
+        if (!capabilitiesBaseline) {
+            applyCapabilitiesFromConfig(config)
+        } else if (
+            capabilitiesBaseline !== config &&
+            !capabilitiesDraftDirtyAgainst(capabilitiesBaseline)
+        ) {
+            applyCapabilitiesFromConfig(config)
+        } else if (capabilitiesBaseline !== config) {
+            capabilitiesBaselineRef.current = config
+        }
         if (!githubPublicOrigin && typeof window !== 'undefined') {
             setGithubPublicOrigin(window.location.origin)
         }
-    }, [config, githubPublicOrigin, applyDefaultsFromConfig, applyCapabilitiesFromConfig])
+    }, [
+        capabilitiesDraftDirtyAgainst,
+        config,
+        defaultProviderId,
+        githubPublicOrigin,
+        applyDefaultsFromConfig,
+        applyCapabilitiesFromConfig,
+    ])
 
     const updateProviderForm = (patch: Partial<ProviderFormState>) =>
         setProviderForm((c) => ({ ...c, ...patch }))

@@ -150,11 +150,13 @@ export function describeWebAccessReadiness(input: {
     if (!input.enabled) {
         return { label: 'Off', tone: 'muted', detail: 'Web access is turned off for new rooms.' }
     }
-    if (!input.hasBackend && !input.hasCredential) {
+    if (!input.hasBackend) {
         return {
             label: 'Setup required',
             tone: 'attention',
-            detail: 'No search backend or key is configured, so web searches will fail.',
+            detail: input.hasCredential
+                ? 'No search backend is configured, so web searches will fail.'
+                : 'No search backend or key is configured, so web searches will fail.',
         }
     }
     if (!input.hasCredential) {

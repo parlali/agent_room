@@ -61,14 +61,21 @@ export function CapabilitiesSection({
                   option.id === 'shell_coding',
           )
         : CAPABILITY_OPTIONS
-    const webOption = CAPABILITY_OPTIONS.find((option) => option.id === 'web_search')!
+    const webOptions = CAPABILITY_OPTIONS.filter((option) =>
+        WEB_ACCESS_CAPABILITY_IDS.includes(option.id),
+    )
     const imageOption = CAPABILITY_OPTIONS.find((option) => option.id === 'images')!
-    const webAccessChecked = capabilityValue({
-        draft,
-        option: webOption,
-        appDefaults,
-        effectiveCapabilities,
-    })
+    const hasCapabilityOverride = (option: CapabilityOption) =>
+        draft.capabilityOverrides[option.id] !== undefined ||
+        draft.capabilityOverrides[option.key] !== undefined
+    const webAccessChecked = webOptions.every((option) =>
+        capabilityValue({
+            draft,
+            option,
+            appDefaults,
+            effectiveCapabilities,
+        }),
+    )
     const imagesChecked = capabilityValue({
         draft,
         option: imageOption,
@@ -78,8 +85,7 @@ export function CapabilitiesSection({
     const webInherited =
         !programmerMode &&
         appDefaults !== null &&
-        draft.capabilityOverrides['web_search'] === undefined &&
-        draft.capabilityOverrides['url_fetch'] === undefined
+        webOptions.every((option) => !hasCapabilityOverride(option))
     const imageInherited =
         !programmerMode && appDefaults !== null && draft.capabilityOverrides['images'] === undefined
     const plainOptions = visibleOptions.filter(
@@ -250,11 +256,11 @@ function ManagedCapabilityCard({
 
 function OperatorConsoleLink() {
     return (
-        <Link to="/settings" hash="advanced">
-            <Button type="button" variant="outline" size="sm">
+        <Button asChild variant="outline" size="sm">
+            <Link to="/settings" hash="advanced">
                 Manage in Settings
-            </Button>
-        </Link>
+            </Link>
+        </Button>
     )
 }
 

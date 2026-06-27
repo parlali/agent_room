@@ -90,9 +90,7 @@ export function DesktopMockup() {
                             <span
                                 key={tab}
                                 className={`rounded-md px-2 py-1 text-xs font-medium ${
-                                    index === 0
-                                        ? 'bg-paper-sunken text-ink'
-                                        : 'text-ink-faint'
+                                    index === 0 ? 'bg-paper-sunken text-ink' : 'text-ink-faint'
                                 }`}
                             >
                                 {tab}
@@ -216,7 +214,10 @@ export function PhoneMockup() {
             aria-label="Agent Room on mobile: the rooms list with each coworker's status."
         >
             <div className="overflow-hidden rounded-[2.25rem] bg-paper">
-                <div className="mx-auto mt-2 mb-1 h-1 w-16 rounded-full bg-line-strong/70" aria-hidden />
+                <div
+                    className="mx-auto mt-2 mb-1 h-1 w-16 rounded-full bg-line-strong/70"
+                    aria-hidden
+                />
                 <div className="flex items-center justify-between px-4 pt-2 pb-2.5">
                     <div className="flex items-center gap-2">
                         <Glyph initials="AR" className="h-5 w-5" />

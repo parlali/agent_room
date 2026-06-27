@@ -37,6 +37,7 @@ export function useThemeMode(): [ThemeMode, (mode: ThemeMode) => void] {
         const stored = readStoredTheme()
         setModeState(stored)
         applyTheme(stored)
+        if (typeof window.matchMedia !== 'function') return
         const mql = window.matchMedia('(prefers-color-scheme: dark)')
         const sync = () => {
             if (readStoredTheme() === 'system') applyTheme('system')

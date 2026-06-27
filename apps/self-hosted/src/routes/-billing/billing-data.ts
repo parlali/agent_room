@@ -47,6 +47,54 @@ function isJsonResponse(response: Response): boolean {
     return Boolean(response.headers.get('content-type')?.toLowerCase().includes('application/json'))
 }
 
+function isHostedBillingPlan(value: unknown): value is HostedBillingPlan {
+    if (!isRecord(value)) return false
+    return (
+        typeof value.key === 'string' &&
+        typeof value.monthlyCents === 'number' &&
+        typeof value.includedCents === 'number'
+    )
+}
+
+function isHostedBillingUsageEvent(value: unknown): value is HostedBillingUsageEvent {
+    if (!isRecord(value)) return false
+    return (
+        typeof value.id === 'string' &&
+        (value.provider === 'openrouter' ||
+            value.provider === 'brave' ||
+            value.provider === 'browserbase' ||
+            value.provider === 'fetch_url') &&
+        (typeof value.model === 'string' || value.model === null) &&
+        typeof value.costMicros === 'number' &&
+        typeof value.billingStatus === 'string' &&
+        typeof value.createdAt === 'string'
+    )
+}
+
+function isHostedBillingSummary(value: unknown): value is HostedBillingSummary {
+    if (!isRecord(value) || !isRecord(value.account)) return false
+    return (
+        (typeof value.account.stripeCustomerId === 'string' ||
+            value.account.stripeCustomerId === null) &&
+        (typeof value.account.stripeSubscriptionId === 'string' ||
+            value.account.stripeSubscriptionId === null) &&
+        typeof value.account.planKey === 'string' &&
+        typeof value.account.planStatus === 'string' &&
+        typeof value.account.includedBalanceCents === 'number' &&
+        typeof value.account.purchasedBalanceCents === 'number' &&
+        typeof value.account.reservedBalanceCents === 'number' &&
+        typeof value.account.availableBalanceCents === 'number' &&
+        Array.isArray(value.plans) &&
+        value.plans.every(isHostedBillingPlan) &&
+        Array.isArray(value.usage) &&
+        value.usage.every(isHostedBillingUsageEvent) &&
+        typeof value.remainingUsageCents === 'number' &&
+        typeof value.active === 'boolean' &&
+        Array.isArray(value.providerSources) &&
+        value.providerSources.every((source) => typeof source === 'string')
+    )
+}
+
 async function fetchHostedBilling(): Promise<HostedBillingFetch> {
     const response = await fetch('/api/hosted/billing', {
         headers: {
@@ -64,10 +112,10 @@ async function fetchHostedBilling(): Promise<HostedBillingFetch> {
     }
     const payload = (await response.json()) as unknown
     const billing = isRecord(payload) && isRecord(payload.billing) ? payload.billing : null
-    if (!billing) {
+    if (!isHostedBillingSummary(billing)) {
         return { status: 'unavailable' }
     }
-    return { status: 'active', summary: billing as unknown as HostedBillingSummary }
+    return { status: 'active', summary: billing }
 }
 
 export function useHostedBillingQuery(): UseQueryResult<HostedBillingFetch> {

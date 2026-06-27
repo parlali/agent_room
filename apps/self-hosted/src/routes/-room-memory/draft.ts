@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { BotIcon, LockIcon, UserIcon } from 'lucide-react'
 
 import {
@@ -13,8 +13,6 @@ import {
     type TimedMemoryItem,
 } from '#/domain/room-memory'
 import type { PersonalityForm } from '#/server/rooms/personality/form'
-import type { RoomConfigSnapshot } from '#/server/configuration/operator-configuration'
-import { configFromSnapshot } from '#/routes/-room-settings/model'
 
 export interface DomainDraft<T> {
     draft: T
@@ -29,27 +27,42 @@ export interface DomainDraft<T> {
 }
 
 export function useDomainDraft<T>(params: {
+    scope: string
     server: T | undefined
     version: string | null
     clone: (value: T) => T
     equals: (a: T, b: T) => boolean
 }): DomainDraft<T> | null {
-    const { server, version, clone, equals } = params
-    const [snap, setSnap] = useState<{ version: string; draft: T; baseline: T } | null>(null)
+    const { scope, server, version, clone, equals } = params
+    const [snap, setSnap] = useState<{
+        scope: string
+        version: string
+        draft: T
+        baseline: T
+    } | null>(null)
 
-    if (server !== undefined && version !== null) {
-        if (!snap) {
-            setSnap({ version, draft: clone(server), baseline: clone(server) })
-        } else if (snap.version !== version) {
-            if (equals(server, snap.draft)) {
-                setSnap({ version, draft: snap.draft, baseline: clone(server) })
-            } else if (equals(snap.draft, snap.baseline)) {
-                setSnap({ version, draft: clone(server), baseline: clone(server) })
-            }
+    useEffect(() => {
+        if (server === undefined || version === null) {
+            setSnap(null)
+            return
         }
-    }
 
-    if (!snap) return null
+        setSnap((current) => {
+            if (!current || current.scope !== scope) {
+                return { scope, version, draft: clone(server), baseline: clone(server) }
+            }
+            if (current.version === version) return current
+            if (equals(server, current.draft)) {
+                return { scope, version, draft: current.draft, baseline: clone(server) }
+            }
+            if (equals(current.draft, current.baseline)) {
+                return { scope, version, draft: clone(server), baseline: clone(server) }
+            }
+            return current
+        })
+    }, [clone, equals, scope, server, version])
+
+    if (server === undefined || version === null || !snap || snap.scope !== scope) return null
 
     const dirty = !equals(snap.draft, snap.baseline)
     const conflicted =
@@ -79,10 +92,15 @@ export function useDomainDraft<T>(params: {
                 current ? { ...current, draft: clone(current.baseline) } : current,
             ),
         commit: (value, nextVersion) =>
-            setSnap({ version: nextVersion, draft: clone(value), baseline: clone(value) }),
+            setSnap({
+                scope,
+                version: nextVersion,
+                draft: clone(value),
+                baseline: clone(value),
+            }),
         adoptServer: () => {
             if (server === undefined || version === null) return
-            setSnap({ version, draft: clone(server), baseline: clone(server) })
+            setSnap({ scope, version, draft: clone(server), baseline: clone(server) })
         },
     }
 }
@@ -192,26 +210,4 @@ export function provenanceFor(source: string | undefined): Provenance {
     if (source === 'system') return { label: 'System', icon: LockIcon, locked: true }
     if (source === 'agent') return { label: 'From this room', icon: BotIcon, locked: false }
     return { label: 'You', icon: UserIcon, locked: false }
-}
-
-export function buildRoomConfigPayload(snapshot: RoomConfigSnapshot, instructions: string) {
-    const config = configFromSnapshot(snapshot)
-    return {
-        roomId: snapshot.roomId,
-        instructions,
-        providerMode: config.providerMode,
-        providerConnectionId:
-            config.providerMode === 'app_connection' ? config.providerConnectionId || null : null,
-        roomMode: config.roomMode,
-        capabilityOverrides: config.capabilityOverrides,
-        imageProvider: config.imageProvider === 'inherit' ? null : config.imageProvider,
-        imageModel: config.imageProvider === 'inherit' ? null : config.imageModel.trim() || null,
-        imageApiKey: config.imageApiKey || undefined,
-        cronTimezone: config.cronTimezone,
-        browserActionBudget: config.browserActionBudget,
-        mcpConnectionIds: config.mcpConnectionIds,
-        githubEnabled: config.githubEnabled,
-        githubInstallationId: config.githubInstallationId || null,
-        githubRepositories: config.githubRepositories,
-    }
 }

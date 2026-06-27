@@ -16,8 +16,8 @@ import {
     sectionItems,
     type RoomMemory,
 } from '#/domain/room-memory'
-import type { PersonalityForm } from '#/server/rooms/personality/form'
 import type { RoomConfigSnapshot } from '#/server/configuration/operator-configuration'
+import type { PersonalityForm } from '#/server/rooms/personality/form'
 import {
     getRoomMemoryServer,
     getRoomPersonalityServer,
@@ -25,9 +25,8 @@ import {
     updateRoomIdentityServer,
     updateRoomMemoryServer,
 } from '#/routes/-room-runtime-server'
-import { getRoomConfigServer, saveRoomConfigServer } from '#/routes/-operator-config-server'
+import { getRoomConfigServer, saveRoomInstructionsServer } from '#/routes/-operator-config-server'
 import {
-    buildRoomConfigPayload,
     cloneMemory,
     identityEquals,
     identityVersion,
@@ -95,24 +94,28 @@ function CoworkerBrief({ roomId }: { roomId: string }) {
     const serverInstructions = configSnapshot?.config.instructions
 
     const identity = useDomainDraft<IdentityFields>({
+        scope: roomId,
         server: serverIdentity,
         version: serverIdentity ? identityVersion(serverIdentity) : null,
         clone: (value) => ({ ...value }),
         equals: identityEquals,
     })
     const memory = useDomainDraft<RoomMemory>({
+        scope: roomId,
         server: serverMemory,
         version: serverMemoryHash,
         clone: cloneMemory,
         equals: memoryEquals,
     })
     const personality = useDomainDraft<PersonalityForm>({
+        scope: roomId,
         server: serverPersonality,
         version: serverPersonality ? personalityVersion(serverPersonality) : null,
         clone: (value) => ({ ...value }),
         equals: personalityEquals,
     })
     const instructions = useDomainDraft<string>({
+        scope: roomId,
         server: serverInstructions,
         version: serverInstructions ?? null,
         clone: (value) => value,
@@ -177,11 +180,11 @@ function CoworkerBrief({ roomId }: { roomId: string }) {
                 identity.commit(fields, identityVersion(fields))
             }
             if (instructions.dirty) {
-                const latest = (await getRoomConfigServer({
-                    data: { roomId },
-                })) as RoomConfigSnapshot
-                await saveRoomConfigServer({
-                    data: buildRoomConfigPayload(latest, instructions.draft),
+                await saveRoomInstructionsServer({
+                    data: {
+                        roomId,
+                        instructions: instructions.draft,
+                    },
                 })
                 instructions.commit(instructions.draft, instructions.draft)
             }
@@ -208,6 +211,12 @@ function CoworkerBrief({ roomId }: { roomId: string }) {
                 ])
                 return
             }
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomMemory(roomId) }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomPersonality(roomId) }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomConfig(roomId) }),
+            ])
             toast.error('We could not save all of your changes', {
                 description: `${sanitizeRuntimeError(message)} Any sections that already saved were kept.`,
             })

@@ -83,7 +83,14 @@ function AppModelOverride({
                     label="Use this"
                     description="Pin one saved app provider for this room."
                     checked={draft.providerMode === 'app_connection'}
-                    onSelect={() => onChange({ providerMode: 'app_connection' })}
+                    disabled={providers.length === 0}
+                    onSelect={() =>
+                        onChange({
+                            providerMode: 'app_connection',
+                            providerConnectionId:
+                                draft.providerConnectionId || providers[0]?.id || '',
+                        })
+                    }
                 />
             </fieldset>
 

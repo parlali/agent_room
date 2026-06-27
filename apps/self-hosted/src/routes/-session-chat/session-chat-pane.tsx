@@ -135,6 +135,10 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const [streamError, setStreamError] = useState<string | null>(null)
     const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
     const [editingMessage, setEditingMessage] = useState<EditingMessageDraft | null>(null)
+    const [messageScrollTarget, setMessageScrollTarget] = useState<{
+        messageId: string
+        requestId: number
+    } | null>(null)
     const [artifactStateBySession, setArtifactStateBySession] = useState<
         Map<string, SessionArtifactPanelState>
     >(() => new Map(artifactPanelStateCache))
@@ -422,6 +426,18 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             })
         },
         [],
+    )
+    const viewArtifactInConversation = useCallback(
+        (artifact: RoomSessionArtifact) => {
+            const messageId = artifact.messageId
+            if (!messageId) return
+            setMessageScrollTarget((current) => ({
+                messageId,
+                requestId: (current?.requestId ?? 0) + 1,
+            }))
+            updateArtifactState(artifactStateKey, { open: false })
+        },
+        [artifactStateKey, updateArtifactState],
     )
     const sessionTone = describeSessionState(selectedThread?.status ?? null)
     const streamActive =
@@ -1095,6 +1111,8 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     onSubmitEditingMessage={submitEditedMessage}
                     onCancelEditingMessage={cancelEditingMessage}
                     onSuggestPrompt={onChangeComposerDraft}
+                    scrollToMessageId={messageScrollTarget?.messageId ?? null}
+                    scrollRequestId={messageScrollTarget?.requestId}
                 />
                 {browserSessionAvailable && browserSession ? (
                     <BrowserSessionShell
@@ -1112,6 +1130,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                         selectedArtifactId={selectedArtifactId}
                         open={artifactsOpen}
                         onChangeState={(patch) => updateArtifactState(artifactStateKey, patch)}
+                        onViewInConversation={viewArtifactInConversation}
                     />
                 ) : null}
             </div>
@@ -1341,6 +1360,7 @@ function SessionArtifactsShell({
     selectedArtifactId,
     open,
     onChangeState,
+    onViewInConversation,
 }: {
     roomId: string
     sessionKey: string
@@ -1349,6 +1369,7 @@ function SessionArtifactsShell({
     selectedArtifactId: string | null
     open: boolean
     onChangeState: (patch: Partial<SessionArtifactPanelState>) => void
+    onViewInConversation?: (artifact: RoomSessionArtifact) => void
 }) {
     const isMobile = useIsMobile()
     const mountedLoggedRef = useRef(false)
@@ -1425,6 +1446,7 @@ function SessionArtifactsShell({
                                 onSelectArtifact={(nextSelectedArtifactId) =>
                                     onChangeState({ selectedArtifactId: nextSelectedArtifactId })
                                 }
+                                onViewInConversation={onViewInConversation}
                                 onClose={() => onChangeState({ open: false })}
                                 className="h-full"
                             />
@@ -1458,6 +1480,7 @@ function SessionArtifactsShell({
                                 onSelectArtifact={(nextSelectedArtifactId) =>
                                     onChangeState({ selectedArtifactId: nextSelectedArtifactId })
                                 }
+                                onViewInConversation={onViewInConversation}
                                 onClose={() => onChangeState({ open: false })}
                                 className="h-full pl-1"
                             />
@@ -1478,6 +1501,7 @@ function SessionArtifactsShell({
                             onSelectArtifact={(nextSelectedArtifactId) =>
                                 onChangeState({ selectedArtifactId: nextSelectedArtifactId })
                             }
+                            onViewInConversation={onViewInConversation}
                             onClose={() => onChangeState({ open: false })}
                         />
                     </Suspense>

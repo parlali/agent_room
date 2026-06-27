@@ -159,7 +159,8 @@ function RoomJobsPage() {
     const jobs = jobsQuery.data ?? []
     const sortedJobs = useMemo(() => sortTasks(jobs), [jobs])
     const failingCount = useMemo(() => jobs.filter(isFailingTask).length, [jobs])
-    const timezone = configQuery.data?.config.cronTimezone ?? 'UTC'
+    const timezone = configQuery.data?.config.cronTimezone ?? null
+    const canCreateTask = !setupRequired && timezone !== null
 
     const detailJobId = detailJob?.id ?? null
     const usageQuery = useQuery({
@@ -169,7 +170,7 @@ function RoomJobsPage() {
         staleTime: roomQueryPolicy.hotStaleMs,
     })
 
-    const isLoading = jobsQuery.isLoading
+    const isLoading = jobsQuery.isLoading || configQuery.isLoading
     const isEmpty = !isLoading && jobs.length === 0
 
     const columns: DataColumn<RoomCronJob>[] = [
@@ -237,10 +238,12 @@ function RoomJobsPage() {
                                     label={`${failingCount} ${pluralize(failingCount, 'failing')}`}
                                 />
                             ) : null}
-                            <Button size="sm" onClick={() => setCreateOpen(true)}>
-                                <PlusIcon />
-                                New task
-                            </Button>
+                            {canCreateTask ? (
+                                <Button size="sm" onClick={() => setCreateOpen(true)}>
+                                    <PlusIcon />
+                                    New task
+                                </Button>
+                            ) : null}
                         </div>
                     }
                     bodyClassName={isLoading ? 'p-4' : 'p-0'}
@@ -250,6 +253,24 @@ function RoomJobsPage() {
                     ) : setupRequired ? (
                         <div className="p-4">
                             <RoomSetupRequiredState description="Finish setup so this room can run scheduled tasks." />
+                        </div>
+                    ) : configQuery.isError || timezone === null ? (
+                        <div className="p-4">
+                            <EmptyState
+                                icon={CalendarClockIcon}
+                                title="Could not load schedule settings"
+                                description="Task scheduling needs this room's configured timezone."
+                                action={
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => void configQuery.refetch()}
+                                    >
+                                        <RefreshCwIcon />
+                                        Try again
+                                    </Button>
+                                }
+                            />
                         </div>
                     ) : jobsQuery.isError ? (
                         <div className="p-4">
@@ -276,10 +297,12 @@ function RoomJobsPage() {
                                 title="No scheduled tasks yet"
                                 description="Schedule something for this room to do automatically."
                                 action={
-                                    <Button size="sm" onClick={() => setCreateOpen(true)}>
-                                        <PlusIcon />
-                                        New task
-                                    </Button>
+                                    canCreateTask ? (
+                                        <Button size="sm" onClick={() => setCreateOpen(true)}>
+                                            <PlusIcon />
+                                            New task
+                                        </Button>
+                                    ) : null
                                 }
                             />
                         </div>
@@ -294,31 +317,35 @@ function RoomJobsPage() {
                 </Section>
             </div>
 
-            <JobFormSheet
-                mode="create"
-                open={createOpen}
-                roomId={roomId}
-                timezone={timezone}
-                onOpenChange={setCreateOpen}
-                initial={emptyJobForm()}
-                pending={createMutation.isPending}
-                onSubmit={(form) => createMutation.mutate(form)}
-            />
+            {timezone ? (
+                <JobFormSheet
+                    mode="create"
+                    open={createOpen}
+                    roomId={roomId}
+                    timezone={timezone}
+                    onOpenChange={setCreateOpen}
+                    initial={emptyJobForm()}
+                    pending={createMutation.isPending}
+                    onSubmit={(form) => createMutation.mutate(form)}
+                />
+            ) : null}
 
-            <JobFormSheet
-                mode="edit"
-                open={editJob !== null}
-                roomId={roomId}
-                timezone={editJob?.timezone ?? timezone}
-                onOpenChange={(open) => {
-                    if (!open) setEditJob(null)
-                }}
-                initial={editJob ? jobToForm(editJob) : emptyJobForm()}
-                pending={editMutation.isPending}
-                onSubmit={(form) => {
-                    if (editJob) editMutation.mutate({ previous: editJob, form })
-                }}
-            />
+            {timezone ? (
+                <JobFormSheet
+                    mode="edit"
+                    open={editJob !== null}
+                    roomId={roomId}
+                    timezone={editJob?.timezone ?? timezone}
+                    onOpenChange={(open) => {
+                        if (!open) setEditJob(null)
+                    }}
+                    initial={editJob ? jobToForm(editJob) : emptyJobForm()}
+                    pending={editMutation.isPending}
+                    onSubmit={(form) => {
+                        if (editJob) editMutation.mutate({ previous: editJob, form })
+                    }}
+                />
+            ) : null}
 
             <JobDetailSheet
                 roomId={roomId}

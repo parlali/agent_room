@@ -13,6 +13,7 @@ import {
     getHostedOperatorConfigSnapshot,
     getHostedRoomConfigSnapshot,
     saveHostedRoomConfig,
+    saveHostedRoomInstructions,
     saveHostedRoomSecret,
 } from '#/server/cloudflare/hosted-room-service'
 import {
@@ -51,6 +52,11 @@ const githubInstallationQuerySchema = z.object({
 
 const roomConfigQuerySchema = z.object({
     roomId: z.string().uuid(),
+})
+
+const roomInstructionsSaveSchema = z.object({
+    roomId: z.string().uuid(),
+    instructions: z.string(),
 })
 
 async function rejectHostedGitHubAppSetup() {
@@ -361,6 +367,25 @@ export const saveRoomConfigServer = createServerFn({ method: 'POST' })
         await requireRoomOwner(actor, data.roomId)
         const { saveRoomConfig } = await import('#/server/configuration/operator-configuration')
         return saveRoomConfig(data, actor.userId)
+    })
+
+export const saveRoomInstructionsServer = createServerFn({ method: 'POST' })
+    .inputValidator((input: unknown) => roomInstructionsSaveSchema.parse(input))
+    .handler(async ({ data }) => {
+        const hosted = await requireHostedMutationActor()
+        if (hosted) {
+            return saveHostedRoomInstructions({
+                env: hosted.context.env,
+                actor: hosted.actor,
+                data,
+            })
+        }
+        const actor = await requireMutationActor()
+        const { requireRoomOwner } = await import('#/server/rooms/room-runtime-route-service')
+        await requireRoomOwner(actor, data.roomId)
+        const { saveRoomInstructions } =
+            await import('#/server/configuration/operator-configuration')
+        return saveRoomInstructions(data, actor.userId)
     })
 
 export const saveRoomSecretServer = createServerFn({ method: 'POST' })
