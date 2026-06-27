@@ -244,20 +244,34 @@ export async function createRoomForRoute(data: {
         if (data.initialCron) {
             throw new Error('Hosted scheduled jobs are not enabled')
         }
-        const room = await createHostedRoom({
-            env: hosted.context.env,
-            actor: hosted.actor,
-            displayName: data.displayName,
-            slug: data.slug ?? undefined,
-            startImmediately: data.startImmediately ?? true,
-            instructions: data.instructions,
-            providerMode: data.providerMode,
-            providerConnectionId: data.providerConnectionId,
-            roomMode: data.roomMode,
-            cronTimezone: data.cronTimezone,
-            mcpConnectionIds: data.mcpConnectionIds,
-        })
-        return room
+        try {
+            const room = await createHostedRoom({
+                env: hosted.context.env,
+                actor: hosted.actor,
+                displayName: data.displayName,
+                slug: data.slug ?? undefined,
+                startImmediately: data.startImmediately ?? true,
+                instructions: data.instructions,
+                providerMode: data.providerMode,
+                providerConnectionId: data.providerConnectionId,
+                roomMode: data.roomMode,
+                cronTimezone: data.cronTimezone,
+                mcpConnectionIds: data.mcpConnectionIds,
+            })
+            return room
+        } catch (error) {
+            const normalized = error instanceof Error ? error : new Error(String(error))
+            const code = (error as { code?: unknown }).code
+            console.error('DBG_CREATE_ROOM_FAILURE', {
+                name: normalized.name,
+                message: normalized.message,
+                code,
+                stack: normalized.stack,
+            })
+            throw new Error(
+                `DBG ${normalized.name} [${String(code ?? 'no-code')}] ${normalized.message} :: ${(normalized.stack ?? '').slice(0, 1500)}`,
+            )
+        }
     }
     const actor = await requireMutationActor()
     const { createRoom } = await import('#/server/rooms/room-service')
