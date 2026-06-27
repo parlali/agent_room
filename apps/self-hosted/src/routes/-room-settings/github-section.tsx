@@ -30,7 +30,6 @@ import {
 } from '#/routes/-operator-config-server'
 import type { OperatorConfigSnapshot } from '#/server/configuration/operator-configuration'
 import type { ConfigDraft } from './model'
-import { SaveBar } from './shared'
 
 type RepositorySelectorItem = {
     fullName: string
@@ -42,16 +41,10 @@ export function GitHubSection({
     draft,
     github,
     onChange,
-    onSave,
-    dirty,
-    pending,
 }: {
     draft: ConfigDraft
     github: OperatorConfigSnapshot['github'] | null
     onChange: (patch: Partial<ConfigDraft>) => void
-    onSave: () => void
-    dirty: boolean
-    pending: boolean
 }) {
     const queryClient = useQueryClient()
     const [repositorySearch, setRepositorySearch] = useState('')
@@ -134,21 +127,16 @@ export function GitHubSection({
             title="GitHub"
             description="Room-scoped repository credentials."
             actions={
-                <div className="flex flex-wrap justify-end gap-2">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => refreshMutation.mutate()}
-                        disabled={refreshMutation.isPending || !app?.configured}
-                    >
-                        <RefreshCwIcon
-                            className={refreshMutation.isPending ? 'animate-spin' : ''}
-                        />
-                        Refresh
-                    </Button>
-                    <SaveBar dirty={dirty} pending={pending} onSave={onSave} />
-                </div>
+                <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => refreshMutation.mutate()}
+                    disabled={refreshMutation.isPending || !app?.configured}
+                >
+                    <RefreshCwIcon className={refreshMutation.isPending ? 'animate-spin' : ''} />
+                    Refresh
+                </Button>
             }
         >
             {!app?.configured ? (

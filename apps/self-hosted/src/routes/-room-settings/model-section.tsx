@@ -10,9 +10,10 @@ import { Section } from '#/components/agent-room'
 import { describeProviderStatus } from '#/domain/state'
 import type { ProviderConnectionSummary } from '#/server/configuration/operator-configuration'
 import type { ConfigDraft } from './model'
-import { ModeRadio, SaveBar } from './shared'
+import { InlineDisclosure, ModeRadio } from './shared'
+import { RoomModeField } from './room-mode-section'
 
-export function providerConnectionOptionLabel(provider: ProviderConnectionSummary): string {
+function providerConnectionOptionLabel(provider: ProviderConnectionSummary): string {
     return `${provider.label} - ${provider.defaultModel}`
 }
 
@@ -21,110 +22,131 @@ export function ModelSection({
     providers,
     managedHostedAvailable,
     onChange,
-    onSave,
-    dirty,
-    pending,
 }: {
     draft: ConfigDraft
     providers: ProviderConnectionSummary[]
     managedHostedAvailable: boolean | null
     onChange: (patch: Partial<ConfigDraft>) => void
-    onSave: () => void
-    dirty: boolean
-    pending: boolean
 }) {
-    if (managedHostedAvailable !== null) {
-        return (
-            <HostedModelSection
-                draft={draft}
-                providers={providers}
-                managedHostedAvailable={managedHostedAvailable}
-                onChange={onChange}
-                onSave={onSave}
-                dirty={dirty}
-                pending={pending}
-            />
-        )
-    }
+    const usesAppDefault =
+        draft.providerMode === 'app_default' || draft.providerMode === 'managed_hosted'
 
     return (
         <Section
             title="Model"
-            description="Rooms use app-level provider configuration."
-            actions={<SaveBar dirty={dirty} pending={pending} onSave={onSave} />}
+            description="The model this room uses to think and respond."
         >
             <div className="space-y-4">
-                <fieldset className="grid gap-2 sm:grid-cols-2">
-                    <ModeRadio
-                        label="App default"
-                        description="Use the default or only configured app provider."
-                        checked={draft.providerMode === 'app_default'}
-                        onSelect={() =>
-                            onChange({
-                                providerMode: 'app_default',
-                                providerConnectionId: '',
-                            })
-                        }
-                    />
-                    <ModeRadio
-                        label="Use this"
-                        description="Pin one saved app provider for this room."
-                        checked={draft.providerMode === 'app_connection'}
-                        onSelect={() => onChange({ providerMode: 'app_connection' })}
-                    />
-                </fieldset>
+                <p className="text-sm text-foreground">
+                    {usesAppDefault
+                        ? 'Uses the app default model.'
+                        : 'Uses a custom model set under Advanced.'}
+                </p>
 
-                {draft.providerMode === 'app_connection' ? (
-                    <div className="space-y-1.5">
-                        <Label htmlFor="room-provider-connection">Saved app provider</Label>
-                        {providers.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">
-                                Add OpenRouter or Codex app server in app settings first.
-                            </p>
-                        ) : (
-                            <Select
-                                value={draft.providerConnectionId || ''}
-                                onValueChange={(value) => onChange({ providerConnectionId: value })}
-                            >
-                                <SelectTrigger id="room-provider-connection" className="w-full">
-                                    <SelectValue placeholder="Pick a provider" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {providers.map((provider) => {
-                                        const status = describeProviderStatus(provider.status)
-                                        return (
-                                            <SelectItem key={provider.id} value={provider.id}>
-                                                {provider.label} · {provider.defaultModel} ·{' '}
-                                                {status.label}
-                                            </SelectItem>
-                                        )
-                                    })}
-                                </SelectContent>
-                            </Select>
-                        )}
+                <InlineDisclosure label="Advanced" defaultOpen={!usesAppDefault}>
+                    {managedHostedAvailable !== null ? (
+                        <HostedModelOverride
+                            draft={draft}
+                            providers={providers}
+                            managedHostedAvailable={managedHostedAvailable}
+                            onChange={onChange}
+                        />
+                    ) : (
+                        <AppModelOverride
+                            draft={draft}
+                            providers={providers}
+                            onChange={onChange}
+                        />
+                    )}
+
+                    <div className="space-y-2">
+                        <h3 className="text-sm font-medium text-foreground">Mode</h3>
+                        <RoomModeField
+                            draft={draft}
+                            onChange={(roomMode) => onChange({ roomMode })}
+                        />
                     </div>
-                ) : null}
+                </InlineDisclosure>
             </div>
         </Section>
     )
 }
 
-function HostedModelSection({
+function AppModelOverride({
+    draft,
+    providers,
+    onChange,
+}: {
+    draft: ConfigDraft
+    providers: ProviderConnectionSummary[]
+    onChange: (patch: Partial<ConfigDraft>) => void
+}) {
+    return (
+        <div className="space-y-4">
+            <fieldset className="grid gap-2 sm:grid-cols-2">
+                <ModeRadio
+                    label="App default"
+                    description="Use the default or only configured app provider."
+                    checked={draft.providerMode === 'app_default'}
+                    onSelect={() =>
+                        onChange({
+                            providerMode: 'app_default',
+                            providerConnectionId: '',
+                        })
+                    }
+                />
+                <ModeRadio
+                    label="Use this"
+                    description="Pin one saved app provider for this room."
+                    checked={draft.providerMode === 'app_connection'}
+                    onSelect={() => onChange({ providerMode: 'app_connection' })}
+                />
+            </fieldset>
+
+            {draft.providerMode === 'app_connection' ? (
+                <div className="space-y-1.5">
+                    <Label htmlFor="room-provider-connection">Saved app provider</Label>
+                    {providers.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                            Add OpenRouter or Codex app server in app settings first.
+                        </p>
+                    ) : (
+                        <Select
+                            value={draft.providerConnectionId || ''}
+                            onValueChange={(value) => onChange({ providerConnectionId: value })}
+                        >
+                            <SelectTrigger id="room-provider-connection" className="w-full">
+                                <SelectValue placeholder="Pick a provider" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {providers.map((provider) => {
+                                    const status = describeProviderStatus(provider.status)
+                                    return (
+                                        <SelectItem key={provider.id} value={provider.id}>
+                                            {provider.label} · {provider.defaultModel} ·{' '}
+                                            {status.label}
+                                        </SelectItem>
+                                    )
+                                })}
+                            </SelectContent>
+                        </Select>
+                    )}
+                </div>
+            ) : null}
+        </div>
+    )
+}
+
+function HostedModelOverride({
     draft,
     providers,
     managedHostedAvailable,
     onChange,
-    onSave,
-    dirty,
-    pending,
 }: {
     draft: ConfigDraft
     providers: ProviderConnectionSummary[]
     managedHostedAvailable: boolean
     onChange: (patch: Partial<ConfigDraft>) => void
-    onSave: () => void
-    dirty: boolean
-    pending: boolean
 }) {
     const readyProviders = providers.filter((provider) => provider.status === 'ready')
     const openRouterProviders = readyProviders.filter(
@@ -166,69 +188,63 @@ function HostedModelSection({
     }
 
     return (
-        <Section
-            title="Model"
-            description="Choose the model source for this room."
-            actions={<SaveBar dirty={dirty} pending={pending} onSave={onSave} />}
-        >
-            <div className="space-y-4">
-                <fieldset className="grid gap-2 sm:grid-cols-3">
-                    <ModeRadio
-                        label="Hosted"
-                        description={
-                            managedHostedAvailable
-                                ? 'Use the managed hosted model.'
-                                : 'Unavailable for this workspace.'
-                        }
-                        checked={selectedSource === 'hosted'}
-                        disabled={!managedHostedAvailable}
-                        onSelect={() => selectSource('hosted')}
-                    />
-                    <ModeRadio
-                        label="OpenRouter"
-                        description={
-                            openRouterProviders.length > 0
-                                ? 'Use a saved OpenRouter model.'
-                                : 'Add a ready OpenRouter provider first.'
-                        }
-                        checked={selectedSource === 'openrouter'}
-                        disabled={openRouterProviders.length === 0}
-                        onSelect={() => selectSource('openrouter')}
-                    />
-                    <ModeRadio
-                        label="Codex"
-                        description={
-                            codexProviders.length > 0
-                                ? 'Use a saved Codex model.'
-                                : 'Add a ready Codex provider first.'
-                        }
-                        checked={selectedSource === 'codex'}
-                        disabled={codexProviders.length === 0}
-                        onSelect={() => selectSource('codex')}
-                    />
-                </fieldset>
+        <div className="space-y-4">
+            <fieldset className="grid gap-2 sm:grid-cols-3">
+                <ModeRadio
+                    label="Hosted"
+                    description={
+                        managedHostedAvailable
+                            ? 'Use the managed hosted model.'
+                            : 'Unavailable for this workspace.'
+                    }
+                    checked={selectedSource === 'hosted'}
+                    disabled={!managedHostedAvailable}
+                    onSelect={() => selectSource('hosted')}
+                />
+                <ModeRadio
+                    label="OpenRouter"
+                    description={
+                        openRouterProviders.length > 0
+                            ? 'Use a saved OpenRouter model.'
+                            : 'Add a ready OpenRouter provider first.'
+                    }
+                    checked={selectedSource === 'openrouter'}
+                    disabled={openRouterProviders.length === 0}
+                    onSelect={() => selectSource('openrouter')}
+                />
+                <ModeRadio
+                    label="Codex"
+                    description={
+                        codexProviders.length > 0
+                            ? 'Use a saved Codex model.'
+                            : 'Add a ready Codex provider first.'
+                    }
+                    checked={selectedSource === 'codex'}
+                    disabled={codexProviders.length === 0}
+                    onSelect={() => selectSource('codex')}
+                />
+            </fieldset>
 
-                {selectedSource === 'openrouter' || selectedSource === 'codex' ? (
-                    <div className="space-y-1.5">
-                        <Label htmlFor="room-provider-connection">{selectedLabel}</Label>
-                        <Select
-                            value={draft.providerConnectionId || ''}
-                            onValueChange={(value) => onChange({ providerConnectionId: value })}
-                        >
-                            <SelectTrigger id="room-provider-connection" className="w-full">
-                                <SelectValue placeholder="Pick a model" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {selectedOptions.map((provider) => (
-                                    <SelectItem key={provider.id} value={provider.id}>
-                                        {providerConnectionOptionLabel(provider)}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                ) : null}
-            </div>
-        </Section>
+            {selectedSource === 'openrouter' || selectedSource === 'codex' ? (
+                <div className="space-y-1.5">
+                    <Label htmlFor="room-provider-connection">{selectedLabel}</Label>
+                    <Select
+                        value={draft.providerConnectionId || ''}
+                        onValueChange={(value) => onChange({ providerConnectionId: value })}
+                    >
+                        <SelectTrigger id="room-provider-connection" className="w-full">
+                            <SelectValue placeholder="Pick a model" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {selectedOptions.map((provider) => (
+                                <SelectItem key={provider.id} value={provider.id}>
+                                    {providerConnectionOptionLabel(provider)}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+            ) : null}
+        </div>
     )
 }

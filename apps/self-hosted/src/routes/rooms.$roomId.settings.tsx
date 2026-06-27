@@ -6,12 +6,7 @@ import { TooltipProvider } from '#/components/ui/tooltip'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import { getRoomConfigServer } from '#/routes/-operator-config-server'
 import { listRoomsServer } from '#/routes/-room-runtime-server'
-import {
-    ConfigSections,
-    DangerZoneSection,
-    PauseAndArchiveSection,
-    SecretsSection,
-} from './-room-settings/sections'
+import { RoomSettingsBody } from './-room-settings/sections'
 
 export const Route = createFileRoute('/rooms/$roomId/settings')({
     component: RoomSettingsPage,
@@ -60,39 +55,19 @@ function RoomSettingsPage() {
                         />
                     ) : null}
 
-                    <ConfigSections
+                    <RoomSettingsBody
                         roomId={roomId}
                         snapshot={snapshot}
-                        loading={roomConfigQuery.isLoading}
-                        onSaved={async () => {
-                            await queryClient.invalidateQueries({
-                                queryKey: roomQueryKey.roomConfig(roomId),
-                            })
-                        }}
-                    />
-
-                    <SecretsSection
-                        roomId={roomId}
-                        loading={roomConfigQuery.isLoading}
-                        secrets={snapshot?.roomSecrets ?? []}
-                        onSaved={async () => {
-                            await queryClient.invalidateQueries({
-                                queryKey: roomQueryKey.roomConfig(roomId),
-                            })
-                        }}
-                    />
-
-                    <PauseAndArchiveSection
-                        roomId={roomId}
                         paused={room?.desiredState === 'stopped'}
-                        loading={roomsQuery.isLoading}
-                    />
-
-                    <DangerZoneSection
-                        roomId={roomId}
                         roomSlug={room?.slug ?? ''}
                         roomDisplayName={room?.displayName ?? ''}
-                        loading={roomsQuery.isLoading}
+                        loading={roomConfigQuery.isLoading}
+                        roomsLoading={roomsQuery.isLoading}
+                        onSaved={async () => {
+                            await queryClient.invalidateQueries({
+                                queryKey: roomQueryKey.roomConfig(roomId),
+                            })
+                        }}
                     />
                 </div>
             </TooltipProvider>

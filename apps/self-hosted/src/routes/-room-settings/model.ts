@@ -24,11 +24,6 @@ export const COMMON_TIMEZONES = [
     'Australia/Sydney',
 ]
 
-export interface IdentityDraft {
-    displayName: string
-    slug: string
-}
-
 export interface ConfigDraft {
     instructions: string
     providerMode: ProviderMode

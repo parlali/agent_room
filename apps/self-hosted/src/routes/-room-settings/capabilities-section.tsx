@@ -11,7 +11,6 @@ import type {
     RoomConfigSnapshot,
 } from '#/server/configuration/operator-configuration'
 import type { ConfigDraft } from './model'
-import { SaveBar } from './shared'
 
 export function CapabilitiesSection({
     draft,
@@ -20,9 +19,7 @@ export function CapabilitiesSection({
     searchReady,
     imageReady,
     onChange,
-    onSave,
-    dirty,
-    pending,
+    saving,
 }: {
     draft: ConfigDraft
     appDefaults: OperatorConfigSnapshot['settings']['capabilityDefaults'] | null
@@ -31,9 +28,7 @@ export function CapabilitiesSection({
     searchReady: boolean
     imageReady: boolean
     onChange: (patch: Partial<ConfigDraft>) => void
-    onSave: () => void
-    dirty: boolean
-    pending: boolean
+    saving: boolean
 }) {
     const setCapability = (option: CapabilityOption, next: boolean) => {
         const overrides = { ...draft.capabilityOverrides, [option.id]: next }
@@ -114,7 +109,6 @@ export function CapabilitiesSection({
                     ? 'Programmer mode keeps the room focused on source work, web access, and image generation.'
                     : 'Built-in features this room can use.'
             }
-            actions={<SaveBar dirty={dirty} pending={pending} onSave={onSave} />}
         >
             <div className="space-y-4">
                 <ManagedCapabilityCard
@@ -181,7 +175,7 @@ export function CapabilitiesSection({
                         variant="outline"
                         size="sm"
                         onClick={() => onChange({ capabilityOverrides: {} })}
-                        disabled={Object.keys(draft.capabilityOverrides).length === 0 || pending}
+                        disabled={Object.keys(draft.capabilityOverrides).length === 0 || saving}
                     >
                         Use mode defaults
                     </Button>
