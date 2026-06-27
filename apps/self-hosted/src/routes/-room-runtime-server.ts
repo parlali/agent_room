@@ -263,16 +263,8 @@ export const listRoomsServer = createServerFn({ method: 'GET' }).handler(async (
 export const createRoomServer = createServerFn({ method: 'POST' })
     .inputValidator((input: unknown) => createRoomInputSchema.parse(input))
     .handler(async ({ data }) => {
-        try {
-            const { createRoomForRoute } = await loadRoomRuntimeRouteService()
-            return await createRoomForRoute(data)
-        } catch (error) {
-            const normalized = error instanceof Error ? error : new Error(String(error))
-            const code = (error as { code?: unknown }).code
-            throw new Error(
-                `DBG2 ${normalized.name} [${String(code ?? 'no-code')}] ${normalized.message} :: ${(normalized.stack ?? '').slice(0, 1800)}`,
-            )
-        }
+        const { createRoomForRoute } = await loadRoomRuntimeRouteService()
+        return createRoomForRoute(data)
     })
 
 export const setRoomDesiredStateServer = createServerFn({ method: 'POST' })

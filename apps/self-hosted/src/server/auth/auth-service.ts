@@ -8,7 +8,6 @@ import {
 } from '../db/repositories'
 import { hashPassword, hashSessionToken, verifyPassword } from '../security/password'
 
-const env = getAppEnv()
 const sessionTouchThrottleMs = 60_000
 const sessionTouchCache = new Map<string, number>()
 
@@ -21,13 +20,14 @@ export interface AuthenticatedSession {
 }
 
 function assertLocalAuthEnabled() {
-    if (env.authMode !== 'local') {
+    if (getAppEnv().authMode !== 'local') {
         throw new Error('Local password authentication is disabled for this auth mode')
     }
 }
 
 export async function bootstrapRootUser() {
     assertLocalAuthEnabled()
+    const env = getAppEnv()
 
     const totalUsers = await userRepository.countUsers()
     if (totalUsers > 0) {
@@ -63,6 +63,7 @@ export async function loginWithPassword(input: {
     ipAddress?: string | null
 }): Promise<AuthenticatedSession> {
     assertLocalAuthEnabled()
+    const env = getAppEnv()
 
     const user = await userRepository.findByEmail(input.email)
     if (!user || !verifyPassword(input.password, user.passwordHash)) {
