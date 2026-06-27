@@ -158,7 +158,7 @@ function JobForm({
                         required
                     />
                     <p className="text-xs text-muted-foreground">
-                        Sent to the room as the first message when this job runs.
+                        Sent to the room as the first message when this task runs.
                     </p>
                 </div>
                 <div className="space-y-3">

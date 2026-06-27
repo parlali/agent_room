@@ -217,7 +217,7 @@ function RoomJobsPage() {
     ]
 
     return (
-        <RoomDashboardLayout roomId={roomId} activeTab="jobs">
+        <RoomDashboardLayout roomId={roomId} activeTab="tasks">
             <div className="flex flex-col gap-6">
                 <Section
                     title="Scheduled tasks"
@@ -249,7 +249,7 @@ function RoomJobsPage() {
                                 action={
                                     <Button size="sm" onClick={() => setCreateOpen(true)}>
                                         <PlusIcon />
-                                        Create a task
+                                        New task
                                     </Button>
                                 }
                             />

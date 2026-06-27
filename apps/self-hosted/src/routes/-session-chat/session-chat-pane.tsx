@@ -1013,7 +1013,6 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     return (
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
             <ChatHeader
-                room={room}
                 sessionTitle={selectedThread?.title ?? 'Conversation'}
                 sessionLabel={sessionTone.label}
                 sessionToneKey={sessionTone.tone}
@@ -1035,9 +1034,6 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 }
                 onToggleBrowserSession={() => {
                     setClosedBrowserPanelKey(browserSessionOpen ? browserSessionPanelKey : null)
-                }}
-                onBack={() => {
-                    void navigate({ to: '/rooms/$roomId', params: { roomId } })
                 }}
                 onRename={(title) => renameMutation.mutateAsync(title)}
                 renaming={renameMutation.isPending}

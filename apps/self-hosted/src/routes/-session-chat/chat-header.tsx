@@ -1,15 +1,7 @@
-import { Link } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
-import {
-    ArrowLeftIcon,
-    ChevronDownIcon,
-    FilesIcon,
-    Loader2Icon,
-    MonitorIcon,
-    PencilIcon,
-} from 'lucide-react'
+import { ChevronDownIcon, FilesIcon, Loader2Icon, MonitorIcon, PencilIcon } from 'lucide-react'
 
-import { RoomGlyph, StateBadge } from '#/components/agent-room'
+import { StateBadge } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '#/components/ui/collapsible'
 import {
@@ -24,10 +16,9 @@ import { Input } from '#/components/ui/input'
 import { cn } from '#/lib/utils'
 import { Label } from '#/components/ui/label'
 import type { describeSessionState } from '#/domain/state'
-import type { RoomExecutionSnapshot, RoomRuntimeOverview } from '#/domain/room-execution-types'
+import type { RoomExecutionSnapshot } from '#/domain/room-execution-types'
 
 export function ChatHeader({
-    room,
     sessionTitle,
     sessionLabel,
     sessionToneKey,
@@ -41,11 +32,9 @@ export function ChatHeader({
     browserSessionOpen,
     onToggleArtifacts,
     onToggleBrowserSession,
-    onBack,
     onRename,
     renaming,
 }: {
-    room: RoomRuntimeOverview
     sessionTitle: string
     sessionLabel: string
     sessionToneKey: ReturnType<typeof describeSessionState>['tone']
@@ -59,7 +48,6 @@ export function ChatHeader({
     browserSessionOpen: boolean
     onToggleArtifacts: () => void
     onToggleBrowserSession: () => void
-    onBack: () => void
     onRename: (title: string) => Promise<unknown>
     renaming: boolean
 }) {
@@ -93,18 +81,7 @@ export function ChatHeader({
     return (
         <>
             <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-border bg-background/95 px-3 py-2.5 backdrop-blur sm:px-6">
-                <Button variant="ghost" size="icon-sm" onClick={onBack} aria-label="Back to room">
-                    <ArrowLeftIcon />
-                </Button>
-                <RoomGlyph name={room.displayName} seed={room.roomId} size="sm" />
                 <div className="flex min-w-0 flex-1 flex-col leading-tight">
-                    <Link
-                        to="/rooms/$roomId"
-                        params={{ roomId: room.roomId }}
-                        className="truncate text-xs font-medium text-muted-foreground hover:text-foreground"
-                    >
-                        {room.displayName}
-                    </Link>
                     <div className="flex min-w-0 items-center gap-1">
                         <span className="truncate text-sm font-medium text-foreground">
                             {sessionTitle}

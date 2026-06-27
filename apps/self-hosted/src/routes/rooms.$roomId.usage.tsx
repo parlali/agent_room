@@ -30,7 +30,7 @@ export const Route = createFileRoute('/rooms/$roomId/usage')({
 function RoomUsagePage() {
     const { roomId } = Route.useParams()
     return (
-        <RoomDashboardLayout roomId={roomId} activeTab="usage">
+        <RoomDashboardLayout roomId={roomId}>
             <UsageContent roomId={roomId} />
         </RoomDashboardLayout>
     )

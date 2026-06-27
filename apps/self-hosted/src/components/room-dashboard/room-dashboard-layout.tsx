@@ -1,15 +1,14 @@
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-    HomeIcon,
-    FolderIcon,
-    CalendarClockIcon,
-    ActivityIcon,
-    SettingsIcon,
     BrainIcon,
-    BarChart3Icon,
+    CalendarClockIcon,
+    FolderIcon,
+    MessagesSquareIcon,
     PauseIcon,
     PlayIcon,
+    PlusIcon,
+    SettingsIcon,
     type LucideIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -19,6 +18,7 @@ import { roomModeLabel } from '#/domain/room-modes'
 import { describeRoomState } from '#/domain/state'
 import { Button } from '#/components/ui/button'
 import { Skeleton } from '#/components/ui/skeleton'
+import { Popover, PopoverContent, PopoverTrigger } from '#/components/ui/popover'
 import {
     Chip,
     NavTabBar,
@@ -27,20 +27,18 @@ import {
     PageHeader,
     RoomGlyph,
     StateBadge,
+    StatusDot,
+    useStartRoomSession,
 } from '#/components/agent-room'
 import { getRoomSidebarServer, setRoomDesiredStateServer } from '#/routes/-room-runtime-server'
-import type { RoomRuntimeOverview } from '#/domain/room-execution-types'
+import { getRoomConfigServer } from '#/routes/-operator-config-server'
+import type { RoomRuntimeOverview, RoomSetupSnapshot } from '#/domain/room-execution-types'
+import type { RoomConfigSnapshot } from '#/server/configuration/operator-configuration'
 import { preloadRoomDashboardRoutes, scheduleRoomDashboardRoutePreload } from './preload'
+import { buildRoomReadinessChecks } from './room-readiness'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 
-export type RoomDashboardTab =
-    | 'home'
-    | 'files'
-    | 'jobs'
-    | 'memory'
-    | 'usage'
-    | 'status'
-    | 'settings'
+export type RoomDashboardTab = 'chat' | 'files' | 'tasks' | 'memory' | 'settings'
 
 interface TabDef {
     id: RoomDashboardTab
@@ -51,18 +49,14 @@ interface TabDef {
         | '/rooms/$roomId/files'
         | '/rooms/$roomId/jobs'
         | '/rooms/$roomId/memory'
-        | '/rooms/$roomId/usage'
-        | '/rooms/$roomId/status'
         | '/rooms/$roomId/settings'
 }
 
 const ROOM_TABS: TabDef[] = [
-    { id: 'home', label: 'Home', icon: HomeIcon, to: '/rooms/$roomId' },
+    { id: 'chat', label: 'Chat', icon: MessagesSquareIcon, to: '/rooms/$roomId' },
     { id: 'files', label: 'Files', icon: FolderIcon, to: '/rooms/$roomId/files' },
-    { id: 'jobs', label: 'Jobs', icon: CalendarClockIcon, to: '/rooms/$roomId/jobs' },
-    { id: 'memory', label: 'Identity & memory', icon: BrainIcon, to: '/rooms/$roomId/memory' },
-    { id: 'usage', label: 'Usage', icon: BarChart3Icon, to: '/rooms/$roomId/usage' },
-    { id: 'status', label: 'Status', icon: ActivityIcon, to: '/rooms/$roomId/status' },
+    { id: 'tasks', label: 'Tasks', icon: CalendarClockIcon, to: '/rooms/$roomId/jobs' },
+    { id: 'memory', label: 'Memory', icon: BrainIcon, to: '/rooms/$roomId/memory' },
     { id: 'settings', label: 'Settings', icon: SettingsIcon, to: '/rooms/$roomId/settings' },
 ]
 
@@ -71,21 +65,38 @@ export function RoomDashboardLayout({
     activeTab,
     children,
     headerActions,
+    fill = false,
 }: {
     roomId: string
-    activeTab: RoomDashboardTab
+    activeTab?: RoomDashboardTab
     children: ReactNode
     headerActions?: ReactNode
+    fill?: boolean
 }) {
     usePreloadRoomDashboardRoutes()
     usePendingOnboardingRedirect(roomId)
 
+    const header = <RoomHeader roomId={roomId} headerActions={headerActions} />
+    const subnav = <RoomNav roomId={roomId} activeTab={activeTab} />
+
+    if (fill) {
+        return (
+            <div className="flex h-full min-h-0 flex-col">
+                <div className="shrink-0 border-b border-border/60 bg-background/95 backdrop-blur">
+                    <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">{header}</div>
+                    <div className="mx-auto w-full max-w-7xl px-4 pb-2 sm:px-6">{subnav}</div>
+                </div>
+                <div className="min-h-0 flex-1 overflow-hidden">
+                    <div className="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col">
+                        {children}
+                    </div>
+                </div>
+            </div>
+        )
+    }
+
     return (
-        <Page
-            width="xl"
-            header={<RoomHeader roomId={roomId} headerActions={headerActions} />}
-            subnav={<RoomNav roomId={roomId} activeTab={activeTab} />}
-        >
+        <Page width="xl" header={header} subnav={subnav}>
             {children}
         </Page>
     )
@@ -137,7 +148,13 @@ function usePreloadRoomDashboardRoutes(): void {
 function RoomHeader({ roomId, headerActions }: { roomId: string; headerActions?: ReactNode }) {
     const queryClient = useQueryClient()
     const sidebarQuery = useRoomSidebarQuery(roomId)
+    const configQuery = useQuery({
+        queryKey: roomQueryKey.roomConfig(roomId),
+        queryFn: () => getRoomConfigServer({ data: { roomId } }),
+        staleTime: roomQueryPolicy.coldStaleMs,
+    })
     const room = sidebarQuery.data?.room ?? null
+    const setup = sidebarQuery.data?.setup ?? null
 
     const setDesired = useMutation({
         mutationFn: (desiredState: 'running' | 'stopped') =>
@@ -166,7 +183,7 @@ function RoomHeader({ roomId, headerActions }: { roomId: string; headerActions?:
         )
     }
 
-    if (!room) {
+    if (!room || !setup) {
         return (
             <PageHeader
                 title="Room not found"
@@ -182,15 +199,30 @@ function RoomHeader({ roomId, headerActions }: { roomId: string; headerActions?:
         )
     }
 
-    return <RoomHeaderContent room={room} headerActions={headerActions} setDesired={setDesired} />
+    return (
+        <RoomHeaderContent
+            roomId={roomId}
+            room={room}
+            setup={setup}
+            config={configQuery.data ?? null}
+            headerActions={headerActions}
+            setDesired={setDesired}
+        />
+    )
 }
 
 function RoomHeaderContent({
+    roomId,
     room,
+    setup,
+    config,
     headerActions,
     setDesired,
 }: {
+    roomId: string
     room: RoomRuntimeOverview
+    setup: RoomSetupSnapshot
+    config: RoomConfigSnapshot | null
     headerActions?: ReactNode
     setDesired: ReturnType<typeof useMutation<unknown, unknown, 'running' | 'stopped'>>
 }) {
@@ -200,17 +232,48 @@ function RoomHeaderContent({
         desiredState: room.desiredState,
         healthStatus: room.healthStatus,
     })
+    const checks = buildRoomReadinessChecks({ setup, config })
+    const needsSetup = setup.phase === 'setup_required' || room.status === 'setup_required'
+    const startSession = useStartRoomSession({ roomId })
+
     return (
         <PageHeader
             glyph={<RoomGlyph name={room.displayName} seed={room.roomId} size="lg" />}
             title={room.displayName}
             status={
                 <span className="flex items-center gap-2">
-                    <StateBadge
-                        tone={state.tone}
-                        label={state.label}
-                        pulse={state.tone === 'working'}
-                    />
+                    <Popover>
+                        <PopoverTrigger
+                            className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-label="Room readiness details"
+                        >
+                            <StateBadge
+                                tone={state.tone}
+                                label={state.label}
+                                pulse={state.tone === 'working'}
+                            />
+                        </PopoverTrigger>
+                        <PopoverContent align="start" className="w-72 space-y-2 p-3">
+                            <p className="text-xs font-medium text-foreground">{state.label}</p>
+                            <ul className="space-y-2">
+                                {checks.map((check) => (
+                                    <li key={check.label} className="flex items-start gap-2">
+                                        <span className="mt-1">
+                                            <StatusDot tone={check.tone} />
+                                        </span>
+                                        <span className="min-w-0">
+                                            <span className="block text-xs font-medium text-foreground">
+                                                {check.label}
+                                            </span>
+                                            <span className="block text-xs text-muted-foreground">
+                                                {check.detail}
+                                            </span>
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </PopoverContent>
+                    </Popover>
                     <Chip>{roomModeLabel(room.roomMode)}</Chip>
                 </span>
             }
@@ -222,6 +285,21 @@ function RoomHeaderContent({
             actions={
                 <>
                     {headerActions}
+                    {needsSetup ? (
+                        <Button asChild size="sm">
+                            <Link to="/settings" hash="advanced">
+                                Finish setup
+                            </Link>
+                        </Button>
+                    ) : (
+                        <Button
+                            size="sm"
+                            onClick={() => startSession.mutate()}
+                            disabled={startSession.isPending || setup.canStartSessions === false}
+                        >
+                            <PlusIcon /> New conversation
+                        </Button>
+                    )}
                     <Button
                         variant="outline"
                         size="sm"
@@ -237,7 +315,7 @@ function RoomHeaderContent({
     )
 }
 
-function RoomNav({ roomId, activeTab }: { roomId: string; activeTab: RoomDashboardTab }) {
+function RoomNav({ roomId, activeTab }: { roomId: string; activeTab?: RoomDashboardTab }) {
     return (
         <NavTabBar aria-label="Room navigation">
             {ROOM_TABS.map((tab) => {

@@ -35,7 +35,7 @@ import {
     DialogTitle,
 } from '#/components/ui/dialog'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '#/components/ui/sheet'
-import { RoomDashboardLayout } from '#/components/room-dashboard'
+import { RoomDashboardLayout, RoomSetupRequiredState } from '#/components/room-dashboard'
 import {
     AttentionBanner,
     EmptyState,
@@ -94,6 +94,14 @@ interface RuntimeNotice {
 
 function entryKey(entry: Pick<RoomFileEntry, 'surface' | 'relativePath'>): string {
     return `${entry.surface}:${entry.relativePath}`
+}
+
+function describeFileError(error: unknown): string {
+    const raw = error instanceof Error ? error.message : ''
+    if (!raw || /runtime|endpoint|\b[0-9a-f]{8}-[0-9a-f]{4}-/i.test(raw)) {
+        return 'This room is not ready yet. Finish setup and try again.'
+    }
+    return raw
 }
 
 function shouldRefreshFilesForRoomEvent(event: RoomRealtimeEvent): boolean {
@@ -169,6 +177,7 @@ function FilesContent({ roomId }: { roomId: string }) {
         staleTime: roomQueryPolicy.hotStaleMs,
     })
     const runtimeNotice = runtimeNoticeFor(sidebarQuery.data)
+    const notReady = sidebarQuery.data?.setup.phase === 'setup_required'
 
     const directoryQuery = useQuery({
         queryKey: roomQueryKey.roomDirectory(roomId, surface, path),
@@ -433,6 +442,7 @@ function FilesContent({ roomId }: { roomId: string }) {
                         <DirectoryList
                             entries={entries}
                             searching={searching}
+                            notReady={notReady}
                             loading={searching ? allFilesQuery.isLoading : directoryQuery.isLoading}
                             error={searching ? allFilesQuery.error : directoryQuery.error}
                             selectedEntry={selectedEntry}
@@ -744,6 +754,7 @@ function FilesBreadcrumb({
 function DirectoryList({
     entries,
     searching,
+    notReady,
     loading,
     error,
     selectedEntry,
@@ -753,6 +764,7 @@ function DirectoryList({
 }: {
     entries: RoomFileEntry[]
     searching: boolean
+    notReady: boolean
     loading: boolean
     error: unknown
     selectedEntry: RoomFileEntry | null
@@ -763,17 +775,15 @@ function DirectoryList({
     return (
         <main className="min-w-0 lg:border-r lg:border-border/60">
             <div className="max-h-[34rem] overflow-y-auto p-3 lg:max-h-[calc(100vh-20rem)]">
-                {loading ? (
+                {notReady ? (
+                    <RoomSetupRequiredState description="Finish setup to upload files and see what this room creates." />
+                ) : loading ? (
                     <LoadingRows count={6} />
                 ) : error ? (
                     <EmptyState
                         icon={FileIcon}
                         title="Could not load files"
-                        description={
-                            error instanceof Error
-                                ? error.message
-                                : 'Something went wrong fetching files.'
-                        }
+                        description={describeFileError(error)}
                     />
                 ) : entries.length === 0 ? (
                     <EmptyState
