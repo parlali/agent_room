@@ -6,6 +6,7 @@ import { ExternalLinkIcon, MessageSquareIcon, MonitorIcon, XIcon } from 'lucide-
 import { toast } from 'sonner'
 
 import { AttentionBanner, EmptyState } from '#/components/agent-room'
+import { roomSetupRequiredCopy } from '#/components/room-dashboard'
 import { Button } from '#/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '#/components/ui/sheet'
 import { useIsMobile } from '#/lib/use-media-query'
@@ -1016,10 +1017,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 sessionTitle={selectedThread?.title ?? 'Conversation'}
                 sessionLabel={sessionTone.label}
                 sessionToneKey={sessionTone.tone}
-                provider={
-                    selectedThread?.modelProvider ?? snapshot?.roomAgent?.modelPrimary ?? null
-                }
-                model={selectedThread?.model ?? null}
+                provider={selectedThread?.modelProvider ?? null}
                 compaction={selectedThread?.compaction ?? null}
                 showArtifacts={showArtifacts}
                 artifactsCount={artifacts.length}
@@ -1047,7 +1045,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                         action={
                             chatAttention.kind === 'setup_required' ? (
                                 <Button asChild variant="outline" size="sm">
-                                    <Link to="/rooms/$roomId" params={{ roomId }}>
+                                    <Link to="/settings" hash="advanced">
                                         Finish setup
                                     </Link>
                                 </Button>
@@ -1528,8 +1526,8 @@ function resolveChatAttention(
             return {
                 kind: 'setup_required',
                 tone: 'attention',
-                title: 'This room needs a bit of setup',
-                description: 'Finish setting up this room to start working here.',
+                title: roomSetupRequiredCopy.title,
+                description: roomSetupRequiredCopy.description,
             }
         }
         return {

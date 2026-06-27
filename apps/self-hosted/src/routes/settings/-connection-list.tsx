@@ -68,8 +68,8 @@ export function ConnectionsSection<T extends { id: string }>({
     onAdd,
     renderRow,
 }: {
-    title: string
-    description: string
+    title?: string
+    description?: string
     addLabel: string
     emptyIcon: typeof PlugIcon
     emptyTitle: string

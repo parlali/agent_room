@@ -13,7 +13,7 @@ import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import { SidebarRoomTree } from './sidebar-room-tree'
 import { UserMenu } from './user-menu'
 
-export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+export function Sidebar() {
     useEffect(() => scheduleRoomDashboardRoutePreload(), [])
 
     const userQuery = useQuery({
@@ -33,7 +33,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     return (
         <div className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
             <div className="px-4 pb-3 pt-4">
-                <Link to="/" onClick={onNavigate}>
+                <Link to="/">
                     <BrandWordmark />
                 </Link>
             </div>
@@ -42,12 +42,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 <span className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">
                     Rooms
                 </span>
-                <CreateRoomButton
-                    buttonVariant="ghost"
-                    size="icon-xs"
-                    ariaLabel="Create room"
-                    onCreated={onNavigate}
-                >
+                <CreateRoomButton buttonVariant="ghost" size="icon-xs" ariaLabel="Create room">
                     <PlusIcon />
                 </CreateRoomButton>
             </div>
@@ -73,7 +68,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                         </Button>
                     </div>
                 ) : (
-                    <SidebarRoomTree rooms={roomsQuery.data ?? []} onNavigate={onNavigate} />
+                    <SidebarRoomTree rooms={roomsQuery.data ?? []} />
                 )}
             </div>
 

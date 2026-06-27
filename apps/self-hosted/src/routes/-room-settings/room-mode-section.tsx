@@ -2,6 +2,24 @@ import { BriefcaseBusinessIcon, Code2Icon } from 'lucide-react'
 import { CardButton } from '#/components/ui/card'
 import type { RoomMode } from '#/domain/domain-types'
 import { ROOM_MODES, type ConfigDraft } from './model'
+import { Disclosure } from './shared'
+
+export function RoomModeSection({
+    draft,
+    onChange,
+}: {
+    draft: ConfigDraft
+    onChange: (patch: Partial<ConfigDraft>) => void
+}) {
+    return (
+        <Disclosure
+            title="Room mode"
+            description="Advanced. Changes which built-in capabilities this room focuses on."
+        >
+            <RoomModeField draft={draft} onChange={(roomMode) => onChange({ roomMode })} />
+        </Disclosure>
+    )
+}
 
 export function RoomModeField({
     draft,
@@ -41,11 +59,6 @@ export function RoomModeField({
                             <span className="block text-sm font-medium">{mode.label}</span>
                             <span className="mt-1 block text-sm text-muted-foreground">
                                 {mode.description}
-                            </span>
-                            <span className="mt-3 block text-xs text-muted-foreground">
-                                {mode.value === 'programmer'
-                                    ? 'Optimized for source changes, shell commands, tests, and future GitHub auth.'
-                                    : 'Optimized for broad autonomous work with durable memory and rich artifacts.'}
                             </span>
                         </span>
                     </CardButton>

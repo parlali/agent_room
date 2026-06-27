@@ -8,14 +8,13 @@ import {
     BrandMark,
     CreateRoomForm,
     type CreateRoomFormValues,
-    FieldGroup,
+    CredentialField,
     Page,
     PageHeader,
     Section,
 } from '#/components/agent-room'
 import { Alert, AlertDescription } from '#/components/ui/alert'
 import { Button } from '#/components/ui/button'
-import { Input } from '#/components/ui/input'
 import { Skeleton } from '#/components/ui/skeleton'
 import { markChatSelection } from '#/lib/browser-performance'
 import { roomQueryKey } from '#/lib/room-query-keys'
@@ -289,7 +288,7 @@ function OnboardingPage() {
             <OnboardingShell>
                 <Section
                     title="Connect your model"
-                    description="Agent Room needs a model key to think, chat, and run scheduled work."
+                    description="Agent Room needs a model key to think, chat, and run scheduled tasks. Your key stays on this server."
                 >
                     <form
                         className="space-y-4"
@@ -304,21 +303,16 @@ function OnboardingPage() {
                                 <AlertDescription>{keyError}</AlertDescription>
                             </Alert>
                         ) : null}
-                        <FieldGroup
+                        <CredentialField
                             label="Model key"
-                            htmlFor="onboarding-model-key"
-                            hint="Your key stays on this server and is used for chat and scheduled jobs."
-                        >
-                            <Input
-                                id="onboarding-model-key"
-                                type="password"
-                                autoComplete="off"
-                                value={apiKey}
-                                onChange={(event) => setApiKey(event.target.value)}
-                                placeholder="Paste your model key"
-                                autoFocus
-                            />
-                        </FieldGroup>
+                            id="onboarding-model-key"
+                            hasCredential={false}
+                            replace
+                            onToggleReplace={() => {}}
+                            value={apiKey}
+                            onChange={setApiKey}
+                            placeholder="Paste your model key"
+                        />
                         <Button
                             type="submit"
                             disabled={saveKey.isPending || apiKey.trim().length === 0}

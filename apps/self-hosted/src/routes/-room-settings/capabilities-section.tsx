@@ -23,7 +23,6 @@ export function CapabilitiesSection({
 }: {
     draft: ConfigDraft
     appDefaults: OperatorConfigSnapshot['settings']['capabilityDefaults'] | null
-    appImage: OperatorConfigSnapshot['settings']['image'] | null
     effectiveCapabilities: RoomConfigSnapshot['effective']['capabilities'] | null
     searchReady: boolean
     imageReady: boolean

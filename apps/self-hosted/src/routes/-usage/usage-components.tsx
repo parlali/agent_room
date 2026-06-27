@@ -1,7 +1,7 @@
-import { Link } from '@tanstack/react-router'
 import { formatHostedUsd } from '@agent-room/billing'
-import { Badge } from '#/components/ui/badge'
-import { RoomGlyph, Stat, StatGrid } from '#/components/agent-room'
+import { Chip, RoomGlyph, Stat, StatGrid } from '#/components/agent-room'
+import { usageKindLabel } from '#/domain/capability-labels'
+import type { UsageEventKind } from '#/domain/domain-types'
 import { formatDurationMs, formatRelativeTime, formatTokens } from '#/domain/format'
 
 function formatUsageCost(usd: number): string {
@@ -65,7 +65,7 @@ function formatCount(value: number | null): string {
 function runTitle(event: UsageEventLike): string {
     const metadata = metadataRecord(event)
     const runKind = typeof metadata.runKind === 'string' ? metadata.runKind : null
-    if (event.kind === 'job' || runKind === 'scheduled') return 'Scheduled job ran'
+    if (event.kind === 'job' || runKind === 'scheduled') return 'Scheduled task ran'
     if (runKind === 'deep_work') return 'Deep work ran'
     if (runKind === 'subagent') return 'Subagent worked'
     if (runKind === 'maintenance') return 'Maintenance ran'
@@ -140,14 +140,7 @@ function buildTimelineItems(events: UsageEventLike[]): UsageTimelineItem[] {
                         : event.totalTokens === null
                           ? 'No token usage reported'
                           : 'Usage recorded',
-                kindLabel:
-                    event.kind === 'run'
-                        ? 'message'
-                        : event.kind === 'job'
-                          ? 'job'
-                          : event.kind === 'document_worker'
-                            ? 'document'
-                            : event.kind,
+                kindLabel: usageKindLabel(event.kind as UsageEventKind),
             }
         })
 }
@@ -160,13 +153,11 @@ export function UsageTimeline({
     events,
     roomsById,
     showRoom = false,
-    linkToRoom = false,
     padded = false,
 }: {
     events: UsageEventLike[]
     roomsById?: Map<string, UsageRoomContext>
     showRoom?: boolean
-    linkToRoom?: boolean
     padded?: boolean
 }) {
     const items = buildTimelineItems(events)
@@ -180,7 +171,6 @@ export function UsageTimeline({
                         item={item}
                         room={room}
                         showRoom={showRoom}
-                        linkToRoom={linkToRoom}
                         padded={padded}
                     />
                 )
@@ -193,21 +183,17 @@ function UsageTimelineRow({
     item,
     room,
     showRoom,
-    linkToRoom,
     padded,
 }: {
     item: UsageTimelineItem
     room?: UsageRoomContext | null
     showRoom: boolean
-    linkToRoom: boolean
     padded: boolean
 }) {
     const className = `flex items-start gap-3 ${padded ? 'px-4 py-3' : 'py-3'}`
     const body = (
         <>
-            <Badge variant="outline" className="mt-0.5 shrink-0">
-                {item.kindLabel}
-            </Badge>
+            <Chip className="mt-0.5 shrink-0">{item.kindLabel}</Chip>
             <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2 text-sm">
                     {showRoom && room ? (
@@ -228,17 +214,7 @@ function UsageTimelineRow({
 
     return (
         <li>
-            {linkToRoom && room ? (
-                <Link
-                    to="/rooms/$roomId/usage"
-                    params={{ roomId: room.roomId }}
-                    className={`${className} transition-colors hover:bg-accent/40`}
-                >
-                    {body}
-                </Link>
-            ) : (
-                <div className={className}>{body}</div>
-            )}
+            <div className={className}>{body}</div>
         </li>
     )
 }

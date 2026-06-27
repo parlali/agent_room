@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { Stat, StatGrid, StateBadge, LoadingRows } from '#/components/agent-room'
+import { usageKindLabel } from '#/domain/capability-labels'
 import { Button } from '#/components/ui/button'
 import {
     Sheet,
@@ -16,6 +17,7 @@ import {
     pluralize,
 } from '#/domain/format'
 import type { RoomCronJob } from '#/domain/room-execution-types'
+import { sanitizeRuntimeError } from '#/domain/runtime-error'
 import { describeScheduledTaskLastRun } from './last-run'
 import type { ScheduledTaskUsage } from './usage-server'
 
@@ -102,7 +104,11 @@ export function JobDetailSheet({
                             body={job.payloadSummary ?? 'No instruction stored'}
                         />
                         {job.lastError ? (
-                            <DetailBlock title="Last error" body={job.lastError} danger />
+                            <DetailBlock
+                                title="Last error"
+                                body={sanitizeRuntimeError(job.lastError)}
+                                danger
+                            />
                         ) : null}
                         <div className="grid gap-2 text-sm">
                             <DetailLine
@@ -147,11 +153,6 @@ export function JobDetailSheet({
                                     Open files
                                 </Link>
                             </Button>
-                            <Button asChild variant="outline" size="sm">
-                                <Link to="/rooms/$roomId/usage" params={{ roomId }}>
-                                    Open usage
-                                </Link>
-                            </Button>
                         </div>
 
                         <div>
@@ -174,7 +175,7 @@ export function JobDetailSheet({
                                             className="flex items-center justify-between gap-3 px-3 py-2 text-xs"
                                         >
                                             <span className="font-medium text-foreground">
-                                                {event.kind}
+                                                {usageKindLabel(event.kind)}
                                             </span>
                                             <span className="text-muted-foreground">
                                                 {formatRelativeTime(event.createdAt)} -{' '}

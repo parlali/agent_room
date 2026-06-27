@@ -2,9 +2,9 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
-import { CalendarClockIcon, PlusIcon } from 'lucide-react'
+import { CalendarClockIcon, PlusIcon, RefreshCwIcon } from 'lucide-react'
 
-import { RoomDashboardLayout } from '#/components/room-dashboard'
+import { RoomDashboardLayout, RoomSetupRequiredState } from '#/components/room-dashboard'
 import {
     DataTable,
     EmptyState,
@@ -19,6 +19,7 @@ import { pluralize } from '#/domain/format'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import {
     createCronJobServer,
+    getRoomSidebarServer,
     listCronJobsServer,
     removeCronJobServer,
     runCronJobServer,
@@ -69,6 +70,12 @@ function RoomJobsPage() {
         queryFn: () => getRoomConfigServer({ data: { roomId } }),
         staleTime: roomQueryPolicy.coldStaleMs,
     })
+    const sidebarQuery = useQuery({
+        queryKey: roomQueryKey.roomSidebar(roomId),
+        queryFn: () => getRoomSidebarServer({ data: { roomId } }),
+        staleTime: roomQueryPolicy.hotStaleMs,
+    })
+    const setupRequired = sidebarQuery.data?.setup.phase === 'setup_required'
 
     const [createOpen, setCreateOpen] = useState(false)
     const [editJob, setEditJob] = useState<RoomCronJob | null>(null)
@@ -240,6 +247,28 @@ function RoomJobsPage() {
                 >
                     {isLoading ? (
                         <LoadingRows count={3} />
+                    ) : setupRequired ? (
+                        <div className="p-4">
+                            <RoomSetupRequiredState description="Finish setup so this room can run scheduled tasks." />
+                        </div>
+                    ) : jobsQuery.isError ? (
+                        <div className="p-4">
+                            <EmptyState
+                                icon={CalendarClockIcon}
+                                title="Could not load scheduled tasks"
+                                description={describeJobMutationError(jobsQuery.error)}
+                                action={
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => void jobsQuery.refetch()}
+                                    >
+                                        <RefreshCwIcon />
+                                        Try again
+                                    </Button>
+                                }
+                            />
+                        </div>
                     ) : isEmpty ? (
                         <div className="p-4">
                             <EmptyState

@@ -15,7 +15,7 @@ import { toast } from 'sonner'
 import { useEffect, type ReactNode } from 'react'
 
 import { roomModeLabel } from '#/domain/room-modes'
-import { describeRoomState } from '#/domain/state'
+import { sanitizeRuntimeError } from '#/domain/runtime-error'
 import { Button } from '#/components/ui/button'
 import { Skeleton } from '#/components/ui/skeleton'
 import { Popover, PopoverContent, PopoverTrigger } from '#/components/ui/popover'
@@ -35,7 +35,7 @@ import { getRoomConfigServer } from '#/routes/-operator-config-server'
 import type { RoomRuntimeOverview, RoomSetupSnapshot } from '#/domain/room-execution-types'
 import type { RoomConfigSnapshot } from '#/server/configuration/operator-configuration'
 import { preloadRoomDashboardRoutes, scheduleRoomDashboardRoutePreload } from './preload'
-import { buildRoomReadinessChecks } from './room-readiness'
+import { buildRoomReadiness, roomNeedsSetup } from './room-readiness'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 
 export type RoomDashboardTab = 'chat' | 'files' | 'tasks' | 'memory' | 'settings'
@@ -135,6 +135,7 @@ function usePendingOnboardingRedirect(roomId: string): void {
                 roomId,
                 sessionKey: onboardingSessionKey,
             },
+            replace: true,
         })
     }, [navigate, onboardingSessionKey, roomId, shouldRedirect])
 }
@@ -183,6 +184,25 @@ function RoomHeader({ roomId, headerActions }: { roomId: string; headerActions?:
         )
     }
 
+    if (sidebarQuery.isError) {
+        return (
+            <PageHeader
+                title="Could not load this room"
+                subtitle="We hit a problem loading this room. Check your connection and try again."
+                actions={
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void sidebarQuery.refetch()}
+                        disabled={sidebarQuery.isFetching}
+                    >
+                        Try again
+                    </Button>
+                }
+            />
+        )
+    }
+
     if (!room || !setup) {
         return (
             <PageHeader
@@ -227,13 +247,8 @@ function RoomHeaderContent({
     setDesired: ReturnType<typeof useMutation<unknown, unknown, 'running' | 'stopped'>>
 }) {
     const paused = room.desiredState === 'stopped'
-    const state = describeRoomState({
-        status: room.status,
-        desiredState: room.desiredState,
-        healthStatus: room.healthStatus,
-    })
-    const checks = buildRoomReadinessChecks({ setup, config })
-    const needsSetup = setup.phase === 'setup_required' || room.status === 'setup_required'
+    const readiness = buildRoomReadiness({ room, setup, config })
+    const needsSetup = roomNeedsSetup({ setup, room })
     const startSession = useStartRoomSession({ roomId })
 
     return (
@@ -248,15 +263,15 @@ function RoomHeaderContent({
                             aria-label="Room readiness details"
                         >
                             <StateBadge
-                                tone={state.tone}
-                                label={state.label}
-                                pulse={state.tone === 'working'}
+                                tone={readiness.tone}
+                                label={readiness.label}
+                                pulse={readiness.tone === 'working'}
                             />
                         </PopoverTrigger>
                         <PopoverContent align="start" className="w-72 space-y-2 p-3">
-                            <p className="text-xs font-medium text-foreground">{state.label}</p>
+                            <p className="text-xs font-medium text-foreground">{readiness.label}</p>
                             <ul className="space-y-2">
-                                {checks.map((check) => (
+                                {readiness.checks.map((check) => (
                                     <li key={check.label} className="flex items-start gap-2">
                                         <span className="mt-1">
                                             <StatusDot tone={check.tone} />
@@ -279,7 +294,9 @@ function RoomHeaderContent({
             }
             subtitle={
                 room.lastError ? (
-                    <span className="text-danger-fg">{room.lastError}</span>
+                    <span className="text-muted-foreground">
+                        {sanitizeRuntimeError(room.lastError)}
+                    </span>
                 ) : undefined
             }
             actions={

@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { PlugIcon } from 'lucide-react'
 import {
+    AttentionBanner,
     EmptyState,
     LoadingRows,
     SaveBar,
@@ -10,6 +11,7 @@ import {
     StateBadge,
     ToggleSelector,
 } from '#/components/agent-room'
+import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import {
@@ -21,13 +23,18 @@ import {
 } from '#/components/ui/select'
 import { describeProviderStatus } from '#/domain/state'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
-import { getOperatorConfigServer, saveRoomConfigServer } from '#/routes/-operator-config-server'
+import {
+    getOperatorConfigServer,
+    getRoomConfigServer,
+    saveRoomConfigServer,
+} from '#/routes/-operator-config-server'
 import type { RoomConfigSnapshot } from '#/server/configuration/operator-configuration'
 import type { ConfigDraft } from './model'
 import { COMMON_TIMEZONES, configFromSnapshot, configsEqual } from './model'
 import { CapabilitiesSection } from './capabilities-section'
 import { GitHubSection } from './github-section'
 import { ModelSection } from './model-section'
+import { RoomModeSection } from './room-mode-section'
 import { SecretsSection } from './secrets-section'
 import { DangerZoneSection, PauseAndArchiveSection } from './lifecycle-sections'
 import { Disclosure } from './shared'
@@ -69,11 +76,12 @@ export function RoomSettingsBody({
     const dirty = draft !== null && baseline !== null && !configsEqual(draft, baseline)
 
     const mutation = useMutation({
-        mutationFn: (input: ConfigDraft) =>
-            saveRoomConfigServer({
+        mutationFn: async (input: ConfigDraft) => {
+            const latest = await getRoomConfigServer({ data: { roomId } })
+            return saveRoomConfigServer({
                 data: {
                     roomId,
-                    instructions: input.instructions,
+                    instructions: latest.config.instructions ?? '',
                     providerMode: input.providerMode,
                     providerConnectionId:
                         input.providerMode === 'app_connection'
@@ -92,7 +100,8 @@ export function RoomSettingsBody({
                     githubInstallationId: input.githubInstallationId || null,
                     githubRepositories: input.githubRepositories,
                 },
-            }),
+            })
+        },
         onSuccess: async () => {
             await onSaved()
             toast.success('Room settings saved')
@@ -103,8 +112,8 @@ export function RoomSettingsBody({
             }),
     })
 
-    const providers = snapshot?.providers ?? operatorQuery.data?.providers ?? []
-    const mcpConnections = snapshot?.mcpConnections ?? operatorQuery.data?.mcpConnections ?? []
+    const providers = snapshot?.providers ?? []
+    const mcpConnections = snapshot?.mcpConnections ?? []
 
     const handleSave = () => {
         if (!draft || !dirty || mutation.isPending) return
@@ -115,7 +124,7 @@ export function RoomSettingsBody({
         if (baseline) setDraft(baseline)
     }
 
-    if (loading || !draft) {
+    if (loading || !draft || !snapshot || operatorQuery.isLoading) {
         return (
             <Section title="Capabilities" description="Loading current configuration.">
                 <LoadingRows count={4} />
@@ -123,25 +132,66 @@ export function RoomSettingsBody({
         )
     }
 
+    const operatorData = operatorQuery.data
+
+    if (!operatorData) {
+        return (
+            <>
+                <Section
+                    title="Capabilities"
+                    description="Room configuration options could not load."
+                >
+                    <AttentionBanner
+                        tone="danger"
+                        title="Could not load configuration options"
+                        description="Something went wrong loading this room's settings. Try again."
+                        action={
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => operatorQuery.refetch()}
+                                disabled={operatorQuery.isFetching}
+                            >
+                                Retry
+                            </Button>
+                        }
+                    />
+                </Section>
+
+                <PauseAndArchiveSection roomId={roomId} paused={paused} loading={roomsLoading} />
+
+                <DangerZoneSection
+                    roomId={roomId}
+                    roomSlug={roomSlug}
+                    roomDisplayName={roomDisplayName}
+                    loading={roomsLoading}
+                />
+            </>
+        )
+    }
+
     return (
         <>
             <CapabilitiesSection
                 draft={draft}
-                appDefaults={operatorQuery.data?.settings.capabilityDefaults ?? null}
-                appImage={operatorQuery.data?.settings.image ?? null}
-                effectiveCapabilities={snapshot?.effective.capabilities ?? null}
-                searchReady={snapshot?.effective.searchReady ?? false}
-                imageReady={snapshot?.effective.imageReady ?? false}
+                appDefaults={operatorData.settings.capabilityDefaults ?? null}
+                effectiveCapabilities={snapshot.effective.capabilities}
+                searchReady={snapshot.effective.searchReady}
+                imageReady={snapshot.effective.imageReady}
                 onChange={(patch) => setDraft((prev) => (prev ? { ...prev, ...patch } : prev))}
                 saving={mutation.isPending}
+            />
+
+            <RoomModeSection
+                draft={draft}
+                onChange={(patch) => setDraft((prev) => (prev ? { ...prev, ...patch } : prev))}
             />
 
             <ModelSection
                 draft={draft}
                 providers={providers}
-                managedHostedAvailable={
-                    operatorQuery.data?.onboarding.managedOpenRouterAvailable ?? null
-                }
+                managedHostedAvailable={operatorData.onboarding.managedOpenRouterAvailable ?? null}
                 onChange={(patch) => setDraft((prev) => (prev ? { ...prev, ...patch } : prev))}
             />
 
@@ -151,7 +201,7 @@ export function RoomSettingsBody({
             >
                 <GitHubSection
                     draft={draft}
-                    github={operatorQuery.data?.github ?? snapshot?.github ?? null}
+                    github={snapshot.github}
                     onChange={(patch) => setDraft((prev) => (prev ? { ...prev, ...patch } : prev))}
                 />
 
@@ -203,17 +253,9 @@ export function RoomSettingsBody({
                     )}
                 </Section>
 
-                <SecretsSection
-                    roomId={roomId}
-                    loading={loading}
-                    secrets={snapshot?.roomSecrets ?? []}
-                    onSaved={onSaved}
-                />
+                <SecretsSection roomId={roomId} secrets={snapshot.roomSecrets} onSaved={onSaved} />
 
-                <Section
-                    title="Task timezone"
-                    description="Scheduled tasks run on this timezone."
-                >
+                <Section title="Task timezone" description="Scheduled tasks run on this timezone.">
                     <div className="grid gap-4 sm:grid-cols-2">
                         <div className="space-y-1.5">
                             <Label htmlFor="room-timezone-pick">Common zones</Label>

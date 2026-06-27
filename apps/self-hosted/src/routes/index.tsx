@@ -15,7 +15,9 @@ import {
 import { Button } from '#/components/ui/button'
 import { CardButton } from '#/components/ui/card'
 import { cn } from '#/lib/utils'
-import { describeRoomState } from '#/domain/state'
+import { describeRoomState, toneStyles } from '#/domain/state'
+import { sanitizeRuntimeError } from '#/domain/runtime-error'
+import { ROOM_DESCRIPTION } from '#/components/agent-room/create-room-form'
 import { formatRelativeTime } from '#/domain/format'
 import { isHostedBalanceLow } from '@agent-room/billing'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
@@ -51,7 +53,7 @@ function HomePage() {
             header={
                 <PageHeader
                     title="Rooms"
-                    subtitle="Each room is an isolated workspace for an AI coworker."
+                    subtitle={ROOM_DESCRIPTION}
                     actions={<CreateRoomButton />}
                 />
             }
@@ -123,7 +125,11 @@ function RoomCard({ room }: { room: RoomRuntimeOverview }) {
         healthStatus: room.healthStatus,
     })
     const needsSetup = room.status === 'setup_required'
-    const attention = needsSetup ? 'Needs setup before it can run.' : room.lastError
+    const attention = needsSetup
+        ? 'Finish setup to start working.'
+        : room.lastError
+          ? sanitizeRuntimeError(room.lastError)
+          : null
 
     return (
         <CardButton asChild className="flex-col gap-3 p-4">
@@ -140,12 +146,7 @@ function RoomCard({ room }: { room: RoomRuntimeOverview }) {
                     </div>
                 </div>
                 {attention ? (
-                    <p
-                        className={cn(
-                            'line-clamp-2 text-xs',
-                            needsSetup ? 'text-attention-fg' : 'text-danger-fg',
-                        )}
-                    >
+                    <p className={cn('line-clamp-2 text-xs', toneStyles[state.tone].text)}>
                         {attention}
                     </p>
                 ) : null}

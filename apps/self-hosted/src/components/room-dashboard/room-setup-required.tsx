@@ -5,7 +5,8 @@ import { EmptyState } from '#/components/agent-room'
 
 export const roomSetupRequiredCopy = {
     title: 'Finish setup to start working',
-    description: 'Connect a model in Settings so this room can chat, run tasks, and work with files.',
+    description:
+        'Connect a model in Settings so this room can chat, run tasks, and work with files.',
 } as const
 
 export function RoomSetupRequiredState({

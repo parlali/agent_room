@@ -1,10 +1,14 @@
 import { Link, Outlet, createFileRoute, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
-import { MessagesSquareIcon } from 'lucide-react'
+import { MessagesSquareIcon, RotateCwIcon, TriangleAlertIcon } from 'lucide-react'
 
 import { Button } from '#/components/ui/button'
-import { RoomDashboardLayout, RoomSetupRequiredState } from '#/components/room-dashboard'
+import {
+    RoomDashboardLayout,
+    RoomSetupRequiredState,
+    roomNeedsSetup,
+} from '#/components/room-dashboard'
 import { EmptyState, LoadingPage, useStartRoomSession } from '#/components/agent-room'
 import { markChatSelection } from '#/lib/browser-performance'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
@@ -42,10 +46,12 @@ function RoomChatLanding({ roomId }: { roomId: string }) {
 
     const snapshot = sidebarQuery.data
     const setup = snapshot?.setup ?? null
+    const room = snapshot?.room ?? null
     const threads = snapshot?.threads ?? []
     const latestThread = threads[0] ?? null
     const onboarding = setup?.phase === 'onboarding'
     const shouldOpenLatest = Boolean(latestThread) && !onboarding
+    const needsSetup = Boolean(setup && room && roomNeedsSetup({ setup, room }))
 
     useEffect(() => {
         if (!shouldOpenLatest || !latestThread) return
@@ -65,7 +71,28 @@ function RoomChatLanding({ roomId }: { roomId: string }) {
         )
     }
 
-    if (setup?.phase === 'setup_required') {
+    if (sidebarQuery.isError) {
+        return (
+            <RoomDashboardLayout roomId={roomId} activeTab="chat">
+                <EmptyState
+                    icon={TriangleAlertIcon}
+                    title="Could not load this room"
+                    description="We hit a problem loading this room. Check your connection and try again."
+                    action={
+                        <Button
+                            variant="outline"
+                            onClick={() => void sidebarQuery.refetch()}
+                            disabled={sidebarQuery.isFetching}
+                        >
+                            <RotateCwIcon /> Try again
+                        </Button>
+                    }
+                />
+            </RoomDashboardLayout>
+        )
+    }
+
+    if (needsSetup) {
         return (
             <RoomDashboardLayout roomId={roomId} activeTab="chat">
                 <RoomSetupRequiredState
@@ -83,18 +110,15 @@ function RoomChatLanding({ roomId }: { roomId: string }) {
 
     return (
         <RoomDashboardLayout roomId={roomId} activeTab="chat">
-            <StartConversationEmptyState roomId={roomId} canStart={setup?.canStartSessions ?? true} />
+            <StartConversationEmptyState
+                roomId={roomId}
+                canStart={setup?.canStartSessions ?? true}
+            />
         </RoomDashboardLayout>
     )
 }
 
-function StartConversationEmptyState({
-    roomId,
-    canStart,
-}: {
-    roomId: string
-    canStart: boolean
-}) {
+function StartConversationEmptyState({ roomId, canStart }: { roomId: string; canStart: boolean }) {
     const startSession = useStartRoomSession({ roomId })
     return (
         <EmptyState

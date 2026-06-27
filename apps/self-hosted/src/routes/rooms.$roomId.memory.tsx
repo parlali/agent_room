@@ -6,14 +6,9 @@ import { toast } from 'sonner'
 
 import { Button } from '#/components/ui/button'
 import { RoomDashboardLayout } from '#/components/room-dashboard'
-import {
-    AttentionBanner,
-    EmptyState,
-    LoadingRows,
-    SaveBar,
-    Section,
-} from '#/components/agent-room'
+import { AttentionBanner, EmptyState, LoadingRows, SaveBar, Section } from '#/components/agent-room'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
+import { sanitizeRuntimeError } from '#/domain/runtime-error'
 import {
     canonicalMemoryJson,
     maxMemoryBytes,
@@ -28,7 +23,6 @@ import {
     getRoomMemoryServer,
     getRoomPersonalityServer,
     listRoomsServer,
-    saveRoomPersonalityServer,
     updateRoomIdentityServer,
     updateRoomMemoryServer,
 } from '#/routes/-room-runtime-server'
@@ -56,6 +50,10 @@ import {
 export const Route = createFileRoute('/rooms/$roomId/memory')({
     component: RoomMemoryPage,
 })
+
+function isMemoryConflict(message: string): boolean {
+    return /changed before (update|save)/i.test(message)
+}
 
 function RoomMemoryPage() {
     const { roomId } = Route.useParams()
@@ -147,7 +145,7 @@ function CoworkerBrief({ roomId }: { roomId: string }) {
 
     const saveMutation = useMutation({
         mutationFn: async () => {
-            if (!memory || !personality || !identity || !instructions || !configSnapshot) {
+            if (!memory || !personality || !identity || !instructions) {
                 throw new Error('Brief is not loaded yet')
             }
             if (identity.dirty && identity.draft.displayName.trim().length === 0) {
@@ -156,7 +154,7 @@ function CoworkerBrief({ roomId }: { roomId: string }) {
             if (memory.dirty && overBudget) {
                 throw new Error('Memory is over the size limit')
             }
-            if (memory.dirty) {
+            if (memory.dirty || personality.dirty) {
                 const payload: RoomMemory = {
                     ...normaliseMemoryForSave(memory.draft),
                     personality: personality.draft,
@@ -164,13 +162,10 @@ function CoworkerBrief({ roomId }: { roomId: string }) {
                 const result = await updateRoomMemoryServer({
                     data: { roomId, memory: payload, expectedHash: memory.version },
                 })
-                memory.commit(result.memory as RoomMemory, result.hash)
-            }
-            if (personality.dirty) {
-                const result = await saveRoomPersonalityServer({
-                    data: { roomId, form: personality.draft },
-                })
-                personality.commit(result.form, personalityVersion(result.form))
+                const savedMemory = result.memory as RoomMemory
+                memory.commit(savedMemory, result.hash)
+                const savedPersonality = savedMemory.personality ?? personality.draft
+                personality.commit(savedPersonality, personalityVersion(savedPersonality))
             }
             if (identity.dirty) {
                 const fields: IdentityFields = {
@@ -187,8 +182,11 @@ function CoworkerBrief({ roomId }: { roomId: string }) {
                 identity.commit(fields, identityVersion(fields))
             }
             if (instructions.dirty) {
+                const latest = (await getRoomConfigServer({
+                    data: { roomId },
+                })) as RoomConfigSnapshot
                 await saveRoomConfigServer({
-                    data: buildRoomConfigPayload(configSnapshot, instructions.draft),
+                    data: buildRoomConfigPayload(latest, instructions.draft),
                 })
                 instructions.commit(instructions.draft, instructions.draft)
             }
@@ -203,21 +201,35 @@ function CoworkerBrief({ roomId }: { roomId: string }) {
             toast.success('Brief saved')
         },
         onError: async (error: unknown) => {
-            const message = error instanceof Error ? error.message : 'Unexpected error'
-            if (message.includes('changed before update')) {
-                await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomMemory(roomId) })
+            const message = error instanceof Error ? error.message : ''
+            if (isMemoryConflict(message)) {
+                await Promise.all([
+                    queryClient.invalidateQueries({
+                        queryKey: roomQueryKey.roomMemory(roomId),
+                    }),
+                    queryClient.invalidateQueries({
+                        queryKey: roomQueryKey.roomPersonality(roomId),
+                    }),
+                ])
                 return
             }
-            toast.error('Could not save brief', { description: message })
+            toast.error('We could not save all of your changes', {
+                description: `${sanitizeRuntimeError(message)} Any sections that already saved were kept.`,
+            })
         },
     })
 
     const anyError =
-        roomsQuery.isError ||
-        memoryQuery.isError ||
-        personalityQuery.isError ||
-        configQuery.isError
+        roomsQuery.isError || memoryQuery.isError || personalityQuery.isError || configQuery.isError
     const ready = identity && memory && personality && instructions
+    const roomMissing = roomsQuery.isSuccess && !room
+
+    const retryLoad = () => {
+        roomsQuery.refetch()
+        memoryQuery.refetch()
+        personalityQuery.refetch()
+        configQuery.refetch()
+    }
 
     if (anyError && !ready) {
         const error =
@@ -228,7 +240,33 @@ function CoworkerBrief({ roomId }: { roomId: string }) {
                     <EmptyState
                         icon={BrainIcon}
                         title="Could not load this brief"
-                        description={error instanceof Error ? error.message : 'Unexpected error.'}
+                        description={sanitizeRuntimeError(
+                            error instanceof Error ? error.message : null,
+                        )}
+                        action={
+                            <Button variant="outline" onClick={retryLoad}>
+                                Try again
+                            </Button>
+                        }
+                    />
+                </Section>
+            </div>
+        )
+    }
+
+    if (roomMissing) {
+        return (
+            <div className="flex w-full flex-col gap-6">
+                <Section title="Coworker brief">
+                    <EmptyState
+                        icon={BrainIcon}
+                        title="This room is not available"
+                        description="We could not find this room. It may have been removed, or you may not have access to it."
+                        action={
+                            <Button variant="outline" onClick={retryLoad}>
+                                Try again
+                            </Button>
+                        }
                     />
                 </Section>
             </div>

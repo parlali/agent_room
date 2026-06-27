@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ChevronDownIcon, FilesIcon, Loader2Icon, MonitorIcon, PencilIcon } from 'lucide-react'
 
 import { StateBadge } from '#/components/agent-room'
+import { usageProviderLabel } from '#/domain/capability-labels'
 import { Button } from '#/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '#/components/ui/collapsible'
 import {
@@ -23,7 +24,6 @@ export function ChatHeader({
     sessionLabel,
     sessionToneKey,
     provider,
-    model,
     compaction,
     showArtifacts,
     artifactsCount,
@@ -39,7 +39,6 @@ export function ChatHeader({
     sessionLabel: string
     sessionToneKey: ReturnType<typeof describeSessionState>['tone']
     provider: string | null
-    model: string | null
     compaction: RoomExecutionSnapshot['threads'][number]['compaction'] | null
     showArtifacts: boolean
     artifactsCount: number
@@ -53,15 +52,13 @@ export function ChatHeader({
 }) {
     const [renameOpen, setRenameOpen] = useState(false)
     const [renameTitle, setRenameTitle] = useState(sessionTitle)
-    const modelLabel = [provider, model].filter(Boolean).join(' / ')
-    const compactionLabel = compaction
+    const modelLabel = provider ? usageProviderLabel(provider) : null
+    const conversationLabel = compaction
         ? compaction.compacting
-            ? 'Compacting context'
-            : compaction.count > 0
-              ? `Context compacted ${compaction.count} ${compaction.count === 1 ? 'time' : 'times'}`
-              : compaction.enabled
-                ? 'Auto-compact on'
-                : 'Auto-compact off'
+            ? 'Tidying up older messages'
+            : compaction.enabled
+              ? 'Keeps long conversations tidy automatically'
+              : 'Keeps the full conversation'
         : null
 
     useEffect(() => {
@@ -96,7 +93,7 @@ export function ChatHeader({
                             <PencilIcon className="size-3.5" />
                         </Button>
                     </div>
-                    {modelLabel || compactionLabel ? (
+                    {modelLabel || conversationLabel ? (
                         <Collapsible>
                             <CollapsibleTrigger
                                 className={cn(
@@ -109,8 +106,8 @@ export function ChatHeader({
                             </CollapsibleTrigger>
                             <CollapsibleContent className="flex flex-col text-[0.6875rem] text-muted-foreground">
                                 {modelLabel ? <span className="truncate">{modelLabel}</span> : null}
-                                {compactionLabel ? (
-                                    <span className="truncate">{compactionLabel}</span>
+                                {conversationLabel ? (
+                                    <span className="truncate">{conversationLabel}</span>
                                 ) : null}
                             </CollapsibleContent>
                         </Collapsible>

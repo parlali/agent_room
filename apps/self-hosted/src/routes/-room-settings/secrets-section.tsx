@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { KeyRoundIcon, Loader2Icon, PlusIcon, ShieldIcon } from 'lucide-react'
-import { EmptyState, LoadingRows, Section, StateBadge } from '#/components/agent-room'
+import { EmptyState, Section, StateBadge } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
@@ -29,12 +29,10 @@ import { emptySecretDraft } from './model'
 
 export function SecretsSection({
     roomId,
-    loading,
     secrets,
     onSaved,
 }: {
     roomId: string
-    loading: boolean
     secrets: RoomSecretSummary[]
     onSaved: () => Promise<void>
 }) {
@@ -98,11 +96,9 @@ export function SecretsSection({
                     Add secret
                 </Button>
             }
-            bodyClassName={loading || secrets.length === 0 ? 'p-4' : 'p-0'}
+            bodyClassName={secrets.length === 0 ? 'p-4' : 'p-0'}
         >
-            {loading ? (
-                <LoadingRows count={2} />
-            ) : secrets.length === 0 ? (
+            {secrets.length === 0 ? (
                 <EmptyState
                     icon={KeyRoundIcon}
                     title="No room secrets yet"

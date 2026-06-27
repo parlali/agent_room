@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from '@tanstack/react-router'
+import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { InfoIcon, LogOutIcon, SettingsIcon } from 'lucide-react'
 
 import { Button } from '#/components/ui/button'
@@ -14,7 +15,7 @@ import {
 import { bottomTabClass } from '#/components/agent-room'
 import { logoutServer } from '#/routes/-auth-server'
 import type { AuthUserSnapshot } from '#/routes/-auth-server'
-import { initialsFromName } from '#/domain/format'
+import { initialsFromName, roleLabel } from '#/domain/format'
 import { roomQueryKey } from '#/lib/room-query-keys'
 import { ThemeControl } from './theme-control'
 
@@ -27,6 +28,8 @@ export function UserMenu({
 }) {
     const queryClient = useQueryClient()
     const navigate = useNavigate()
+    const [open, setOpen] = useState(false)
+    const pathname = useRouterState({ select: (s) => s.location.pathname })
 
     const logout = useMutation({
         mutationFn: () => logoutServer(),
@@ -38,13 +41,18 @@ export function UserMenu({
 
     const email = user?.email ?? null
     const initials = initialsFromName(email ? (email.split('@')[0] ?? email) : null, '··')
-    const roleLabel = user ? (user.role === 'root' ? 'Root operator' : 'Operator') : 'Account'
+    const accountLabel = user ? roleLabel(user.role) : 'Account'
+    const tabActive = open || pathname.startsWith('/settings') || pathname.startsWith('/about')
 
     return (
-        <DropdownMenu>
+        <DropdownMenu open={open} onOpenChange={setOpen}>
             <DropdownMenuTrigger asChild>
                 {variant === 'tab' ? (
-                    <button type="button" className={bottomTabClass(false)} aria-label="Account">
+                    <button
+                        type="button"
+                        className={bottomTabClass(tabActive)}
+                        aria-label="Account"
+                    >
                         <span className="flex size-5 items-center justify-center rounded-md bg-foreground text-[0.625rem] font-semibold text-background">
                             {initials}
                         </span>
@@ -68,7 +76,7 @@ export function UserMenu({
                 <DropdownMenuLabel className="px-2 py-1.5">
                     <div className="truncate text-sm font-medium">{email ?? 'Account'}</div>
                     <div className="mt-0.5 text-xs font-normal text-muted-foreground">
-                        {roleLabel}
+                        {accountLabel}
                     </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />

@@ -1,8 +1,8 @@
 import { GlobeIcon, KeyRoundIcon, SparklesIcon } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
-import type { Tone } from '#/domain/state'
-import type { RoomSetupSnapshot } from '#/domain/room-execution-types'
+import { describeRoomState, type Tone } from '#/domain/state'
+import type { RoomRuntimeOverview, RoomSetupSnapshot } from '#/domain/room-execution-types'
 import type { RoomConfigSnapshot } from '#/server/configuration/operator-configuration'
 
 export interface RoomReadinessCheck {
@@ -12,14 +12,71 @@ export interface RoomReadinessCheck {
     detail: string
 }
 
-export function buildRoomReadinessChecks(input: {
+export interface RoomReadiness {
+    tone: Tone
+    label: string
+    checks: RoomReadinessCheck[]
+}
+
+const TONE_SEVERITY: Record<Tone, number> = {
+    ready: 0,
+    info: 1,
+    muted: 2,
+    working: 3,
+    attention: 4,
+    danger: 5,
+}
+
+export function roomNeedsSetup(input: {
+    setup: Pick<RoomSetupSnapshot, 'phase'>
+    room: Pick<RoomRuntimeOverview, 'status'>
+}): boolean {
+    return input.setup.phase === 'setup_required' || input.room.status === 'setup_required'
+}
+
+export function buildRoomReadiness(input: {
+    room: Pick<RoomRuntimeOverview, 'status' | 'desiredState' | 'healthStatus'>
+    setup: RoomSetupSnapshot
+    config: RoomConfigSnapshot | null
+}): RoomReadiness {
+    const checks = buildRoomReadinessChecks({ setup: input.setup, config: input.config })
+    const summary = summarizeReadiness(input.room, checks)
+    return { tone: summary.tone, label: summary.label, checks }
+}
+
+function summarizeReadiness(
+    room: Pick<RoomRuntimeOverview, 'status' | 'desiredState' | 'healthStatus'>,
+    checks: RoomReadinessCheck[],
+): { tone: Tone; label: string } {
+    const runtime = describeRoomState({
+        status: room.status,
+        desiredState: room.desiredState,
+        healthStatus: room.healthStatus,
+    })
+    if (runtime.kind === 'paused' || runtime.kind === 'starting' || runtime.kind === 'failed') {
+        return { tone: runtime.tone, label: runtime.label }
+    }
+    const worst = checks.reduce<Tone>(
+        (acc, check) => (TONE_SEVERITY[check.tone] > TONE_SEVERITY[acc] ? check.tone : acc),
+        'ready',
+    )
+    if (worst === 'attention' || worst === 'danger') {
+        return { tone: 'attention', label: 'Needs setup' }
+    }
+    if (worst === 'working') {
+        return { tone: 'working', label: 'Getting ready' }
+    }
+    if (worst === 'muted') {
+        return { tone: 'muted', label: 'Checking setup' }
+    }
+    return { tone: 'ready', label: 'Ready' }
+}
+
+function buildRoomReadinessChecks(input: {
     setup: RoomSetupSnapshot
     config: RoomConfigSnapshot | null
 }): RoomReadinessCheck[] {
-    const checks: RoomReadinessCheck[] = [
-        modelCheck(input.config),
-        conversationsCheck(input.setup),
-    ]
+    const checks: RoomReadinessCheck[] = [modelCheck(input.config), conversationsCheck(input.setup)]
     const web = webAccessCheck(input.config)
     if (web) checks.push(web)
     return checks

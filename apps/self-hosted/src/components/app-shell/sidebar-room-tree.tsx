@@ -6,13 +6,7 @@ import { describeRoomState } from '#/domain/state'
 import { StatusDot } from '#/components/agent-room'
 import type { RoomRuntimeOverview } from '#/domain/room-execution-types'
 
-export function SidebarRoomTree({
-    rooms,
-    onNavigate,
-}: {
-    rooms: RoomRuntimeOverview[]
-    onNavigate?: () => void
-}) {
+export function SidebarRoomTree({ rooms }: { rooms: RoomRuntimeOverview[] }) {
     const pathname = useRouterState({ select: (s) => s.location.pathname })
     const [optimisticPathname, setOptimisticPathname] = useState<string | null>(null)
     const activePathname = optimisticPathname ?? pathname
@@ -27,7 +21,7 @@ export function SidebarRoomTree({
     if (rooms.length === 0) {
         return (
             <div className="px-2 py-4 text-xs text-muted-foreground">
-                No rooms yet. Add your first one below.
+                No rooms yet. Use the + above to add one.
             </div>
         )
     }
@@ -47,7 +41,6 @@ export function SidebarRoomTree({
                         params={{ roomId: room.roomId }}
                         onClick={() => {
                             setOptimisticPathname(`/rooms/${room.roomId}`)
-                            onNavigate?.()
                         }}
                         className={cn(
                             'flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-sidebar-accent',

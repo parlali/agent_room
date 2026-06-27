@@ -7,7 +7,7 @@ import {
     isHostedBalanceLow,
     type HostedPlanTier,
 } from '@agent-room/billing'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import {
     CheckIcon,
     ChevronDownIcon,
@@ -33,6 +33,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '#/component
 import { usageProviderLabel } from '#/domain/capability-labels'
 import { formatDateTime } from '#/domain/format'
 import type { Tone } from '#/domain/state'
+import { roomQueryKey } from '#/lib/room-query-keys'
+import { getOperatorConfigServer } from './-operator-config-server'
 import { requireRouteUser } from './-route-auth'
 import { ManagedCreditsBadge } from './-billing/managed-badge'
 import {
@@ -192,6 +194,10 @@ function BillingActiveContent({
     const search = Route.useSearch()
     const navigate = useNavigate()
     const checkoutMutation = useBillingCheckout()
+    const onboardingQuery = useQuery({
+        queryKey: roomQueryKey.operatorConfig,
+        queryFn: () => getOperatorConfigServer(),
+    })
     const [activationTimedOut, setActivationTimedOut] = useState(false)
 
     const available = hostedAvailableCents(summary)
@@ -227,10 +233,21 @@ function BillingActiveContent({
     }, [awaitingActivation, refetch])
 
     useEffect(() => {
-        if (subscriptionReturned && summary.active) {
+        if (!subscriptionReturned || !summary.active) return
+        if (onboardingQuery.isPending) return
+        if (onboardingQuery.data && !onboardingQuery.data.onboarding.completed) {
             void navigate({ to: '/onboarding', replace: true })
+            return
         }
-    }, [subscriptionReturned, summary.active, navigate])
+        toast.success('Your subscription is active')
+        void navigate({ to: '/billing', search: { checkout: null }, replace: true })
+    }, [
+        subscriptionReturned,
+        summary.active,
+        onboardingQuery.isPending,
+        onboardingQuery.data,
+        navigate,
+    ])
 
     return (
         <div className="flex flex-col gap-4">
@@ -312,7 +329,7 @@ function BillingActiveContent({
                 <BillingUsageList events={summary.usage} />
             </Section>
 
-            <AdvancedDisclosure summary={summary} />
+            <AdvancedDisclosure />
         </div>
     )
 }
@@ -447,7 +464,7 @@ function BillingUsageList({ events }: { events: HostedBillingUsageEvent[] }) {
     )
 }
 
-function AdvancedDisclosure({ summary }: { summary: HostedBillingSummary }) {
+function AdvancedDisclosure() {
     const [open, setOpen] = useState(false)
     return (
         <Collapsible open={open} onOpenChange={setOpen}>
@@ -468,11 +485,6 @@ function AdvancedDisclosure({ summary }: { summary: HostedBillingSummary }) {
                         You can connect your own model key in room settings. When a key is present
                         it is used first, before managed credits.
                     </p>
-                    {summary.providerSources.length ? (
-                        <p className="mt-3 text-xs text-muted-foreground">
-                            Model routing order: {summary.providerSources.join(', ')}.
-                        </p>
-                    ) : null}
                 </Section>
             </CollapsibleContent>
         </Collapsible>

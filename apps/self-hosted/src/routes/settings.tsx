@@ -2,13 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 import { SettingsIcon } from 'lucide-react'
-import {
-    KeyValueList,
-    LoadingRows,
-    Page,
-    PageHeader,
-    Section,
-} from '#/components/agent-room'
+import { KeyValueList, LoadingRows, Page, PageHeader, Section } from '#/components/agent-room'
 import { cn } from '#/lib/utils'
 import { roomQueryKey } from '#/lib/room-query-keys'
 import { currentUserServer } from './-auth-server'
@@ -35,8 +29,7 @@ export const Route = createFileRoute('/settings')({
             typeof search.setup_action === 'string' && search.setup_action
                 ? search.setup_action
                 : undefined,
-        githubState:
-            typeof search.state === 'string' && search.state ? search.state : undefined,
+        githubState: typeof search.state === 'string' && search.state ? search.state : undefined,
     }),
     component: SettingsPage,
 })
@@ -48,21 +41,51 @@ const sectionNav = [
     { id: 'advanced', label: 'Providers & integrations' },
 ]
 
-function SectionNav() {
+const sectionIds = sectionNav.map((entry) => entry.id)
+
+function useActiveSection(ids: string[]): string {
+    const [active, setActive] = useState(ids[0] ?? '')
+    useEffect(() => {
+        if (typeof window === 'undefined') return
+        const observer = new IntersectionObserver(
+            (entries) => {
+                const visible = entries
+                    .filter((entry) => entry.isIntersecting)
+                    .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
+                if (visible[0]) setActive(visible[0].target.id)
+            },
+            { rootMargin: '-40% 0px -55% 0px', threshold: 0 },
+        )
+        for (const id of ids) {
+            const element = document.getElementById(id)
+            if (element) observer.observe(element)
+        }
+        return () => observer.disconnect()
+    }, [ids])
+    return active
+}
+
+function SectionNav({ active }: { active: string }) {
     return (
         <nav className="flex gap-1 overflow-x-auto">
-            {sectionNav.map((entry) => (
-                <a
-                    key={entry.id}
-                    href={`#${entry.id}`}
-                    className={cn(
-                        'shrink-0 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground',
-                        'transition-colors hover:bg-accent hover:text-foreground',
-                    )}
-                >
-                    {entry.label}
-                </a>
-            ))}
+            {sectionNav.map((entry) => {
+                const isActive = entry.id === active
+                return (
+                    <a
+                        key={entry.id}
+                        href={`#${entry.id}`}
+                        aria-current={isActive ? 'true' : undefined}
+                        className={cn(
+                            'shrink-0 rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                            isActive
+                                ? 'bg-accent text-foreground'
+                                : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                        )}
+                    >
+                        {entry.label}
+                    </a>
+                )
+            })}
         </nav>
     )
 }
@@ -89,6 +112,7 @@ function SettingsPage() {
         staleTime: 5 * 60_000,
     })
     const user = userQuery.data
+    const activeSection = useActiveSection(sectionIds)
 
     return (
         <Page
@@ -101,10 +125,10 @@ function SettingsPage() {
                     subtitle="Your account, appearance, usage, and everything your rooms can do."
                 />
             }
-            subnav={<SectionNav />}
+            subnav={<SectionNav active={activeSection} />}
         >
             <div className="flex flex-col gap-10">
-                <section id="account" className="scroll-mt-32 space-y-3">
+                <section id="account" className="scroll-mt-40 space-y-3">
                     <Section
                         title="Account"
                         description="The signed-in operator for this workspace."
@@ -129,7 +153,7 @@ function SettingsPage() {
                     </Section>
                 </section>
 
-                <section id="appearance" className="scroll-mt-32 space-y-3">
+                <section id="appearance" className="scroll-mt-40 space-y-3">
                     <Section
                         title="Appearance"
                         description="Choose how Agent Room looks on this device."
@@ -138,7 +162,7 @@ function SettingsPage() {
                     </Section>
                 </section>
 
-                <section id="usage" className="scroll-mt-32 space-y-3">
+                <section id="usage" className="scroll-mt-40 space-y-3">
                     <div className="space-y-0.5">
                         <h2 className="text-base font-semibold tracking-tight text-foreground">
                             Usage & billing
@@ -150,7 +174,7 @@ function SettingsPage() {
                     <UsageBillingSection hosted={hosted} />
                 </section>
 
-                <section id="advanced" className="scroll-mt-32 space-y-3">
+                <section id="advanced" className="scroll-mt-40 space-y-3">
                     <div className="space-y-0.5">
                         <h2 className="text-base font-semibold tracking-tight text-foreground">
                             Providers & integrations

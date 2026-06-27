@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { BarChart3Icon } from 'lucide-react'
-import { formatHostedUsd, isHostedBalanceLow } from '@agent-room/billing'
+import { formatHostedUsd, hostedPlanTierByKey, isHostedBalanceLow } from '@agent-room/billing'
 import {
     AttentionBanner,
     EmptyState,
@@ -29,6 +29,28 @@ function HostedCreditsSummary() {
         return (
             <Section title="Plan and credits">
                 <LoadingRows count={1} />
+            </Section>
+        )
+    }
+    if (billingQuery.isError) {
+        return (
+            <Section title="Plan and credits">
+                <AttentionBanner
+                    tone="danger"
+                    title="Could not load plan and credits"
+                    description="This is a temporary problem. Retry to load your plan and credit balance."
+                    action={
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => billingQuery.refetch()}
+                            disabled={billingQuery.isFetching}
+                        >
+                            {billingQuery.isFetching ? 'Retrying...' : 'Retry'}
+                        </Button>
+                    }
+                />
             </Section>
         )
     }
@@ -63,7 +85,10 @@ function HostedCreditsSummary() {
                 ) : null}
                 <StatGrid className="sm:grid-cols-2">
                     <Stat label="Available credits" value={formatHostedUsd(available)} />
-                    <Stat label="Plan" value={summary.account.planKey} />
+                    <Stat
+                        label="Plan"
+                        value={hostedPlanTierByKey(summary.account.planKey)?.name ?? 'No plan'}
+                    />
                 </StatGrid>
             </div>
         </Section>

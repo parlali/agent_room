@@ -1,4 +1,5 @@
 import { defaultJobSchedule, normalizeJobSchedule, type JobSchedule } from '#/domain/job-schedule'
+import { sanitizeRuntimeError } from '#/domain/runtime-error'
 import type { RoomCronJob } from '#/domain/room-execution-types'
 
 export interface JobFormState {
@@ -20,5 +21,5 @@ export function jobToForm(job: RoomCronJob): JobFormState {
 }
 
 export function describeJobMutationError(error: unknown): string {
-    return error instanceof Error ? error.message : 'Unexpected error'
+    return sanitizeRuntimeError(error instanceof Error ? error.message : '')
 }

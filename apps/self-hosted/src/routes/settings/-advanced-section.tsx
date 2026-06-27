@@ -1,6 +1,16 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type FormEvent,
+    type ReactNode,
+} from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { AttentionBanner } from '#/components/agent-room'
+import { Button } from '#/components/ui/button'
 import { imageModelOptionsForProvider } from '#/domain/model-options'
 import { roomQueryKey } from '#/lib/room-query-keys'
 import {
@@ -181,25 +191,32 @@ export function ProvidersIntegrationsSection({ githubReturn }: { githubReturn: G
     const [githubTargetOwner, setGithubTargetOwner] = useState('')
     const autoGitHubRefreshKeyRef = useRef<string | null>(null)
 
-    useEffect(() => {
-        if (!config) return
-        const imageProvider = config.settings.image.provider ?? 'none'
+    const applyDefaultsFromConfig = useCallback((snapshot: OperatorConfigSnapshot) => {
+        setDefaultProviderId(snapshot.settings.defaultProviderConnectionId)
+    }, [])
+    const applyCapabilitiesFromConfig = useCallback((snapshot: OperatorConfigSnapshot) => {
+        const imageProvider = snapshot.settings.image.provider ?? 'none'
         const imageOptions =
             imageProvider === 'none'
                 ? []
-                : imageModelOptionsForProvider(imageProvider, config.settings.image.model)
-        setDefaultProviderId(config.settings.defaultProviderConnectionId)
-        setCapabilityDefaults({ ...config.settings.capabilityDefaults })
+                : imageModelOptionsForProvider(imageProvider, snapshot.settings.image.model)
+        setCapabilityDefaults({ ...snapshot.settings.capabilityDefaults })
         setAppImageProvider(imageProvider)
-        setAppImageModel(config.settings.image.model ?? imageOptions[0]?.value ?? '')
+        setAppImageModel(snapshot.settings.image.model ?? imageOptions[0]?.value ?? '')
         setAppImageApiKey('')
-        setAppImageReplaceApiKey(!config.settings.image.hasCredential)
-        setAppImageHasCredential(config.settings.image.hasCredential)
-        setAppSearch(toSearchDraft(config.settings.search))
+        setAppImageReplaceApiKey(!snapshot.settings.image.hasCredential)
+        setAppImageHasCredential(snapshot.settings.image.hasCredential)
+        setAppSearch(toSearchDraft(snapshot.settings.search))
+    }, [])
+
+    useEffect(() => {
+        if (!config) return
+        applyDefaultsFromConfig(config)
+        applyCapabilitiesFromConfig(config)
         if (!githubPublicOrigin && typeof window !== 'undefined') {
             setGithubPublicOrigin(window.location.origin)
         }
-    }, [config, githubPublicOrigin])
+    }, [config, githubPublicOrigin, applyDefaultsFromConfig, applyCapabilitiesFromConfig])
 
     const updateProviderForm = (patch: Partial<ProviderFormState>) =>
         setProviderForm((c) => ({ ...c, ...patch }))
@@ -711,8 +728,45 @@ export function ProvidersIntegrationsSection({ githubReturn }: { githubReturn: G
     const selectedDefaultProvider =
         providers.find((entry) => entry.id === defaultProviderId) ?? null
 
+    const onRevertDefaults = () => {
+        if (config) applyDefaultsFromConfig(config)
+    }
+    const onRevertCapabilities = () => {
+        if (config) applyCapabilitiesFromConfig(config)
+    }
+
+    const showErrorBanner = configQuery.isError || codexAuthQuery.isError
+    const isRetrying = configQuery.isFetching || codexAuthQuery.isFetching
+    const retryConfig = () => {
+        void configQuery.refetch()
+        void codexAuthQuery.refetch()
+    }
+    const errorBanner = showErrorBanner ? (
+        <AttentionBanner
+            tone="danger"
+            title="Could not load providers and integrations"
+            description="This is a temporary problem. Retry to load your providers, connected tools, and runtime defaults."
+            action={
+                <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={retryConfig}
+                    disabled={isRetrying}
+                >
+                    {isRetrying ? 'Retrying...' : 'Retry'}
+                </Button>
+            }
+        />
+    ) : null
+
+    if (configQuery.isError && !config) {
+        return <div className="flex flex-col gap-8">{errorBanner}</div>
+    }
+
     return (
         <div className="flex flex-col gap-8">
+            {errorBanner}
             <SetupBanner onboardingCompleted={onboardingCompleted} />
 
             <Group
@@ -752,13 +806,11 @@ export function ProvidersIntegrationsSection({ githubReturn }: { githubReturn: G
                     pending={updateDefaultsMutation.isPending}
                     onChangeDefaultProvider={setDefaultProviderId}
                     onSave={() => updateDefaultsMutation.mutate()}
+                    onRevert={onRevertDefaults}
                 />
             </Group>
 
-            <Group
-                title="Connected tools"
-                description="Tools any room can be granted access to."
-            >
+            <Group title="Connected tools" description="Tools any room can be granted access to.">
                 <McpConnectionsSection
                     mcpConnections={mcpConnections}
                     loading={configQuery.isLoading}
@@ -817,6 +869,7 @@ export function ProvidersIntegrationsSection({ githubReturn }: { githubReturn: G
                     setAppImageReplaceApiKey={setAppImageReplaceApiKey}
                     setAppSearch={setAppSearch}
                     onSaveCapabilities={onSaveCapabilities}
+                    onRevertCapabilities={onRevertCapabilities}
                 />
             </Group>
 

@@ -2,6 +2,7 @@ import { ClockIcon } from 'lucide-react'
 import { StatusDot } from '#/components/agent-room'
 import { describeJobSchedule } from '#/domain/job-schedule'
 import { formatDurationMs, formatRelativeTime } from '#/domain/format'
+import { sanitizeRuntimeError } from '#/domain/runtime-error'
 import type { RoomCronJob } from '#/domain/room-execution-types'
 
 function scheduleUsesTimezone(job: RoomCronJob): boolean {
@@ -28,7 +29,9 @@ export function JobNameCell({ job, onDetails }: { job: RoomCronJob; onDetails: (
                 </p>
             ) : null}
             {job.lastError ? (
-                <p className="mt-1 line-clamp-2 text-xs text-danger-fg">{job.lastError}</p>
+                <p className="mt-1 line-clamp-2 text-xs text-danger-fg">
+                    {sanitizeRuntimeError(job.lastError)}
+                </p>
             ) : null}
         </div>
     )

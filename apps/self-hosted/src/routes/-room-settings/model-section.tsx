@@ -11,7 +11,6 @@ import { describeProviderStatus } from '#/domain/state'
 import type { ProviderConnectionSummary } from '#/server/configuration/operator-configuration'
 import type { ConfigDraft } from './model'
 import { InlineDisclosure, ModeRadio } from './shared'
-import { RoomModeField } from './room-mode-section'
 
 function providerConnectionOptionLabel(provider: ProviderConnectionSummary): string {
     return `${provider.label} - ${provider.defaultModel}`
@@ -32,10 +31,7 @@ export function ModelSection({
         draft.providerMode === 'app_default' || draft.providerMode === 'managed_hosted'
 
     return (
-        <Section
-            title="Model"
-            description="The model this room uses to think and respond."
-        >
+        <Section title="Model" description="The model this room uses to think and respond.">
             <div className="space-y-4">
                 <p className="text-sm text-foreground">
                     {usesAppDefault
@@ -52,20 +48,8 @@ export function ModelSection({
                             onChange={onChange}
                         />
                     ) : (
-                        <AppModelOverride
-                            draft={draft}
-                            providers={providers}
-                            onChange={onChange}
-                        />
+                        <AppModelOverride draft={draft} providers={providers} onChange={onChange} />
                     )}
-
-                    <div className="space-y-2">
-                        <h3 className="text-sm font-medium text-foreground">Mode</h3>
-                        <RoomModeField
-                            draft={draft}
-                            onChange={(roomMode) => onChange({ roomMode })}
-                        />
-                    </div>
                 </InlineDisclosure>
             </div>
         </Section>

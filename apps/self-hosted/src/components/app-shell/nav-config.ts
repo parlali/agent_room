@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import type { LinkProps } from '@tanstack/react-router'
-import { CreditCardIcon, HomeIcon, type LucideIcon } from 'lucide-react'
+import { CreditCardIcon, LayoutGridIcon, type LucideIcon } from 'lucide-react'
 
 import { authSurfaceServer } from '#/routes/-auth-server'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
@@ -17,11 +17,11 @@ export interface AccountNavItem {
 export const accountNavItems: AccountNavItem[] = [
     {
         id: 'home',
-        label: 'Home',
-        icon: HomeIcon,
+        label: 'Rooms',
+        icon: LayoutGridIcon,
         hostedOnly: false,
         link: { to: '/' },
-        match: (pathname) => pathname === '/',
+        match: (pathname) => pathname === '/' || pathname.startsWith('/rooms'),
     },
     {
         id: 'billing',

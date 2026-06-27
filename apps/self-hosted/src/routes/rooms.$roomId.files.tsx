@@ -52,6 +52,7 @@ import {
     roomFileTypeLabel,
 } from '#/domain/file-kinds'
 import { formatBytes, formatRelativeTime } from '#/domain/format'
+import { sanitizeRuntimeError } from '#/domain/runtime-error'
 import { roomFileDownloadUrl, roomFilePreviewUrl } from '#/domain/room-file-links'
 import { validateRoomFileUpload } from '#/domain/room-file-upload-policy'
 import { uploadRoomFiles } from '#/lib/room-file-upload'
@@ -97,11 +98,7 @@ function entryKey(entry: Pick<RoomFileEntry, 'surface' | 'relativePath'>): strin
 }
 
 function describeFileError(error: unknown): string {
-    const raw = error instanceof Error ? error.message : ''
-    if (!raw || /runtime|endpoint|\b[0-9a-f]{8}-[0-9a-f]{4}-/i.test(raw)) {
-        return 'This room is not ready yet. Finish setup and try again.'
-    }
-    return raw
+    return sanitizeRuntimeError(error instanceof Error ? error.message : '')
 }
 
 function shouldRefreshFilesForRoomEvent(event: RoomRealtimeEvent): boolean {
@@ -142,8 +139,9 @@ function runtimeNoticeFor(sidebar: RoomSidebarSnapshot | undefined): RuntimeNoti
         return {
             tone: 'danger',
             title: 'This room is having trouble',
-            description:
-                sidebar.room.lastError ?? 'Uploads and live updates may not work right now.',
+            description: sidebar.room.lastError
+                ? sanitizeRuntimeError(sidebar.room.lastError)
+                : 'Uploads and live updates may not work right now.',
         }
     }
     return null
@@ -339,8 +337,7 @@ function FilesContent({ roomId }: { roomId: string }) {
                                 ? {
                                       ...item,
                                       status: 'error',
-                                      error:
-                                          error instanceof Error ? error.message : 'Upload failed',
+                                      error: describeFileError(error),
                                   }
                                 : item,
                         ),
@@ -406,6 +403,7 @@ function FilesContent({ roomId }: { roomId: string }) {
                     path={path}
                     search={search}
                     uploading={uploading}
+                    notReady={notReady}
                     onSearchChange={setSearch}
                     onUploadFiles={(files) => void runUpload(files)}
                 />
@@ -435,7 +433,7 @@ function FilesContent({ roomId }: { roomId: string }) {
                     </div>
                 ) : null}
                 <UploadDropZone
-                    disabled={uploading}
+                    disabled={uploading || notReady}
                     onUploadFiles={(files) => void runUpload(files)}
                 >
                     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(24rem,1.4fr)]">
@@ -535,6 +533,7 @@ function FilesToolbar({
     path,
     search,
     uploading,
+    notReady,
     onSearchChange,
     onUploadFiles,
 }: {
@@ -542,6 +541,7 @@ function FilesToolbar({
     path: string
     search: string
     uploading: boolean
+    notReady: boolean
     onSearchChange: (value: string) => void
     onUploadFiles: (files: File[]) => void
 }) {
@@ -584,7 +584,7 @@ function FilesToolbar({
                     variant="outline"
                     size="sm"
                     onClick={() => uploadInputRef.current?.click()}
-                    disabled={uploading}
+                    disabled={uploading || notReady}
                 >
                     <UploadCloudIcon />
                     Upload

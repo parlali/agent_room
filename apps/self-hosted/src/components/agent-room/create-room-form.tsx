@@ -11,6 +11,9 @@ import { cn } from '#/lib/utils'
 import type { RoomMode } from '#/domain/domain-types'
 import { ROOM_MODE_OPTIONS } from '#/domain/room-modes'
 
+export const ROOM_DESCRIPTION =
+    'A persistent, isolated space where an AI coworker works on a topic, with its own files, memory, and history.'
+
 export type CreateRoomFormValues = {
     displayName: string
     instructions: string
@@ -28,10 +31,6 @@ export type CreateRoomFormProps = {
     defaultValues?: Partial<CreateRoomFormValues>
 }
 
-const ROOM_MODE_HINT = ROOM_MODE_OPTIONS.map(
-    (option) => `${option.label}: ${option.description}`,
-).join(' ')
-
 export function CreateRoomForm({
     onSubmit,
     pending,
@@ -48,6 +47,9 @@ export function CreateRoomForm({
     const [advancedOpen, setAdvancedOpen] = useState(false)
 
     const trimmedName = displayName.trim()
+    const selectedModeHint = ROOM_MODE_OPTIONS.find(
+        (option) => option.value === roomMode,
+    )?.description
 
     const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
@@ -113,7 +115,9 @@ export function CreateRoomForm({
                             label: option.label,
                         }))}
                     />
-                    <p className="pt-1.5 text-xs text-muted-foreground">{ROOM_MODE_HINT}</p>
+                    {selectedModeHint ? (
+                        <p className="pt-1.5 text-xs text-muted-foreground">{selectedModeHint}</p>
+                    ) : null}
                 </CollapsibleContent>
             </Collapsible>
             <div className={cn('flex', variant === 'dialog' ? 'justify-end' : 'justify-start')}>
