@@ -7,12 +7,6 @@ const base = marketingAssetBase
 export const defaultOgImage = `${base}/og-share.png`
 
 export const assets = {
-    capabilitiesDashboard: {
-        src: `${base}/capabilities-artifacts-dashboard.png`,
-        alt: 'Agent Room dashboard showing room capabilities and generated artifacts.',
-        width: 1672,
-        height: 941,
-    },
     securityAudit: {
         src: `${base}/security-audit-runtime.png`,
         alt: 'Agent Room audit view showing per-room tool calls, run state, and usage telemetry.',
