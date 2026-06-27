@@ -306,9 +306,7 @@ function LoginPage() {
 
                         {hostedSignupEnabled ? (
                             <p className="text-center text-sm text-muted-foreground">
-                                {mode === 'sign-up'
-                                    ? 'Already have an account? '
-                                    : 'New here? '}
+                                {mode === 'sign-up' ? 'Already have an account? ' : 'New here? '}
                                 <button
                                     type="button"
                                     className="font-medium text-foreground underline-offset-4 hover:underline"

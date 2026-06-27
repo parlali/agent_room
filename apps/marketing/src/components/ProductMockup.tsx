@@ -248,7 +248,10 @@ export function PhoneMockup() {
                 </div>
                 <div className="space-y-2 px-3 pb-3">
                     {phoneRooms.map((room) => (
-                        <div key={room.name} className="rounded-xl border border-line bg-panel p-3 shadow-panel">
+                        <div
+                            key={room.name}
+                            className="rounded-xl border border-line bg-panel p-3 shadow-panel"
+                        >
                             <div className="flex items-center gap-2.5">
                                 <span
                                     className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg font-mono text-[0.5625rem] font-semibold ${toneTint[room.tone]}`}
