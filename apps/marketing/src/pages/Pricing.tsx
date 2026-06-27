@@ -76,15 +76,15 @@ export function Pricing() {
             <Section>
                 <SectionHeading
                     eyebrow="Credits"
-                    title="Usage draws from included credits first."
-                    summary="Managed provider usage is tracked per room. Purchased credits persist and are spent after included monthly credits are used."
+                    title="Usage draws from your included amount first."
+                    summary="Managed usage is tracked per room. Purchased credits persist and are spent after your included monthly usage is used."
                 />
                 <div className="surface-raised mx-auto mt-12 grid max-w-3xl gap-5 p-6 sm:grid-cols-[1fr_auto] sm:items-center">
                     <div>
                         <p className="text-lg font-semibold text-ink">{pricingTopup.label}</p>
                         <p className="mt-2 text-sm leading-relaxed text-ink-soft">
-                            {pricingTopup.credit} for managed OpenRouter, Brave, Browserbase, and
-                            fetch usage.
+                            {pricingTopup.credit} for managed AI, web search, page reading, and
+                            live browsing.
                         </p>
                     </div>
                     <p className="text-3xl font-semibold text-ink">{pricingTopup.price}</p>
@@ -94,8 +94,8 @@ export function Pricing() {
             <Section className="border-t border-line bg-paper-sunken">
                 <SectionHeading
                     eyebrow="Feature table"
-                    title="Managed Browserbase is a Pro feature."
-                    summary="Every plan supports bring-your-own keys. Managed provider fallback uses Agent Room credits and keeps platform credentials out of runtimes."
+                    title="Live web browsing is a Pro feature."
+                    summary="Every plan lets you bring your own keys. Managed usage runs on Agent Room credits and keeps platform credentials out of your rooms."
                 />
                 <div className="mt-12 space-y-4 md:hidden">
                     {pricingFeatureRows.map((row) => (
