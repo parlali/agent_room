@@ -7,18 +7,6 @@ const base = marketingAssetBase
 export const defaultOgImage = `${base}/og-share.png`
 
 export const assets = {
-    heroDesktop: {
-        src: `${base}/hero-desktop-room-console.png`,
-        alt: 'Agent Room console showing a room list, an active session, generated artifacts, usage meters, and run status.',
-        width: 1672,
-        height: 941,
-    },
-    heroMobile: {
-        src: `${base}/hero-mobile-room-console.png`,
-        alt: 'Agent Room mobile room interface showing a single room with its session, files, and status.',
-        width: 643,
-        height: 1010,
-    },
     capabilitiesDashboard: {
         src: `${base}/capabilities-artifacts-dashboard.png`,
         alt: 'Agent Room dashboard showing room capabilities and generated artifacts.',

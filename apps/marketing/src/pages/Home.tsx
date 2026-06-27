@@ -1,4 +1,3 @@
-import { assets } from '~/content/assets'
 import { problem, problemComparison } from '~/content/features'
 import {
     homeFounderNote,
@@ -13,7 +12,7 @@ import { ComparisonPanel } from '~/components/ComparisonPanel'
 import { CtaBand } from '~/components/CtaBand'
 import { PageHero } from '~/components/PageHero'
 import { PageShell } from '~/components/PageShell'
-import { ProductImage } from '~/components/ProductImage'
+import { DesktopMockup, PhoneMockup } from '~/components/ProductMockup'
 import { ArrowLink, CtaButton, Section, SectionHeading, StatusDot } from '~/components/primitives'
 
 function IsolationDiagram() {
@@ -69,12 +68,14 @@ export function Home() {
         <PageShell meta={seo['/']}>
             <PageHero
                 visual={
-                    <ProductImage
-                        asset={assets.heroDesktop}
-                        mobileAsset={assets.heroMobile}
-                        priority
-                        className="shadow-float"
-                    />
+                    <>
+                        <div className="hidden sm:block">
+                            <DesktopMockup />
+                        </div>
+                        <div className="mx-auto max-w-[300px] sm:hidden">
+                            <PhoneMockup />
+                        </div>
+                    </>
                 }
             >
                 <h1 className="type-display rise rise-1 text-balance text-ink">{homeHero.title}</h1>
