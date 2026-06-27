@@ -1,7 +1,9 @@
 import { useState } from 'react'
-import { Loader2Icon, PlusIcon, XIcon } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { ChevronDownIcon, ClockIcon, Loader2Icon, PlusIcon, XIcon } from 'lucide-react'
 import { Button } from '#/components/ui/button'
 import { ButtonGroup } from '#/components/ui/button-group'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '#/components/ui/collapsible'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import {
@@ -51,6 +53,8 @@ const groupedOptionClass =
 export function JobFormSheet({
     mode,
     open,
+    roomId,
+    timezone,
     onOpenChange,
     initial,
     pending,
@@ -58,6 +62,8 @@ export function JobFormSheet({
 }: {
     mode: 'create' | 'edit'
     open: boolean
+    roomId: string
+    timezone: string
     onOpenChange: (open: boolean) => void
     initial: JobFormState
     pending: boolean
@@ -67,18 +73,22 @@ export function JobFormSheet({
         <Sheet open={open} onOpenChange={onOpenChange}>
             <SheetContent className="flex w-full flex-col gap-0 sm:max-w-xl">
                 <SheetHeader>
-                    <SheetTitle>{mode === 'create' ? 'New job' : 'Edit job'}</SheetTitle>
+                    <SheetTitle>
+                        {mode === 'create' ? 'New scheduled task' : 'Edit scheduled task'}
+                    </SheetTitle>
                     <SheetDescription>
                         {mode === 'create'
-                            ? 'Schedule recurring work for this room.'
-                            : 'Update what this job does and when it runs.'}
+                            ? 'Schedule recurring work this room should do on its own.'
+                            : 'Update what this task does and when it runs.'}
                     </SheetDescription>
                 </SheetHeader>
                 <JobForm
                     key={`${mode}-${open ? 'open' : 'closed'}-${initial.name}`}
                     initial={initial}
+                    roomId={roomId}
+                    timezone={timezone}
                     pending={pending}
-                    submitLabel={mode === 'create' ? 'Create job' : 'Save changes'}
+                    submitLabel={mode === 'create' ? 'Create task' : 'Save changes'}
                     onCancel={() => onOpenChange(false)}
                     onSubmit={onSubmit}
                 />
@@ -89,12 +99,16 @@ export function JobFormSheet({
 
 function JobForm({
     initial,
+    roomId,
+    timezone,
     pending,
     submitLabel,
     onSubmit,
     onCancel,
 }: {
     initial: JobFormState
+    roomId: string
+    timezone: string
     pending: boolean
     submitLabel: string
     onSubmit: (form: JobFormState) => void
@@ -103,6 +117,7 @@ function JobForm({
     const [name, setName] = useState(initial.name)
     const [message, setMessage] = useState(initial.message)
     const [schedule, setSchedule] = useState<JobSchedule>(initial.schedule)
+    const [advancedOpen, setAdvancedOpen] = useState(false)
 
     const normalizedSchedule = normalizeJobSchedule(schedule)
     const valid =
@@ -130,7 +145,6 @@ function JobForm({
                         onChange={(e) => setName(e.target.value)}
                         placeholder="Daily inbox sweep"
                         required
-                        autoFocus
                     />
                 </div>
                 <div className="space-y-1.5">
@@ -144,7 +158,7 @@ function JobForm({
                         required
                     />
                     <p className="text-xs text-muted-foreground">
-                        Sent to the room as the first message when this job runs.
+                        Sent to the room as the first message when this task runs.
                     </p>
                 </div>
                 <div className="space-y-3">
@@ -177,20 +191,53 @@ function JobForm({
                     <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-sm text-muted-foreground">
                         <p className="font-medium text-foreground">
                             {describeJobSchedule(normalizedSchedule)}
+                            {scheduleUsesTimezone(normalizedSchedule) ? `, ${timezone}` : ''}
                         </p>
                         <p className="mt-1">
-                            Each run starts a new session in this room and sends the instruction
-                            above to the agent.
+                            Each run starts a fresh session in this room with the instruction above.
                         </p>
                     </div>
                 </div>
-                <div className="rounded-md border border-border/60 p-3">
-                    <div className="text-sm font-medium text-foreground">Run target</div>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                        New session for each run. The session will keep the job name and runtime
-                        usage tied back to this job.
-                    </p>
-                </div>
+
+                <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+                    <CollapsibleTrigger asChild>
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="-ml-2 text-muted-foreground"
+                        >
+                            <ChevronDownIcon
+                                className={
+                                    advancedOpen
+                                        ? 'rotate-180 transition-transform'
+                                        : 'transition-transform'
+                                }
+                            />
+                            Advanced
+                        </Button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="space-y-1.5 pt-2">
+                        <Label className="flex items-center gap-1.5">
+                            <ClockIcon className="size-3.5" />
+                            Time zone
+                        </Label>
+                        <div className="rounded-md border border-border/60 p-3 text-sm">
+                            <p className="font-medium text-foreground">{timezone}</p>
+                            <p className="mt-1 text-muted-foreground">
+                                Times above run in this room&apos;s time zone. Change it in{' '}
+                                <Link
+                                    to="/rooms/$roomId/settings"
+                                    params={{ roomId }}
+                                    className="font-medium text-foreground underline underline-offset-2"
+                                >
+                                    room settings
+                                </Link>
+                                .
+                            </p>
+                        </div>
+                    </CollapsibleContent>
+                </Collapsible>
             </div>
             <SheetFooter className="border-t border-border/60">
                 <div className="flex justify-end gap-2">
@@ -230,6 +277,10 @@ function scheduleForType(type: JobSchedule['type']): JobSchedule {
         }
     }
     return defaultJobSchedule
+}
+
+function scheduleUsesTimezone(schedule: JobSchedule): boolean {
+    return schedule.type !== 'interval'
 }
 
 function jobScheduleValid(schedule: JobSchedule): boolean {

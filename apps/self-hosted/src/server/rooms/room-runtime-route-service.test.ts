@@ -17,7 +17,6 @@ const mocks = vi.hoisted(() => ({
     setHostedRoomDesiredState: vi.fn(),
     updateHostedRoomIdentity: vi.fn(),
     getHostedSessionComposerDraft: vi.fn(),
-    hostedRoomSetupReadiness: vi.fn(),
     listHostedUsage: vi.fn(),
     saveHostedSessionComposerDraft: vi.fn(),
     getHostedRoomMemory: vi.fn(),
@@ -74,7 +73,6 @@ vi.mock('#/server/cloudflare/hosted-room-service', () => ({
 
 vi.mock('#/server/cloudflare/hosted-room-read-model-service', () => ({
     getHostedSessionComposerDraft: mocks.getHostedSessionComposerDraft,
-    hostedRoomSetupReadiness: mocks.hostedRoomSetupReadiness,
     listHostedUsage: mocks.listHostedUsage,
     saveHostedSessionComposerDraft: mocks.saveHostedSessionComposerDraft,
 }))

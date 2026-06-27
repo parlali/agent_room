@@ -14,15 +14,14 @@ export type {
     ProviderFormState,
 } from './-form-model'
 export {
+    CredentialField as MaskedSecretField,
     EditSheet,
     FieldGroup,
     FormShell,
-    MaskedSecretField,
     ModelSelectField,
     SelectField,
     TextField,
-    ThemeChoice,
-} from './-form-controls'
+} from '#/components/agent-room/form'
 export { ChipBadge, ConnectionRow, ConnectionsSection } from './-connection-list'
 export { ProviderForm } from './-provider-form'
 export { McpForm } from './-mcp-form'

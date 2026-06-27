@@ -6,7 +6,6 @@ import type {
     RoomExecutionTruthSnapshot,
     RoomFileChangedPayload,
     RoomRealtimeEvent,
-    RoomRunHistorySnapshot,
     RoomRuntimeOverview,
     RoomSessionWindow,
     RoomThreadAbortResult,
@@ -118,10 +117,6 @@ export interface RoomExecutionAdapter {
     getRoomExecutionTruthSnapshot: (input: {
         roomId: string
     }) => Promise<RoomExecutionTruthSnapshot>
-    listRoomRunHistory: (input: {
-        roomId: string
-        limit?: number
-    }) => Promise<RoomRunHistorySnapshot>
     deleteRoomSession: (input: { roomId: string; sessionKey: string }) => Promise<void>
     renameRoomSession: (input: {
         roomId: string

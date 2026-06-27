@@ -53,9 +53,9 @@ export function WaitlistForm() {
         <div className="surface-raised p-6 sm:p-8">
             {formState.status === 'success' ? (
                 <div className="flex flex-col gap-3" role="status">
-                    <p className="text-lg font-medium text-ink">You are on the waitlist.</p>
+                    <p className="text-lg font-medium text-ink">Thanks — request received.</p>
                     <p className="text-sm leading-relaxed text-ink-soft">
-                        We saved your details and will reach out as hosted access opens.
+                        We saved your details and will follow up about a custom plan shortly.
                     </p>
                 </div>
             ) : (
@@ -128,7 +128,7 @@ export function WaitlistForm() {
                         className="btn btn-primary mt-1 w-full"
                         disabled={isSubmitting}
                     >
-                        {isSubmitting ? 'Submitting...' : 'Join Waitlist'}
+                        {isSubmitting ? 'Sending...' : 'Request access'}
                     </button>
 
                     {formState.status === 'error' ? (

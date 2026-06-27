@@ -13,7 +13,6 @@ import {
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu'
-import { cn } from '#/lib/utils'
 import type {
     RoomExecutionModelState,
     RoomExecutionSpeedMode,
@@ -28,18 +27,25 @@ export type ModelModeChange = {
 }
 
 const THINKING_LABELS: Record<RoomExecutionThinkingLevel, string> = {
-    off: 'Off',
+    off: 'Standard',
     minimal: 'Minimal',
-    low: 'Low',
-    medium: 'Medium',
-    high: 'High',
-    xhigh: 'Extra High',
+    low: 'Light',
+    medium: 'Balanced',
+    high: 'Smarter',
+    xhigh: 'Smartest',
 }
 
-const PRIMARY_THINKING_LEVELS: RoomExecutionThinkingLevel[] = ['low', 'medium', 'high', 'xhigh']
+const ORDERED_THINKING_LEVELS: RoomExecutionThinkingLevel[] = [
+    'off',
+    'minimal',
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+]
 const SPEED_LABELS: Record<RoomExecutionSpeedMode, string> = {
     normal: 'Normal',
-    fast: 'Fast',
+    fast: 'Faster',
 }
 
 export function ModelModeMenu({
@@ -56,14 +62,10 @@ export function ModelModeMenu({
     if (!state) return null
 
     const thinkingLabel = THINKING_LABELS[state.thinkingLevel] ?? state.thinkingLevel
-    const triggerModelLabel = compactModelLabel(state.label)
     const visibleThinkingLevels = menuThinkingLevels(state)
-    const featuredModelOptions = state.options.filter(isFeaturedModelOption)
-    const regularModelOptions = state.options.filter((option) => !isFeaturedModelOption(option))
-    const modelMenuOptions = featuredModelOptions.length > 0 ? featuredModelOptions : state.options
-    const otherModelOptions = featuredModelOptions.length > 0 ? regularModelOptions : []
-    const modelMenuLabel = state.label || state.model
     const visibleSpeedModes = menuSpeedModes(state)
+    const speedLabel = state.speedMode ? SPEED_LABELS[state.speedMode] : null
+    const showSpeedInTrigger = state.speedMode === 'fast'
 
     return (
         <DropdownMenu>
@@ -73,14 +75,16 @@ export function ModelModeMenu({
                     variant="ghost"
                     size="sm"
                     disabled={disabled || updating}
-                    className="max-w-44 justify-start gap-1.5 px-2 text-muted-foreground sm:max-w-56"
-                    aria-label="Choose model, reasoning, and speed"
+                    className="max-w-40 justify-start gap-1.5 px-2 text-muted-foreground sm:max-w-48"
+                    aria-label="Choose intelligence and speed"
                 >
                     {updating ? <Loader2Icon className="animate-spin" /> : <BrainCircuitIcon />}
-                    <span className="truncate text-foreground">{triggerModelLabel}</span>
-                    <span className="hidden truncate text-muted-foreground sm:inline">
-                        {thinkingLabel}
-                    </span>
+                    <span className="truncate text-foreground">{thinkingLabel}</span>
+                    {showSpeedInTrigger ? (
+                        <span className="hidden truncate text-muted-foreground sm:inline">
+                            {speedLabel}
+                        </span>
+                    ) : null}
                     <ChevronDownIcon className="ml-auto size-3.5" />
                 </Button>
             </DropdownMenuTrigger>
@@ -108,68 +112,49 @@ export function ModelModeMenu({
                         </DropdownMenuRadioItem>
                     ))}
                 </DropdownMenuRadioGroup>
-                <DropdownMenuSeparator className="mx-2 my-2" />
-                <DropdownMenuSub>
-                    <DropdownMenuSubTrigger className="px-2 py-2 text-base">
-                        <span className="truncate">{modelMenuLabel}</span>
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="max-h-96 w-64 overflow-y-auto rounded-xl p-2">
-                        <DropdownMenuLabel className="px-2 text-sm">Model</DropdownMenuLabel>
-                        <ModelRadioItems
-                            state={state}
-                            options={modelMenuOptions}
-                            onChange={onChange}
-                        />
-                        {otherModelOptions.length > 0 ? (
-                            <>
-                                <DropdownMenuSeparator className="mx-2 my-2" />
-                                <DropdownMenuSub>
-                                    <DropdownMenuSubTrigger className="px-2 py-2 text-base">
-                                        Other models
-                                    </DropdownMenuSubTrigger>
-                                    <DropdownMenuSubContent className="max-h-96 w-72 overflow-y-auto rounded-xl p-2">
-                                        <ModelRadioItems
-                                            state={state}
-                                            options={otherModelOptions}
-                                            onChange={onChange}
-                                            showProvider
-                                        />
-                                    </DropdownMenuSubContent>
-                                </DropdownMenuSub>
-                            </>
-                        ) : null}
-                    </DropdownMenuSubContent>
-                </DropdownMenuSub>
                 {visibleSpeedModes.length > 1 ? (
-                    <DropdownMenuSub>
-                        <DropdownMenuSubTrigger className="px-2 py-2 text-base">
-                            Speed
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-48 rounded-xl p-2">
-                            <DropdownMenuRadioGroup
-                                value={state.speedMode ?? ''}
-                                onValueChange={(value) => {
-                                    if (value === state.speedMode) return
-                                    onChange({
-                                        provider: state.provider,
-                                        model: state.model,
-                                        thinkingLevel: state.thinkingLevel,
-                                        speedMode: value as RoomExecutionSpeedMode,
-                                    })
-                                }}
-                            >
-                                {visibleSpeedModes.map((mode) => (
-                                    <DropdownMenuRadioItem
-                                        key={mode}
-                                        value={mode}
-                                        className="py-2 pr-9 pl-2 text-base"
-                                    >
-                                        {SPEED_LABELS[mode]}
-                                    </DropdownMenuRadioItem>
-                                ))}
-                            </DropdownMenuRadioGroup>
-                        </DropdownMenuSubContent>
-                    </DropdownMenuSub>
+                    <>
+                        <DropdownMenuSeparator className="mx-2 my-2" />
+                        <DropdownMenuLabel className="px-2 text-sm">Speed</DropdownMenuLabel>
+                        <DropdownMenuRadioGroup
+                            value={state.speedMode ?? ''}
+                            onValueChange={(value) => {
+                                if (value === state.speedMode) return
+                                onChange({
+                                    provider: state.provider,
+                                    model: state.model,
+                                    thinkingLevel: state.thinkingLevel,
+                                    speedMode: value as RoomExecutionSpeedMode,
+                                })
+                            }}
+                        >
+                            {visibleSpeedModes.map((mode) => (
+                                <DropdownMenuRadioItem
+                                    key={mode}
+                                    value={mode}
+                                    className="py-2 pr-9 pl-2 text-base"
+                                >
+                                    {SPEED_LABELS[mode]}
+                                </DropdownMenuRadioItem>
+                            ))}
+                        </DropdownMenuRadioGroup>
+                    </>
+                ) : null}
+                {state.options.length > 1 ? (
+                    <>
+                        <DropdownMenuSeparator className="mx-2 my-2" />
+                        <DropdownMenuSub>
+                            <DropdownMenuSubTrigger className="px-2 py-2 text-base text-muted-foreground">
+                                Advanced
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuSubContent className="max-h-96 w-72 overflow-y-auto rounded-xl p-2">
+                                <DropdownMenuLabel className="px-2 text-sm">
+                                    Model
+                                </DropdownMenuLabel>
+                                <ModelRadioItems state={state} onChange={onChange} />
+                            </DropdownMenuSubContent>
+                        </DropdownMenuSub>
+                    </>
                 ) : null}
             </DropdownMenuContent>
         </DropdownMenu>
@@ -178,13 +163,9 @@ export function ModelModeMenu({
 
 function ModelRadioItems({
     state,
-    options,
-    showProvider,
     onChange,
 }: {
     state: RoomExecutionModelState
-    options: RoomExecutionModelState['options']
-    showProvider?: boolean
     onChange: (change: ModelModeChange) => void
 }) {
     return (
@@ -201,22 +182,18 @@ function ModelRadioItems({
                 })
             }}
         >
-            {options.map((option) => (
+            {state.options.map((option) => (
                 <DropdownMenuRadioItem
                     key={option.value}
                     value={option.value}
-                    className={cn('py-2 pr-9 pl-2 text-base', showProvider && 'items-start')}
+                    className="items-start py-2 pr-9 pl-2 text-base"
                 >
-                    {showProvider ? (
-                        <span className="min-w-0">
-                            <span className="block truncate">{option.label}</span>
-                            <span className="block truncate text-xs text-muted-foreground">
-                                {option.provider}/{option.model}
-                            </span>
+                    <span className="min-w-0">
+                        <span className="block truncate">{option.label}</span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                            {option.provider}/{option.model}
                         </span>
-                    ) : (
-                        <span className="truncate">{option.label}</span>
-                    )}
+                    </span>
                 </DropdownMenuRadioItem>
             ))}
         </DropdownMenuRadioGroup>
@@ -224,7 +201,7 @@ function ModelRadioItems({
 }
 
 function menuThinkingLevels(state: RoomExecutionModelState): RoomExecutionThinkingLevel[] {
-    const visible = PRIMARY_THINKING_LEVELS.filter((level) =>
+    const visible = ORDERED_THINKING_LEVELS.filter((level) =>
         state.availableThinkingLevels.includes(level),
     )
 
@@ -263,12 +240,4 @@ function nextSpeedMode(
     }
 
     return option.availableSpeedModes[0] ?? null
-}
-
-function isFeaturedModelOption(option: RoomExecutionModelState['options'][number]) {
-    return option.label === 'GPT-5.5' || option.label === 'GPT-5.4'
-}
-
-function compactModelLabel(label: string) {
-    return label.replace(/^GPT-/, '')
 }

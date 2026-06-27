@@ -5,7 +5,6 @@ import type {
     RoomExecutionThinkingLevel,
     RoomExecutionTruthSnapshot,
     RoomFileChangedPayload,
-    RoomRunHistorySnapshot,
     RoomRuntimeOverview,
     RoomSessionWindow,
     RoomThreadAbortResult,
@@ -33,8 +32,6 @@ export type {
     RoomExecutionThread,
     RoomExecutionTruthSnapshot,
     RoomRealtimeEvent,
-    RoomRunHistoryEntry,
-    RoomRunHistorySnapshot,
     RoomRuntimeOverview,
     RoomSessionDisplayRow,
     RoomSessionWindow,
@@ -315,14 +312,6 @@ export async function getRoomExecutionTruthSnapshot(input: {
 }): Promise<RoomExecutionTruthSnapshot> {
     const module = await loadExecutionEngineModule()
     return module.getRoomExecutionTruthSnapshot(input)
-}
-
-export async function listRoomRunHistory(input: {
-    roomId: string
-    limit?: number
-}): Promise<RoomRunHistorySnapshot> {
-    const module = await loadExecutionEngineModule()
-    return module.listRoomRunHistory(input)
 }
 
 export async function runDueRoomCronJobs(

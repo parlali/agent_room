@@ -1,392 +1,256 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
-import { BrainIcon, PlusIcon, SaveIcon, Trash2Icon } from 'lucide-react'
+import { useMemo } from 'react'
+import { BrainIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '#/components/ui/button'
-import { Textarea } from '#/components/ui/textarea'
-import { RoomDashboardLayout } from '#/components/room-dashboard'
-import { EmptyState, LoadingRows, Section } from '#/components/agent-room'
+import { AttentionBanner, EmptyState, LoadingRows, SaveBar, Section } from '#/components/agent-room'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
-import { getRoomMemoryServer, updateRoomMemoryServer } from '#/routes/-room-runtime-server'
-
-type MemoryItem = {
-    id: string
-    text: string
-    createdAt: string
-    updatedAt?: string
-    source?: string
-    priority?: number
-    tags?: string[]
-    dueAt?: string
-    expiresAt?: string
-    completedAt?: string
-}
-
-type RoomMemory = {
-    version: 1
-    identity: {
-        role: string
-        responsibilities: MemoryItem[]
-        boundaries: MemoryItem[]
-    }
-    operator: {
-        facts: MemoryItem[]
-        preferences: MemoryItem[]
-    }
-    behavior: {
-        rules: MemoryItem[]
-        communication: MemoryItem[]
-    }
-    currentWork: {
-        goals: MemoryItem[]
-        projects: MemoryItem[]
-        context: MemoryItem[]
-    }
-    schedule: {
-        reminders: MemoryItem[]
-        deadlines: MemoryItem[]
-        recurring: MemoryItem[]
-    }
-    decisions: MemoryItem[]
-    doNotForget: MemoryItem[]
-}
-
-type MemorySectionKey =
-    | 'identity.responsibilities'
-    | 'identity.boundaries'
-    | 'operator.facts'
-    | 'operator.preferences'
-    | 'behavior.rules'
-    | 'behavior.communication'
-    | 'currentWork.goals'
-    | 'currentWork.projects'
-    | 'currentWork.context'
-    | 'schedule.reminders'
-    | 'schedule.deadlines'
-    | 'schedule.recurring'
-    | 'decisions'
-    | 'doNotForget'
-
-type MemorySectionDefinition = {
-    key: MemorySectionKey
-    title: string
-    description: string
-    placeholder: string
-}
-
-const memorySections: MemorySectionDefinition[] = [
-    {
-        key: 'identity.responsibilities',
-        title: 'Responsibilities',
-        description: 'What this room should take care of.',
-        placeholder: 'Remember what this room is responsible for...',
-    },
-    {
-        key: 'identity.boundaries',
-        title: 'Boundaries',
-        description: 'Limits the room should respect.',
-        placeholder: 'Add a boundary this room should not cross...',
-    },
-    {
-        key: 'operator.facts',
-        title: 'Operator facts',
-        description: 'Stable facts about the person using this room.',
-        placeholder: 'Add a stable fact about the operator...',
-    },
-    {
-        key: 'operator.preferences',
-        title: 'Operator preferences',
-        description: 'How the operator likes work to be handled.',
-        placeholder: 'Add a preference to remember...',
-    },
-    {
-        key: 'behavior.rules',
-        title: 'Behavior rules',
-        description: 'Standing instructions for the room.',
-        placeholder: 'Add a behavior rule...',
-    },
-    {
-        key: 'behavior.communication',
-        title: 'Communication',
-        description: 'How the room should communicate.',
-        placeholder: 'Add a communication preference...',
-    },
-    {
-        key: 'currentWork.goals',
-        title: 'Current goals',
-        description: 'Outcomes currently in progress.',
-        placeholder: 'Add a current goal...',
-    },
-    {
-        key: 'currentWork.projects',
-        title: 'Projects',
-        description: 'Active project context.',
-        placeholder: 'Add project context...',
-    },
-    {
-        key: 'currentWork.context',
-        title: 'Context',
-        description: 'Short-lived context that still matters.',
-        placeholder: 'Add current context...',
-    },
-    {
-        key: 'schedule.reminders',
-        title: 'Reminders',
-        description: 'Things the room should bring back later.',
-        placeholder: 'Add a reminder...',
-    },
-    {
-        key: 'schedule.deadlines',
-        title: 'Deadlines',
-        description: 'Important dates and time-bound commitments.',
-        placeholder: 'Add a deadline...',
-    },
-    {
-        key: 'schedule.recurring',
-        title: 'Recurring',
-        description: 'Repeated routines or recurring work.',
-        placeholder: 'Add recurring work...',
-    },
-    {
-        key: 'decisions',
-        title: 'Decisions',
-        description: 'Decisions that should not need to be re-made.',
-        placeholder: 'Add a decision...',
-    },
-    {
-        key: 'doNotForget',
-        title: 'Do not forget',
-        description: 'Important memory that should stay visible.',
-        placeholder: 'Add something important...',
-    },
-]
+import { sanitizeRuntimeError } from '#/domain/runtime-error'
+import {
+    canonicalMemoryJson,
+    maxMemoryBytes,
+    maxSectionItems,
+    memorySectionPaths,
+    sectionItems,
+    type RoomMemory,
+} from '#/domain/room-memory'
+import type { RoomConfigSnapshot } from '#/server/configuration/operator-configuration'
+import type { PersonalityForm } from '#/server/rooms/personality/form'
+import {
+    getRoomMemoryServer,
+    getRoomPersonalityServer,
+    listRoomsServer,
+    updateRoomIdentityServer,
+    updateRoomMemoryServer,
+} from '#/routes/-room-runtime-server'
+import { getRoomConfigServer, saveRoomInstructionsServer } from '#/routes/-operator-config-server'
+import {
+    cloneMemory,
+    identityEquals,
+    identityVersion,
+    memoryEquals,
+    normaliseMemoryForSave,
+    personalityEquals,
+    personalityVersion,
+    useDomainDraft,
+    type IdentityFields,
+} from './-room-memory/draft'
+import {
+    BudgetMeter,
+    InstructionsSection,
+    MemorySectionsEditor,
+    PersonalityPicker,
+    WhoSection,
+} from './-room-memory/sections'
 
 export const Route = createFileRoute('/rooms/$roomId/memory')({
     component: RoomMemoryPage,
 })
 
+function isMemoryConflict(message: string): boolean {
+    return /changed before (update|save)/i.test(message)
+}
+
 function RoomMemoryPage() {
     const { roomId } = Route.useParams()
-    return (
-        <RoomDashboardLayout roomId={roomId} activeTab="memory">
-            <MemoryContent roomId={roomId} />
-        </RoomDashboardLayout>
-    )
+    return <CoworkerBrief roomId={roomId} />
 }
 
-function cloneMemory(memory: RoomMemory): RoomMemory {
-    return JSON.parse(JSON.stringify(memory)) as RoomMemory
-}
-
-function getSectionItems(memory: RoomMemory, key: MemorySectionKey): MemoryItem[] {
-    switch (key) {
-        case 'identity.responsibilities':
-            return memory.identity.responsibilities
-        case 'identity.boundaries':
-            return memory.identity.boundaries
-        case 'operator.facts':
-            return memory.operator.facts
-        case 'operator.preferences':
-            return memory.operator.preferences
-        case 'behavior.rules':
-            return memory.behavior.rules
-        case 'behavior.communication':
-            return memory.behavior.communication
-        case 'currentWork.goals':
-            return memory.currentWork.goals
-        case 'currentWork.projects':
-            return memory.currentWork.projects
-        case 'currentWork.context':
-            return memory.currentWork.context
-        case 'schedule.reminders':
-            return memory.schedule.reminders
-        case 'schedule.deadlines':
-            return memory.schedule.deadlines
-        case 'schedule.recurring':
-            return memory.schedule.recurring
-        case 'decisions':
-            return memory.decisions
-        case 'doNotForget':
-            return memory.doNotForget
-    }
-}
-
-function withSectionItems(
-    memory: RoomMemory,
-    key: MemorySectionKey,
-    items: MemoryItem[],
-): RoomMemory {
-    const next = cloneMemory(memory)
-    switch (key) {
-        case 'identity.responsibilities':
-            next.identity.responsibilities = items
-            break
-        case 'identity.boundaries':
-            next.identity.boundaries = items
-            break
-        case 'operator.facts':
-            next.operator.facts = items
-            break
-        case 'operator.preferences':
-            next.operator.preferences = items
-            break
-        case 'behavior.rules':
-            next.behavior.rules = items
-            break
-        case 'behavior.communication':
-            next.behavior.communication = items
-            break
-        case 'currentWork.goals':
-            next.currentWork.goals = items
-            break
-        case 'currentWork.projects':
-            next.currentWork.projects = items
-            break
-        case 'currentWork.context':
-            next.currentWork.context = items
-            break
-        case 'schedule.reminders':
-            next.schedule.reminders = items
-            break
-        case 'schedule.deadlines':
-            next.schedule.deadlines = items
-            break
-        case 'schedule.recurring':
-            next.schedule.recurring = items
-            break
-        case 'decisions':
-            next.decisions = items
-            break
-        case 'doNotForget':
-            next.doNotForget = items
-            break
-    }
-    return next
-}
-
-function createMemoryItem(): MemoryItem {
-    return {
-        id: crypto.randomUUID(),
-        text: '',
-        createdAt: new Date().toISOString(),
-        source: 'operator',
-    }
-}
-
-function normaliseMemoryForSave(memory: RoomMemory): RoomMemory {
-    let next = cloneMemory(memory)
-    next.identity.role = next.identity.role.trim()
-    for (const section of memorySections) {
-        next = withSectionItems(
-            next,
-            section.key,
-            getSectionItems(next, section.key)
-                .map((item) => ({
-                    ...item,
-                    text: item.text.trim(),
-                }))
-                .filter((item) => item.text.length > 0),
-        )
-    }
-    return next
-}
-
-function updateItemText(
-    memory: RoomMemory,
-    key: MemorySectionKey,
-    itemId: string,
-    text: string,
-): RoomMemory {
-    const items = getSectionItems(memory, key).map((item) =>
-        item.id === itemId ? { ...item, text, updatedAt: new Date().toISOString() } : item,
-    )
-    return withSectionItems(memory, key, items)
-}
-
-function addItem(memory: RoomMemory, key: MemorySectionKey): RoomMemory {
-    return withSectionItems(memory, key, [...getSectionItems(memory, key), createMemoryItem()])
-}
-
-function deleteItem(memory: RoomMemory, key: MemorySectionKey, itemId: string): RoomMemory {
-    return withSectionItems(
-        memory,
-        key,
-        getSectionItems(memory, key).filter((item) => item.id !== itemId),
-    )
-}
-
-function MemoryContent({ roomId }: { roomId: string }) {
+function CoworkerBrief({ roomId }: { roomId: string }) {
     const queryClient = useQueryClient()
+
+    const roomsQuery = useQuery({
+        queryKey: roomQueryKey.roomsList,
+        queryFn: () => listRoomsServer(),
+        staleTime: roomQueryPolicy.warmStaleMs,
+    })
     const memoryQuery = useQuery({
         queryKey: roomQueryKey.roomMemory(roomId),
         queryFn: () => getRoomMemoryServer({ data: { roomId } }),
         staleTime: roomQueryPolicy.hotStaleMs,
     })
-    const memory = memoryQuery.data?.memory as RoomMemory | undefined
-    const memoryHash = typeof memoryQuery.data?.hash === 'string' ? memoryQuery.data.hash : null
-    const [draftMemory, setDraftMemory] = useState<RoomMemory | null>(null)
+    const personalityQuery = useQuery({
+        queryKey: roomQueryKey.roomPersonality(roomId),
+        queryFn: () => getRoomPersonalityServer({ data: { roomId } }),
+        staleTime: roomQueryPolicy.warmStaleMs,
+    })
+    const configQuery = useQuery({
+        queryKey: roomQueryKey.roomConfig(roomId),
+        queryFn: () => getRoomConfigServer({ data: { roomId } }),
+        staleTime: roomQueryPolicy.hotStaleMs,
+    })
 
-    useEffect(() => {
-        if (memory) {
-            setDraftMemory(cloneMemory(memory))
-        }
-    }, [memory])
+    const room = roomsQuery.data?.find((entry) => entry.roomId === roomId)
+    const serverIdentity: IdentityFields | undefined = room
+        ? { displayName: room.displayName, slug: room.slug ?? '' }
+        : undefined
+    const serverMemory = (memoryQuery.data?.memory as RoomMemory | undefined) ?? undefined
+    const serverMemoryHash =
+        typeof memoryQuery.data?.hash === 'string' ? memoryQuery.data.hash : null
+    const serverPersonality = personalityQuery.data?.form
+    const configSnapshot = (configQuery.data as RoomConfigSnapshot | undefined) ?? undefined
+    const serverInstructions = configSnapshot?.config.instructions
 
-    const dirty = useMemo(() => {
-        if (!memory || !draftMemory) return false
-        return (
-            JSON.stringify(normaliseMemoryForSave(draftMemory)) !==
-            JSON.stringify(normaliseMemoryForSave(memory))
+    const identity = useDomainDraft<IdentityFields>({
+        scope: roomId,
+        server: serverIdentity,
+        version: serverIdentity ? identityVersion(serverIdentity) : null,
+        clone: (value) => ({ ...value }),
+        equals: identityEquals,
+    })
+    const memory = useDomainDraft<RoomMemory>({
+        scope: roomId,
+        server: serverMemory,
+        version: serverMemoryHash,
+        clone: cloneMemory,
+        equals: memoryEquals,
+    })
+    const personality = useDomainDraft<PersonalityForm>({
+        scope: roomId,
+        server: serverPersonality,
+        version: serverPersonality ? personalityVersion(serverPersonality) : null,
+        clone: (value) => ({ ...value }),
+        equals: personalityEquals,
+    })
+    const instructions = useDomainDraft<string>({
+        scope: roomId,
+        server: serverInstructions,
+        version: serverInstructions ?? null,
+        clone: (value) => value,
+        equals: (a, b) => a === b,
+    })
+
+    const normalisedMemory = useMemo(
+        () => (memory ? normaliseMemoryForSave(memory.draft) : null),
+        [memory],
+    )
+    const memoryBytes = useMemo(
+        () =>
+            normalisedMemory
+                ? new TextEncoder().encode(canonicalMemoryJson(normalisedMemory)).length
+                : 0,
+        [normalisedMemory],
+    )
+    const overBudget = memoryBytes > maxMemoryBytes
+    const oversizeSections = useMemo(() => {
+        if (!normalisedMemory) return []
+        return memorySectionPaths.filter(
+            (path) => sectionItems(normalisedMemory, path).length > maxSectionItems,
         )
-    }, [memory, draftMemory])
+    }, [normalisedMemory])
 
     const saveMutation = useMutation({
-        mutationFn: () => {
-            if (!draftMemory) {
-                throw new Error('Memory is not loaded yet')
+        mutationFn: async () => {
+            if (!memory || !personality || !identity || !instructions) {
+                throw new Error('Brief is not loaded yet')
             }
-            return updateRoomMemoryServer({
-                data: {
-                    roomId,
-                    memory: normaliseMemoryForSave(draftMemory),
-                    expectedHash: memoryHash,
-                },
-            })
+            if (identity.dirty && identity.draft.displayName.trim().length === 0) {
+                throw new Error('Display name is required')
+            }
+            if (memory.dirty && overBudget) {
+                throw new Error('Memory is over the size limit')
+            }
+            if (memory.dirty || personality.dirty) {
+                const payload: RoomMemory = {
+                    ...normaliseMemoryForSave(memory.draft),
+                    personality: personality.draft,
+                }
+                const result = await updateRoomMemoryServer({
+                    data: { roomId, memory: payload, expectedHash: memory.version },
+                })
+                const savedMemory = result.memory as RoomMemory
+                memory.commit(savedMemory, result.hash)
+                const savedPersonality = savedMemory.personality ?? personality.draft
+                personality.commit(savedPersonality, personalityVersion(savedPersonality))
+            }
+            if (identity.dirty) {
+                const fields: IdentityFields = {
+                    displayName: identity.draft.displayName.trim(),
+                    slug: identity.draft.slug.trim(),
+                }
+                await updateRoomIdentityServer({
+                    data: {
+                        roomId,
+                        displayName: fields.displayName,
+                        slug: fields.slug || null,
+                    },
+                })
+                identity.commit(fields, identityVersion(fields))
+            }
+            if (instructions.dirty) {
+                await saveRoomInstructionsServer({
+                    data: {
+                        roomId,
+                        instructions: instructions.draft,
+                    },
+                })
+                instructions.commit(instructions.draft, instructions.draft)
+            }
         },
         onSuccess: async () => {
-            await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomMemory(roomId) })
-            toast.success('Memory updated')
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomMemory(roomId) }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomPersonality(roomId) }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomConfig(roomId) }),
+            ])
+            toast.success('Brief saved')
         },
-        onError: (error: unknown) => {
-            toast.error('Could not update memory', {
-                description: error instanceof Error ? error.message : 'Unexpected error',
+        onError: async (error: unknown) => {
+            const message = error instanceof Error ? error.message : ''
+            if (isMemoryConflict(message)) {
+                await Promise.all([
+                    queryClient.invalidateQueries({
+                        queryKey: roomQueryKey.roomMemory(roomId),
+                    }),
+                    queryClient.invalidateQueries({
+                        queryKey: roomQueryKey.roomPersonality(roomId),
+                    }),
+                ])
+                return
+            }
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomMemory(roomId) }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomPersonality(roomId) }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList }),
+                queryClient.invalidateQueries({ queryKey: roomQueryKey.roomConfig(roomId) }),
+            ])
+            toast.error('We could not save all of your changes', {
+                description: `${sanitizeRuntimeError(message)} Any sections that already saved were kept.`,
             })
         },
     })
 
-    if (memoryQuery.isLoading) {
-        return (
-            <div className="mx-auto w-full max-w-5xl">
-                <Section title="Memory" description="Room-local persistent memory.">
-                    <LoadingRows count={5} />
-                </Section>
-            </div>
-        )
+    const anyError =
+        roomsQuery.isError || memoryQuery.isError || personalityQuery.isError || configQuery.isError
+    const ready = identity && memory && personality && instructions
+    const roomMissing = roomsQuery.isSuccess && !room
+
+    const retryLoad = () => {
+        roomsQuery.refetch()
+        memoryQuery.refetch()
+        personalityQuery.refetch()
+        configQuery.refetch()
     }
 
-    if (memoryQuery.isError || !memory || !draftMemory) {
+    if (anyError && !ready) {
+        const error =
+            memoryQuery.error ?? configQuery.error ?? personalityQuery.error ?? roomsQuery.error
         return (
-            <div className="mx-auto w-full max-w-5xl">
-                <Section title="Memory" description="Room-local persistent memory.">
+            <div className="flex w-full flex-col gap-6">
+                <Section title="Coworker brief">
                     <EmptyState
                         icon={BrainIcon}
-                        title="Could not load memory"
-                        description={
-                            memoryQuery.error instanceof Error
-                                ? memoryQuery.error.message
-                                : 'Unexpected memory error.'
+                        title="Could not load this brief"
+                        description={sanitizeRuntimeError(
+                            error instanceof Error ? error.message : null,
+                        )}
+                        action={
+                            <Button variant="outline" onClick={retryLoad}>
+                                Try again
+                            </Button>
                         }
                     />
                 </Section>
@@ -394,146 +258,121 @@ function MemoryContent({ roomId }: { roomId: string }) {
         )
     }
 
-    return (
-        <div className="mx-auto w-full max-w-6xl">
-            <Section
-                title="Memory"
-                description="Edit what this room remembers as plain-language entries."
-                actions={
-                    <Button
-                        size="sm"
-                        onClick={() => saveMutation.mutate()}
-                        disabled={!dirty || saveMutation.isPending}
-                    >
-                        <SaveIcon />
-                        Save memory
-                    </Button>
-                }
-            >
-                <div className="grid gap-4">
-                    <RoleEditor
-                        value={draftMemory.identity.role}
-                        onChange={(role) =>
-                            setDraftMemory((current) =>
-                                current
-                                    ? {
-                                          ...current,
-                                          identity: {
-                                              ...current.identity,
-                                              role,
-                                          },
-                                      }
-                                    : current,
-                            )
+    if (roomMissing) {
+        return (
+            <div className="flex w-full flex-col gap-6">
+                <Section title="Coworker brief">
+                    <EmptyState
+                        icon={BrainIcon}
+                        title="This room is not available"
+                        description="We could not find this room. It may have been removed, or you may not have access to it."
+                        action={
+                            <Button variant="outline" onClick={retryLoad}>
+                                Try again
+                            </Button>
                         }
                     />
-                    <div className="grid gap-3 md:grid-cols-2">
-                        {memorySections.map((section) => (
-                            <EditableMemorySection
-                                key={section.key}
-                                section={section}
-                                items={getSectionItems(draftMemory, section.key)}
-                                onAdd={() =>
-                                    setDraftMemory((current) =>
-                                        current ? addItem(current, section.key) : current,
-                                    )
-                                }
-                                onDelete={(itemId) =>
-                                    setDraftMemory((current) =>
-                                        current
-                                            ? deleteItem(current, section.key, itemId)
-                                            : current,
-                                    )
-                                }
-                                onChange={(itemId, text) =>
-                                    setDraftMemory((current) =>
-                                        current
-                                            ? updateItemText(current, section.key, itemId, text)
-                                            : current,
-                                    )
-                                }
-                            />
-                        ))}
-                    </div>
-                </div>
+                </Section>
+            </div>
+        )
+    }
+
+    if (!ready) {
+        return (
+            <div className="flex w-full flex-col gap-6">
+                <Section title="Coworker brief">
+                    <LoadingRows count={6} />
+                </Section>
+            </div>
+        )
+    }
+
+    const dirty = identity.dirty || memory.dirty || personality.dirty || instructions.dirty
+
+    return (
+        <div className="flex w-full flex-col gap-6">
+            <Section
+                title="Coworker brief"
+                description="One place to shape who this room is, how it works, and what it remembers."
+            >
+                <WhoSection
+                    role={memory.draft.identity.role}
+                    displayName={identity.draft.displayName}
+                    slug={identity.draft.slug}
+                    onRoleChange={(role) =>
+                        memory.setDraft((current) => ({
+                            ...current,
+                            identity: { ...current.identity, role },
+                        }))
+                    }
+                    onDisplayNameChange={(displayName) =>
+                        identity.setDraft((current) => ({ ...current, displayName }))
+                    }
+                    onSlugChange={(slug) => identity.setDraft((current) => ({ ...current, slug }))}
+                />
             </Section>
-        </div>
-    )
-}
 
-function RoleEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-    return (
-        <div className="rounded-lg border border-border/60 bg-card p-4">
-            <div className="flex items-start justify-between gap-3">
-                <div>
-                    <h2 className="text-sm font-semibold text-foreground">Room identity</h2>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                        The short role description used to introduce this room to the agent.
-                    </p>
-                </div>
-            </div>
-            <Textarea
-                value={value}
-                onChange={(event) => onChange(event.target.value)}
-                className="mt-3 min-h-20 resize-y"
-                placeholder="Describe who this room is and what it should generally do..."
-            />
-        </div>
-    )
-}
+            <Section
+                title="Personality"
+                description="Pick the preset that fits how this room should think and respond."
+            >
+                <PersonalityPicker form={personality.draft} onChange={personality.setDraft} />
+            </Section>
 
-function EditableMemorySection({
-    section,
-    items,
-    onAdd,
-    onDelete,
-    onChange,
-}: {
-    section: MemorySectionDefinition
-    items: MemoryItem[]
-    onAdd: () => void
-    onDelete: (itemId: string) => void
-    onChange: (itemId: string, text: string) => void
-}) {
-    return (
-        <div className="rounded-lg border border-border/60 bg-card p-4">
-            <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                    <h2 className="text-sm font-semibold text-foreground">{section.title}</h2>
-                    <p className="mt-1 text-xs text-muted-foreground">{section.description}</p>
-                </div>
-                <Button type="button" variant="outline" size="sm" onClick={onAdd}>
-                    <PlusIcon />
-                    Add
-                </Button>
-            </div>
-            {items.length === 0 ? (
-                <p className="mt-4 rounded-md border border-dashed border-border/70 px-3 py-4 text-sm text-muted-foreground">
-                    No entries yet.
-                </p>
-            ) : (
-                <ul className="mt-4 space-y-3">
-                    {items.map((item) => (
-                        <li key={item.id} className="flex items-start gap-2">
-                            <Textarea
-                                value={item.text}
-                                onChange={(event) => onChange(item.id, event.target.value)}
-                                className="min-h-16 flex-1 resize-y"
-                                placeholder={section.placeholder}
-                            />
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                aria-label={`Delete ${section.title} memory`}
-                                onClick={() => onDelete(item.id)}
-                            >
-                                <Trash2Icon />
+            <Section
+                title="Instructions"
+                description="How this room should behave in every conversation and task."
+            >
+                <InstructionsSection value={instructions.draft} onChange={instructions.setDraft} />
+            </Section>
+
+            <Section
+                title="What it remembers"
+                description="Durable notes this room keeps across conversations and scheduled tasks. It updates these itself as it works."
+                bodyClassName="space-y-5 p-4"
+            >
+                {memory.conflicted ? (
+                    <AttentionBanner
+                        tone="attention"
+                        title="This room updated its own memory"
+                        description="It saved new notes while you were editing. Load the latest brief to keep working from the current version. This discards your unsaved memory edits."
+                        action={
+                            <Button size="sm" variant="outline" onClick={memory.adoptServer}>
+                                Load latest
                             </Button>
-                        </li>
-                    ))}
-                </ul>
-            )}
+                        }
+                    />
+                ) : null}
+
+                <BudgetMeter
+                    bytes={memoryBytes}
+                    overBudget={overBudget}
+                    oversizeSections={oversizeSections}
+                />
+
+                <MemorySectionsEditor memory={memory.draft} onChange={memory.setDraft} />
+            </Section>
+
+            <SaveBar
+                dirty={dirty}
+                saving={saveMutation.isPending}
+                onSave={() => {
+                    if (overBudget) {
+                        toast.error('Memory is over the size limit', {
+                            description: 'Remove some entries before saving to avoid losing notes.',
+                        })
+                        return
+                    }
+                    saveMutation.mutate()
+                }}
+                onRevert={() => {
+                    identity.revert()
+                    memory.revert()
+                    personality.revert()
+                    instructions.revert()
+                }}
+                saveLabel="Save brief"
+            />
         </div>
     )
 }

@@ -48,6 +48,7 @@ export {
     assertRoomConfigurationStartable,
     getRoomConfigSnapshot,
     saveRoomConfig,
+    saveRoomInstructions,
     saveRoomSecret,
 } from './operator-configuration/room-workflows'
 export { __testing, materializeRoomConfiguration } from './operator-configuration/materialization'

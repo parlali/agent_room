@@ -5,7 +5,6 @@ import type {
     RoomExecutionTruthSnapshot,
     RoomCronJob,
     RoomFileChangedPayload,
-    RoomRunHistorySnapshot,
     RoomRuntimeOverview,
     RoomSessionWindow,
     RoomThreadAbortResult,
@@ -132,17 +131,6 @@ export async function runRoomCronJobNow(_input: {
 
 export async function removeRoomCronJob(_input: { roomId: string; jobId: string }): Promise<void> {
     throwHostedCronDisabled()
-}
-
-export async function listRoomRunHistory(input: {
-    roomId: string
-    limit?: number
-}): Promise<RoomRunHistorySnapshot> {
-    return {
-        roomId: input.roomId,
-        mismatchCount: 0,
-        entries: [],
-    }
 }
 
 export async function listRoomsWithRuntime(_input: {

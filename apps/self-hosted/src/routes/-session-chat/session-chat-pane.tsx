@@ -6,7 +6,10 @@ import { ExternalLinkIcon, MessageSquareIcon, MonitorIcon, XIcon } from 'lucide-
 import { toast } from 'sonner'
 
 import { AttentionBanner, EmptyState } from '#/components/agent-room'
+import { roomSetupRequiredCopy } from '#/components/room-dashboard'
 import { Button } from '#/components/ui/button'
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '#/components/ui/sheet'
+import { useIsMobile } from '#/lib/use-media-query'
 import { describeSessionState } from '#/domain/state'
 import { uploadRoomFiles } from '#/lib/room-file-upload'
 import { formatMessageWithAttachments } from '#/domain/room-attachments'
@@ -113,6 +116,7 @@ type SendMutationInput = {
 export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessionKey: string }) {
     const navigate = useNavigate()
     const queryClient = useQueryClient()
+    const isMobile = useIsMobile()
     const composerStateKey = useMemo(
         () => sessionComposerDraftKey(roomId, sessionKey),
         [roomId, sessionKey],
@@ -131,6 +135,10 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const [streamError, setStreamError] = useState<string | null>(null)
     const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
     const [editingMessage, setEditingMessage] = useState<EditingMessageDraft | null>(null)
+    const [messageScrollTarget, setMessageScrollTarget] = useState<{
+        messageId: string
+        requestId: number
+    } | null>(null)
     const [artifactStateBySession, setArtifactStateBySession] = useState<
         Map<string, SessionArtifactPanelState>
     >(() => new Map(artifactPanelStateCache))
@@ -169,6 +177,26 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             })
         },
         [streamStateKey],
+    )
+
+    const invalidateSessionScope = useCallback(
+        (options?: { roomId?: string; sessionKey?: string; includeRoomsList?: boolean }) => {
+            const targetRoomId = options?.roomId ?? roomId
+            const targetSessionKey = options?.sessionKey ?? sessionKey
+            void queryClient.invalidateQueries({
+                queryKey: roomQueryKey.sessionShell(targetRoomId, targetSessionKey),
+            })
+            void queryClient.invalidateQueries({
+                queryKey: roomQueryKey.sessionWindow(targetRoomId, targetSessionKey),
+            })
+            void queryClient.invalidateQueries({
+                queryKey: roomQueryKey.roomSidebar(targetRoomId),
+            })
+            if (options?.includeRoomsList ?? true) {
+                void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
+            }
+        },
+        [queryClient, roomId, sessionKey],
     )
 
     const executionQuery = useQuery<RoomSessionShellSnapshot>({
@@ -399,6 +427,18 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         },
         [],
     )
+    const viewArtifactInConversation = useCallback(
+        (artifact: RoomSessionArtifact) => {
+            const messageId = artifact.messageId
+            if (!messageId) return
+            setMessageScrollTarget((current) => ({
+                messageId,
+                requestId: (current?.requestId ?? 0) + 1,
+            }))
+            updateArtifactState(artifactStateKey, { open: false })
+        },
+        [artifactStateKey, updateArtifactState],
+    )
     const sessionTone = describeSessionState(selectedThread?.status ?? null)
     const streamActive =
         !streamTurn.finished &&
@@ -483,6 +523,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     }, [composerDraftQuery.error, composerDraftQuery.isError, composerStateKey])
 
     useEffect(() => {
+        if (isMobile) return
         if (!showArtifacts) return
         if (artifacts.length === 0) return
         if (artifactState.autoOpened) return
@@ -505,6 +546,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         artifactState.autoOpened,
         artifactStateKey,
         artifacts.length,
+        isMobile,
         showArtifacts,
         updateArtifactState,
     ])
@@ -590,10 +632,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 event.event === 'run.finished' ||
                 event.event === 'agent_end'
             ) {
-                void queryClient.invalidateQueries({ queryKey })
-                void queryClient.invalidateQueries({ queryKey: windowQueryKey })
-                void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) })
-                void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
+                invalidateSessionScope()
                 if (event.event === 'run.finished') {
                     void queryClient.invalidateQueries({
                         queryKey: roomQueryKey.roomMemory(roomId),
@@ -604,7 +643,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 }
             }
         },
-        [queryClient, queryKey, roomId, updateStreamTurn, windowQueryKey],
+        [invalidateSessionScope, queryClient, roomId, updateStreamTurn],
     )
 
     useStreamingRefetch({
@@ -644,16 +683,10 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     rollback,
                 })
                 clearSentComposer(input)
-                void queryClient.invalidateQueries({
-                    queryKey: roomQueryKey.sessionShell(input.roomId, input.sessionKey),
+                invalidateSessionScope({
+                    roomId: input.roomId,
+                    sessionKey: input.sessionKey,
                 })
-                void queryClient.invalidateQueries({
-                    queryKey: roomQueryKey.sessionWindow(input.roomId, input.sessionKey),
-                })
-                void queryClient.invalidateQueries({
-                    queryKey: roomQueryKey.roomSidebar(input.roomId),
-                })
-                void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
                 toast.success('Room intro skipped')
                 return
             }
@@ -665,13 +698,11 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 runId: result.runId,
             })
             clearSentComposer(input)
-            void queryClient.invalidateQueries({
-                queryKey: roomQueryKey.sessionShell(input.roomId, input.sessionKey),
+            invalidateSessionScope({
+                roomId: input.roomId,
+                sessionKey: input.sessionKey,
+                includeRoomsList: false,
             })
-            void queryClient.invalidateQueries({
-                queryKey: roomQueryKey.sessionWindow(input.roomId, input.sessionKey),
-            })
-            void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(input.roomId) })
         },
         onError: (error, input, rollback) => {
             rollbackOptimisticWindow({
@@ -730,9 +761,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         },
         onSuccess: () => {
             setEditingMessage(null)
-            void queryClient.invalidateQueries({ queryKey })
-            void queryClient.invalidateQueries({ queryKey: windowQueryKey })
-            void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) })
+            invalidateSessionScope({ includeRoomsList: false })
         },
         onError: (error, _input, rollback) => {
             rollbackOptimisticWindow({
@@ -815,10 +844,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             } else {
                 toast.message('No active run to stop')
             }
-            void queryClient.invalidateQueries({ queryKey })
-            void queryClient.invalidateQueries({ queryKey: windowQueryKey })
-            void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) })
-            void queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
+            invalidateSessionScope()
         },
         onError: (error) => {
             toast.error(error instanceof Error ? error.message : 'Stop request failed')
@@ -968,6 +994,18 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         }
     }
 
+    const retrySession = () => {
+        setStreamError(null)
+        invalidateSessionScope({ includeRoomsList: false })
+    }
+
+    const chatAttention = resolveChatAttention(
+        snapshot?.executionState ?? null,
+        snapshot?.setup.phase ?? null,
+        snapshot?.executionMessage ?? null,
+        streamError,
+    )
+
     if (executionQuery.isLoading && !snapshot) {
         return <ChatSkeleton />
     }
@@ -992,14 +1030,10 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     return (
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
             <ChatHeader
-                room={room}
                 sessionTitle={selectedThread?.title ?? 'Conversation'}
                 sessionLabel={sessionTone.label}
                 sessionToneKey={sessionTone.tone}
-                provider={
-                    selectedThread?.modelProvider ?? snapshot?.roomAgent?.modelPrimary ?? null
-                }
-                model={selectedThread?.model ?? null}
+                provider={selectedThread?.modelProvider ?? null}
                 compaction={selectedThread?.compaction ?? null}
                 showArtifacts={showArtifacts}
                 artifactsCount={artifacts.length}
@@ -1015,48 +1049,35 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 onToggleBrowserSession={() => {
                     setClosedBrowserPanelKey(browserSessionOpen ? browserSessionPanelKey : null)
                 }}
-                onBack={() => {
-                    void navigate({ to: '/rooms/$roomId', params: { roomId } })
-                }}
                 onRename={(title) => renameMutation.mutateAsync(title)}
                 renaming={renameMutation.isPending}
             />
-            {snapshot?.executionState === 'error' ? (
+            {chatAttention ? (
                 <div className="border-b border-border/60 px-4 py-3 sm:px-6">
                     <AttentionBanner
-                        tone="danger"
-                        title="Runtime is reporting an error"
-                        description={
-                            snapshot.executionMessage ??
-                            'The room runtime is unhealthy. Open status to investigate.'
-                        }
+                        tone={chatAttention.tone}
+                        title={chatAttention.title}
+                        description={chatAttention.description}
                         action={
-                            <Button asChild variant="outline" size="sm">
-                                <Link to="/rooms/$roomId/status" params={{ roomId }}>
-                                    Open status
-                                </Link>
-                            </Button>
-                        }
-                    />
-                </div>
-            ) : null}
-            {streamError ? (
-                <div className="border-b border-border/60 px-4 py-3 sm:px-6">
-                    <AttentionBanner
-                        tone="attention"
-                        title="Live updates paused"
-                        description={streamError}
-                        action={
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => {
-                                    setStreamError(null)
-                                    void queryClient.invalidateQueries({ queryKey })
-                                }}
-                            >
-                                Refresh
-                            </Button>
+                            chatAttention.kind === 'setup_required' ? (
+                                <Button asChild variant="outline" size="sm">
+                                    <Link to="/settings" hash="advanced">
+                                        Finish setup
+                                    </Link>
+                                </Button>
+                            ) : chatAttention.kind === 'out_of_credits' ? (
+                                <Button asChild size="sm">
+                                    <Link to="/billing" search={{ checkout: null }}>
+                                        Buy credits
+                                    </Link>
+                                </Button>
+                            ) : (
+                                <Button size="sm" variant="outline" onClick={retrySession}>
+                                    {chatAttention.kind === 'stream_paused'
+                                        ? 'Reconnect'
+                                        : 'Try again'}
+                                </Button>
+                            )
                         }
                     />
                 </div>
@@ -1089,6 +1110,9 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     }
                     onSubmitEditingMessage={submitEditedMessage}
                     onCancelEditingMessage={cancelEditingMessage}
+                    onSuggestPrompt={onChangeComposerDraft}
+                    scrollToMessageId={messageScrollTarget?.messageId ?? null}
+                    scrollRequestId={messageScrollTarget?.requestId}
                 />
                 {browserSessionAvailable && browserSession ? (
                     <BrowserSessionShell
@@ -1106,6 +1130,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                         selectedArtifactId={selectedArtifactId}
                         open={artifactsOpen}
                         onChangeState={(patch) => updateArtifactState(artifactStateKey, patch)}
+                        onViewInConversation={viewArtifactInConversation}
                     />
                 ) : null}
             </div>
@@ -1145,10 +1170,36 @@ function BrowserSessionShell({
     open: boolean
     onClose: () => void
 }) {
+    const isMobile = useIsMobile()
     const title = browserSession.pageTitle?.trim() || 'Browser'
     const urlLabel = browserSession.pageUrl ? formatBrowserUrl(browserSession.pageUrl) : null
-    const budget = browserSession.actionBudget
     const canFrame = browserSession.status === 'open' && browserSession.liveUrl
+
+    if (isMobile) {
+        return (
+            <Sheet
+                open={open}
+                onOpenChange={(next) => {
+                    if (!next) onClose()
+                }}
+            >
+                <SheetContent side="bottom" className="h-[85dvh] gap-0 p-0">
+                    <SheetHeader className="sr-only">
+                        <SheetTitle>{title}</SheetTitle>
+                    </SheetHeader>
+                    <BrowserSessionHeader
+                        title={title}
+                        urlLabel={urlLabel}
+                        browserSession={browserSession}
+                    />
+                    <BrowserSessionFrame
+                        browserSession={browserSession}
+                        canFrame={Boolean(canFrame)}
+                    />
+                </SheetContent>
+            </Sheet>
+        )
+    }
 
     return (
         <>
@@ -1161,7 +1212,6 @@ function BrowserSessionShell({
                     title={title}
                     urlLabel={urlLabel}
                     browserSession={browserSession}
-                    budget={budget}
                 />
                 <BrowserSessionFrame browserSession={browserSession} canFrame={Boolean(canFrame)} />
             </aside>
@@ -1173,7 +1223,6 @@ function BrowserSessionShell({
                     title={title}
                     urlLabel={urlLabel}
                     browserSession={browserSession}
-                    budget={budget}
                     onClose={onClose}
                 />
                 <BrowserSessionFrame browserSession={browserSession} canFrame={Boolean(canFrame)} />
@@ -1186,13 +1235,11 @@ function BrowserSessionHeader({
     title,
     urlLabel,
     browserSession,
-    budget,
     onClose,
 }: {
     title: string
     urlLabel: string | null
     browserSession: RoomBrowserSessionSnapshot
-    budget: RoomBrowserSessionSnapshot['actionBudget']
     onClose?: () => void
 }) {
     return (
@@ -1203,18 +1250,15 @@ function BrowserSessionHeader({
             <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 items-center gap-2">
                     <span className="truncate text-sm font-medium text-foreground">{title}</span>
-                    <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[0.625rem] uppercase text-muted-foreground">
-                        {browserSession.status}
+                    <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
+                        {browserStatusLabel(browserSession.status)}
                     </span>
                 </div>
-                <div className="flex min-w-0 items-center gap-2 text-[0.6875rem] text-muted-foreground">
-                    {urlLabel ? <span className="truncate">{urlLabel}</span> : null}
-                    {budget ? (
-                        <span className="shrink-0">
-                            {budget.used}/{budget.max}
-                        </span>
-                    ) : null}
-                </div>
+                {urlLabel ? (
+                    <div className="min-w-0 truncate text-[0.6875rem] text-muted-foreground">
+                        {urlLabel}
+                    </div>
+                ) : null}
             </div>
             {browserSession.liveUrl ? (
                 <Button asChild variant="ghost" size="icon-sm" aria-label="Open browser session">
@@ -1249,7 +1293,7 @@ function BrowserSessionFrame({
     if (!canFrame || !browserSession.liveUrl) {
         return (
             <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
-                {browserSession.message ?? browserSession.status}
+                {browserFallbackMessage(browserSession.status)}
             </div>
         )
     }
@@ -1264,6 +1308,21 @@ function BrowserSessionFrame({
             allow="clipboard-read; clipboard-write; fullscreen"
         />
     )
+}
+
+function browserStatusLabel(status: RoomBrowserSessionSnapshot['status']): string {
+    if (status === 'opening') return 'Starting'
+    if (status === 'open') return 'Live'
+    if (status === 'closing') return 'Closing'
+    if (status === 'closed') return 'Closed'
+    return 'Problem'
+}
+
+function browserFallbackMessage(status: RoomBrowserSessionSnapshot['status']): string {
+    if (status === 'opening') return 'Getting the browser ready...'
+    if (status === 'closing' || status === 'closed') return 'The browser session has ended.'
+    if (status === 'error') return 'The browser session ran into a problem.'
+    return 'The browser session is not available right now.'
 }
 
 function formatBrowserUrl(value: string): string {
@@ -1301,6 +1360,7 @@ function SessionArtifactsShell({
     selectedArtifactId,
     open,
     onChangeState,
+    onViewInConversation,
 }: {
     roomId: string
     sessionKey: string
@@ -1309,7 +1369,9 @@ function SessionArtifactsShell({
     selectedArtifactId: string | null
     open: boolean
     onChangeState: (patch: Partial<SessionArtifactPanelState>) => void
+    onViewInConversation?: (artifact: RoomSessionArtifact) => void
 }) {
+    const isMobile = useIsMobile()
     const mountedLoggedRef = useRef(false)
     const openStartedAtRef = useRef<number | null>(null)
     const [resizing, setResizing] = useState(false)
@@ -1363,6 +1425,38 @@ function SessionArtifactsShell({
         window.addEventListener('mouseup', onUp, { once: true })
     }
 
+    if (isMobile) {
+        return (
+            <Sheet
+                open={open}
+                onOpenChange={(next) => {
+                    if (!next) onChangeState({ open: false })
+                }}
+            >
+                <SheetContent side="bottom" className="h-[85dvh] gap-0 p-0">
+                    <SheetHeader className="sr-only">
+                        <SheetTitle>Files in this session</SheetTitle>
+                    </SheetHeader>
+                    {shouldLoad ? (
+                        <Suspense fallback={null}>
+                            <SessionArtifactsPanel
+                                roomId={roomId}
+                                artifacts={artifacts}
+                                selectedArtifactId={selectedArtifactId}
+                                onSelectArtifact={(nextSelectedArtifactId) =>
+                                    onChangeState({ selectedArtifactId: nextSelectedArtifactId })
+                                }
+                                onViewInConversation={onViewInConversation}
+                                onClose={() => onChangeState({ open: false })}
+                                className="h-full"
+                            />
+                        </Suspense>
+                    ) : null}
+                </SheetContent>
+            </Sheet>
+        )
+    }
+
     return (
         <>
             <div
@@ -1386,6 +1480,7 @@ function SessionArtifactsShell({
                                 onSelectArtifact={(nextSelectedArtifactId) =>
                                     onChangeState({ selectedArtifactId: nextSelectedArtifactId })
                                 }
+                                onViewInConversation={onViewInConversation}
                                 onClose={() => onChangeState({ open: false })}
                                 className="h-full pl-1"
                             />
@@ -1406,6 +1501,7 @@ function SessionArtifactsShell({
                             onSelectArtifact={(nextSelectedArtifactId) =>
                                 onChangeState({ selectedArtifactId: nextSelectedArtifactId })
                             }
+                            onViewInConversation={onViewInConversation}
                             onClose={() => onChangeState({ open: false })}
                         />
                     </Suspense>
@@ -1413,6 +1509,70 @@ function SessionArtifactsShell({
             </div>
         </>
     )
+}
+
+type ChatAttention = {
+    kind: 'runtime_error' | 'setup_required' | 'stream_paused' | 'out_of_credits'
+    tone: 'danger' | 'attention'
+    title: string
+    description: string
+}
+
+const outOfCreditsAttention: ChatAttention = {
+    kind: 'out_of_credits',
+    tone: 'attention',
+    title: 'You are out of credits',
+    description: 'Top up your credits to keep this room working.',
+}
+
+function isOutOfCreditsMessage(message: string | null): boolean {
+    if (!message) return false
+    const normalized = message.toLowerCase()
+    return (
+        normalized.includes('spend cap') ||
+        normalized.includes('out of credit') ||
+        normalized.includes('insufficient credit') ||
+        normalized.includes('not enough credit')
+    )
+}
+
+function resolveChatAttention(
+    executionState: RoomSessionShellSnapshot['executionState'] | null,
+    setupPhase: RoomSessionShellSnapshot['setup']['phase'] | null,
+    executionMessage: string | null,
+    streamError: string | null,
+): ChatAttention | null {
+    if (executionState === 'error') {
+        if (isOutOfCreditsMessage(executionMessage)) {
+            return outOfCreditsAttention
+        }
+        if (setupPhase === 'setup_required') {
+            return {
+                kind: 'setup_required',
+                tone: 'attention',
+                title: roomSetupRequiredCopy.title,
+                description: roomSetupRequiredCopy.description,
+            }
+        }
+        return {
+            kind: 'runtime_error',
+            tone: 'danger',
+            title: 'Something interrupted this room',
+            description: 'The room hit a problem and paused. Try again in a moment.',
+        }
+    }
+    if (streamError) {
+        if (isOutOfCreditsMessage(streamError)) {
+            return outOfCreditsAttention
+        }
+        return {
+            kind: 'stream_paused',
+            tone: 'attention',
+            title: 'Live updates paused',
+            description: 'Reconnect to keep this conversation up to date.',
+        }
+    }
+    return null
 }
 
 function messagesFromRows(rows: RoomSessionDisplayRow[]): RoomExecutionMessage[] {

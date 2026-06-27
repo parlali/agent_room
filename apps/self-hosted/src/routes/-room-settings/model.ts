@@ -24,13 +24,7 @@ export const COMMON_TIMEZONES = [
     'Australia/Sydney',
 ]
 
-export interface IdentityDraft {
-    displayName: string
-    slug: string
-}
-
 export interface ConfigDraft {
-    instructions: string
     providerMode: ProviderMode
     providerConnectionId: string
     roomMode: RoomMode
@@ -66,7 +60,6 @@ export function emptySecretDraft(): SecretDraft {
 
 export function configFromSnapshot(snapshot: RoomConfigSnapshot): ConfigDraft {
     return {
-        instructions: snapshot.config.instructions ?? '',
         providerMode: snapshot.config.providerMode,
         providerConnectionId: snapshot.config.providerConnectionId ?? '',
         roomMode: snapshot.config.roomMode || 'coworker',
@@ -97,7 +90,6 @@ function recordsEqual(a: Record<string, boolean>, b: Record<string, boolean>): b
 
 export function configsEqual(a: ConfigDraft, b: ConfigDraft): boolean {
     return (
-        a.instructions === b.instructions &&
         a.providerMode === b.providerMode &&
         a.providerConnectionId === b.providerConnectionId &&
         a.roomMode === b.roomMode &&

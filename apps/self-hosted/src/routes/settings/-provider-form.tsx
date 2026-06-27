@@ -2,19 +2,18 @@ import type { FormEvent } from 'react'
 import { KeyRoundIcon } from 'lucide-react'
 
 import { AttentionBanner } from '#/components/agent-room'
-import { Switch } from '#/components/ui/switch'
 import { providerModelOptionsForProvider } from '#/domain/model-options'
 import type { OperatorConfigSnapshot } from '#/server/configuration/operator-configuration'
 
 import { type ProviderFormState, resolveProviderFormProtocol } from './-form-model'
 import {
+    CredentialField as MaskedSecretField,
     FieldGroup,
     FormShell,
-    MaskedSecretField,
     ModelSelectField,
     SelectField,
     TextField,
-} from './-form-controls'
+} from '#/components/agent-room/form'
 
 export function ProviderForm({
     form,
@@ -113,18 +112,11 @@ export function ProviderForm({
                     description="Use the Codex app server authorization section in app settings to generate and verify the OpenAI code."
                 />
             )}
-            <label className="flex items-start justify-between gap-3 rounded-lg border border-border/60 px-3 py-2.5">
-                <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-foreground">Use as app default</div>
-                    <p className="text-xs text-muted-foreground">
-                        New rooms inherit this connection unless overridden.
-                    </p>
-                </div>
-                <Switch
-                    checked={form.makeDefault}
-                    onCheckedChange={(makeDefault) => setForm({ makeDefault })}
-                />
-            </label>
+            <AttentionBanner
+                tone="info"
+                title="Set the default separately"
+                description="Choose which saved connection new rooms inherit in the App defaults section."
+            />
         </FormShell>
     )
 }

@@ -1,17 +1,19 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { PlugIcon } from 'lucide-react'
 import {
+    AttentionBanner,
     EmptyState,
     LoadingRows,
+    SaveBar,
     Section,
     StateBadge,
     ToggleSelector,
 } from '#/components/agent-room'
+import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
-import { Textarea } from '#/components/ui/textarea'
 import {
     Select,
     SelectContent,
@@ -20,6 +22,7 @@ import {
     SelectValue,
 } from '#/components/ui/select'
 import { describeProviderStatus } from '#/domain/state'
+import { sanitizeRuntimeError } from '#/domain/runtime-error'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import { getOperatorConfigServer, saveRoomConfigServer } from '#/routes/-operator-config-server'
 import type { RoomConfigSnapshot } from '#/server/configuration/operator-configuration'
@@ -29,17 +32,27 @@ import { CapabilitiesSection } from './capabilities-section'
 import { GitHubSection } from './github-section'
 import { ModelSection } from './model-section'
 import { RoomModeSection } from './room-mode-section'
-import { SaveBar } from './shared'
+import { SecretsSection } from './secrets-section'
+import { DangerZoneSection, PauseAndArchiveSection } from './lifecycle-sections'
+import { Disclosure } from './shared'
 
-export function ConfigSections({
+export function RoomSettingsBody({
     roomId,
     snapshot,
+    paused,
+    roomSlug,
+    roomDisplayName,
     loading,
+    roomsLoading,
     onSaved,
 }: {
     roomId: string
     snapshot: RoomConfigSnapshot | null
+    paused: boolean
+    roomSlug: string
+    roomDisplayName: string
     loading: boolean
+    roomsLoading: boolean
     onSaved: () => Promise<void>
 }) {
     const operatorQuery = useQuery({
@@ -49,22 +62,30 @@ export function ConfigSections({
     })
 
     const [draft, setDraft] = useState<ConfigDraft | null>(null)
+    const [baseline, setBaseline] = useState<ConfigDraft | null>(null)
+    const baselineRef = useRef<ConfigDraft | null>(null)
 
     useEffect(() => {
-        if (snapshot) {
-            setDraft(configFromSnapshot(snapshot))
-        }
+        if (!snapshot) return
+        const nextBaseline = configFromSnapshot(snapshot)
+        const currentBaseline = baselineRef.current
+        baselineRef.current = nextBaseline
+        setBaseline(nextBaseline)
+        setDraft((currentDraft) => {
+            if (!currentDraft || !currentBaseline || configsEqual(currentDraft, currentBaseline)) {
+                return nextBaseline
+            }
+            return currentDraft
+        })
     }, [snapshot])
 
-    const baseline = useMemo(() => (snapshot ? configFromSnapshot(snapshot) : null), [snapshot])
     const dirty = draft !== null && baseline !== null && !configsEqual(draft, baseline)
 
     const mutation = useMutation({
-        mutationFn: (input: ConfigDraft) =>
-            saveRoomConfigServer({
+        mutationFn: async (input: ConfigDraft) => {
+            return saveRoomConfigServer({
                 data: {
                     roomId,
-                    instructions: input.instructions,
                     providerMode: input.providerMode,
                     providerConnectionId:
                         input.providerMode === 'app_connection'
@@ -83,186 +104,222 @@ export function ConfigSections({
                     githubInstallationId: input.githubInstallationId || null,
                     githubRepositories: input.githubRepositories,
                 },
-            }),
+            })
+        },
         onSuccess: async () => {
             await onSaved()
             toast.success('Room settings saved')
         },
         onError: (e: unknown) =>
             toast.error('Could not save room settings', {
-                description: e instanceof Error ? e.message : 'Unexpected error',
+                description: sanitizeRuntimeError(e instanceof Error ? e.message : null),
             }),
     })
 
-    const providers = snapshot?.providers ?? operatorQuery.data?.providers ?? []
-    const mcpConnections = snapshot?.mcpConnections ?? operatorQuery.data?.mcpConnections ?? []
+    const providers = snapshot?.providers ?? []
+    const mcpConnections = snapshot?.mcpConnections ?? []
 
     const handleSave = () => {
         if (!draft || !dirty || mutation.isPending) return
         mutation.mutate(draft)
     }
 
-    if (loading || !draft) {
+    const handleRevert = () => {
+        if (baseline) setDraft(baseline)
+    }
+
+    if (loading || !draft || !snapshot || operatorQuery.isLoading) {
         return (
-            <Section title="Configuration" description="Loading current configuration.">
+            <Section title="Capabilities" description="Loading current configuration.">
                 <LoadingRows count={4} />
             </Section>
         )
     }
 
+    const operatorData = operatorQuery.data
+
+    if (!operatorData) {
+        return (
+            <>
+                <Section
+                    title="Capabilities"
+                    description="Room configuration options could not load."
+                >
+                    <AttentionBanner
+                        tone="danger"
+                        title="Could not load configuration options"
+                        description="Something went wrong loading this room's settings. Try again."
+                        action={
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => operatorQuery.refetch()}
+                                disabled={operatorQuery.isFetching}
+                            >
+                                Retry
+                            </Button>
+                        }
+                    />
+                </Section>
+
+                <PauseAndArchiveSection roomId={roomId} paused={paused} loading={roomsLoading} />
+
+                <DangerZoneSection
+                    roomId={roomId}
+                    roomSlug={roomSlug}
+                    roomDisplayName={roomDisplayName}
+                    loading={roomsLoading}
+                />
+            </>
+        )
+    }
+
     return (
         <>
-            <Section
-                title="Instructions"
-                description="System instructions sent to every agent in this room."
-                actions={<SaveBar dirty={dirty} pending={mutation.isPending} onSave={handleSave} />}
-            >
-                <Textarea
-                    rows={8}
-                    value={draft.instructions}
-                    onChange={(e) =>
-                        setDraft((prev) =>
-                            prev ? { ...prev, instructions: e.target.value } : prev,
-                        )
-                    }
-                    placeholder="Tell agents in this room how to behave."
-                />
-            </Section>
-
-            <ModelSection
+            <CapabilitiesSection
                 draft={draft}
-                providers={providers}
-                managedHostedAvailable={
-                    operatorQuery.data?.onboarding.managedOpenRouterAvailable ?? false
-                }
+                appDefaults={operatorData.settings.capabilityDefaults ?? null}
+                effectiveCapabilities={snapshot.effective.capabilities}
+                searchReady={snapshot.effective.searchReady}
+                imageReady={snapshot.effective.imageReady}
                 onChange={(patch) => setDraft((prev) => (prev ? { ...prev, ...patch } : prev))}
-                onSave={handleSave}
-                dirty={dirty}
-                pending={mutation.isPending}
+                saving={mutation.isPending}
             />
 
             <RoomModeSection
                 draft={draft}
-                onChange={(roomMode) => setDraft((prev) => (prev ? { ...prev, roomMode } : prev))}
-                onSave={handleSave}
-                dirty={dirty}
-                pending={mutation.isPending}
-            />
-
-            <CapabilitiesSection
-                draft={draft}
-                appDefaults={operatorQuery.data?.settings.capabilityDefaults ?? null}
-                appImage={operatorQuery.data?.settings.image ?? null}
-                effectiveCapabilities={snapshot?.effective.capabilities ?? null}
-                searchReady={snapshot?.effective.searchReady ?? false}
-                imageReady={snapshot?.effective.imageReady ?? false}
                 onChange={(patch) => setDraft((prev) => (prev ? { ...prev, ...patch } : prev))}
-                onSave={handleSave}
-                dirty={dirty}
-                pending={mutation.isPending}
             />
 
-            <GitHubSection
+            <ModelSection
                 draft={draft}
-                github={operatorQuery.data?.github ?? snapshot?.github ?? null}
+                providers={providers}
+                managedHostedAvailable={operatorData.onboarding.managedOpenRouterAvailable ?? null}
                 onChange={(patch) => setDraft((prev) => (prev ? { ...prev, ...patch } : prev))}
-                onSave={handleSave}
-                dirty={dirty}
-                pending={mutation.isPending}
             />
 
-            <Section
-                title="Connected tools (MCP)"
-                description="Pick which MCP servers this room can use."
-                actions={<SaveBar dirty={dirty} pending={mutation.isPending} onSave={handleSave} />}
-                bodyClassName={mcpConnections.length === 0 ? 'p-4' : 'p-0'}
+            <Disclosure
+                title="Integrations"
+                description="GitHub, connected tools, secrets, and task scheduling."
             >
-                {mcpConnections.length === 0 ? (
-                    <EmptyState
-                        icon={PlugIcon}
-                        title="No MCP connections yet"
-                        description="Add MCP servers from app settings, then enable them here."
-                    />
-                ) : (
-                    <ToggleSelector
-                        items={mcpConnections}
-                        selectedValues={draft.mcpConnectionIds}
-                        getValue={(connection) => connection.id}
-                        getAriaLabel={(connection) => `Toggle ${connection.name}`}
-                        onCheckedChange={(connectionId, next) =>
-                            setDraft((prev) => {
-                                if (!prev) return prev
-                                const ids = next
-                                    ? Array.from(new Set([...prev.mcpConnectionIds, connectionId]))
-                                    : prev.mcpConnectionIds.filter((id) => id !== connectionId)
-                                return { ...prev, mcpConnectionIds: ids }
-                            })
-                        }
-                        renderItem={(connection) => {
-                            const status = describeProviderStatus(connection.status)
-                            return (
-                                <>
-                                    <div className="flex items-center gap-2">
-                                        <h4 className="truncate text-sm font-medium text-foreground">
-                                            {connection.name}
-                                        </h4>
-                                        <StateBadge tone={status.tone} label={status.label} />
-                                    </div>
-                                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                                        {connection.serverKey} · {connection.transport}
-                                    </p>
-                                </>
-                            )
-                        }}
-                    />
-                )}
-            </Section>
+                <GitHubSection
+                    draft={draft}
+                    github={snapshot.github}
+                    onChange={(patch) => setDraft((prev) => (prev ? { ...prev, ...patch } : prev))}
+                />
 
-            <Section
-                title="Job timezone"
-                description="Cron jobs run on this timezone."
-                actions={<SaveBar dirty={dirty} pending={mutation.isPending} onSave={handleSave} />}
-            >
-                <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-1.5">
-                        <Label htmlFor="room-timezone-pick">Common zones</Label>
-                        <Select
-                            value={
-                                COMMON_TIMEZONES.includes(draft.cronTimezone)
-                                    ? draft.cronTimezone
-                                    : ''
-                            }
-                            onValueChange={(value) =>
-                                setDraft((prev) => (prev ? { ...prev, cronTimezone: value } : prev))
-                            }
-                        >
-                            <SelectTrigger id="room-timezone-pick" className="w-full">
-                                <SelectValue placeholder="Pick a timezone" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {COMMON_TIMEZONES.map((tz) => (
-                                    <SelectItem key={tz} value={tz}>
-                                        {tz}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                    <div className="space-y-1.5">
-                        <Label htmlFor="room-timezone-custom">Or enter custom</Label>
-                        <Input
-                            id="room-timezone-custom"
-                            value={draft.cronTimezone}
-                            onChange={(e) =>
-                                setDraft((prev) =>
-                                    prev ? { ...prev, cronTimezone: e.target.value } : prev,
-                                )
-                            }
-                            placeholder="UTC"
+                <Section
+                    title="Connected tools (MCP)"
+                    description="Pick which MCP servers this room can use."
+                    bodyClassName={mcpConnections.length === 0 ? 'p-4' : 'p-0'}
+                >
+                    {mcpConnections.length === 0 ? (
+                        <EmptyState
+                            icon={PlugIcon}
+                            title="No MCP connections yet"
+                            description="Add MCP servers from app settings, then enable them here."
                         />
+                    ) : (
+                        <ToggleSelector
+                            items={mcpConnections}
+                            selectedValues={draft.mcpConnectionIds}
+                            getValue={(connection) => connection.id}
+                            getAriaLabel={(connection) => `Toggle ${connection.name}`}
+                            onCheckedChange={(connectionId, next) =>
+                                setDraft((prev) => {
+                                    if (!prev) return prev
+                                    const ids = next
+                                        ? Array.from(
+                                              new Set([...prev.mcpConnectionIds, connectionId]),
+                                          )
+                                        : prev.mcpConnectionIds.filter((id) => id !== connectionId)
+                                    return { ...prev, mcpConnectionIds: ids }
+                                })
+                            }
+                            renderItem={(connection) => {
+                                const status = describeProviderStatus(connection.status)
+                                return (
+                                    <>
+                                        <div className="flex items-center gap-2">
+                                            <h4 className="truncate text-sm font-medium text-foreground">
+                                                {connection.name}
+                                            </h4>
+                                            <StateBadge tone={status.tone} label={status.label} />
+                                        </div>
+                                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                                            {connection.serverKey} · {connection.transport}
+                                        </p>
+                                    </>
+                                )
+                            }}
+                        />
+                    )}
+                </Section>
+
+                <SecretsSection roomId={roomId} secrets={snapshot.roomSecrets} onSaved={onSaved} />
+
+                <Section title="Task timezone" description="Scheduled tasks run on this timezone.">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="space-y-1.5">
+                            <Label htmlFor="room-timezone-pick">Common zones</Label>
+                            <Select
+                                value={
+                                    COMMON_TIMEZONES.includes(draft.cronTimezone)
+                                        ? draft.cronTimezone
+                                        : ''
+                                }
+                                onValueChange={(value) =>
+                                    setDraft((prev) =>
+                                        prev ? { ...prev, cronTimezone: value } : prev,
+                                    )
+                                }
+                            >
+                                <SelectTrigger id="room-timezone-pick" className="w-full">
+                                    <SelectValue placeholder="Pick a timezone" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {COMMON_TIMEZONES.map((tz) => (
+                                        <SelectItem key={tz} value={tz}>
+                                            {tz}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label htmlFor="room-timezone-custom">Or enter custom</Label>
+                            <Input
+                                id="room-timezone-custom"
+                                value={draft.cronTimezone}
+                                onChange={(e) =>
+                                    setDraft((prev) =>
+                                        prev ? { ...prev, cronTimezone: e.target.value } : prev,
+                                    )
+                                }
+                                placeholder="UTC"
+                            />
+                        </div>
                     </div>
-                </div>
-            </Section>
+                </Section>
+            </Disclosure>
+
+            <PauseAndArchiveSection roomId={roomId} paused={paused} loading={roomsLoading} />
+
+            <DangerZoneSection
+                roomId={roomId}
+                roomSlug={roomSlug}
+                roomDisplayName={roomDisplayName}
+                loading={roomsLoading}
+            />
+
+            <SaveBar
+                dirty={dirty}
+                saving={mutation.isPending}
+                onSave={handleSave}
+                onRevert={handleRevert}
+                saveLabel="Save settings"
+            />
         </>
     )
 }

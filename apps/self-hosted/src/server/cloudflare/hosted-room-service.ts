@@ -332,7 +332,7 @@ export async function saveHostedRoomConfig(input: {
     actor: HostedActor
     data: {
         roomId: string
-        instructions: string
+        instructions?: string
         providerMode: RoomProviderMode
         providerConnectionId?: string | null
         roomMode: RoomMode
@@ -404,6 +404,7 @@ export async function saveHostedRoomConfig(input: {
           })
         : imageSecret.imageSecretId
     const now = nowIso()
+    const instructions = input.data.instructions?.trim() ?? current.instructions
     await input.env.AGENT_ROOM_DB.prepare(
         `
             UPDATE hosted_room_config
@@ -423,7 +424,7 @@ export async function saveHostedRoomConfig(input: {
         `,
     )
         .bind(
-            input.data.instructions,
+            instructions,
             input.data.providerMode,
             providerConnectionId,
             input.data.roomMode,
@@ -470,6 +471,68 @@ export async function saveHostedRoomConfig(input: {
             config: {
                 providerMode: input.data.providerMode,
                 providerConnectionId,
+            },
+        })
+    }
+    return getHostedRoomConfigSnapshot({
+        env: input.env,
+        actor: input.actor,
+        roomId: input.data.roomId,
+    })
+}
+
+export async function saveHostedRoomInstructions(input: {
+    env: AgentRoomHostedEnv
+    actor: HostedActor
+    data: {
+        roomId: string
+        instructions: string
+    }
+}): Promise<RoomConfigSnapshot> {
+    const room = await getHostedRoom({
+        env: input.env,
+        workspaceId: input.actor.workspaceId,
+        roomId: input.data.roomId,
+    })
+    if (!room) {
+        throw new Error('Room not found')
+    }
+    const current = await getOrCreateHostedRoomConfig({
+        env: input.env,
+        workspaceId: input.actor.workspaceId,
+        roomId: input.data.roomId,
+    })
+    const instructions = input.data.instructions.trim()
+    const now = nowIso()
+    await input.env.AGENT_ROOM_DB.prepare(
+        `
+            UPDATE hosted_room_config
+            SET instructions = ?1,
+                updated_at = ?2
+            WHERE workspace_id = ?3
+              AND room_id = ?4
+        `,
+    )
+        .bind(instructions, now, input.actor.workspaceId, input.data.roomId)
+        .run()
+    await appendHostedAudit({
+        env: input.env,
+        workspaceId: input.actor.workspaceId,
+        actorUserId: input.actor.userId,
+        roomId: input.data.roomId,
+        action: 'room.instructions.saved',
+        payload: {
+            hasInstructions: instructions.length > 0,
+        },
+    })
+    if (room.desiredState === 'running') {
+        await materializeAndEnqueueHostedRuntime({
+            env: input.env,
+            actor: input.actor,
+            roomId: input.data.roomId,
+            config: {
+                providerMode: current.providerMode,
+                providerConnectionId: current.providerConnectionId,
             },
         })
     }

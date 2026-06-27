@@ -1,4 +1,3 @@
-import { Link } from '@tanstack/react-router'
 import { useState, type Dispatch, type SetStateAction } from 'react'
 import {
     ExternalLinkIcon,
@@ -14,14 +13,13 @@ import {
 
 import {
     AttentionBanner,
-    BrandMark,
     EmptyState,
     LoadingRows,
+    SaveBar,
     Section,
     StateBadge,
 } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '#/components/ui/card'
 import { Input } from '#/components/ui/input'
 import {
     Dialog,
@@ -40,9 +38,13 @@ import {
 } from '#/components/ui/select'
 import { Switch } from '#/components/ui/switch'
 import { CAPABILITY_OPTIONS } from '#/domain/capabilities'
+import { usageProviderLabel } from '#/domain/capability-labels'
 import { formatRelativeTime } from '#/domain/format'
-import { imageModelOptionsForProvider } from '#/domain/model-options'
-import { describeProviderStatus } from '#/domain/state'
+import {
+    imageModelOptionsForProvider,
+    providerModelOptionsForProvider,
+} from '#/domain/model-options'
+import { describeProviderStatus, describeWebAccessReadiness } from '#/domain/state'
 import type {
     McpConnectionSummary,
     OperatorConfigSnapshot,
@@ -135,8 +137,6 @@ export function GitHubAppSection({
     return (
         <>
             <Section
-                title="GitHub"
-                description="Connect accounts and install the room-scoped GitHub App."
                 actions={
                     configured ? (
                         <div className="flex flex-wrap justify-end gap-2">
@@ -482,6 +482,12 @@ export function ProviderConnectionsSection({
             renderRow={(entry) => {
                 const status = describeProviderStatus(entry.status)
                 const isDefault = defaultProviderId === entry.id
+                const modelLabel =
+                    providerModelOptionsForProvider({
+                        provider: entry.provider,
+                        currentModel: entry.defaultModel,
+                    }).find((option) => option.value === entry.defaultModel)?.label ??
+                    entry.defaultModel
                 return (
                     <ConnectionRow
                         key={entry.id}
@@ -495,11 +501,19 @@ export function ProviderConnectionsSection({
                         meta={
                             <>
                                 <div className="truncate">
-                                    {entry.provider} · {entry.api} · {entry.defaultModel}
+                                    {usageProviderLabel(entry.provider)} · {modelLabel}
                                 </div>
                                 <div className="mt-0.5">
                                     Updated {formatRelativeTime(entry.updatedAt)}
+                                    {entry.lastValidatedAt
+                                        ? ` · Checked ${formatRelativeTime(entry.lastValidatedAt)}`
+                                        : ''}
                                 </div>
+                                {entry.validationMessage ? (
+                                    <div className="mt-0.5 text-danger-fg">
+                                        {entry.validationMessage}
+                                    </div>
+                                ) : null}
                             </>
                         }
                         onEdit={() => onEdit(entry)}
@@ -529,8 +543,6 @@ export function McpConnectionsSection({
 }) {
     return (
         <ConnectionsSection
-            title="Connected tools"
-            description="MCP servers exposed to rooms."
             addLabel="Add tool"
             emptyIcon={WrenchIcon}
             emptyTitle="No tools connected"
@@ -555,7 +567,15 @@ export function McpConnectionsSection({
                                 <div className="truncate">{entry.serverKey}</div>
                                 <div className="mt-0.5">
                                     Updated {formatRelativeTime(entry.updatedAt)}
+                                    {entry.lastValidatedAt
+                                        ? ` · Checked ${formatRelativeTime(entry.lastValidatedAt)}`
+                                        : ''}
                                 </div>
+                                {entry.validationMessage ? (
+                                    <div className="mt-0.5 text-danger-fg">
+                                        {entry.validationMessage}
+                                    </div>
+                                ) : null}
                             </>
                         }
                         onEdit={() => onEdit(entry)}
@@ -576,6 +596,7 @@ export function AppDefaultsSection({
     pending,
     onChangeDefaultProvider,
     onSave,
+    onRevert,
 }: {
     providers: ProviderConnectionSummary[]
     defaultProviderId: string | null
@@ -584,6 +605,7 @@ export function AppDefaultsSection({
     pending: boolean
     onChangeDefaultProvider: (value: string | null) => void
     onSave: () => void
+    onRevert: () => void
 }) {
     return (
         <Section title="App defaults" description="New rooms inherit these unless overridden.">
@@ -616,11 +638,14 @@ export function AppDefaultsSection({
                     </div>
                 </FieldGroup>
             </div>
-            <div className="mt-4 flex justify-end">
-                <Button type="button" onClick={onSave} disabled={pending || !defaultsDirty}>
-                    Save defaults
-                </Button>
-            </div>
+            <SaveBar
+                dirty={defaultsDirty}
+                saving={pending}
+                onSave={onSave}
+                onRevert={onRevert}
+                saveLabel="Save defaults"
+                message="Unsaved app default changes."
+            />
         </Section>
     )
 }
@@ -644,6 +669,7 @@ export function CapabilitiesSection({
     setAppImageReplaceApiKey,
     setAppSearch,
     onSaveCapabilities,
+    onRevertCapabilities,
 }: {
     config: OperatorConfigSnapshot | undefined
     capabilityDefaults: AppCapabilityDefaults | null
@@ -663,6 +689,7 @@ export function CapabilitiesSection({
     setAppImageReplaceApiKey: Dispatch<SetStateAction<boolean>>
     setAppSearch: Dispatch<SetStateAction<AppSearchDraft | null>>
     onSaveCapabilities: () => void
+    onRevertCapabilities: () => void
 }) {
     const updateSearch = (patch: Partial<AppSearchDraft>) =>
         setAppSearch((current) => (current ? { ...current, ...patch } : current))
@@ -674,6 +701,13 @@ export function CapabilitiesSection({
         setAppSearch((current) =>
             current ? { ...current, browserbase: { ...current.browserbase, ...patch } } : current,
         )
+    const webAccess = appSearch
+        ? describeWebAccessReadiness({
+              enabled: appSearch.enabled,
+              hasBackend: appSearch.backendUrl.trim().length > 0,
+              hasCredential: appSearch.brave.hasCredential || appSearch.browserbase.hasCredential,
+          })
+        : null
 
     return (
         <Section
@@ -719,16 +753,26 @@ export function CapabilitiesSection({
                         ))}
                     </div>
                     <div className="rounded-lg border border-border/60 p-3">
-                        <div className="flex items-center justify-between gap-3">
-                            <div>
-                                <div className="text-sm font-medium text-foreground">
-                                    Web search defaults
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-sm font-medium text-foreground">
+                                        Web access defaults
+                                    </span>
+                                    {webAccess ? (
+                                        <StateBadge tone={webAccess.tone} label={webAccess.label} />
+                                    ) : null}
                                 </div>
+                                {webAccess ? (
+                                    <p className="mt-0.5 text-xs text-muted-foreground">
+                                        {webAccess.detail}
+                                    </p>
+                                ) : null}
                             </div>
                             <Switch
                                 checked={appSearch.enabled}
                                 onCheckedChange={(enabled) => updateSearch({ enabled })}
-                                aria-label="Toggle web search"
+                                aria-label="Toggle web access"
                             />
                         </div>
                         <div className="mt-3 max-w-sm">
@@ -1014,62 +1058,17 @@ export function CapabilitiesSection({
                             </div>
                         ) : null}
                     </div>
-                    <div className="flex justify-end">
-                        <Button
-                            type="button"
-                            onClick={onSaveCapabilities}
-                            disabled={savePending || !capabilitiesDirty}
-                        >
-                            Save capabilities
-                        </Button>
-                    </div>
+                    <SaveBar
+                        dirty={capabilitiesDirty}
+                        saving={savePending}
+                        onSave={onSaveCapabilities}
+                        onRevert={onRevertCapabilities}
+                        saveLabel="Save capabilities"
+                        message="Unsaved capability changes."
+                    />
                 </div>
             )}
         </Section>
-    )
-}
-
-export function ProductInfoCard() {
-    return (
-        <Card className="overflow-hidden">
-            <CardHeader>
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                    <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
-                        <BrandMark size={20} />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                        <CardTitle>How Agent Room Works</CardTitle>
-                        <CardDescription>
-                            A short operator guide to rooms, sessions, provider bindings, tools,
-                            memory, and scheduled work.
-                        </CardDescription>
-                    </div>
-                    <Button asChild variant="outline" size="sm" className="shrink-0">
-                        <Link to="/about">Learn more</Link>
-                    </Button>
-                </div>
-            </CardHeader>
-            <CardContent className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
-                <div>
-                    <div className="font-medium text-foreground">Room-local state</div>
-                    <p className="mt-1">
-                        Files, memory, logs, and runtime auth stay scoped to a room.
-                    </p>
-                </div>
-                <div>
-                    <div className="font-medium text-foreground">Provider truth</div>
-                    <p className="mt-1">
-                        Rooms inherit app defaults or bind to explicit connections.
-                    </p>
-                </div>
-                <div>
-                    <div className="font-medium text-foreground">Auditable work</div>
-                    <p className="mt-1">
-                        Sessions, tools, jobs, and usage create an inspectable trail.
-                    </p>
-                </div>
-            </CardContent>
-        </Card>
     )
 }
 

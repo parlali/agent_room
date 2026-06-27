@@ -122,7 +122,7 @@ const markdownComponents = {
     },
     table({ children }: ComponentPropsWithoutRef<'table'>) {
         return (
-            <div className="overflow-x-auto">
+            <div className="max-w-full overflow-x-auto">
                 <table className="w-full min-w-80 border-collapse text-left text-xs">
                     {children}
                 </table>
@@ -234,13 +234,10 @@ function isAppRouteHref(href: string): boolean {
     if (pathname.startsWith('/_serverFn/')) return false
     return (
         pathname === '/about' ||
-        pathname === '/activity' ||
-        pathname === '/files' ||
-        pathname === '/jobs' ||
+        pathname === '/billing' ||
         pathname === '/login' ||
         pathname === '/onboarding' ||
         pathname === '/settings' ||
-        pathname === '/usage' ||
         pathname.startsWith('/github/app/callback') ||
         pathname.startsWith('/rooms/')
     )

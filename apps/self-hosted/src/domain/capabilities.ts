@@ -8,7 +8,7 @@ export const CAPABILITY_OPTIONS = [
     {
         id: 'url_fetch',
         key: 'urlFetch',
-        label: 'URL fetch',
+        label: 'Web page fetch',
         description: 'Fetch known public URLs with SSRF protections and size limits.',
     },
     {
@@ -44,13 +44,13 @@ export const CAPABILITY_OPTIONS = [
     {
         id: 'mcp',
         key: 'mcp',
-        label: 'MCP',
+        label: 'Connected tools',
         description: 'Expose selected MCP server tools in this room.',
     },
     {
         id: 'shell_coding',
         key: 'shellCoding',
-        label: 'Shell and coding',
+        label: 'Files and code',
         description: 'Read, write, edit, search files, and run bounded background commands.',
     },
 ] as const

@@ -110,12 +110,6 @@ export function invalidateRoomCachesForEvent(input: {
         })
     }
 
-    if (input.event.event === 'run.finished' || input.event.event === 'run.error') {
-        void input.queryClient.invalidateQueries({
-            queryKey: roomQueryKey.roomRunHistory(input.roomId),
-        })
-    }
-
     if (!sessionKey) return
     clearCachedStreamTurnForRoomEvent({
         roomId: input.roomId,

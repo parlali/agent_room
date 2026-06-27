@@ -53,6 +53,7 @@ export function TextField({
     onChange,
     placeholder,
     hint,
+    type = 'text',
 }: {
     label: string
     id: string
@@ -60,11 +61,13 @@ export function TextField({
     onChange: (value: string) => void
     placeholder?: string
     hint?: ReactNode
+    type?: string
 }) {
     return (
         <FieldGroup label={label} htmlFor={id} hint={hint}>
             <Input
                 id={id}
+                type={type}
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
                 placeholder={placeholder}
@@ -134,7 +137,7 @@ export function ModelSelectField({
     )
 }
 
-export function MaskedSecretField({
+export function CredentialField({
     label,
     id,
     hasCredential,
@@ -225,40 +228,6 @@ export function EditSheet({
                 {children}
             </SheetContent>
         </Sheet>
-    )
-}
-
-export function ThemeChoice({
-    active,
-    icon,
-    label,
-    onClick,
-}: {
-    active: boolean
-    icon: ReactNode
-    label: string
-    onClick: () => void
-}) {
-    return (
-        <Button
-            type="button"
-            variant="outline"
-            onClick={onClick}
-            data-active={active}
-            className="h-auto justify-between gap-2 px-3 py-2.5 text-sm font-normal data-[active=true]:border-primary data-[active=true]:bg-primary/5"
-        >
-            <span className="flex items-center gap-2">
-                {icon}
-                {label}
-            </span>
-            <span
-                aria-hidden
-                className={cn(
-                    'size-2 rounded-full ring-1 ring-border',
-                    active && 'bg-primary ring-primary',
-                )}
-            />
-        </Button>
     )
 }
 

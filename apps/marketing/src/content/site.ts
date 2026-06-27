@@ -2,6 +2,8 @@ import type { Cta, NavLink, RoutePath, SeoMeta } from './types'
 
 export const githubUrl = 'https://github.com/parlali/agent_room'
 
+export const appUrl = 'https://app.openagentroom.com'
+
 export const brand = {
     name: 'Agent Room',
     tagline: 'A room for every job. An assistant in every room.',
@@ -10,7 +12,13 @@ export const brand = {
 }
 
 export const primaryCta: Cta = {
-    label: 'Join the waitlist',
+    label: 'Get started',
+    href: appUrl,
+    external: true,
+}
+
+export const pricingCta: Cta = {
+    label: 'See pricing',
     href: '/pricing',
 }
 
@@ -35,17 +43,17 @@ export const disclosureCta: Cta = {
 export const pageCtaBands = {
     features: {
         title: 'Ready to hand off your first job?',
-        body: 'Join the waitlist for hosted Agent Room and we will reach out as early access opens.',
+        body: 'Create a hosted workspace and put your first job in its own room in minutes.',
         primary: primaryCta,
     },
     security: {
         title: 'Trust walls, not promises.',
-        body: 'Join the waitlist for hosted Agent Room and we will reach out as early access opens.',
+        body: 'Create a hosted workspace where every room keeps its own memory, files, and keys.',
         primary: primaryCta,
     },
     source: {
         title: 'Prefer not to run it yourself?',
-        body: 'Join the hosted waitlist and let us operate the walls, runtime, and keys for you.',
+        body: 'Create a hosted workspace and let us operate the walls, runtime, and keys for you.',
         primary: primaryCta,
     },
 } as const
@@ -84,7 +92,7 @@ export const seo: Record<RoutePath, SeoMeta> = {
     '/pricing': {
         title: 'Pricing - Agent Room',
         description:
-            'Join the hosted Agent Room waitlist. Pricing is being finalized and usage will depend on selected models and provider paths.',
+            'Hosted Agent Room pricing: Starter, Standard, and Pro plans with included monthly usage. Bring your own keys or use managed AI, web search, and live browsing.',
     },
     '/security': {
         title: 'Security - Agent Room',

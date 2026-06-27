@@ -9,7 +9,8 @@ export const hostedBillingCatalog = {
             lookupKey: 'agent_room_starter_monthly_v1',
             monthlyCents: 700,
             includedCents: 0,
-            summary: 'Hosted Agent Room access for BYOK and Codex-backed rooms.',
+            summary:
+                'Hosted, isolated rooms. Bring your own AI key, or pay as you go with credits.',
             managedOpenRouter: true,
             managedBrave: true,
             managedFetchUrl: true,
@@ -23,7 +24,7 @@ export const hostedBillingCatalog = {
             lookupKey: 'agent_room_standard_monthly_v1',
             monthlyCents: 2000,
             includedCents: 1200,
-            summary: 'Hosted rooms with included managed LLM, search, and fetch usage.',
+            summary: 'Hosted rooms with included monthly AI, web search, and page reading.',
             managedOpenRouter: true,
             managedBrave: true,
             managedFetchUrl: true,
@@ -37,7 +38,7 @@ export const hostedBillingCatalog = {
             lookupKey: 'agent_room_pro_monthly_v1',
             monthlyCents: 5000,
             includedCents: 3500,
-            summary: 'Higher managed usage with hosted Browserbase access.',
+            summary: 'More included monthly usage, plus live web browsing.',
             managedOpenRouter: true,
             managedBrave: true,
             managedFetchUrl: true,
@@ -100,7 +101,39 @@ export function hostedPlanAllowsManagedFetchUrl(planKey: string | null | undefin
     return Boolean(hostedPlanTierByKey(planKey)?.managedFetchUrl)
 }
 
+export const hostedLowCreditThresholdCents = 200
+
+export function isHostedBalanceLow(availableCents: number): boolean {
+    return Number.isFinite(availableCents) && availableCents <= hostedLowCreditThresholdCents
+}
+
+export function hostedCreditTopupCreditCents(): number {
+    return hostedBillingCatalog.topups[0].creditCents
+}
+
+export function hostedPlanHighlights(planKey: string | null | undefined): string[] {
+    const plan = hostedPlanTierByKey(planKey)
+    if (!plan) return []
+    const highlights: string[] = []
+    if (plan.includedCents > 0) {
+        highlights.push(`${formatHostedUsd(plan.includedCents)} of monthly usage included`)
+        highlights.push('AI model usage included')
+    } else {
+        highlights.push('No monthly usage included')
+        highlights.push('Add credits or your own key to run')
+    }
+    if (plan.managedBrave || plan.managedFetchUrl) {
+        highlights.push('Web access included')
+    }
+    if (plan.managedBrowserbase) {
+        highlights.push('Live web browsing included')
+    }
+    return highlights
+}
+
 export function formatHostedUsd(cents: number): string {
+    if (!Number.isFinite(cents)) return '-'
+    if (cents > 0 && cents < 1) return '<$0.01'
     const dollars = cents / 100
     return new Intl.NumberFormat('en-US', {
         style: 'currency',

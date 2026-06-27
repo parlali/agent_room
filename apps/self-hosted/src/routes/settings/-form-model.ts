@@ -36,7 +36,6 @@ export interface ProviderFormState {
     apiKey: string
     replaceApiKey: boolean
     hasCredential: boolean
-    makeDefault: boolean
 }
 
 export function resolveProviderFormProtocol(
@@ -67,7 +66,6 @@ export const EMPTY_PROVIDER_FORM: ProviderFormState = {
     apiKey: '',
     replaceApiKey: true,
     hasCredential: false,
-    makeDefault: false,
 }
 
 export interface McpFormState {

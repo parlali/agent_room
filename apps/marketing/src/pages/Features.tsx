@@ -1,10 +1,9 @@
-import { assets } from '~/content/assets'
 import { capabilities, featureGroups, roomModel } from '~/content/features'
 import { pageCtaBands, seo } from '~/content/site'
 import { CtaBand } from '~/components/CtaBand'
 import { PageHero } from '~/components/PageHero'
 import { PageShell } from '~/components/PageShell'
-import { ProductImage } from '~/components/ProductImage'
+import { RoomAnatomyMockup } from '~/components/ProductMockup'
 import { ArrowLink, Section, SectionHeading } from '~/components/primitives'
 
 export function Features() {
@@ -47,8 +46,8 @@ export function Features() {
                     title={roomModel.title}
                     summary={roomModel.summary}
                 />
-                <div className="mx-auto mt-12 max-w-4xl">
-                    <ProductImage asset={assets.capabilitiesDashboard} className="shadow-panel" />
+                <div className="mx-auto mt-12 max-w-3xl">
+                    <RoomAnatomyMockup />
                 </div>
                 <div className="mx-auto mt-10 flex max-w-3xl flex-wrap items-center justify-center gap-2">
                     <span className="eyebrow mr-2">Owns</span>

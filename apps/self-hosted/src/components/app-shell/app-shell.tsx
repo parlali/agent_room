@@ -1,14 +1,15 @@
-import { useState, type ReactNode } from 'react'
-import { MenuIcon } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { Link, useRouterState } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 
-import { Button } from '#/components/ui/button'
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '#/components/ui/sheet'
-import { BrandWordmark } from '#/components/agent-room'
+import { BottomTabBar, BrandWordmark, bottomTabClass } from '#/components/agent-room'
+import { currentUserServer } from '#/routes/-auth-server'
+import { roomQueryKey } from '#/lib/room-query-keys'
 import { Sidebar } from './sidebar'
+import { UserMenu } from './user-menu'
+import { useAccountNavItems } from './nav-config'
 
 export function AppShell({ children }: { children: ReactNode }) {
-    const [mobileOpen, setMobileOpen] = useState(false)
-
     return (
         <div className="flex h-dvh w-full overflow-hidden">
             <aside className="hidden h-full w-[var(--sidebar-width,17rem)] shrink-0 overflow-hidden border-r border-border md:block">
@@ -16,26 +17,43 @@ export function AppShell({ children }: { children: ReactNode }) {
             </aside>
 
             <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                <header className="z-20 flex shrink-0 items-center justify-between gap-2 border-b border-border bg-background/95 px-3 py-2 backdrop-blur md:hidden">
-                    <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-                        <SheetTrigger asChild>
-                            <Button variant="ghost" size="icon-sm" aria-label="Open menu">
-                                <MenuIcon />
-                            </Button>
-                        </SheetTrigger>
-                        <SheetContent side="left" className="w-72 p-0">
-                            <SheetHeader className="sr-only">
-                                <SheetTitle>Navigation</SheetTitle>
-                            </SheetHeader>
-                            <Sidebar onNavigate={() => setMobileOpen(false)} />
-                        </SheetContent>
-                    </Sheet>
-                    <BrandWordmark />
-                    <span className="size-8" aria-hidden />
+                <header className="z-20 flex shrink-0 items-center gap-2 border-b border-border bg-background/95 px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur md:hidden">
+                    <Link to="/" aria-label="Home">
+                        <BrandWordmark />
+                    </Link>
                 </header>
 
                 <main className="min-h-0 min-w-0 flex-1 overflow-auto">{children}</main>
+
+                <MobileTabBar />
             </div>
         </div>
+    )
+}
+
+function MobileTabBar() {
+    const pathname = useRouterState({ select: (s) => s.location.pathname })
+    const accountNavItems = useAccountNavItems()
+    const userQuery = useQuery({
+        queryKey: roomQueryKey.authUser,
+        queryFn: () => currentUserServer(),
+        staleTime: 5 * 60_000,
+        gcTime: 15 * 60_000,
+    })
+
+    return (
+        <BottomTabBar className="md:hidden">
+            {accountNavItems.map((item) => {
+                const Icon = item.icon
+                const active = item.match(pathname)
+                return (
+                    <Link key={item.id} {...item.link} className={bottomTabClass(active)}>
+                        <Icon />
+                        {item.label}
+                    </Link>
+                )
+            })}
+            <UserMenu user={userQuery.data ?? null} variant="tab" />
+        </BottomTabBar>
     )
 }

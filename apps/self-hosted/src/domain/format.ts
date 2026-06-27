@@ -126,6 +126,10 @@ export function formatCostUsd(usd: number | null | undefined): string {
     return `$${usd.toFixed(2)}`
 }
 
+export function roleLabel(role: 'root' | 'operator'): string {
+    return role === 'root' ? 'Owner' : 'Member'
+}
+
 export function pluralize(count: number, singular: string, plural?: string): string {
     return count === 1 ? singular : (plural ?? `${singular}s`)
 }

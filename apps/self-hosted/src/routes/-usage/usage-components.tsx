@@ -1,7 +1,12 @@
-import { Link } from '@tanstack/react-router'
-import { Badge } from '#/components/ui/badge'
-import { RoomGlyph } from '#/components/agent-room'
-import { formatCostUsd, formatDurationMs, formatRelativeTime, formatTokens } from '#/domain/format'
+import { formatHostedUsd } from '@agent-room/billing'
+import { Chip, RoomGlyph, Stat, StatGrid } from '#/components/agent-room'
+import { usageKindLabel } from '#/domain/capability-labels'
+import type { UsageEventKind } from '#/domain/domain-types'
+import { formatDurationMs, formatRelativeTime, formatTokens } from '#/domain/format'
+
+function formatUsageCost(usd: number): string {
+    return formatHostedUsd(usd * 100)
+}
 
 interface UsageEventLike {
     id: string
@@ -53,11 +58,6 @@ function toolLabel(toolName: string | null): string {
     return cleaned
 }
 
-function providerModel(event: UsageEventLike): string | null {
-    if (event.provider && event.model) return `${event.provider}/${event.model}`
-    return event.model ?? event.provider
-}
-
 function formatCount(value: number | null): string {
     return value === null ? 'Not reported' : value.toLocaleString()
 }
@@ -65,7 +65,7 @@ function formatCount(value: number | null): string {
 function runTitle(event: UsageEventLike): string {
     const metadata = metadataRecord(event)
     const runKind = typeof metadata.runKind === 'string' ? metadata.runKind : null
-    if (event.kind === 'job' || runKind === 'scheduled') return 'Scheduled job ran'
+    if (event.kind === 'job' || runKind === 'scheduled') return 'Scheduled task ran'
     if (runKind === 'deep_work') return 'Deep work ran'
     if (runKind === 'subagent') return 'Subagent worked'
     if (runKind === 'maintenance') return 'Maintenance ran'
@@ -83,7 +83,7 @@ function standaloneTitle(event: UsageEventLike): string {
 function usageSummary(event: UsageEventLike): string | null {
     const tokens = event.totalTokens === null ? null : formatTokens(event.totalTokens)
     const cost =
-        event.estimatedCostUsd === null ? null : formatCostUsd(Number(event.estimatedCostUsd))
+        event.estimatedCostUsd === null ? null : formatUsageCost(Number(event.estimatedCostUsd))
     if (tokens && cost) return `${tokens} tokens · ${cost}`
     if (tokens) return `${tokens} tokens`
     if (cost) return cost
@@ -119,10 +119,8 @@ function buildTimelineItems(events: UsageEventLike[]): UsageTimelineItem[] {
                         entry.kind === 'image'),
             )
             const toolNames = [...new Set(relatedTools.map((entry) => toolLabel(entry.toolName)))]
-            const model = providerModel(event)
             const usage = usageSummary(event)
             const details = [
-                model,
                 formatDurationMs(event.durationMs),
                 usage,
                 relatedTools.length > 0
@@ -140,16 +138,9 @@ function buildTimelineItems(events: UsageEventLike[]): UsageTimelineItem[] {
                     details.length > 0
                         ? details.join(' · ')
                         : event.totalTokens === null
-                          ? 'Provider did not report token usage'
+                          ? 'No token usage reported'
                           : 'Usage recorded',
-                kindLabel:
-                    event.kind === 'run'
-                        ? 'message'
-                        : event.kind === 'job'
-                          ? 'job'
-                          : event.kind === 'document_worker'
-                            ? 'document'
-                            : event.kind,
+                kindLabel: usageKindLabel(event.kind as UsageEventKind),
             }
         })
 }
@@ -162,13 +153,11 @@ export function UsageTimeline({
     events,
     roomsById,
     showRoom = false,
-    linkToRoom = false,
     padded = false,
 }: {
     events: UsageEventLike[]
     roomsById?: Map<string, UsageRoomContext>
     showRoom?: boolean
-    linkToRoom?: boolean
     padded?: boolean
 }) {
     const items = buildTimelineItems(events)
@@ -182,7 +171,6 @@ export function UsageTimeline({
                         item={item}
                         room={room}
                         showRoom={showRoom}
-                        linkToRoom={linkToRoom}
                         padded={padded}
                     />
                 )
@@ -195,21 +183,17 @@ function UsageTimelineRow({
     item,
     room,
     showRoom,
-    linkToRoom,
     padded,
 }: {
     item: UsageTimelineItem
     room?: UsageRoomContext | null
     showRoom: boolean
-    linkToRoom: boolean
     padded: boolean
 }) {
     const className = `flex items-start gap-3 ${padded ? 'px-4 py-3' : 'py-3'}`
     const body = (
         <>
-            <Badge variant="outline" className="mt-0.5 shrink-0">
-                {item.kindLabel}
-            </Badge>
+            <Chip className="mt-0.5 shrink-0">{item.kindLabel}</Chip>
             <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2 text-sm">
                     {showRoom && room ? (
@@ -230,27 +214,8 @@ function UsageTimelineRow({
 
     return (
         <li>
-            {linkToRoom && room ? (
-                <Link
-                    to="/rooms/$roomId/usage"
-                    params={{ roomId: room.roomId }}
-                    className={`${className} transition-colors hover:bg-accent/40`}
-                >
-                    {body}
-                </Link>
-            ) : (
-                <div className={className}>{body}</div>
-            )}
+            <div className={className}>{body}</div>
         </li>
-    )
-}
-
-export function UsageMetric({ label, value }: { label: string; value: string }) {
-    return (
-        <div className="rounded-md border border-border/60 bg-card p-3">
-            <div className="text-xs text-muted-foreground">{label}</div>
-            <div className="mt-1 text-lg font-semibold text-foreground">{value}</div>
-        </div>
     )
 }
 
@@ -265,10 +230,10 @@ export function UsageTotalsGrid({
     } | null
 }) {
     return (
-        <div className="grid gap-3 sm:grid-cols-4">
-            <UsageMetric label="Activities" value={formatCount(totals?.eventCount ?? null)} />
-            <UsageMetric label="Runtime" value={formatDurationMs(totals?.durationMs ?? null)} />
-            <UsageMetric
+        <StatGrid className="sm:grid-cols-4 lg:grid-cols-4">
+            <Stat label="Activities" value={formatCount(totals?.eventCount ?? null)} />
+            <Stat label="Runtime" value={formatDurationMs(totals?.durationMs ?? null)} />
+            <Stat
                 label="Tokens"
                 value={
                     totals?.totalTokens === null || totals?.totalTokens === undefined
@@ -276,14 +241,15 @@ export function UsageTotalsGrid({
                         : formatTokens(totals.totalTokens)
                 }
             />
-            <UsageMetric
+            <Stat
                 label="Estimated cost"
+                hint="Estimate. Charged credits appear on Billing."
                 value={
                     totals?.estimatedCostUsd === null || totals?.estimatedCostUsd === undefined
                         ? 'Not reported'
-                        : formatCostUsd(totals.estimatedCostUsd)
+                        : formatUsageCost(totals.estimatedCostUsd)
                 }
             />
-        </div>
+        </StatGrid>
     )
 }

@@ -9,7 +9,36 @@ import { Label } from '#/components/ui/label'
 import { Alert, AlertDescription } from '#/components/ui/alert'
 import { BrandMark } from '#/components/agent-room'
 import { roomQueryKey } from '#/lib/room-query-keys'
-import { authSurfaceServer, currentUserServer, loginServer, signupServer } from './-auth-server'
+import {
+    authSurfaceServer,
+    currentUserServer,
+    googleSignInServer,
+    loginServer,
+    signupServer,
+} from './-auth-server'
+
+function GoogleMark() {
+    return (
+        <svg viewBox="0 0 18 18" className="size-4" aria-hidden="true">
+            <path
+                fill="#4285F4"
+                d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"
+            />
+            <path
+                fill="#34A853"
+                d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"
+            />
+            <path
+                fill="#FBBC05"
+                d="M3.97 10.72A5.4 5.4 0 0 1 3.68 9c0-.6.1-1.18.29-1.72V4.95H.96A9 9 0 0 0 0 9c0 1.45.35 2.82.96 4.05l3.01-2.33z"
+            />
+            <path
+                fill="#EA4335"
+                d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.59C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"
+            />
+        </svg>
+    )
+}
 
 export const Route = createFileRoute('/login')({
     beforeLoad: async () => {
@@ -23,11 +52,13 @@ function LoginPage() {
     const navigate = useNavigate()
     const queryClient = useQueryClient()
     const surfaceQuery = useQuery({
-        queryKey: ['auth-surface'],
+        queryKey: roomQueryKey.authSurface,
         queryFn: () => authSurfaceServer(),
         retry: false,
     })
+    const selfHosted = surfaceQuery.data?.hosted === false
     const hostedSignupEnabled = surfaceQuery.data?.signupEnabled === true
+    const googleEnabled = surfaceQuery.data?.googleEnabled === true
     const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in')
     const [name, setName] = useState('')
     const [email, setEmail] = useState('')
@@ -66,6 +97,21 @@ function LoginPage() {
         },
     })
 
+    const googleSignIn = useMutation({
+        mutationFn: () => googleSignInServer(),
+        onSuccess: (result) => {
+            window.location.href = result.url
+        },
+        onError: (googleError) => {
+            setNotice(null)
+            setError(
+                googleError instanceof Error
+                    ? googleError.message
+                    : 'Could not start Google sign-in.',
+            )
+        },
+    })
+
     const onSubmit = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
         const normalizedEmail = email.trim().toLowerCase()
@@ -90,7 +136,7 @@ function LoginPage() {
         }
         login.mutate({ email: normalizedEmail, password })
     }
-    const pending = login.isPending || signup.isPending
+    const pending = login.isPending || signup.isPending || googleSignIn.isPending
     const title = mode === 'sign-up' ? 'Create your account' : 'Agent Room'
     const subtitle =
         mode === 'sign-up' ? 'Start with a paid hosted workspace.' : 'Sign in to your portal.'
@@ -111,6 +157,41 @@ function LoginPage() {
                 </div>
 
                 <div className="rounded-xl border border-border/70 bg-card p-6 shadow-sm">
+                    {surfaceQuery.isError ? (
+                        <Alert className="mb-4">
+                            <AlertDescription>
+                                Sign-in options could not be loaded. You can still sign in with
+                                email and password.
+                            </AlertDescription>
+                        </Alert>
+                    ) : null}
+                    {googleEnabled ? (
+                        <div className="mb-4 space-y-4">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="lg"
+                                className="w-full"
+                                disabled={pending}
+                                onClick={() => {
+                                    setError(null)
+                                    setNotice(null)
+                                    googleSignIn.mutate()
+                                }}
+                            >
+                                <GoogleMark />
+                                Continue with Google
+                            </Button>
+                            <div className="relative">
+                                <div className="absolute inset-0 flex items-center">
+                                    <span className="w-full border-t border-border/70" />
+                                </div>
+                                <div className="relative flex justify-center text-xs uppercase">
+                                    <span className="bg-card px-2 text-muted-foreground">or</span>
+                                </div>
+                            </div>
+                        </div>
+                    ) : null}
                     <form className="space-y-4" onSubmit={onSubmit} noValidate>
                         {error ? (
                             <Alert variant="destructive">
@@ -200,7 +281,7 @@ function LoginPage() {
                     </form>
                 </div>
 
-                {!hostedSignupEnabled ? (
+                {selfHosted ? (
                     <p className="text-center text-xs text-muted-foreground">
                         First-run credentials live in your Docker bootstrap file. If you have lost
                         them, consult your deployment notes.

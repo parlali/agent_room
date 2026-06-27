@@ -1,7 +1,6 @@
 export {
     createRoomCronJob,
     listRoomCronJobs,
-    listRoomRunHistory,
     removeRoomCronJob,
     runDueRoomCronJobs,
     runRoomCronJobNow,

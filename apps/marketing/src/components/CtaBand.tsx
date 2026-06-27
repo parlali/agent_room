@@ -5,7 +5,7 @@ import { Link } from './Link'
 
 export function CtaBand({
     title = 'Give a room to the next line of work.',
-    body = 'Join the waitlist for hosted Agent Room and we will reach out as early access opens.',
+    body = 'Create a hosted workspace and put your next job in its own room.',
     primary = primaryCta,
     secondary,
 }: {

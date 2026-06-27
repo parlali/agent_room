@@ -41,7 +41,17 @@ export const toneStyles: Record<Tone, ToneStyle> = {
     },
 }
 
+export type RoomDisplayKind =
+    | 'paused'
+    | 'starting'
+    | 'ready'
+    | 'unhealthy'
+    | 'degraded'
+    | 'failed'
+    | 'setup_required'
+
 export interface RoomDisplayState {
+    kind: RoomDisplayKind
     label: string
     tone: Tone
 }
@@ -52,24 +62,24 @@ export function describeRoomState(input: {
     healthStatus: HealthStatus | null
 }): RoomDisplayState {
     if (input.desiredState === 'stopped' && input.status !== 'starting') {
-        return { label: 'Paused', tone: 'muted' }
+        return { kind: 'paused', label: 'Paused', tone: 'muted' }
     }
     switch (input.status) {
         case 'starting':
-            return { label: 'Starting', tone: 'working' }
+            return { kind: 'starting', label: 'Starting', tone: 'working' }
         case 'running':
             if (input.healthStatus === 'unhealthy') {
-                return { label: 'Unhealthy', tone: 'attention' }
+                return { kind: 'unhealthy', label: 'Unhealthy', tone: 'attention' }
             }
-            return { label: 'Ready', tone: 'ready' }
+            return { kind: 'ready', label: 'Ready', tone: 'ready' }
         case 'stopped':
-            return { label: 'Paused', tone: 'muted' }
+            return { kind: 'paused', label: 'Paused', tone: 'muted' }
         case 'degraded':
-            return { label: 'Degraded', tone: 'attention' }
+            return { kind: 'degraded', label: 'Degraded', tone: 'attention' }
         case 'failed':
-            return { label: 'Failed', tone: 'danger' }
+            return { kind: 'failed', label: 'Failed', tone: 'danger' }
         case 'setup_required':
-            return { label: 'Needs setup', tone: 'attention' }
+            return { kind: 'setup_required', label: 'Needs setup', tone: 'attention' }
     }
 }
 
@@ -121,9 +131,42 @@ export function describeJobLastRun(status: string | null | undefined): SessionDi
 export function describeProviderStatus(status: string | null | undefined): SessionDisplayState {
     if (!status) return { label: 'Not checked', tone: 'muted' }
     if (status === 'ready') return { label: 'Connected', tone: 'ready' }
-    if (status === 'invalid') return { label: 'Invalid', tone: 'danger' }
+    if (status === 'invalid') return { label: 'Needs attention', tone: 'danger' }
     if (status === 'unchecked') return { label: 'Not checked', tone: 'muted' }
     return { label: status, tone: 'muted' }
+}
+
+export interface WebAccessReadiness {
+    label: string
+    tone: Tone
+    detail: string
+}
+
+export function describeWebAccessReadiness(input: {
+    enabled: boolean
+    hasBackend: boolean
+    hasCredential: boolean
+}): WebAccessReadiness {
+    if (!input.enabled) {
+        return { label: 'Off', tone: 'muted', detail: 'Web access is turned off for new rooms.' }
+    }
+    if (!input.hasBackend) {
+        return {
+            label: 'Setup required',
+            tone: 'attention',
+            detail: input.hasCredential
+                ? 'No search backend is configured, so web searches will fail.'
+                : 'No search backend or key is configured, so web searches will fail.',
+        }
+    }
+    if (!input.hasCredential) {
+        return {
+            label: 'Degraded',
+            tone: 'attention',
+            detail: 'No provider key is set; rooms fall back to the default search backend only.',
+        }
+    }
+    return { label: 'Ready', tone: 'ready', detail: 'Search and page fetch are configured.' }
 }
 
 export interface ScheduleSummary {

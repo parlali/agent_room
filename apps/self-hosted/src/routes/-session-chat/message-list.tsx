@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { MessageSquareIcon } from 'lucide-react'
 
-import { EmptyState, LoadingRows } from '#/components/agent-room'
+import { LoadingRows } from '#/components/agent-room'
 import type {
     ChatTimelineRow,
     RoomSessionDisplayRow,
@@ -11,8 +10,10 @@ import type {
 } from '#/domain/room-execution-types'
 
 import type { EditingMessageDraft } from '#/domain/message-list-model'
-import { createRunTranscriptRow } from '#/domain/message-list-model'
+import { createRunTranscriptRow, rowContainsMessage } from '#/domain/message-list-model'
 import { DisplayRow } from './message-rows'
+import { ChatEmptyState } from './chat-empty-state'
+import { isActiveRunStatus } from './conversation-utils'
 import { recordClientPerformance } from '#/lib/browser-performance'
 import type { StreamTurnState } from './stream-state'
 import { streamTurnHasContent } from './stream-state'
@@ -36,6 +37,9 @@ export function MessageList({
     onChangeEditingMessageText,
     onSubmitEditingMessage,
     onCancelEditingMessage,
+    onSuggestPrompt,
+    scrollToMessageId,
+    scrollRequestId,
 }: {
     sessionKey: string
     room: RoomRuntimeOverview
@@ -54,6 +58,9 @@ export function MessageList({
     onChangeEditingMessageText: (text: string) => void
     onSubmitEditingMessage: () => void
     onCancelEditingMessage: () => void
+    onSuggestPrompt: (text: string) => void
+    scrollToMessageId?: string | null
+    scrollRequestId?: number
 }) {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const stickToBottomRef = useRef(true)
@@ -107,6 +114,16 @@ export function MessageList({
     useEffect(() => {
         if (stickToBottomRef.current) scrollToBottom()
     }, [timelineRows, stream.updatedAt, isWorking, scrollToBottom])
+
+    useEffect(() => {
+        if (!scrollToMessageId || !scrollRequestId) return
+        const rowIndex = timelineRows.findIndex(
+            (row) => rowContainsMessage(row) && row.message.id === scrollToMessageId,
+        )
+        if (rowIndex < 0) return
+        stickToBottomRef.current = false
+        rowVirtualizer.scrollToIndex(rowIndex, { align: 'center' })
+    }, [rowVirtualizer, scrollRequestId, scrollToMessageId, timelineRows])
 
     const measureVisibleRows = useCallback(() => {
         const measure = () => {
@@ -180,11 +197,7 @@ export function MessageList({
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6 sm:px-6">
                 {loadingInitialRows ? <LoadingRows count={4} /> : null}
                 {timelineRows.length === 0 && !hasStreamContent && !loadingInitialRows ? (
-                    <EmptyState
-                        icon={MessageSquareIcon}
-                        title="Start the conversation"
-                        description={`Send the first message to ${room.displayName}.`}
-                    />
+                    <ChatEmptyState room={room} onSuggestPrompt={onSuggestPrompt} />
                 ) : null}
                 {hasOlderRows ? (
                     <div className="flex justify-center py-1 text-xs text-muted-foreground">
@@ -360,15 +373,6 @@ function currentRunReplacementEnd(rows: RoomSessionDisplayRow[], userIndex: numb
 
 function hasActiveTranscript(row: ChatTimelineRow): boolean {
     return row.type === 'run_transcript' && isActiveRunStatus(row.status)
-}
-
-function isActiveRunStatus(status: RunTranscriptRow['status']): boolean {
-    return (
-        status === 'queued' ||
-        status === 'thinking' ||
-        status === 'working' ||
-        status === 'responding'
-    )
 }
 
 export function timelineRowKey(

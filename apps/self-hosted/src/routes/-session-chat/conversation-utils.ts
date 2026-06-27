@@ -1,4 +1,13 @@
-import type { RoomExecutionMessage } from '#/domain/room-execution-types'
+import type { RoomExecutionMessage, RunTranscriptStatus } from '#/domain/room-execution-types'
+
+export function isActiveRunStatus(status: RunTranscriptStatus): boolean {
+    return (
+        status === 'queued' ||
+        status === 'thinking' ||
+        status === 'working' ||
+        status === 'responding'
+    )
+}
 
 export function isLastMessageInProgress(messages: RoomExecutionMessage[] | undefined): boolean {
     if (!messages || messages.length === 0) return false

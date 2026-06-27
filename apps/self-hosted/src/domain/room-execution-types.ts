@@ -150,6 +150,30 @@ export interface RoomExecutionMessagePart {
 
 export type RoomToolActivityStatus = 'pending' | 'in_progress' | 'stopped' | 'complete' | 'error'
 
+export type RoomWebActivityKind = 'search' | 'fetch' | 'browser'
+
+export type RoomWebActivityState =
+    | 'ok'
+    | 'unavailable'
+    | 'setup_required'
+    | 'degraded'
+    | 'rate_limited'
+
+export interface RoomWebActivitySource {
+    title: string
+    url: string
+    host: string
+}
+
+export interface RoomWebActivity {
+    kind: RoomWebActivityKind
+    state: RoomWebActivityState
+    query: string | null
+    summary: string | null
+    sources: RoomWebActivitySource[]
+    page: RoomWebActivitySource | null
+}
+
 export interface RoomToolActivityTask {
     id: string
     title: string
@@ -157,6 +181,7 @@ export interface RoomToolActivityTask {
     status: RoomToolActivityStatus
     detail: string | null
     result: string | null
+    web?: RoomWebActivity | null
 }
 
 export type RunTranscriptStatus =
@@ -462,30 +487,4 @@ export interface RoomExecutionTruthSnapshot {
         workspace: string | null
     } | null
     agents: RoomAgentExecutionTruth[]
-}
-
-export interface RoomRunHistoryEntry {
-    id: string
-    ts: number
-    jobId: string
-    jobName: string | null
-    status: string | null
-    summary: string | null
-    error: string | null
-    sessionId: string | null
-    sessionKey: string | null
-    declaredAgentId: string | null
-    effectiveAgentId: string | null
-    resolvedSessionAgentId: string | null
-    ownership: 'owned' | 'mismatch' | 'unknown'
-    durationMs: number | null
-    nextRunAtMs: number | null
-    model: string | null
-    provider: string | null
-}
-
-export interface RoomRunHistorySnapshot {
-    roomId: string
-    mismatchCount: number
-    entries: RoomRunHistoryEntry[]
 }

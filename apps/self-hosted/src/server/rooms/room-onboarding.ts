@@ -14,7 +14,6 @@ import {
     sanitizePersonalityForm,
     type PersonalityForm,
 } from './personality/form'
-import { personalityArchetypeIds } from './personality/archetypes'
 import { readRoomMemory, updateRoomMemory } from './room-memory-store'
 import { emptyRoomMemory } from '../pi-runtime/memory'
 import { onboardingPersonalityToolEvent } from '../pi-runtime/onboarding-personality-tool'
@@ -48,19 +47,6 @@ function withRoomOnboardingLock<T>(roomId: string, work: () => Promise<T>): Prom
         })
     onboardingLocks.set(roomId, stored)
     return run
-}
-
-async function mergePersonalityIntoMemory(roomId: string, form: PersonalityForm): Promise<void> {
-    const snapshot = await readRoomMemory(roomId)
-    const next = {
-        ...snapshot.memory,
-        personality: form,
-    }
-    await updateRoomMemory({
-        roomId,
-        memory: next,
-        expectedHash: snapshot.hash,
-    })
 }
 
 async function runtimeIsHealthy(roomId: string): Promise<boolean> {
@@ -402,33 +388,6 @@ export async function deferRoomOnboarding(input: {
         })
         return { deferred: true }
     })
-}
-
-export async function saveRoomPersonality(input: {
-    roomId: string
-    form: unknown
-    actorUserId: string
-}): Promise<PersonalityForm> {
-    const form = sanitizePersonalityForm(input.form)
-    if (!(personalityArchetypeIds as readonly string[]).includes(form.archetype)) {
-        throw new Error('Unknown personality archetype')
-    }
-    await mergePersonalityIntoMemory(input.roomId, form)
-    await auditRepository.appendEvent({
-        actorUserId: input.actorUserId,
-        roomId: input.roomId,
-        action: 'room.personality_updated',
-        payload: {
-            archetype: form.archetype,
-            tone: form.tone,
-            directness: form.directness,
-            reportStyle: form.reportStyle,
-            humor: form.humor,
-            challengeStyle: form.challengeStyle,
-            hasNotes: form.notes.trim().length > 0,
-        },
-    })
-    return form
 }
 
 export async function getRoomPersonality(roomId: string): Promise<PersonalityForm> {

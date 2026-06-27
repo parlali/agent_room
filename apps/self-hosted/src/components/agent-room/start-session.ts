@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { toast } from 'sonner'
 
+import { sanitizeRuntimeError } from '#/domain/runtime-error'
 import { markChatSelection } from '#/lib/browser-performance'
 import { roomQueryKey } from '#/lib/room-query-keys'
 import { createThreadServer } from '#/routes/-room-runtime-server'
@@ -33,7 +34,7 @@ export function useStartRoomSession({
         },
         onError: (e: unknown) => {
             toast.error('Could not start a new session', {
-                description: e instanceof Error ? e.message : 'Unexpected error',
+                description: sanitizeRuntimeError(e instanceof Error ? e.message : null),
             })
         },
     })

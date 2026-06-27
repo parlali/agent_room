@@ -451,7 +451,7 @@ function AssistantRow({
                 <span className="size-6 shrink-0" aria-hidden />
             )}
             <div className="flex min-w-0 flex-col items-start gap-1">
-                <div className="max-w-[min(42rem,92%)] rounded-2xl bg-card px-3.5 py-2 text-card-foreground shadow-sm ring-1 ring-foreground/10">
+                <div className="min-w-0 max-w-[min(42rem,92%)] rounded-2xl bg-card px-3.5 py-2 text-card-foreground shadow-sm ring-1 ring-foreground/10">
                     {text ? (
                         <MessageText text={text} streaming={streaming} />
                     ) : (

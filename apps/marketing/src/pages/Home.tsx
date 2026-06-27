@@ -1,4 +1,3 @@
-import { assets } from '~/content/assets'
 import { problem, problemComparison } from '~/content/features'
 import {
     homeFounderNote,
@@ -8,12 +7,12 @@ import {
     homeIsolationRooms,
     homeSteps,
 } from '~/content/home'
-import { primaryCta, readSourceCta, seo } from '~/content/site'
+import { pricingCta, primaryCta, readSourceCta, seo } from '~/content/site'
 import { ComparisonPanel } from '~/components/ComparisonPanel'
 import { CtaBand } from '~/components/CtaBand'
 import { PageHero } from '~/components/PageHero'
 import { PageShell } from '~/components/PageShell'
-import { ProductImage } from '~/components/ProductImage'
+import { DesktopMockup, PhoneMockup } from '~/components/ProductMockup'
 import { ArrowLink, CtaButton, Section, SectionHeading, StatusDot } from '~/components/primitives'
 
 function IsolationDiagram() {
@@ -69,20 +68,23 @@ export function Home() {
         <PageShell meta={seo['/']}>
             <PageHero
                 visual={
-                    <ProductImage
-                        asset={assets.heroDesktop}
-                        mobileAsset={assets.heroMobile}
-                        priority
-                        className="shadow-float"
-                    />
+                    <>
+                        <div className="hidden sm:block">
+                            <DesktopMockup />
+                        </div>
+                        <div className="mx-auto max-w-[300px] sm:hidden">
+                            <PhoneMockup />
+                        </div>
+                    </>
                 }
             >
                 <h1 className="type-display rise rise-1 text-balance text-ink">{homeHero.title}</h1>
                 <p className="type-body rise rise-2 mt-6 max-w-2xl text-pretty text-ink-soft sm:text-lg">
                     {homeHero.summary}
                 </p>
-                <div className="rise rise-3 mt-9">
+                <div className="rise rise-3 mt-9 flex flex-wrap items-center justify-center gap-3">
                     <CtaButton cta={primaryCta} size="lg" />
+                    <CtaButton cta={pricingCta} variant="ghost" size="lg" />
                 </div>
             </PageHero>
 
