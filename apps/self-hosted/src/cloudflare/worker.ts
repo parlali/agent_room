@@ -286,10 +286,8 @@ export default {
                 message.ack()
             } catch (error) {
                 console.error(
-                    'DBG_RECONCILE_FAIL',
-                    error instanceof Error
-                        ? `${error.name}: ${error.message} :: ${(error.stack ?? '').slice(0, 1800)}`
-                        : String(error),
+                    'Hosted runtime reconcile failed',
+                    error instanceof Error ? error.message : error,
                 )
                 message.retry()
             }

@@ -278,50 +278,14 @@ export function getAppEnv(): AppEnv {
 
     const data = parsed.data
     const dataDir = resolve(data.AGENT_ROOM_DATA_DIR)
-    mkdirSync(dataDir, { recursive: true })
     const databaseUrl = data.AGENT_ROOM_DATABASE_URL ?? resolveDefaultDatabaseUrl(dataDir)
-    resolveSqliteDatabasePath(databaseUrl)
 
-    const bootstrap = resolveBootstrapPayload({
-        dataDir,
-        providedEncryptionKeyB64: data.AGENT_ROOM_ENCRYPTION_KEY_B64,
-        providedRootEmail: data.AGENT_ROOM_ROOT_EMAIL,
-        providedRootPassword: data.AGENT_ROOM_ROOT_PASSWORD,
-        providedSessionTtlHours: data.AGENT_ROOM_SESSION_TTL_HOURS,
-    })
-
-    if (data.NODE_ENV !== 'test') {
-        assertExistingBootstrapHasDatabase({
-            databaseUrl,
-            generatedNewBootstrap: bootstrap.generatedNewPayload,
-            allowDatabaseReset: data.AGENT_ROOM_ALLOW_DATABASE_RESET,
-        })
-    }
-
-    const encryptionKey = parseEncryptionKey(bootstrap.payload.encryptionKeyB64)
-
-    if (bootstrap.generatedNewPayload && data.NODE_ENV !== 'test') {
-        const bootstrapPath = resolve(dataDir, 'system', 'bootstrap.json')
-        console.log(`Agent Room bootstrap generated at ${bootstrapPath}`)
-        if (bootstrap.generatedNewEncryptionKey) {
-            console.log('Generated encryption key for this deployment')
-        }
-        if (bootstrap.generatedNewPassword) {
-            console.log(`Generated root login: ${bootstrap.payload.rootEmail}`)
-            console.log(`Generated root password stored in ${bootstrapPath}`)
-        }
-    }
-
-    cachedEnv = {
+    const sharedConfig = {
         nodeEnv: data.NODE_ENV,
         port: data.PORT,
         authMode: data.AGENT_ROOM_AUTH_MODE,
         databaseUrl,
         dataDir,
-        encryptionKey,
-        rootEmail: bootstrap.payload.rootEmail,
-        rootPassword: bootstrap.payload.rootPassword,
-        sessionTtlHours: bootstrap.payload.sessionTtlHours,
         publicOrigin: data.AGENT_ROOM_PUBLIC_ORIGIN
             ? new URL(data.AGENT_ROOM_PUBLIC_ORIGIN).origin
             : null,
@@ -356,6 +320,66 @@ export function getAppEnv(): AppEnv {
             openFiles: data.AGENT_ROOM_RUNTIME_MAX_OPEN_FILES,
             restrictPrivateNetwork: data.AGENT_ROOM_RUNTIME_RESTRICT_PRIVATE_NETWORK,
         }),
+    }
+
+    if (data.AGENT_ROOM_AUTH_MODE !== 'local') {
+        cachedEnv = {
+            ...sharedConfig,
+            get encryptionKey(): Buffer {
+                throw new Error('getAppEnv().encryptionKey is only available in local auth mode')
+            },
+            get rootEmail(): string {
+                throw new Error('getAppEnv().rootEmail is only available in local auth mode')
+            },
+            get rootPassword(): string {
+                throw new Error('getAppEnv().rootPassword is only available in local auth mode')
+            },
+            get sessionTtlHours(): number {
+                throw new Error('getAppEnv().sessionTtlHours is only available in local auth mode')
+            },
+        }
+        return cachedEnv
+    }
+
+    mkdirSync(dataDir, { recursive: true })
+    resolveSqliteDatabasePath(databaseUrl)
+
+    const bootstrap = resolveBootstrapPayload({
+        dataDir,
+        providedEncryptionKeyB64: data.AGENT_ROOM_ENCRYPTION_KEY_B64,
+        providedRootEmail: data.AGENT_ROOM_ROOT_EMAIL,
+        providedRootPassword: data.AGENT_ROOM_ROOT_PASSWORD,
+        providedSessionTtlHours: data.AGENT_ROOM_SESSION_TTL_HOURS,
+    })
+
+    if (data.NODE_ENV !== 'test') {
+        assertExistingBootstrapHasDatabase({
+            databaseUrl,
+            generatedNewBootstrap: bootstrap.generatedNewPayload,
+            allowDatabaseReset: data.AGENT_ROOM_ALLOW_DATABASE_RESET,
+        })
+    }
+
+    const encryptionKey = parseEncryptionKey(bootstrap.payload.encryptionKeyB64)
+
+    if (bootstrap.generatedNewPayload && data.NODE_ENV !== 'test') {
+        const bootstrapPath = resolve(dataDir, 'system', 'bootstrap.json')
+        console.log(`Agent Room bootstrap generated at ${bootstrapPath}`)
+        if (bootstrap.generatedNewEncryptionKey) {
+            console.log('Generated encryption key for this deployment')
+        }
+        if (bootstrap.generatedNewPassword) {
+            console.log(`Generated root login: ${bootstrap.payload.rootEmail}`)
+            console.log(`Generated root password stored in ${bootstrapPath}`)
+        }
+    }
+
+    cachedEnv = {
+        ...sharedConfig,
+        encryptionKey,
+        rootEmail: bootstrap.payload.rootEmail,
+        rootPassword: bootstrap.payload.rootPassword,
+        sessionTtlHours: bootstrap.payload.sessionTtlHours,
     }
 
     return cachedEnv
