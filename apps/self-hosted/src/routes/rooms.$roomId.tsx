@@ -300,7 +300,7 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                 <div className="grid gap-4 lg:grid-cols-2">
                     <Section
                         title="Sessions"
-                        description={`${activeSessions.length} ${pluralize(activeSessions.length, 'in flight')} · ${threads.length} ${pluralize(threads.length, 'total')}`}
+                        description={`${activeSessions.length} in flight · ${threads.length} ${pluralize(threads.length, 'session')}`}
                         actions={
                             threads.length > 0 ? (
                                 <Link
