@@ -12,10 +12,11 @@ on:
             - opened
             - synchronize
             - reopened
+            - closed
 
 jobs:
     deploy:
-        if: ${{ vars.CLOUDFLARE_HOSTED_PREVIEWS_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ vars.CLOUDFLARE_HOSTED_PREVIEWS_ENABLED == 'true' && github.event.action != 'closed' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) }}
         runs-on: ubuntu-latest
         permissions:
             contents: read
@@ -105,3 +106,52 @@ jobs:
               run: |
                   echo "### Cloudflare hosted preview" >> "$GITHUB_STEP_SUMMARY"
                   echo "${{ steps.preview.outputs.url }}" >> "$GITHUB_STEP_SUMMARY"
+
+    teardown:
+        if: ${{ github.event_name == 'pull_request' && github.event.action == 'closed' && vars.CLOUDFLARE_HOSTED_PREVIEWS_ENABLED == 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            pull-requests: read
+        steps:
+            - name: Checkout preview resolver
+              uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
+                  persist-credentials: false
+
+            - name: Setup Bun
+              uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+              with:
+                  bun-version: 1.3.13
+
+            - name: Resolve preview target
+              id: preview
+              env:
+                  PREVIEW_PR_NUMBER: ${{ github.event.pull_request.number }}
+                  CLOUDFLARE_WORKERS_SUBDOMAIN: ${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: bun run apps/self-hosted/scripts/cloudflare-hosted-preview-input.ts
+
+            - name: Tear down preview resources
+              env:
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_HOSTED_PREVIEW_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_HOSTED_PREVIEW_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  WORKER_NAME: ${{ steps.preview.outputs.worker_name }}
+                  D1_DATABASE_NAME: ${{ steps.preview.outputs.d1_database_name }}
+                  R2_BUCKET_NAME: ${{ steps.preview.outputs.r2_bucket_name }}
+                  QUEUE_NAME: ${{ steps.preview.outputs.queue_name }}
+                  CONTAINER_APP_NAME: ${{ steps.preview.outputs.worker_name }}-agentroomruntimecontainer
+              run: |
+                  set +e
+                  echo "Tearing down preview resources for ${WORKER_NAME}"
+                  printf 'yes\n' | bun x wrangler delete --name "${WORKER_NAME}"
+                  CONTAINER_APP_ID=$(bun x wrangler containers list 2>/dev/null | grep -F "${CONTAINER_APP_NAME}" | awk -F'│' '{gsub(/ /,"",$2); print $2}')
+                  if [ -n "${CONTAINER_APP_ID}" ]; then
+                      printf 'yes\n' | bun x wrangler containers delete "${CONTAINER_APP_ID}"
+                  fi
+                  printf 'yes\n' | bun x wrangler d1 delete "${D1_DATABASE_NAME}"
+                  printf 'yes\n' | bun x wrangler r2 bucket delete "${R2_BUCKET_NAME}"
+                  printf 'yes\n' | bun x wrangler queues delete "${QUEUE_NAME}"
+                  echo "Preview teardown complete (best-effort)"
+                  exit 0
