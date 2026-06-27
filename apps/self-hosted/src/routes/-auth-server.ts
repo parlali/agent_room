@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-start/server'
 import { z } from 'zod'
 import { getHostedAuth } from '#/server/cloudflare/hosted-auth'
+import { resolveHostedConfig } from '#/server/cloudflare/hosted-config'
 import { readHostedRequestContext } from '#/server/cloudflare/hosted-request-context'
 import {
     assertHostedSameOriginMutation,
@@ -34,6 +35,7 @@ export interface AuthUserSnapshot {
 export interface AuthSurfaceSnapshot {
     hosted: boolean
     signupEnabled: boolean
+    googleEnabled: boolean
 }
 
 export interface HostedBillingAccessSnapshot {
@@ -68,9 +70,17 @@ export const authSurfaceServer = createServerFn({ method: 'GET' }).handler(async
         'cache-control': 'no-store',
     })
     const hosted = readHostedRequestContext()
+    if (!hosted) {
+        return {
+            hosted: false,
+            signupEnabled: false,
+            googleEnabled: false,
+        } satisfies AuthSurfaceSnapshot
+    }
     return {
-        hosted: Boolean(hosted),
-        signupEnabled: Boolean(hosted),
+        hosted: true,
+        signupEnabled: true,
+        googleEnabled: Boolean(resolveHostedConfig(hosted.env).google),
     } satisfies AuthSurfaceSnapshot
 })
 
@@ -225,6 +235,53 @@ export const signupServer = createServerFn({ method: 'POST' })
             email: data.email.trim().toLowerCase(),
         }
     })
+
+export const googleSignInServer = createServerFn({ method: 'POST' }).handler(async () => {
+    const hosted = readHostedRequestContext()
+    if (!hosted) {
+        throw new Error('Google sign-in is not available in this deployment')
+    }
+    assertHostedSameOriginMutation(getRequest(), hosted.env)
+    if (!resolveHostedConfig(hosted.env).google) {
+        throw new Error('Google sign-in is not configured for this deployment')
+    }
+    const response = await getHostedAuth(hosted.env).handler(
+        new Request(new URL('/api/auth/sign-in/social', hosted.request.url), {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                origin: new URL(hosted.request.url).origin,
+            },
+            body: JSON.stringify({
+                provider: 'google',
+                callbackURL: new URL('/', hosted.request.url).toString(),
+                errorCallbackURL: new URL('/login', hosted.request.url).toString(),
+            }),
+        }),
+    )
+    if (!response.ok) {
+        let payload: unknown = null
+        try {
+            payload = await response.json()
+        } catch {}
+        console.warn('Hosted Google sign-in rejected by auth handler', response.status)
+        throw new Error(hostedAuthErrorMessage(payload, 'Could not start Google sign-in'))
+    }
+    const setCookies = response.headers.getSetCookie()
+    if (setCookies.length > 0) {
+        setResponseHeader('set-cookie', setCookies)
+    }
+    const payload = (await response.json()) as {
+        url?: unknown
+    }
+    if (typeof payload.url !== 'string' || !payload.url.trim()) {
+        console.warn('Hosted Google sign-in did not return a redirect URL')
+        throw new Error('Google sign-in response was invalid')
+    }
+    return {
+        url: payload.url,
+    }
+})
 
 export const logoutServer = createServerFn({ method: 'POST' }).handler(async () => {
     const hosted = readHostedRequestContext()

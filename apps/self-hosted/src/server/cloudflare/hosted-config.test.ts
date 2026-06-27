@@ -212,6 +212,20 @@ describe('hosted Cloudflare configuration', () => {
         })
     })
 
+    it('drives the auth surface Google flag from configured OAuth credentials', () => {
+        expect(Boolean(resolveHostedConfig(hostedEnv()).google)).toBe(true)
+        expect(
+            Boolean(
+                resolveHostedConfig(
+                    hostedEnv({
+                        GOOGLE_CLIENT_ID: undefined,
+                        GOOGLE_CLIENT_SECRET: undefined,
+                    }),
+                ).google,
+            ),
+        ).toBe(false)
+    })
+
     it('fails closed when Google OAuth credentials are partially configured', () => {
         expect(() =>
             resolveHostedConfig(
