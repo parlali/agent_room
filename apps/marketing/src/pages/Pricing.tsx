@@ -5,13 +5,14 @@ import {
     pricingPlans,
     pricingTopup,
 } from '~/content/pricing'
-import { seo } from '~/content/site'
+import { appUrl, seo } from '~/content/site'
 import {
     Accordion,
     AccordionContent,
     AccordionItem,
     AccordionTrigger,
 } from '~/components/ui/accordion'
+import { Link } from '~/components/Link'
 import { PageHero } from '~/components/PageHero'
 import { PageShell } from '~/components/PageShell'
 import { WaitlistForm } from '~/components/WaitlistForm'
@@ -62,6 +63,13 @@ export function Pricing() {
                                         </li>
                                     ))}
                                 </ul>
+                                <Link
+                                    href={appUrl}
+                                    external
+                                    className={`btn mt-7 w-full ${plan.key === 'standard' ? 'btn-primary' : 'btn-ghost'}`}
+                                >
+                                    Get started
+                                </Link>
                             </article>
                         ))}
                     </div>
@@ -162,9 +170,9 @@ export function Pricing() {
 
             <Section className="border-t border-line">
                 <SectionHeading
-                    eyebrow="Access"
-                    title="Need hosted access?"
-                    summary="Tell us what you plan to run and whether you expect to use managed provider credits or your own keys."
+                    eyebrow="Custom plans"
+                    title="Need a custom or enterprise plan?"
+                    summary="Pick any plan above to get started now. For volume, custom limits, or a security review, tell us what you plan to run and we will follow up."
                 />
                 <div className="rise rise-3 mx-auto mt-12 w-full max-w-lg text-left">
                     <WaitlistForm />

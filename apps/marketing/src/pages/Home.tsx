@@ -7,7 +7,7 @@ import {
     homeIsolationRooms,
     homeSteps,
 } from '~/content/home'
-import { primaryCta, readSourceCta, seo } from '~/content/site'
+import { pricingCta, primaryCta, readSourceCta, seo } from '~/content/site'
 import { ComparisonPanel } from '~/components/ComparisonPanel'
 import { CtaBand } from '~/components/CtaBand'
 import { PageHero } from '~/components/PageHero'
@@ -82,8 +82,9 @@ export function Home() {
                 <p className="type-body rise rise-2 mt-6 max-w-2xl text-pretty text-ink-soft sm:text-lg">
                     {homeHero.summary}
                 </p>
-                <div className="rise rise-3 mt-9">
+                <div className="rise rise-3 mt-9 flex flex-wrap items-center justify-center gap-3">
                     <CtaButton cta={primaryCta} size="lg" />
+                    <CtaButton cta={pricingCta} variant="ghost" size="lg" />
                 </div>
             </PageHero>
 
