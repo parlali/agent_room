@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { CalendarClockIcon, PlusIcon, RefreshCwIcon } from 'lucide-react'
 
-import { RoomDashboardLayout, RoomSetupRequiredState } from '#/components/room-dashboard'
+import { RoomSetupRequiredState } from '#/components/room-dashboard'
 import {
     DataTable,
     EmptyState,
@@ -224,7 +224,7 @@ function RoomJobsPage() {
     ]
 
     return (
-        <RoomDashboardLayout roomId={roomId} activeTab="tasks">
+        <>
             <div className="flex flex-col gap-6">
                 <Section
                     title="Scheduled tasks"
@@ -341,6 +341,6 @@ function RoomJobsPage() {
                     if (deleteJob) removeMutation.mutate(deleteJob.id)
                 }}
             />
-        </RoomDashboardLayout>
+        </>
     )
 }

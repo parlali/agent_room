@@ -35,7 +35,7 @@ import {
     DialogTitle,
 } from '#/components/ui/dialog'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '#/components/ui/sheet'
-import { RoomDashboardLayout, RoomSetupRequiredState } from '#/components/room-dashboard'
+import { RoomSetupRequiredState } from '#/components/room-dashboard'
 import {
     AttentionBanner,
     EmptyState,
@@ -149,11 +149,7 @@ function runtimeNoticeFor(sidebar: RoomSidebarSnapshot | undefined): RuntimeNoti
 
 function RoomFilesPage() {
     const { roomId } = Route.useParams()
-    return (
-        <RoomDashboardLayout roomId={roomId} activeTab="files">
-            <FilesContent roomId={roomId} />
-        </RoomDashboardLayout>
-    )
+    return <FilesContent roomId={roomId} />
 }
 
 function FilesContent({ roomId }: { roomId: string }) {

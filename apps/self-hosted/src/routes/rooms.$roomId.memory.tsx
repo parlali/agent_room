@@ -5,7 +5,6 @@ import { BrainIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '#/components/ui/button'
-import { RoomDashboardLayout } from '#/components/room-dashboard'
 import { AttentionBanner, EmptyState, LoadingRows, SaveBar, Section } from '#/components/agent-room'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import { sanitizeRuntimeError } from '#/domain/runtime-error'
@@ -57,11 +56,7 @@ function isMemoryConflict(message: string): boolean {
 
 function RoomMemoryPage() {
     const { roomId } = Route.useParams()
-    return (
-        <RoomDashboardLayout roomId={roomId} activeTab="memory">
-            <CoworkerBrief roomId={roomId} />
-        </RoomDashboardLayout>
-    )
+    return <CoworkerBrief roomId={roomId} />
 }
 
 function CoworkerBrief({ roomId }: { roomId: string }) {

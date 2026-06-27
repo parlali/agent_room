@@ -1,6 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { RoomDashboardLayout } from '#/components/room-dashboard'
 import { AttentionBanner } from '#/components/agent-room'
 import { TooltipProvider } from '#/components/ui/tooltip'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
@@ -32,45 +31,43 @@ function RoomSettingsPage() {
     const snapshot = roomConfigQuery.data ?? null
 
     return (
-        <RoomDashboardLayout roomId={roomId} activeTab="settings">
-            <TooltipProvider>
-                <div className="mx-auto flex max-w-4xl flex-col gap-6">
-                    {roomConfigQuery.isError ? (
-                        <AttentionBanner
-                            tone="danger"
-                            title="Could not load room settings"
-                            description={
-                                roomConfigQuery.error instanceof Error
-                                    ? roomConfigQuery.error.message
-                                    : 'Unexpected error'
-                            }
-                        />
-                    ) : null}
-
-                    {snapshot && !snapshot.effective.ready ? (
-                        <AttentionBanner
-                            tone="attention"
-                            title="Room is not ready yet"
-                            description={snapshot.effective.blockedReasons.join('; ')}
-                        />
-                    ) : null}
-
-                    <RoomSettingsBody
-                        roomId={roomId}
-                        snapshot={snapshot}
-                        paused={room?.desiredState === 'stopped'}
-                        roomSlug={room?.slug ?? ''}
-                        roomDisplayName={room?.displayName ?? ''}
-                        loading={roomConfigQuery.isLoading}
-                        roomsLoading={roomsQuery.isLoading}
-                        onSaved={async () => {
-                            await queryClient.invalidateQueries({
-                                queryKey: roomQueryKey.roomConfig(roomId),
-                            })
-                        }}
+        <TooltipProvider>
+            <div className="mx-auto flex max-w-4xl flex-col gap-6">
+                {roomConfigQuery.isError ? (
+                    <AttentionBanner
+                        tone="danger"
+                        title="Could not load room settings"
+                        description={
+                            roomConfigQuery.error instanceof Error
+                                ? roomConfigQuery.error.message
+                                : 'Unexpected error'
+                        }
                     />
-                </div>
-            </TooltipProvider>
-        </RoomDashboardLayout>
+                ) : null}
+
+                {snapshot && !snapshot.effective.ready ? (
+                    <AttentionBanner
+                        tone="attention"
+                        title="Room is not ready yet"
+                        description={snapshot.effective.blockedReasons.join('; ')}
+                    />
+                ) : null}
+
+                <RoomSettingsBody
+                    roomId={roomId}
+                    snapshot={snapshot}
+                    paused={room?.desiredState === 'stopped'}
+                    roomSlug={room?.slug ?? ''}
+                    roomDisplayName={room?.displayName ?? ''}
+                    loading={roomConfigQuery.isLoading}
+                    roomsLoading={roomsQuery.isLoading}
+                    onSaved={async () => {
+                        await queryClient.invalidateQueries({
+                            queryKey: roomQueryKey.roomConfig(roomId),
+                        })
+                    }}
+                />
+            </div>
+        </TooltipProvider>
     )
 }

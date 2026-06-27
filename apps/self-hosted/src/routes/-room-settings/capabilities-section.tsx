@@ -5,7 +5,7 @@ import { Button } from '#/components/ui/button'
 import { Switch } from '#/components/ui/switch'
 import { AttentionBanner, Section, StateBadge, ToggleSelector } from '#/components/agent-room'
 import { CAPABILITY_OPTIONS, type CapabilityOption } from '#/domain/capabilities'
-import { WEB_ACCESS_CAPABILITY_IDS } from '#/domain/capability-labels'
+import { WEB_ACCESS_CAPABILITY_IDS, capabilityLabel } from '#/domain/capability-labels'
 import type {
     OperatorConfigSnapshot,
     RoomConfigSnapshot,
@@ -145,7 +145,7 @@ export function CapabilitiesSection({
                             .filter((item) => item.checked)
                             .map((item) => item.option.id)}
                         getValue={(item) => item.option.id}
-                        getAriaLabel={(item) => `Toggle ${item.option.label}`}
+                        getAriaLabel={(item) => `Toggle ${capabilityLabel(item.option.id)}`}
                         onCheckedChange={(_value, next, item) => setCapability(item.option, next)}
                         className="grid gap-2 divide-y-0 sm:grid-cols-2"
                         itemClassName="items-start rounded-lg border border-border/60 px-3 py-2.5"
@@ -153,7 +153,7 @@ export function CapabilitiesSection({
                             <>
                                 <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                                     <PlugIcon className="size-4 text-muted-foreground" />
-                                    {item.option.label}
+                                    {capabilityLabel(item.option.id)}
                                 </div>
                                 <div className="mt-0.5 text-xs text-muted-foreground">
                                     {item.option.description}

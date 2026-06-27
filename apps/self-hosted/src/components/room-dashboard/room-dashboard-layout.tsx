@@ -64,22 +64,18 @@ export function RoomDashboardLayout({
     roomId,
     activeTab,
     children,
-    headerActions,
-    fill = false,
 }: {
     roomId: string
-    activeTab?: RoomDashboardTab
+    activeTab: RoomDashboardTab
     children: ReactNode
-    headerActions?: ReactNode
-    fill?: boolean
 }) {
     usePreloadRoomDashboardRoutes()
     usePendingOnboardingRedirect(roomId)
 
-    const header = <RoomHeader roomId={roomId} headerActions={headerActions} />
+    const header = <RoomHeader roomId={roomId} />
     const subnav = <RoomNav roomId={roomId} activeTab={activeTab} />
 
-    if (fill) {
+    if (activeTab === 'chat') {
         return (
             <div className="flex h-full min-h-0 flex-col">
                 <div className="shrink-0 border-b border-border/60 bg-background/95 backdrop-blur">
@@ -146,7 +142,7 @@ function usePreloadRoomDashboardRoutes(): void {
     }, [])
 }
 
-function RoomHeader({ roomId, headerActions }: { roomId: string; headerActions?: ReactNode }) {
+function RoomHeader({ roomId }: { roomId: string }) {
     const queryClient = useQueryClient()
     const sidebarQuery = useRoomSidebarQuery(roomId)
     const configQuery = useQuery({
@@ -225,7 +221,6 @@ function RoomHeader({ roomId, headerActions }: { roomId: string; headerActions?:
             room={room}
             setup={setup}
             config={configQuery.data ?? null}
-            headerActions={headerActions}
             setDesired={setDesired}
         />
     )
@@ -236,14 +231,12 @@ function RoomHeaderContent({
     room,
     setup,
     config,
-    headerActions,
     setDesired,
 }: {
     roomId: string
     room: RoomRuntimeOverview
     setup: RoomSetupSnapshot
     config: RoomConfigSnapshot | null
-    headerActions?: ReactNode
     setDesired: ReturnType<typeof useMutation<unknown, unknown, 'running' | 'stopped'>>
 }) {
     const paused = room.desiredState === 'stopped'
@@ -301,7 +294,6 @@ function RoomHeaderContent({
             }
             actions={
                 <>
-                    {headerActions}
                     {needsSetup ? (
                         <Button asChild size="sm">
                             <Link to="/settings" hash="advanced">

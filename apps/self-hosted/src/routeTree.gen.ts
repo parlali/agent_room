@@ -16,6 +16,7 @@ import { Route as BillingRouteImport } from './routes/billing'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as RoomsRoomIdRouteImport } from './routes/rooms.$roomId'
+import { Route as RoomsRoomIdIndexRouteImport } from './routes/rooms.$roomId.index'
 import { Route as RoomsRoomIdSettingsRouteImport } from './routes/rooms.$roomId.settings'
 import { Route as RoomsRoomIdMemoryRouteImport } from './routes/rooms.$roomId.memory'
 import { Route as RoomsRoomIdJobsRouteImport } from './routes/rooms.$roomId.jobs'
@@ -62,6 +63,11 @@ const RoomsRoomIdRoute = RoomsRoomIdRouteImport.update({
   id: '/rooms/$roomId',
   path: '/rooms/$roomId',
   getParentRoute: () => rootRouteImport,
+} as any)
+const RoomsRoomIdIndexRoute = RoomsRoomIdIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => RoomsRoomIdRoute,
 } as any)
 const RoomsRoomIdSettingsRoute = RoomsRoomIdSettingsRouteImport.update({
   id: '/settings',
@@ -137,6 +143,7 @@ export interface FileRoutesByFullPath {
   '/rooms/$roomId/jobs': typeof RoomsRoomIdJobsRoute
   '/rooms/$roomId/memory': typeof RoomsRoomIdMemoryRoute
   '/rooms/$roomId/settings': typeof RoomsRoomIdSettingsRoute
+  '/rooms/$roomId/': typeof RoomsRoomIdIndexRoute
   '/api/rooms/$roomId/events': typeof ApiRoomsRoomIdEventsRoute
   '/rooms/$roomId/sessions/$sessionKey': typeof RoomsRoomIdSessionsSessionKeyRoute
   '/api/rooms/$roomId/files/preview': typeof ApiRoomsRoomIdFilesPreviewRoute
@@ -150,13 +157,13 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
   '/settings': typeof SettingsRoute
-  '/rooms/$roomId': typeof RoomsRoomIdRouteWithChildren
   '/api/github/events': typeof ApiGithubEventsRoute
   '/github/app/callback': typeof GithubAppCallbackRoute
   '/rooms/$roomId/files': typeof RoomsRoomIdFilesRoute
   '/rooms/$roomId/jobs': typeof RoomsRoomIdJobsRoute
   '/rooms/$roomId/memory': typeof RoomsRoomIdMemoryRoute
   '/rooms/$roomId/settings': typeof RoomsRoomIdSettingsRoute
+  '/rooms/$roomId': typeof RoomsRoomIdIndexRoute
   '/api/rooms/$roomId/events': typeof ApiRoomsRoomIdEventsRoute
   '/rooms/$roomId/sessions/$sessionKey': typeof RoomsRoomIdSessionsSessionKeyRoute
   '/api/rooms/$roomId/files/preview': typeof ApiRoomsRoomIdFilesPreviewRoute
@@ -178,6 +185,7 @@ export interface FileRoutesById {
   '/rooms/$roomId/jobs': typeof RoomsRoomIdJobsRoute
   '/rooms/$roomId/memory': typeof RoomsRoomIdMemoryRoute
   '/rooms/$roomId/settings': typeof RoomsRoomIdSettingsRoute
+  '/rooms/$roomId/': typeof RoomsRoomIdIndexRoute
   '/api/rooms/$roomId/events': typeof ApiRoomsRoomIdEventsRoute
   '/rooms/$roomId/sessions/$sessionKey': typeof RoomsRoomIdSessionsSessionKeyRoute
   '/api/rooms/$roomId/files/preview': typeof ApiRoomsRoomIdFilesPreviewRoute
@@ -200,6 +208,7 @@ export interface FileRouteTypes {
     | '/rooms/$roomId/jobs'
     | '/rooms/$roomId/memory'
     | '/rooms/$roomId/settings'
+    | '/rooms/$roomId/'
     | '/api/rooms/$roomId/events'
     | '/rooms/$roomId/sessions/$sessionKey'
     | '/api/rooms/$roomId/files/preview'
@@ -213,13 +222,13 @@ export interface FileRouteTypes {
     | '/login'
     | '/onboarding'
     | '/settings'
-    | '/rooms/$roomId'
     | '/api/github/events'
     | '/github/app/callback'
     | '/rooms/$roomId/files'
     | '/rooms/$roomId/jobs'
     | '/rooms/$roomId/memory'
     | '/rooms/$roomId/settings'
+    | '/rooms/$roomId'
     | '/api/rooms/$roomId/events'
     | '/rooms/$roomId/sessions/$sessionKey'
     | '/api/rooms/$roomId/files/preview'
@@ -240,6 +249,7 @@ export interface FileRouteTypes {
     | '/rooms/$roomId/jobs'
     | '/rooms/$roomId/memory'
     | '/rooms/$roomId/settings'
+    | '/rooms/$roomId/'
     | '/api/rooms/$roomId/events'
     | '/rooms/$roomId/sessions/$sessionKey'
     | '/api/rooms/$roomId/files/preview'
@@ -313,6 +323,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/rooms/$roomId'
       preLoaderRoute: typeof RoomsRoomIdRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/rooms/$roomId/': {
+      id: '/rooms/$roomId/'
+      path: '/'
+      fullPath: '/rooms/$roomId/'
+      preLoaderRoute: typeof RoomsRoomIdIndexRouteImport
+      parentRoute: typeof RoomsRoomIdRoute
     }
     '/rooms/$roomId/settings': {
       id: '/rooms/$roomId/settings'
@@ -399,6 +416,7 @@ interface RoomsRoomIdRouteChildren {
   RoomsRoomIdJobsRoute: typeof RoomsRoomIdJobsRoute
   RoomsRoomIdMemoryRoute: typeof RoomsRoomIdMemoryRoute
   RoomsRoomIdSettingsRoute: typeof RoomsRoomIdSettingsRoute
+  RoomsRoomIdIndexRoute: typeof RoomsRoomIdIndexRoute
   RoomsRoomIdSessionsSessionKeyRoute: typeof RoomsRoomIdSessionsSessionKeyRoute
 }
 
@@ -407,6 +425,7 @@ const RoomsRoomIdRouteChildren: RoomsRoomIdRouteChildren = {
   RoomsRoomIdJobsRoute: RoomsRoomIdJobsRoute,
   RoomsRoomIdMemoryRoute: RoomsRoomIdMemoryRoute,
   RoomsRoomIdSettingsRoute: RoomsRoomIdSettingsRoute,
+  RoomsRoomIdIndexRoute: RoomsRoomIdIndexRoute,
   RoomsRoomIdSessionsSessionKeyRoute: RoomsRoomIdSessionsSessionKeyRoute,
 }
 
