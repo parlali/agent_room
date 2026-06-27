@@ -1,12 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute } from '@tanstack/react-router'
-import { SlidersHorizontalIcon } from 'lucide-react'
 import { toast } from 'sonner'
-import { Page, PageHeader } from '#/components/agent-room'
 import { imageModelOptionsForProvider } from '#/domain/model-options'
 import { roomQueryKey } from '#/lib/room-query-keys'
-import { requireRouteUser } from './-route-auth'
 import {
     cancelCodexDeviceAuthSessionServer,
     deleteMcpConnectionServer,
@@ -23,7 +19,7 @@ import {
     startGitHubUserAuthorizationServer,
     updateAppCapabilitySettingsServer,
     updateAppDefaultsServer,
-} from './-operator-config-server'
+} from '../-operator-config-server'
 import type {
     McpConnectionSummary,
     OperatorConfigSnapshot,
@@ -40,7 +36,7 @@ import {
     capabilityDefaultsEqual,
     type DeleteConnectionTarget,
     resolveProviderFormProtocol,
-} from './settings/-forms'
+} from './-forms'
 import {
     AppDefaultsSection,
     CapabilitiesSection,
@@ -52,18 +48,14 @@ import {
     type AppCapabilityDefaults,
     type AppImageProvider,
     type AppSearchDraft,
-} from './settings/-sections'
-import { CodexAppServerSection } from './settings/-codex-app-server-section'
+} from './-sections'
+import { CodexAppServerSection } from './-codex-app-server-section'
 
-export const Route = createFileRoute('/operator')({
-    beforeLoad: requireRouteUser,
-    validateSearch: (search: Record<string, unknown>) => ({
-        installationId: typeof search.installation_id === 'string' ? search.installation_id : '',
-        setupAction: typeof search.setup_action === 'string' ? search.setup_action : '',
-        githubState: typeof search.state === 'string' ? search.state : '',
-    }),
-    component: OperatorPage,
-})
+export interface GitHubReturn {
+    installationId: string
+    setupAction: string
+    githubState: string
+}
 
 function toSearchDraft(search: OperatorConfigSnapshot['settings']['search']): AppSearchDraft {
     return {
@@ -125,7 +117,7 @@ function searchDraftDirty(
 function GroupHeading({ title, description }: { title: string; description: string }) {
     return (
         <div className="space-y-0.5">
-            <h2 className="text-sm font-semibold tracking-tight text-foreground">{title}</h2>
+            <h3 className="text-sm font-semibold tracking-tight text-foreground">{title}</h3>
             <p className="text-xs text-muted-foreground">{description}</p>
         </div>
     )
@@ -148,9 +140,8 @@ function Group({
     )
 }
 
-function OperatorPage() {
+export function ProvidersIntegrationsSection({ githubReturn }: { githubReturn: GitHubReturn }) {
     const queryClient = useQueryClient()
-    const search = Route.useSearch()
 
     const configQuery = useQuery<OperatorConfigSnapshot>({
         queryKey: roomQueryKey.operatorConfig,
@@ -552,21 +543,21 @@ function OperatorPage() {
     useEffect(() => {
         if (!config?.github.app.configured) return
         const redirectKey =
-            search.installationId || search.setupAction || search.githubState
-                ? `redirect:${search.installationId}:${search.setupAction}:${search.githubState}`
-                : 'operator-load'
+            githubReturn.installationId || githubReturn.setupAction || githubReturn.githubState
+                ? `redirect:${githubReturn.installationId}:${githubReturn.setupAction}:${githubReturn.githubState}`
+                : 'settings-load'
         if (autoGitHubRefreshKeyRef.current === redirectKey || refreshGitHubPending) return
         autoGitHubRefreshKeyRef.current = redirectKey
         refreshGitHubMutate({
-            silent: redirectKey === 'operator-load',
+            silent: redirectKey === 'settings-load',
         })
     }, [
         config?.github.app.configured,
         refreshGitHubMutate,
         refreshGitHubPending,
-        search.githubState,
-        search.installationId,
-        search.setupAction,
+        githubReturn.githubState,
+        githubReturn.installationId,
+        githubReturn.setupAction,
     ])
 
     useEffect(() => {
@@ -721,125 +712,113 @@ function OperatorPage() {
         providers.find((entry) => entry.id === defaultProviderId) ?? null
 
     return (
-        <Page
-            width="lg"
-            header={
-                <PageHeader
-                    eyebrow="Advanced"
-                    glyph={<SlidersHorizontalIcon className="size-6 text-muted-foreground" />}
-                    title="Operator console"
-                    subtitle="Provider connections, tools, integrations, and runtime defaults. Changes here apply across every room."
+        <div className="flex flex-col gap-8">
+            <SetupBanner onboardingCompleted={onboardingCompleted} />
+
+            <Group
+                title="AI models"
+                description="The AI connections your rooms use and the default new rooms inherit."
+            >
+                <ProviderConnectionsSection
+                    providers={providers}
+                    defaultProviderId={config?.settings.defaultProviderConnectionId}
+                    loading={configQuery.isLoading}
+                    deletingProviderId={
+                        deleteProviderMutation.isPending
+                            ? deleteProviderMutation.variables
+                            : undefined
+                    }
+                    onAdd={openNewProvider}
+                    onEdit={openEditProvider}
+                    onDelete={onDeleteProvider}
                 />
-            }
-        >
-            <div className="flex flex-col gap-8">
-                <SetupBanner onboardingCompleted={onboardingCompleted} />
 
-                <Group
-                    title="Model providers"
-                    description="Saved AI connections and the default new rooms inherit."
-                >
-                    <ProviderConnectionsSection
-                        providers={providers}
-                        defaultProviderId={config?.settings.defaultProviderConnectionId}
-                        loading={configQuery.isLoading}
-                        deletingProviderId={
-                            deleteProviderMutation.isPending
-                                ? deleteProviderMutation.variables
-                                : undefined
-                        }
-                        onAdd={openNewProvider}
-                        onEdit={openEditProvider}
-                        onDelete={onDeleteProvider}
-                    />
+                <CodexAppServerSection
+                    config={config}
+                    session={codexAuthQuery.data}
+                    loading={codexAuthQuery.isLoading}
+                    startPending={startCodexAuthMutation.isPending}
+                    cancelPending={cancelCodexAuthMutation.isPending}
+                    hostedCredentialMode={hostedCodexCredentialMode}
+                    onStart={() => startCodexAuthMutation.mutate()}
+                    onCancel={() => cancelCodexAuthMutation.mutate()}
+                />
 
-                    <CodexAppServerSection
-                        config={config}
-                        session={codexAuthQuery.data}
-                        loading={codexAuthQuery.isLoading}
-                        startPending={startCodexAuthMutation.isPending}
-                        cancelPending={cancelCodexAuthMutation.isPending}
-                        hostedCredentialMode={hostedCodexCredentialMode}
-                        onStart={() => startCodexAuthMutation.mutate()}
-                        onCancel={() => cancelCodexAuthMutation.mutate()}
-                    />
+                <AppDefaultsSection
+                    providers={providers}
+                    defaultProviderId={defaultProviderId}
+                    selectedDefaultProvider={selectedDefaultProvider}
+                    defaultsDirty={defaultsDirty}
+                    pending={updateDefaultsMutation.isPending}
+                    onChangeDefaultProvider={setDefaultProviderId}
+                    onSave={() => updateDefaultsMutation.mutate()}
+                />
+            </Group>
 
-                    <AppDefaultsSection
-                        providers={providers}
-                        defaultProviderId={defaultProviderId}
-                        selectedDefaultProvider={selectedDefaultProvider}
-                        defaultsDirty={defaultsDirty}
-                        pending={updateDefaultsMutation.isPending}
-                        onChangeDefaultProvider={setDefaultProviderId}
-                        onSave={() => updateDefaultsMutation.mutate()}
-                    />
-                </Group>
+            <Group
+                title="Connected tools"
+                description="Tools any room can be granted access to."
+            >
+                <McpConnectionsSection
+                    mcpConnections={mcpConnections}
+                    loading={configQuery.isLoading}
+                    deletingMcpId={
+                        deleteMcpMutation.isPending ? deleteMcpMutation.variables : undefined
+                    }
+                    onAdd={openNewMcp}
+                    onEdit={openEditMcp}
+                    onDelete={onDeleteMcp}
+                />
+            </Group>
 
-                <Group
-                    title="Connected tools"
-                    description="MCP servers any room can be granted access to."
-                >
-                    <McpConnectionsSection
-                        mcpConnections={mcpConnections}
-                        loading={configQuery.isLoading}
-                        deletingMcpId={
-                            deleteMcpMutation.isPending ? deleteMcpMutation.variables : undefined
-                        }
-                        onAdd={openNewMcp}
-                        onEdit={openEditMcp}
-                        onDelete={onDeleteMcp}
-                    />
-                </Group>
+            <Group
+                title="GitHub"
+                description="Connect a GitHub account and install the room-scoped GitHub App."
+            >
+                <GitHubAppSection
+                    config={config}
+                    publicOrigin={githubPublicOrigin}
+                    targetOwner={githubTargetOwner}
+                    setupPending={startGitHubManifestMutation.isPending}
+                    accountConnectPending={startGitHubUserAuthorizationMutation.isPending}
+                    refreshPending={refreshGitHubMutation.isPending}
+                    disconnectAccountPending={disconnectGitHubUserMutation.isPending}
+                    resetPending={resetGitHubMutation.isPending}
+                    onChangePublicOrigin={setGithubPublicOrigin}
+                    onChangeTargetOwner={setGithubTargetOwner}
+                    onStartSetup={() => startGitHubManifestMutation.mutate()}
+                    onConnectAccount={() => startGitHubUserAuthorizationMutation.mutate()}
+                    onRefresh={() => refreshGitHubMutation.mutate({})}
+                    onDisconnectAccount={() => disconnectGitHubUserMutation.mutate()}
+                    onReset={() => resetGitHubMutation.mutate()}
+                />
+            </Group>
 
-                <Group
-                    title="Integrations"
-                    description="Connect GitHub accounts and install the room-scoped GitHub App."
-                >
-                    <GitHubAppSection
-                        config={config}
-                        publicOrigin={githubPublicOrigin}
-                        targetOwner={githubTargetOwner}
-                        setupPending={startGitHubManifestMutation.isPending}
-                        accountConnectPending={startGitHubUserAuthorizationMutation.isPending}
-                        refreshPending={refreshGitHubMutation.isPending}
-                        disconnectAccountPending={disconnectGitHubUserMutation.isPending}
-                        resetPending={resetGitHubMutation.isPending}
-                        onChangePublicOrigin={setGithubPublicOrigin}
-                        onChangeTargetOwner={setGithubTargetOwner}
-                        onStartSetup={() => startGitHubManifestMutation.mutate()}
-                        onConnectAccount={() => startGitHubUserAuthorizationMutation.mutate()}
-                        onRefresh={() => refreshGitHubMutation.mutate({})}
-                        onDisconnectAccount={() => disconnectGitHubUserMutation.mutate()}
-                        onReset={() => resetGitHubMutation.mutate()}
-                    />
-                </Group>
-
-                <Group
-                    title="Capabilities and runtime defaults"
-                    description="Defaults inherited by new rooms, web access backends, and image generation."
-                >
-                    <CapabilitiesSection
-                        config={config}
-                        capabilityDefaults={capabilityDefaults}
-                        appImageProvider={appImageProvider}
-                        appImageModel={appImageModel}
-                        appImageApiKey={appImageApiKey}
-                        appImageHasCredential={appImageHasCredential}
-                        appImageReplaceApiKey={appImageReplaceApiKey}
-                        appSearch={appSearch}
-                        savePending={updateCapabilitiesMutation.isPending}
-                        capabilitiesDirty={capabilitiesDirty}
-                        setCapabilityDefaults={setCapabilityDefaults}
-                        setAppImageProvider={setAppImageProvider}
-                        setAppImageModel={setAppImageModel}
-                        setAppImageApiKey={setAppImageApiKey}
-                        setAppImageHasCredential={setAppImageHasCredential}
-                        setAppImageReplaceApiKey={setAppImageReplaceApiKey}
-                        setAppSearch={setAppSearch}
-                        onSaveCapabilities={onSaveCapabilities}
-                    />
-                </Group>
-            </div>
+            <Group
+                title="Advanced runtime settings"
+                description="Defaults new rooms inherit, web access backends, and image generation. Most workspaces never change these."
+            >
+                <CapabilitiesSection
+                    config={config}
+                    capabilityDefaults={capabilityDefaults}
+                    appImageProvider={appImageProvider}
+                    appImageModel={appImageModel}
+                    appImageApiKey={appImageApiKey}
+                    appImageHasCredential={appImageHasCredential}
+                    appImageReplaceApiKey={appImageReplaceApiKey}
+                    appSearch={appSearch}
+                    savePending={updateCapabilitiesMutation.isPending}
+                    capabilitiesDirty={capabilitiesDirty}
+                    setCapabilityDefaults={setCapabilityDefaults}
+                    setAppImageProvider={setAppImageProvider}
+                    setAppImageModel={setAppImageModel}
+                    setAppImageApiKey={setAppImageApiKey}
+                    setAppImageHasCredential={setAppImageHasCredential}
+                    setAppImageReplaceApiKey={setAppImageReplaceApiKey}
+                    setAppSearch={setAppSearch}
+                    onSaveCapabilities={onSaveCapabilities}
+                />
+            </Group>
 
             <DeleteConnectionDialog
                 target={deleteTarget}
@@ -876,7 +855,7 @@ function OperatorPage() {
                 open={mcpSheetOpen}
                 onOpenChange={setMcpSheetOpen}
                 title={mcpForm.id ? 'Edit tool' : 'Add tool'}
-                description="MCP servers exposed to rooms. Bearer tokens are write-only."
+                description="Tools exposed to rooms. Bearer tokens are write-only."
             >
                 <McpForm
                     form={mcpForm}
@@ -886,6 +865,6 @@ function OperatorPage() {
                     pending={saveMcpMutation.isPending}
                 />
             </EditSheet>
-        </Page>
+        </div>
     )
 }

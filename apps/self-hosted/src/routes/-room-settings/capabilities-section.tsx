@@ -257,9 +257,9 @@ function ManagedCapabilityCard({
 
 function OperatorConsoleLink() {
     return (
-        <Link to="/operator" search={{ installationId: '', setupAction: '', githubState: '' }}>
+        <Link to="/settings" hash="advanced">
             <Button type="button" variant="outline" size="sm">
-                Manage in Operator console
+                Manage in Settings
             </Button>
         </Link>
     )

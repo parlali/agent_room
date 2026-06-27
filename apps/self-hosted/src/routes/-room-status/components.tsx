@@ -51,10 +51,7 @@ function StatusActionButton({
     if (fix.target === 'operator') {
         return (
             <Button asChild size="sm" variant={variant}>
-                <Link
-                    to="/operator"
-                    search={{ installationId: '', setupAction: '', githubState: '' }}
-                >
+                <Link to="/settings" hash="advanced">
                     {fix.label}
                 </Link>
             </Button>

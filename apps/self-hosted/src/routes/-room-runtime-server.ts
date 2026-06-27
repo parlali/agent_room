@@ -148,6 +148,10 @@ const roomUsageInputSchema = z.object({
     limit: z.number().int().positive().max(200).optional(),
 })
 
+const usageInputSchema = z.object({
+    limit: z.number().int().positive().max(500).optional(),
+})
+
 const clientPerformanceInputSchema = z.object({
     name: z.enum([
         'navigation.paint',
@@ -635,6 +639,13 @@ export const listRoomUsageServer = createServerFn({ method: 'GET' })
     .handler(async ({ data }) => {
         const { listRoomUsageForRoute } = await loadRoomRuntimeRouteService()
         return listRoomUsageForRoute(data)
+    })
+
+export const listUsageServer = createServerFn({ method: 'GET' })
+    .inputValidator((input: unknown) => usageInputSchema.parse(input ?? {}))
+    .handler(async ({ data }) => {
+        const { listUsageForRoute } = await loadRoomRuntimeRouteService()
+        return listUsageForRoute(data)
     })
 
 export const listRoomFilesServer = createServerFn({ method: 'GET' })

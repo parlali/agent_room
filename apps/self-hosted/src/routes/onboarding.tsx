@@ -273,14 +273,7 @@ function OnboardingPage() {
                                 <ArrowRightIcon />
                             </Button>
                             <Button asChild variant="ghost" size="sm">
-                                <Link
-                                    to="/operator"
-                                    search={{
-                                        installationId: '',
-                                        setupAction: '',
-                                        githubState: '',
-                                    }}
-                                >
+                                <Link to="/settings" hash="advanced">
                                     Open advanced setup
                                 </Link>
                             </Button>

@@ -97,15 +97,8 @@ function GitHubAppCallbackPage() {
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <StateBadge tone="ready" label="Connected" />
                             <Button asChild>
-                                <Link
-                                    to="/operator"
-                                    search={{
-                                        installationId: '',
-                                        setupAction: '',
-                                        githubState: '',
-                                    }}
-                                >
-                                    Back to setup
+                                <Link to="/settings" hash="advanced">
+                                    Manage in Settings
                                 </Link>
                             </Button>
                         </div>
@@ -127,15 +120,8 @@ function GitHubAppCallbackPage() {
                                     </Button>
                                 ) : null}
                                 <Button asChild>
-                                    <Link
-                                        to="/operator"
-                                        search={{
-                                            installationId: '',
-                                            setupAction: '',
-                                            githubState: '',
-                                        }}
-                                    >
-                                        Back to setup
+                                    <Link to="/settings" hash="advanced">
+                                        Manage in Settings
                                     </Link>
                                 </Button>
                             </div>
@@ -149,15 +135,8 @@ function GitHubAppCallbackPage() {
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <StateBadge tone="ready" label="Ready" />
                             <Button asChild>
-                                <Link
-                                    to="/operator"
-                                    search={{
-                                        installationId: '',
-                                        setupAction: '',
-                                        githubState: '',
-                                    }}
-                                >
-                                    Back to setup
+                                <Link to="/settings" hash="advanced">
+                                    Manage in Settings
                                 </Link>
                             </Button>
                         </div>

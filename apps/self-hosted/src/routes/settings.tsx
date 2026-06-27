@@ -1,262 +1,167 @@
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { createFileRoute, Link } from '@tanstack/react-router'
-import { MonitorIcon, MoonIcon, SettingsIcon, SlidersHorizontalIcon, SunIcon } from 'lucide-react'
+import { createFileRoute } from '@tanstack/react-router'
+import { SettingsIcon } from 'lucide-react'
 import {
-    AttentionBanner,
     KeyValueList,
     LoadingRows,
     Page,
     PageHeader,
     Section,
-    StateBadge,
-    ThemeChoice,
-    type KeyValueItem,
 } from '#/components/agent-room'
-import { Button } from '#/components/ui/button'
-import { describeWebAccessReadiness, type Tone } from '#/domain/state'
-import { useThemeMode } from '#/lib/theme'
+import { cn } from '#/lib/utils'
 import { roomQueryKey } from '#/lib/room-query-keys'
 import { currentUserServer } from './-auth-server'
-import { getOperatorConfigServer } from './-operator-config-server'
+import { ThemeControl } from '#/components/app-shell/theme-control'
 import { useHostedDeployment } from '#/components/app-shell/nav-config'
-import type { OperatorConfigSnapshot } from '#/server/configuration/operator-configuration'
 import { requireRouteUser } from './-route-auth'
+import { ProvidersIntegrationsSection } from './settings/-advanced-section'
+import { UsageBillingSection } from './settings/-usage-section'
+
+interface SettingsSearch {
+    installationId?: string
+    setupAction?: string
+    githubState?: string
+}
 
 export const Route = createFileRoute('/settings')({
     beforeLoad: requireRouteUser,
+    validateSearch: (search: Record<string, unknown>): SettingsSearch => ({
+        installationId:
+            typeof search.installation_id === 'string' && search.installation_id
+                ? search.installation_id
+                : undefined,
+        setupAction:
+            typeof search.setup_action === 'string' && search.setup_action
+                ? search.setup_action
+                : undefined,
+        githubState:
+            typeof search.state === 'string' && search.state ? search.state : undefined,
+    }),
     component: SettingsPage,
 })
 
-interface AiAccessSummary {
-    label: string
-    tone: Tone
-    detail: string
-}
+const sectionNav = [
+    { id: 'account', label: 'Account' },
+    { id: 'appearance', label: 'Appearance' },
+    { id: 'usage', label: 'Usage & billing' },
+    { id: 'advanced', label: 'Providers & integrations' },
+]
 
-function describeAiAccess(config: OperatorConfigSnapshot): AiAccessSummary {
-    if (config.onboarding.managedOpenRouterAvailable === true) {
-        return {
-            label: 'Included',
-            tone: 'ready',
-            detail: 'Your workspace includes managed AI credits, so rooms work without setup.',
-        }
-    }
-    if (config.settings.defaultProviderConnectionId) {
-        return {
-            label: 'Connected',
-            tone: 'ready',
-            detail: 'Rooms use the AI access configured for your workspace.',
-        }
-    }
-    return {
-        label: 'Setup required',
-        tone: 'attention',
-        detail: 'No AI access is set up yet. Add it in the Operator console to start using rooms.',
-    }
+function SectionNav() {
+    return (
+        <nav className="flex gap-1 overflow-x-auto">
+            {sectionNav.map((entry) => (
+                <a
+                    key={entry.id}
+                    href={`#${entry.id}`}
+                    className={cn(
+                        'shrink-0 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground',
+                        'transition-colors hover:bg-accent hover:text-foreground',
+                    )}
+                >
+                    {entry.label}
+                </a>
+            ))}
+        </nav>
+    )
 }
-
-const operatorSearch = { installationId: '', setupAction: '', githubState: '' }
 
 function SettingsPage() {
-    const [themeMode, setThemeMode] = useThemeMode()
     const hosted = useHostedDeployment()
+    const search = Route.useSearch()
+    const navigate = Route.useNavigate()
+
+    const [githubReturn] = useState(() => ({
+        installationId: search.installationId ?? '',
+        setupAction: search.setupAction ?? '',
+        githubState: search.githubState ?? '',
+    }))
+
+    useEffect(() => {
+        if (!search.installationId && !search.setupAction && !search.githubState) return
+        void navigate({ search: {}, replace: true })
+    }, [navigate, search.installationId, search.setupAction, search.githubState])
 
     const userQuery = useQuery({
         queryKey: roomQueryKey.authUser,
         queryFn: () => currentUserServer(),
         staleTime: 5 * 60_000,
     })
-    const configQuery = useQuery<OperatorConfigSnapshot>({
-        queryKey: roomQueryKey.operatorConfig,
-        queryFn: () => getOperatorConfigServer(),
-    })
-
     const user = userQuery.data
-    const config = configQuery.data
-
-    const aiAccess = config ? describeAiAccess(config) : null
-    const webAccess = config
-        ? describeWebAccessReadiness({
-              enabled: config.settings.search.enabled,
-              hasBackend: config.settings.search.backendUrl.trim().length > 0,
-              hasCredential:
-                  config.settings.search.brave.hasCredential ||
-                  config.settings.search.browserbase.hasCredential,
-          })
-        : null
-    const webAccessEnabled = config?.settings.search.enabled ?? false
-    const toolCount = config?.mcpConnections.length ?? 0
-    const githubConnected = config?.github.app.configured ?? false
-
-    const summaryItems: KeyValueItem[] = config
-        ? [
-              {
-                  label: 'AI access',
-                  value: aiAccess ? (
-                      <StateBadge tone={aiAccess.tone} label={aiAccess.label} />
-                  ) : null,
-                  hint: aiAccess?.detail,
-              },
-              {
-                  label: 'Web access',
-                  value: webAccess ? (
-                      <StateBadge
-                          tone={webAccessEnabled ? webAccess.tone : 'muted'}
-                          label={webAccessEnabled ? 'Included' : 'Off'}
-                      />
-                  ) : null,
-                  hint: 'Rooms can search and read public web pages.',
-              },
-              {
-                  label: 'Connected tools',
-                  value: toolCount > 0 ? `${toolCount} available` : 'None connected',
-              },
-              {
-                  label: 'Integrations',
-                  value: (
-                      <StateBadge
-                          tone={githubConnected ? 'ready' : 'muted'}
-                          label={githubConnected ? 'Connected' : 'Not set up'}
-                      />
-                  ),
-                  hint: 'Code and repository access for programmer rooms.',
-              },
-          ]
-        : []
 
     return (
         <Page
-            width="md"
+            width="lg"
             header={
                 <PageHeader
                     eyebrow="Workspace"
                     glyph={<SettingsIcon className="size-6 text-muted-foreground" />}
                     title="Settings"
-                    subtitle="Your account, appearance, and a summary of what your rooms can do."
+                    subtitle="Your account, appearance, usage, and everything your rooms can do."
                 />
             }
+            subnav={<SectionNav />}
         >
-            <div className="flex flex-col gap-5">
-                <Section title="Account" description="The signed-in operator for this workspace.">
-                    {userQuery.isLoading ? (
-                        <LoadingRows count={2} />
-                    ) : (
-                        <KeyValueList
-                            items={[
-                                { label: 'Email', value: user?.email ?? 'Unknown' },
-                                {
-                                    label: 'Role',
-                                    value: user
-                                        ? user.role === 'root'
-                                            ? 'Root operator'
-                                            : 'Operator'
-                                        : 'Account',
-                                },
-                            ]}
-                        />
-                    )}
-                </Section>
-
-                <Section
-                    title="Appearance"
-                    description="Choose how Agent Room looks on this device."
-                >
-                    <div className="grid gap-2 sm:grid-cols-3">
-                        <ThemeChoice
-                            active={themeMode === 'light'}
-                            icon={<SunIcon className="size-4" />}
-                            label="Light"
-                            onClick={() => setThemeMode('light')}
-                        />
-                        <ThemeChoice
-                            active={themeMode === 'dark'}
-                            icon={<MoonIcon className="size-4" />}
-                            label="Dark"
-                            onClick={() => setThemeMode('dark')}
-                        />
-                        <ThemeChoice
-                            active={themeMode === 'system'}
-                            icon={<MonitorIcon className="size-4" />}
-                            label="System"
-                            onClick={() => setThemeMode('system')}
-                        />
-                    </div>
-                </Section>
-
-                <Section
-                    title="What your rooms can do"
-                    description="A read-only summary of the access shared by every room."
-                    actions={
-                        <Button asChild variant="outline" size="sm">
-                            <Link to="/operator" search={operatorSearch}>
-                                <SlidersHorizontalIcon />
-                                Manage in Operator console
-                            </Link>
-                        </Button>
-                    }
-                >
-                    {configQuery.isLoading ? (
-                        <LoadingRows count={4} />
-                    ) : configQuery.isError ? (
-                        <AttentionBanner
-                            tone="danger"
-                            title="Could not load your workspace summary"
-                            description="Retry, or open the Operator console to review configuration directly."
-                            action={
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => configQuery.refetch()}
-                                    disabled={configQuery.isFetching}
-                                >
-                                    {configQuery.isFetching ? 'Retrying...' : 'Retry'}
-                                </Button>
-                            }
-                        />
-                    ) : (
-                        <div className="space-y-4">
-                            {aiAccess && aiAccess.tone === 'attention' ? (
-                                <AttentionBanner
-                                    tone="attention"
-                                    title="Finish AI setup"
-                                    description={aiAccess.detail}
-                                    action={
-                                        <Button asChild variant="outline" size="sm">
-                                            <Link to="/operator" search={operatorSearch}>
-                                                Open Operator console
-                                            </Link>
-                                        </Button>
-                                    }
-                                />
-                            ) : null}
-                            <KeyValueList items={summaryItems} />
-                            <p className="text-xs text-muted-foreground">
-                                Provider connections, connected tools, integrations, and runtime
-                                defaults are managed in the Operator console.
-                            </p>
-                        </div>
-                    )}
-                </Section>
-
-                {hosted ? (
+            <div className="flex flex-col gap-10">
+                <section id="account" className="scroll-mt-32 space-y-3">
                     <Section
-                        title="Plan and usage"
-                        description="Heavier work like web search and image generation draws from your credits."
-                        actions={
-                            <Button asChild variant="outline" size="sm">
-                                <Link to="/billing" search={{ checkout: null }}>
-                                    View billing
-                                </Link>
-                            </Button>
-                        }
+                        title="Account"
+                        description="The signed-in operator for this workspace."
                     >
-                        <p className="text-sm text-muted-foreground">
-                            Everyday chatting is included. See billing for your credit balance,
-                            recent usage, and ways to add more.
-                        </p>
+                        {userQuery.isLoading ? (
+                            <LoadingRows count={2} />
+                        ) : (
+                            <KeyValueList
+                                items={[
+                                    { label: 'Email', value: user?.email ?? 'Unknown' },
+                                    {
+                                        label: 'Role',
+                                        value: user
+                                            ? user.role === 'root'
+                                                ? 'Root operator'
+                                                : 'Operator'
+                                            : 'Account',
+                                    },
+                                ]}
+                            />
+                        )}
                     </Section>
-                ) : null}
+                </section>
+
+                <section id="appearance" className="scroll-mt-32 space-y-3">
+                    <Section
+                        title="Appearance"
+                        description="Choose how Agent Room looks on this device."
+                    >
+                        <ThemeControl />
+                    </Section>
+                </section>
+
+                <section id="usage" className="scroll-mt-32 space-y-3">
+                    <div className="space-y-0.5">
+                        <h2 className="text-base font-semibold tracking-tight text-foreground">
+                            Usage & billing
+                        </h2>
+                        <p className="text-sm text-muted-foreground">
+                            What your rooms have used across the whole workspace.
+                        </p>
+                    </div>
+                    <UsageBillingSection hosted={hosted} />
+                </section>
+
+                <section id="advanced" className="scroll-mt-32 space-y-3">
+                    <div className="space-y-0.5">
+                        <h2 className="text-base font-semibold tracking-tight text-foreground">
+                            Providers & integrations
+                        </h2>
+                        <p className="text-sm text-muted-foreground">
+                            AI models, connected tools, GitHub, and runtime defaults. Changes here
+                            apply across every room.
+                        </p>
+                    </div>
+                    <ProvidersIntegrationsSection githubReturn={githubReturn} />
+                </section>
             </div>
         </Page>
     )

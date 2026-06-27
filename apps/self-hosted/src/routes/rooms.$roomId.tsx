@@ -247,16 +247,9 @@ function RoomHomeContent({ roomId }: { roomId: string }) {
                                 title={`Setup needs attention (${blockingIssues.length})`}
                                 description={blockingIssues.map((i) => i.message).join(' · ')}
                                 action={
-                                    <Link
-                                        to="/operator"
-                                        search={{
-                                            installationId: '',
-                                            setupAction: '',
-                                            githubState: '',
-                                        }}
-                                    >
+                                    <Link to="/settings" hash="advanced">
                                         <Button variant="outline" size="sm">
-                                            Open Operator console
+                                            Manage in Settings
                                         </Button>
                                     </Link>
                                 }

@@ -564,6 +564,40 @@ export async function listRoomUsageForRoute(data: { roomId: string; limit?: numb
     }
 }
 
+export async function listUsageForRoute(data: { limit?: number }) {
+    const hosted = await requireCurrentHostedActor()
+    if (hosted) {
+        setResponseHeaders({
+            'cache-control': 'no-store',
+        })
+        return listHostedUsage({
+            env: hosted.context.env,
+            actor: hosted.actor,
+            limit: data.limit ?? 300,
+        })
+    }
+    await requireAuthenticatedActor()
+    setResponseHeaders({
+        'cache-control': 'no-store',
+    })
+    const { roomRepository, usageRepository } = await import('#/server/db/repositories')
+    const rooms = await roomRepository.listRooms()
+    const roomIds = rooms.map((room) => room.id)
+    const { syncRoomRuntimeUsage } = await import('#/server/rooms/execution-engine')
+    await Promise.all(roomIds.map((roomId) => syncRoomRuntimeUsage(roomId)))
+    const events = await usageRepository.listRecentByRooms({
+        roomIds,
+        limit: data.limit ?? 300,
+    })
+    const totals = await usageRepository.summarizeByRooms({
+        roomIds,
+    })
+    return {
+        events,
+        totals,
+    }
+}
+
 export async function listRoomFilesForRoute(data: { roomId: string }) {
     const hosted = await requireCurrentHostedActor()
     if (hosted) {

@@ -10,7 +10,6 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as OperatorRouteImport } from './routes/operator'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as BillingRouteImport } from './routes/billing'
@@ -34,11 +33,6 @@ import { Route as ApiRoomsRoomIdSessionsSessionKeyEventsRouteImport } from './ro
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OperatorRoute = OperatorRouteImport.update({
-  id: '/operator',
-  path: '/operator',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OnboardingRoute = OnboardingRouteImport.update({
@@ -147,7 +141,6 @@ export interface FileRoutesByFullPath {
   '/billing': typeof BillingRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
-  '/operator': typeof OperatorRoute
   '/settings': typeof SettingsRoute
   '/rooms/$roomId': typeof RoomsRoomIdRouteWithChildren
   '/api/github/events': typeof ApiGithubEventsRoute
@@ -170,7 +163,6 @@ export interface FileRoutesByTo {
   '/billing': typeof BillingRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
-  '/operator': typeof OperatorRoute
   '/settings': typeof SettingsRoute
   '/rooms/$roomId': typeof RoomsRoomIdRouteWithChildren
   '/api/github/events': typeof ApiGithubEventsRoute
@@ -194,7 +186,6 @@ export interface FileRoutesById {
   '/billing': typeof BillingRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
-  '/operator': typeof OperatorRoute
   '/settings': typeof SettingsRoute
   '/rooms/$roomId': typeof RoomsRoomIdRouteWithChildren
   '/api/github/events': typeof ApiGithubEventsRoute
@@ -219,7 +210,6 @@ export interface FileRouteTypes {
     | '/billing'
     | '/login'
     | '/onboarding'
-    | '/operator'
     | '/settings'
     | '/rooms/$roomId'
     | '/api/github/events'
@@ -242,7 +232,6 @@ export interface FileRouteTypes {
     | '/billing'
     | '/login'
     | '/onboarding'
-    | '/operator'
     | '/settings'
     | '/rooms/$roomId'
     | '/api/github/events'
@@ -265,7 +254,6 @@ export interface FileRouteTypes {
     | '/billing'
     | '/login'
     | '/onboarding'
-    | '/operator'
     | '/settings'
     | '/rooms/$roomId'
     | '/api/github/events'
@@ -289,7 +277,6 @@ export interface RootRouteChildren {
   BillingRoute: typeof BillingRoute
   LoginRoute: typeof LoginRoute
   OnboardingRoute: typeof OnboardingRoute
-  OperatorRoute: typeof OperatorRoute
   SettingsRoute: typeof SettingsRoute
   RoomsRoomIdRoute: typeof RoomsRoomIdRouteWithChildren
   ApiGithubEventsRoute: typeof ApiGithubEventsRoute
@@ -307,13 +294,6 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/operator': {
-      id: '/operator'
-      path: '/operator'
-      fullPath: '/operator'
-      preLoaderRoute: typeof OperatorRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/onboarding': {
@@ -482,7 +462,6 @@ const rootRouteChildren: RootRouteChildren = {
   BillingRoute: BillingRoute,
   LoginRoute: LoginRoute,
   OnboardingRoute: OnboardingRoute,
-  OperatorRoute: OperatorRoute,
   SettingsRoute: SettingsRoute,
   RoomsRoomIdRoute: RoomsRoomIdRouteWithChildren,
   ApiGithubEventsRoute: ApiGithubEventsRoute,

@@ -236,7 +236,6 @@ function isAppRouteHref(href: string): boolean {
         pathname === '/about' ||
         pathname === '/login' ||
         pathname === '/onboarding' ||
-        pathname === '/operator' ||
         pathname === '/settings' ||
         pathname.startsWith('/github/app/callback') ||
         pathname.startsWith('/rooms/')

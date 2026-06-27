@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { InfoIcon, LogOutIcon, MonitorIcon, MoonIcon, SunIcon } from 'lucide-react'
+import { InfoIcon, LogOutIcon, SettingsIcon } from 'lucide-react'
 
 import { Button } from '#/components/ui/button'
 import {
@@ -11,13 +11,12 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu'
-import { ToggleGroup, ToggleGroupItem } from '#/components/ui/toggle-group'
 import { bottomTabClass } from '#/components/agent-room'
 import { logoutServer } from '#/routes/-auth-server'
 import type { AuthUserSnapshot } from '#/routes/-auth-server'
 import { initialsFromName } from '#/domain/format'
 import { roomQueryKey } from '#/lib/room-query-keys'
-import { useThemeMode } from '#/lib/theme'
+import { ThemeControl } from './theme-control'
 
 export function UserMenu({
     user,
@@ -28,7 +27,6 @@ export function UserMenu({
 }) {
     const queryClient = useQueryClient()
     const navigate = useNavigate()
-    const [themeMode, setThemeMode] = useThemeMode()
 
     const logout = useMutation({
         mutationFn: () => logoutServer(),
@@ -75,43 +73,16 @@ export function UserMenu({
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <div className="px-2 py-1.5">
-                    <div className="mb-1.5 text-xs font-medium text-muted-foreground">Theme</div>
-                    <ToggleGroup
-                        type="single"
-                        value={themeMode}
-                        onValueChange={(value) => {
-                            if (value === 'light' || value === 'dark' || value === 'system') {
-                                setThemeMode(value)
-                            }
-                        }}
-                        variant="ghost"
-                        size="icon-sm"
-                        className="grid h-8 w-full grid-cols-3 rounded-md bg-muted/40 p-0.5"
-                        aria-label="Theme"
-                    >
-                        <ToggleGroupItem
-                            value="light"
-                            aria-label="Light theme"
-                            className="h-7 rounded-[calc(var(--radius-md)-2px)]"
-                        >
-                            <SunIcon className="size-4" />
-                        </ToggleGroupItem>
-                        <ToggleGroupItem
-                            value="dark"
-                            aria-label="Dark theme"
-                            className="h-7 rounded-[calc(var(--radius-md)-2px)]"
-                        >
-                            <MoonIcon className="size-4" />
-                        </ToggleGroupItem>
-                        <ToggleGroupItem
-                            value="system"
-                            aria-label="System theme"
-                            className="h-7 rounded-[calc(var(--radius-md)-2px)]"
-                        >
-                            <MonitorIcon className="size-4" />
-                        </ToggleGroupItem>
-                    </ToggleGroup>
+                    <ThemeControl />
                 </div>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                    className="h-8 px-2 text-sm"
+                    onSelect={() => navigate({ to: '/settings' })}
+                >
+                    <SettingsIcon className="size-4" />
+                    Settings
+                </DropdownMenuItem>
                 <DropdownMenuItem
                     className="h-8 px-2 text-sm"
                     onSelect={() => navigate({ to: '/about' })}

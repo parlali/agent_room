@@ -560,7 +560,7 @@ function buildManifest(input: { name: string; publicOrigin: string }): Record<st
         },
         redirect_url: `${input.publicOrigin}/github/app/callback`,
         callback_urls: [`${input.publicOrigin}/github/app/callback`],
-        setup_url: `${input.publicOrigin}/operator`,
+        setup_url: `${input.publicOrigin}/settings`,
         public: true,
         default_permissions: installationTokenPermissions,
         default_events: [],

@@ -1,9 +1,8 @@
 import { useEffect } from 'react'
-import { Link, useRouterState } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { PlusIcon } from 'lucide-react'
 
-import { cn } from '#/lib/utils'
 import { Button } from '#/components/ui/button'
 import { Skeleton } from '#/components/ui/skeleton'
 import { BrandWordmark, CreateRoomButton } from '#/components/agent-room'
@@ -13,13 +12,9 @@ import { scheduleRoomDashboardRoutePreload } from '#/components/room-dashboard/p
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import { SidebarRoomTree } from './sidebar-room-tree'
 import { UserMenu } from './user-menu'
-import { useAccountNavItems } from './nav-config'
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     useEffect(() => scheduleRoomDashboardRoutePreload(), [])
-
-    const pathname = useRouterState({ select: (s) => s.location.pathname })
-    const accountNavItems = useAccountNavItems()
 
     const userQuery = useQuery({
         queryKey: roomQueryKey.authUser,
@@ -42,29 +37,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                     <BrandWordmark />
                 </Link>
             </div>
-
-            <nav className="flex flex-col gap-0.5 px-2 pb-2">
-                {accountNavItems.map((item) => {
-                    const Icon = item.icon
-                    const active = item.match(pathname)
-                    return (
-                        <Link
-                            key={item.id}
-                            {...item.link}
-                            onClick={onNavigate}
-                            className={cn(
-                                'flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition-colors hover:bg-sidebar-accent',
-                                active
-                                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                                    : 'text-muted-foreground hover:text-sidebar-accent-foreground',
-                            )}
-                        >
-                            <Icon className="size-4 shrink-0" />
-                            {item.label}
-                        </Link>
-                    )
-                })}
-            </nav>
 
             <div className="flex items-center justify-between px-3 pt-1">
                 <span className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">

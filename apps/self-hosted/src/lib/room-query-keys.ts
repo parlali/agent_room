@@ -25,6 +25,7 @@ export const roomQueryKey = {
     roomPersonality: (roomId: string) => ['rooms', roomId, 'personality'] as const,
     roomUsage: (roomId: string, scope?: string) =>
         ['rooms', roomId, 'usage', scope ?? 'room'] as const,
+    globalUsage: (limit?: number) => ['usage', 'global', limit ?? 'default'] as const,
     roomRunHistory: (roomId: string) => ['rooms', roomId, 'run-history'] as const,
     roomTruth: (roomId: string) => ['rooms', roomId, 'truth'] as const,
     sessionShell: (roomId: string, sessionKey: string) =>
