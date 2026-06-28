@@ -77,6 +77,8 @@ export const hostedSandbox: RuntimeSandboxIdentity = {
     groupName: null,
 }
 
+export const hostedRuntimeEgressCaCertPath = '/etc/cloudflare/certs/cloudflare-containers-ca.crt'
+
 export function hostedSandboxHardening(): RuntimeSandboxHardening {
     return {
         ...defaultRuntimeSandboxHardening(),
@@ -463,6 +465,7 @@ export function buildHostedRuntimeEnv(input: {
         [hostedRuntimeRoomIdEnvKey]: input.roomId,
         HOME: '/workspace/runtime/pi-state/home',
         TMPDIR: '/workspace/runtime/pi-state/tmp',
+        NODE_EXTRA_CA_CERTS: hostedRuntimeEgressCaCertPath,
     }
     if (input.providerCandidate === 'hosted_openrouter') {
         env[hostedRuntimeManagedOpenRouterEnvKey] = '1'
