@@ -77,6 +77,7 @@
             "class_name": "AgentRoomRuntimeContainer",
             "image": "../../Dockerfile.cloudflare-runtime",
             "max_instances": 100,
+            "instance_type": "standard",
         },
     ],
     "durable_objects": {
