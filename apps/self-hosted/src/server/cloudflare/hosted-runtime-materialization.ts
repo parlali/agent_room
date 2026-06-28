@@ -34,6 +34,7 @@ import {
     piRuntimeRedactionSecretsEnvKey,
     piRuntimeStateDirEnvKey,
     piRuntimeTokenEnvKey,
+    piRuntimeVmIsolatedEnvKey,
 } from '../rooms/pi-runtime-contract'
 import { shellVisibleStoreDirEnvKey, shellVisibleWorkspaceDirEnvKey } from '../security/process-env'
 import type { AgentRoomHostedEnv } from './bindings'
@@ -442,6 +443,7 @@ export function buildHostedRuntimeEnv(input: {
         ...input.roomConfiguration.entitlements.env,
         ...input.roomConfiguration.entitlements.internalEnv,
         [piRuntimeConfigPathEnvKey]: hostedRuntimeConfigPath,
+        [piRuntimeVmIsolatedEnvKey]: '1',
         [piRuntimeTokenEnvKey]: input.token,
         [piRuntimeStateDirEnvKey]: paths.engineStateDir,
         [shellVisibleWorkspaceDirEnvKey]: paths.workspaceDir,

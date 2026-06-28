@@ -22,7 +22,7 @@ export interface RoomToolDetails {
     timedOut?: boolean
     aborted?: boolean
     durationMs?: number
-    sandboxMode?: 'per-room' | 'test-unsafe'
+    sandboxMode?: 'per-room' | 'test-unsafe' | 'disabled'
     commandId?: string
     status?: string
     fileChange?: {

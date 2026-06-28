@@ -5,10 +5,12 @@ import {
     runtimeSandboxSpawnCommand,
 } from '../rooms/runtime-sandbox-command'
 import type { RuntimeSandboxIdentity } from '#/domain/domain-types'
+import { piRuntimeVmIsolatedEnvKey } from '../rooms/pi-runtime-contract'
 
 export type ShellSandboxIdentity =
     | Extract<RuntimeSandboxIdentity, { mode: 'per-room' }>
     | (RuntimeSandboxIdentity & { mode: 'test-unsafe' })
+    | (RuntimeSandboxIdentity & { mode: 'disabled' })
 
 function assertRuntimeSandboxIdentity(
     identity: RuntimeSandboxIdentity,
@@ -21,6 +23,15 @@ function assertRuntimeSandboxIdentity(
             return
         }
         throw new Error('Unsafe unsandboxed runtime identity is only available in tests')
+    }
+
+    if (identity.mode === 'disabled') {
+        if (process.env[piRuntimeVmIsolatedEnvKey] === '1') {
+            return
+        }
+        throw new Error(
+            'Runtime sandbox identity is disabled but the deployment did not declare VM-level isolation. Start failed closed.',
+        )
     }
 
     if (identity.mode === 'per-room' && identity.uid > 0 && identity.gid > 0) {
