@@ -128,7 +128,14 @@ export async function ensureMemory(config: PiRuntimeConfig): Promise<MemorySnaps
     const path = memoryPath(config)
     if (!(await exists(path))) {
         await writeJsonAtomically(path, await migrateLegacyMarkdown(config))
-        await syncMemoryState(config)
+        try {
+            await syncMemoryState(config)
+        } catch (error) {
+            console.warn(
+                'Initial memory state sync failed during runtime boot; it will persist on the next update',
+                error instanceof Error ? error.message : error,
+            )
+        }
     }
     return readMemory(config)
 }
