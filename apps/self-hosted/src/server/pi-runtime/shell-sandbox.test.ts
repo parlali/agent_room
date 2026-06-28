@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test'
+import { afterEach, describe, expect, it } from 'vitest'
 import { __testing } from './shell-sandbox'
 import { piRuntimeVmIsolatedEnvKey } from '../rooms/pi-runtime-contract'
 
