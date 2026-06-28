@@ -177,18 +177,18 @@ export async function executeHostedCronRun(
 
     let run: HostedCronRunRecord | null = null
     try {
-        await assertHostedRunAllowed({
-            env,
-            workspaceId: message.workspaceId,
-            roomId: message.roomId,
-            jobId: job.id,
-        })
-
         const thread = await ensureCronThread({
             env,
             workspaceId: message.workspaceId,
             roomId: message.roomId,
             title: job.name,
+        })
+
+        await assertHostedRunAllowed({
+            env,
+            workspaceId: message.workspaceId,
+            roomId: message.roomId,
+            jobId: job.id,
         })
 
         run = await createHostedCronRun({
