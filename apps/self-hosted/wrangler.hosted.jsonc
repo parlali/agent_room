@@ -9,6 +9,9 @@
     "observability": {
         "enabled": true,
     },
+    "triggers": {
+        "crons": ["* * * * *"],
+    },
     "assets": {
         "directory": "./dist/client",
         "binding": "ASSETS",

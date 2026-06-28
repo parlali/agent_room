@@ -15,3 +15,21 @@ export async function enqueueHostedRuntimeReconcile(input: {
     }
     await input.env.AGENT_ROOM_RUNTIME_JOBS.send(message)
 }
+
+export async function enqueueHostedCronRun(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+    jobId: string
+    lockToken: string
+}): Promise<void> {
+    const message: AgentRoomRuntimeJobMessage = {
+        kind: 'room-cron-run',
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+        jobId: input.jobId,
+        lockToken: input.lockToken,
+        requestedAt: new Date().toISOString(),
+    }
+    await input.env.AGENT_ROOM_RUNTIME_JOBS.send(message)
+}

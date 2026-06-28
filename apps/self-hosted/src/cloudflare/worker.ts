@@ -1,5 +1,5 @@
 import { ContainerProxy } from '@cloudflare/containers'
-import type { ExecutionContext, MessageBatch } from '@cloudflare/workers-types'
+import type { ExecutionContext, MessageBatch, ScheduledController } from '@cloudflare/workers-types'
 import serverEntry from '@tanstack/react-start/server-entry'
 import type { AgentRoomHostedEnv, AgentRoomRuntimeJobMessage } from '#/server/cloudflare/bindings'
 import { getHostedAuth, readHostedActorFromRequest } from '#/server/cloudflare/hosted-auth'
@@ -8,6 +8,10 @@ import { resolveHostedConfig } from '#/server/cloudflare/hosted-config'
 import { runWithHostedRequestContext } from '#/server/cloudflare/hosted-request-context'
 import { hostedRouteSameOriginResponse } from '#/server/cloudflare/hosted-route-auth'
 import { reconcileHostedRuntimeJob } from '#/server/cloudflare/hosted-runtime-adapter'
+import {
+    executeHostedCronRun,
+    runDueHostedCronJobs,
+} from '#/server/cloudflare/hosted-cron-execution'
 import {
     createHostedStripePortalSession,
     createHostedStripeCheckout,
@@ -249,6 +253,11 @@ interface HostedWorkerHandler {
         batch: MessageBatch<AgentRoomRuntimeJobMessage>,
         env: AgentRoomHostedEnv,
     ) => Promise<void>
+    scheduled: (
+        controller: ScheduledController,
+        env: AgentRoomHostedEnv,
+        ctx: ExecutionContext,
+    ) => Promise<void>
 }
 
 export default {
@@ -282,15 +291,34 @@ export default {
     async queue(batch: MessageBatch<AgentRoomRuntimeJobMessage>, env: AgentRoomHostedEnv) {
         for (const message of batch.messages) {
             try {
-                await reconcileHostedRuntimeJob(env, message.body)
+                if (message.body.kind === 'room-cron-run') {
+                    await executeHostedCronRun(env, message.body)
+                } else {
+                    await reconcileHostedRuntimeJob(env, message.body)
+                }
                 message.ack()
             } catch (error) {
                 console.error(
-                    'Hosted runtime reconcile failed',
+                    'Hosted runtime queue job failed',
                     error instanceof Error ? error.message : error,
                 )
                 message.retry()
             }
+        }
+    },
+
+    async scheduled(
+        _controller: ScheduledController,
+        env: AgentRoomHostedEnv,
+        _ctx: ExecutionContext,
+    ) {
+        try {
+            await runDueHostedCronJobs(env)
+        } catch (error) {
+            console.error(
+                'Hosted cron scheduler tick failed',
+                error instanceof Error ? error.message : error,
+            )
         }
     },
 } satisfies HostedWorkerHandler

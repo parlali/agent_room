@@ -12,7 +12,12 @@ import type {
     RoomThreadForkResult,
     RoomThreadSendResult,
 } from '../rooms/execution-types'
-import type { JobSchedule } from '#/domain/job-schedule'
+import {
+    computeNextRunAt,
+    intervalMinutes,
+    normalizeJobSchedule,
+    type JobSchedule,
+} from '#/domain/job-schedule'
 import { createRuntimeEventProxyStream } from '../rooms/runtime-event-proxy-stream'
 import {
     abortSchema,
@@ -51,9 +56,21 @@ import { openHostedPiRuntimeStream, requestHostedPiRuntime } from './hosted-runt
 import { assertHostedRunAllowed, requireHostedExecutionContext } from './hosted-execution-context'
 import { hostedManagedModelId, hostedManagedModelProvider } from './hosted-model-policy'
 import { hostedRoomPaths, hostedRuntimePort } from './hosted-runtime-paths'
+import {
+    claimHostedCronJob,
+    createHostedCronJob,
+    findHostedCronJob,
+    listHostedCronJobs,
+    mapHostedCronJobToRoomCronJob,
+    removeHostedCronJob,
+    setHostedCronJobEnabled,
+    updateHostedCronJob,
+} from './hosted-cron-repository'
+import { enqueueHostedCronRun } from './hosted-runtime-jobs'
+import { hostedCronLeaseUntil } from './hosted-cron-execution'
 
 const requireHosted = requireHostedExecutionContext
-const hostedCronDisabledReason = 'Hosted scheduled jobs are not enabled'
+const hostedCronTimezone = 'UTC'
 
 function overview(input: {
     roomId: string
@@ -81,56 +98,185 @@ function overview(input: {
     }
 }
 
-function throwHostedCronDisabled(): never {
-    throw new Error(hostedCronDisabledReason)
+function assertCronJobFields(input: { name: string; message: string }): {
+    name: string
+    message: string
+} {
+    const name = input.name.trim()
+    if (!name) {
+        throw new Error('Cron job name cannot be empty')
+    }
+    const message = input.message.trim()
+    if (!message) {
+        throw new Error('Cron job message cannot be empty')
+    }
+    return { name, message }
 }
 
-export async function listRoomCronJobs(_input: {
+export async function listRoomCronJobs(input: {
     roomId: string
     limit?: number
 }): Promise<RoomCronJob[]> {
-    return []
+    const { context, actor } = await requireHosted()
+    const jobs = await listHostedCronJobs({
+        env: context.env,
+        workspaceId: actor.workspaceId,
+        roomId: input.roomId,
+    })
+    const limit =
+        input.limit && Number.isFinite(input.limit) ? Math.max(1, Math.floor(input.limit)) : 200
+    return jobs.slice(0, limit).map(mapHostedCronJobToRoomCronJob)
 }
 
-export async function createRoomCronJob(_input: {
+export async function createRoomCronJob(input: {
     roomId: string
     name: string
     message: string
     schedule: JobSchedule
 }): Promise<RoomCronJob> {
-    throwHostedCronDisabled()
+    const { context, actor } = await requireHosted()
+    const { name, message } = assertCronJobFields(input)
+    const schedule = normalizeJobSchedule(input.schedule)
+    const job = await createHostedCronJob({
+        env: context.env,
+        workspaceId: actor.workspaceId,
+        roomId: input.roomId,
+        name,
+        message,
+        everyMinutes: intervalMinutes(schedule),
+        schedule,
+        timezone: hostedCronTimezone,
+        nextRunAt: computeNextRunAt({
+            schedule,
+            after: new Date(),
+            timezone: hostedCronTimezone,
+        }).toISOString(),
+        provider: null,
+        model: null,
+    })
+    return mapHostedCronJobToRoomCronJob(job)
 }
 
-export async function updateRoomCronJob(_input: {
+export async function updateRoomCronJob(input: {
     roomId: string
     jobId: string
     name: string
     message: string
     schedule: JobSchedule
 }): Promise<RoomCronJob> {
-    throwHostedCronDisabled()
+    const { context, actor } = await requireHosted()
+    const existing = await findHostedCronJob({
+        env: context.env,
+        workspaceId: actor.workspaceId,
+        roomId: input.roomId,
+        jobId: input.jobId,
+    })
+    if (!existing) {
+        throw new Error(`Cron job ${input.jobId} does not exist`)
+    }
+    const { name, message } = assertCronJobFields(input)
+    const schedule = normalizeJobSchedule(input.schedule)
+    const job = await updateHostedCronJob({
+        env: context.env,
+        workspaceId: actor.workspaceId,
+        roomId: input.roomId,
+        jobId: input.jobId,
+        name,
+        message,
+        everyMinutes: intervalMinutes(schedule),
+        schedule,
+        nextRunAt: existing.enabled
+            ? computeNextRunAt({
+                  schedule,
+                  after: new Date(),
+                  timezone: existing.timezone,
+              }).toISOString()
+            : null,
+        provider: existing.provider,
+        model: existing.model,
+    })
+    return mapHostedCronJobToRoomCronJob(job)
 }
 
-export async function updateRoomCronJobEnabled(_input: {
+export async function updateRoomCronJobEnabled(input: {
     roomId: string
     jobId: string
     enabled: boolean
 }): Promise<RoomCronJob> {
-    throwHostedCronDisabled()
+    const { context, actor } = await requireHosted()
+    const existing = await findHostedCronJob({
+        env: context.env,
+        workspaceId: actor.workspaceId,
+        roomId: input.roomId,
+        jobId: input.jobId,
+    })
+    if (!existing) {
+        throw new Error(`Cron job ${input.jobId} does not exist`)
+    }
+    const job = await setHostedCronJobEnabled({
+        env: context.env,
+        workspaceId: actor.workspaceId,
+        roomId: input.roomId,
+        jobId: input.jobId,
+        enabled: input.enabled,
+        nextRunAt: input.enabled
+            ? computeNextRunAt({
+                  schedule: existing.schedule,
+                  after: new Date(),
+                  timezone: existing.timezone,
+              }).toISOString()
+            : null,
+    })
+    return mapHostedCronJobToRoomCronJob(job)
 }
 
-export async function runRoomCronJobNow(_input: {
+export async function runRoomCronJobNow(input: {
     roomId: string
     jobId: string
 }): Promise<{ ran: boolean; reason: string | null }> {
-    return {
-        ran: false,
-        reason: hostedCronDisabledReason,
+    const { context, actor } = await requireHosted()
+    const lockToken = crypto.randomUUID()
+    const claimed = await claimHostedCronJob({
+        env: context.env,
+        workspaceId: actor.workspaceId,
+        roomId: input.roomId,
+        jobId: input.jobId,
+        lockToken,
+        leaseUntil: hostedCronLeaseUntil(),
+    })
+    if (!claimed) {
+        const exists = await findHostedCronJob({
+            env: context.env,
+            workspaceId: actor.workspaceId,
+            roomId: input.roomId,
+            jobId: input.jobId,
+        })
+        if (!exists) {
+            throw new Error(`Cron job ${input.jobId} does not exist`)
+        }
+        return { ran: false, reason: 'Job is already running' }
     }
+    await enqueueHostedCronRun({
+        env: context.env,
+        workspaceId: actor.workspaceId,
+        roomId: input.roomId,
+        jobId: input.jobId,
+        lockToken,
+    })
+    return { ran: true, reason: null }
 }
 
-export async function removeRoomCronJob(_input: { roomId: string; jobId: string }): Promise<void> {
-    throwHostedCronDisabled()
+export async function removeRoomCronJob(input: { roomId: string; jobId: string }): Promise<void> {
+    const { context, actor } = await requireHosted()
+    const removed = await removeHostedCronJob({
+        env: context.env,
+        workspaceId: actor.workspaceId,
+        roomId: input.roomId,
+        jobId: input.jobId,
+    })
+    if (!removed) {
+        throw new Error(`Cron job ${input.jobId} was not removed`)
+    }
 }
 
 export async function listRoomsWithRuntime(_input: {

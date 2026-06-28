@@ -1,13 +1,24 @@
 import type { D1Database, ExecutionContext, Queue, R2Bucket } from '@cloudflare/workers-types'
 import type { HostedRuntimeContainerNamespace } from './runtime-contract'
 
-export interface AgentRoomRuntimeJobMessage {
+export interface AgentRoomRuntimeReconcileMessage {
     kind: 'room-runtime-reconcile'
     workspaceId: string
     roomId: string
     actorUserId: string | null
     requestedAt: string
 }
+
+export interface AgentRoomCronRunMessage {
+    kind: 'room-cron-run'
+    workspaceId: string
+    roomId: string
+    jobId: string
+    lockToken: string
+    requestedAt: string
+}
+
+export type AgentRoomRuntimeJobMessage = AgentRoomRuntimeReconcileMessage | AgentRoomCronRunMessage
 
 export interface AgentRoomHostedEnv {
     AGENT_ROOM_DB: D1Database
