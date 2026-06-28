@@ -80,8 +80,26 @@ interface RuntimeFileBundleEntry {
     mode?: number
 }
 
+function readFileBundleRaw(): string | null {
+    const base = process.env[piRuntimeFileBundleEnvKey]
+    if (base === undefined) {
+        return null
+    }
+    let raw = base
+    let index = 1
+    for (;;) {
+        const chunk = process.env[`${piRuntimeFileBundleEnvKey}_${index}`]
+        if (chunk === undefined) {
+            break
+        }
+        raw += chunk
+        index += 1
+    }
+    return raw
+}
+
 function decodeFileBundle(): RuntimeFileBundleEntry[] {
-    const raw = process.env[piRuntimeFileBundleEnvKey]
+    const raw = readFileBundleRaw()
     if (!raw) {
         return []
     }

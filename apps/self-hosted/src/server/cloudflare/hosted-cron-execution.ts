@@ -50,6 +50,59 @@ async function readRoomDesiredState(input: {
     return row ? row.desired_state : null
 }
 
+function isRuntimeDownError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : ''
+    return /not running|not healthy|not active/i.test(message)
+}
+
+async function createCronThread(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+    title: string
+}): Promise<{ key: string }> {
+    const request = createThreadRuntimeRequest({
+        firstMessage: null,
+        title: input.title,
+        hideUserMessage: false,
+        awaitInitialRun: false,
+        internalInstruction: null,
+        kind: 'main',
+    })
+    return requestHostedPiRuntime({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+        path: request.path,
+        method: request.method,
+        body: request.body,
+        schema: createThreadSchema,
+    })
+}
+
+async function ensureCronThread(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+    title: string
+}): Promise<{ key: string }> {
+    try {
+        return await createCronThread(input)
+    } catch (error) {
+        if (!isRuntimeDownError(error)) {
+            throw error
+        }
+        await reconcileHostedRuntimeJob(input.env, {
+            kind: 'room-runtime-reconcile',
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            actorUserId: null,
+            requestedAt: new Date().toISOString(),
+        })
+        return createCronThread(input)
+    }
+}
+
 export async function runDueHostedCronJobs(env: AgentRoomHostedEnv): Promise<void> {
     const lockToken = crypto.randomUUID()
     const jobs = await claimDueHostedCronJobs({
@@ -124,13 +177,6 @@ export async function executeHostedCronRun(
 
     let run: HostedCronRunRecord | null = null
     try {
-        await reconcileHostedRuntimeJob(env, {
-            kind: 'room-runtime-reconcile',
-            workspaceId: message.workspaceId,
-            roomId: message.roomId,
-            actorUserId: null,
-            requestedAt: new Date().toISOString(),
-        })
         await assertHostedRunAllowed({
             env,
             workspaceId: message.workspaceId,
@@ -138,22 +184,11 @@ export async function executeHostedCronRun(
             jobId: job.id,
         })
 
-        const createRequest = createThreadRuntimeRequest({
-            firstMessage: null,
-            title: job.name,
-            hideUserMessage: false,
-            awaitInitialRun: false,
-            internalInstruction: null,
-            kind: 'main',
-        })
-        const thread = await requestHostedPiRuntime({
+        const thread = await ensureCronThread({
             env,
             workspaceId: message.workspaceId,
             roomId: message.roomId,
-            path: createRequest.path,
-            method: createRequest.method,
-            body: createRequest.body,
-            schema: createThreadSchema,
+            title: job.name,
         })
 
         run = await createHostedCronRun({
