@@ -32,7 +32,10 @@ export const Route = createFileRoute('/')({
         await requireRouteUser()
         const config = await getOperatorConfigServer()
         if (!config.onboarding.completed) {
-            throw redirect({ to: '/onboarding' })
+            const rooms = await listRoomsServer()
+            if (rooms.length === 0) {
+                throw redirect({ to: '/onboarding' })
+            }
         }
     },
     component: HomePage,

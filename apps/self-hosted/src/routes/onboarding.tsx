@@ -26,7 +26,7 @@ import {
     saveProviderConnectionServer,
     updateAppDefaultsServer,
 } from './-operator-config-server'
-import { createRoomServer, createThreadServer } from './-room-runtime-server'
+import { createRoomServer, createThreadServer, listRoomsServer } from './-room-runtime-server'
 import { requireRouteUser } from './-route-auth'
 
 export const Route = createFileRoute('/onboarding')({
@@ -34,6 +34,8 @@ export const Route = createFileRoute('/onboarding')({
         await requireRouteUser()
         const config = await getOperatorConfigServer()
         if (config.onboarding.completed) throw redirect({ to: '/' })
+        const rooms = await listRoomsServer()
+        if (rooms.length > 0) throw redirect({ to: '/' })
     },
     component: OnboardingPage,
 })
