@@ -150,6 +150,7 @@ function OnboardingPage() {
                 },
             })
             await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
+            await finishOnboardingDefaults()
             let sessionKey: string
             try {
                 const thread = await createThreadServer({ data: { roomId: room.id } })
@@ -161,7 +162,6 @@ function OnboardingPage() {
                     reason: safeOnboardingNotice(error, sessionFallbackNotice),
                 }
             }
-            await finishOnboardingDefaults()
             return { ok: true as const, roomId: room.id, sessionKey }
         },
         onSuccess: (result) => {
