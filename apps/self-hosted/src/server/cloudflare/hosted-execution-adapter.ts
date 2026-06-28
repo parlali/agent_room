@@ -12,12 +12,7 @@ import type {
     RoomThreadForkResult,
     RoomThreadSendResult,
 } from '../rooms/execution-types'
-import {
-    computeNextRunAt,
-    intervalMinutes,
-    normalizeJobSchedule,
-    type JobSchedule,
-} from '#/domain/job-schedule'
+import { computeNextRunAt, normalizeJobSchedule, type JobSchedule } from '#/domain/job-schedule'
 import { createRuntimeEventProxyStream } from '../rooms/runtime-event-proxy-stream'
 import {
     abortSchema,
@@ -143,7 +138,6 @@ export async function createRoomCronJob(input: {
         roomId: input.roomId,
         name,
         message,
-        everyMinutes: intervalMinutes(schedule),
         schedule,
         timezone: hostedCronTimezone,
         nextRunAt: computeNextRunAt({
@@ -151,8 +145,6 @@ export async function createRoomCronJob(input: {
             after: new Date(),
             timezone: hostedCronTimezone,
         }).toISOString(),
-        provider: null,
-        model: null,
     })
     return mapHostedCronJobToRoomCronJob(job)
 }
@@ -183,7 +175,6 @@ export async function updateRoomCronJob(input: {
         jobId: input.jobId,
         name,
         message,
-        everyMinutes: intervalMinutes(schedule),
         schedule,
         nextRunAt: existing.enabled
             ? computeNextRunAt({
@@ -192,8 +183,6 @@ export async function updateRoomCronJob(input: {
                   timezone: existing.timezone,
               }).toISOString()
             : null,
-        provider: existing.provider,
-        model: existing.model,
     })
     return mapHostedCronJobToRoomCronJob(job)
 }

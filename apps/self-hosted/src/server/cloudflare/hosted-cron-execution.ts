@@ -2,12 +2,9 @@ import type { AgentRoomCronRunMessage, AgentRoomHostedEnv } from './bindings'
 import { computeNextRunAt } from '#/domain/job-schedule'
 import {
     claimDueHostedCronJobs,
-    createHostedCronRun,
     finishHostedCronJob,
-    finishHostedCronRun,
     findHostedCronJob,
     type HostedCronJobRecord,
-    type HostedCronRunRecord,
 } from './hosted-cron-repository'
 import { enqueueHostedCronRun } from './hosted-runtime-jobs'
 import { reconcileHostedRuntimeJob } from './hosted-runtime-adapter'
@@ -139,7 +136,6 @@ export async function executeHostedCronRun(
         return
     }
 
-    const startedAt = Date.now()
     const nextRunAt = nextRunIso(job)
 
     const desiredState = await readRoomDesiredState({
@@ -148,19 +144,6 @@ export async function executeHostedCronRun(
         roomId: message.roomId,
     })
     if (desiredState !== 'running') {
-        await createHostedCronRun({
-            env,
-            workspaceId: message.workspaceId,
-            roomId: message.roomId,
-            jobId: job.id,
-            jobName: job.name,
-            status: 'skipped',
-            summary: job.message,
-            error: 'Room is not running',
-            sessionKey: null,
-            provider: job.provider,
-            model: job.model,
-        })
         await finishHostedCronJob({
             env,
             workspaceId: message.workspaceId,
@@ -168,14 +151,12 @@ export async function executeHostedCronRun(
             jobId: job.id,
             lockToken: message.lockToken,
             status: 'skipped',
-            error: null,
-            durationMs: 0,
+            error: 'Room is not running',
             nextRunAt,
         })
         return
     }
 
-    let run: HostedCronRunRecord | null = null
     try {
         const thread = await ensureCronThread({
             env,
@@ -189,20 +170,6 @@ export async function executeHostedCronRun(
             workspaceId: message.workspaceId,
             roomId: message.roomId,
             jobId: job.id,
-        })
-
-        run = await createHostedCronRun({
-            env,
-            workspaceId: message.workspaceId,
-            roomId: message.roomId,
-            jobId: job.id,
-            jobName: job.name,
-            status: 'running',
-            summary: job.message,
-            error: null,
-            sessionKey: thread.key,
-            provider: job.provider,
-            model: job.model,
         })
 
         const sendRequest = sendThreadRuntimeRequest({
@@ -226,13 +193,6 @@ export async function executeHostedCronRun(
             throw new Error(sendResult.error ?? 'Scheduled run failed in the hosted runtime')
         }
 
-        await finishHostedCronRun({
-            env,
-            runId: run.id,
-            status: 'complete',
-            error: null,
-            nextRunAt,
-        })
         await finishHostedCronJob({
             env,
             workspaceId: message.workspaceId,
@@ -241,34 +201,10 @@ export async function executeHostedCronRun(
             lockToken: message.lockToken,
             status: 'complete',
             error: null,
-            durationMs: Date.now() - startedAt,
             nextRunAt,
         })
     } catch (error) {
         const reason = error instanceof Error ? error.message : 'Scheduled run failed'
-        if (run) {
-            await finishHostedCronRun({
-                env,
-                runId: run.id,
-                status: 'failed',
-                error: reason,
-                nextRunAt,
-            })
-        } else {
-            await createHostedCronRun({
-                env,
-                workspaceId: message.workspaceId,
-                roomId: message.roomId,
-                jobId: job.id,
-                jobName: job.name,
-                status: 'failed',
-                summary: job.message,
-                error: reason,
-                sessionKey: null,
-                provider: job.provider,
-                model: job.model,
-            })
-        }
         await finishHostedCronJob({
             env,
             workspaceId: message.workspaceId,
@@ -277,7 +213,6 @@ export async function executeHostedCronRun(
             lockToken: message.lockToken,
             status: 'failed',
             error: reason,
-            durationMs: Date.now() - startedAt,
             nextRunAt,
         })
     }
