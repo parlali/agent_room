@@ -20,6 +20,7 @@ import {
     hostedRuntimeDeniedHosts,
     hostedRuntimeContainerName,
     hostedRuntimeContainerPort,
+    hostedRuntimeStartCancellation,
 } from './runtime-contract'
 import { hostedRuntimeConfigPath } from './hosted-runtime-paths'
 
@@ -239,11 +240,7 @@ export async function reconcileHostedRuntimeJob(
         await container.startAndWaitForPorts({
             ports: hostedRuntimeContainerPort,
             startOptions,
-            cancellationOptions: {
-                instanceGetTimeoutMS: 10000,
-                portReadyTimeoutMS: 10000,
-                waitInterval: 250,
-            },
+            cancellationOptions: hostedRuntimeStartCancellation,
         })
         await container.setAllowedHosts(materialization.egressAllowedHosts)
         await container.setDeniedHosts(hostedRuntimeDeniedHosts)

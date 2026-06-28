@@ -46,6 +46,12 @@ export interface HostedRuntimeCancellationOptions {
     waitInterval: number
 }
 
+export const hostedRuntimeStartCancellation: HostedRuntimeCancellationOptions = {
+    instanceGetTimeoutMS: 120000,
+    portReadyTimeoutMS: 180000,
+    waitInterval: 1000,
+}
+
 export interface HostedRuntimeStartAndWaitArgs {
     ports: number | number[]
     startOptions: HostedRuntimeStartOptions
