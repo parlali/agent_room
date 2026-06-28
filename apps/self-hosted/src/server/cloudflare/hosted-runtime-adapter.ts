@@ -226,8 +226,6 @@ export async function reconcileHostedRuntimeJob(
             envVars: materialization.runtimeEnv,
         })
         const container = env.AGENT_ROOM_RUNTIME.getByName(runtime.containerName)
-        await container.setAllowedHosts(materialization.egressAllowedHosts)
-        await container.setDeniedHosts(hostedRuntimeDeniedHosts)
         await assertHostedRuntimeStillDesiredRunning(env, runtime)
         await assertHostedQuotaAllowed({
             env,
@@ -247,6 +245,8 @@ export async function reconcileHostedRuntimeJob(
                 waitInterval: 250,
             },
         })
+        await container.setAllowedHosts(materialization.egressAllowedHosts)
+        await container.setDeniedHosts(hostedRuntimeDeniedHosts)
         await hydrateHostedRuntimeFiles({
             env,
             workspaceId: runtime.workspaceId,
