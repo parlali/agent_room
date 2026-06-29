@@ -1,3 +1,16 @@
+declare const Bun: {
+    build(options: {
+        entrypoints: string[]
+        target?: string
+        format?: string
+        minify?: boolean
+        splitting?: boolean
+        external?: string[]
+        outdir?: string
+        naming?: { entry?: string; chunk?: string; asset?: string }
+    }): Promise<{ success: boolean; logs: unknown[]; outputs: unknown[] }>
+}
+
 const result = await Bun.build({
     entrypoints: ['src/server/pi-runtime/main.ts'],
     target: 'bun',
