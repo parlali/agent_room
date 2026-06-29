@@ -7,7 +7,7 @@ import {
     type HostedCronJobRecord,
 } from './hosted-cron-repository'
 import { enqueueHostedCronRun } from './hosted-runtime-jobs'
-import { reconcileHostedRuntimeJob } from './hosted-runtime-adapter'
+import { withHostedRuntimeStarted } from './hosted-runtime-adapter'
 import { requestHostedPiRuntime } from './hosted-runtime-client'
 import { assertHostedRunAllowed } from './hosted-execution-context'
 import {
@@ -47,11 +47,6 @@ async function readRoomDesiredState(input: {
     return row ? row.desired_state : null
 }
 
-function isRuntimeDownError(error: unknown): boolean {
-    const message = error instanceof Error ? error.message : ''
-    return /not running|not healthy|not active/i.test(message)
-}
-
 async function createCronThread(input: {
     env: AgentRoomHostedEnv
     workspaceId: string
@@ -83,21 +78,12 @@ async function ensureCronThread(input: {
     roomId: string
     title: string
 }): Promise<{ key: string }> {
-    try {
-        return await createCronThread(input)
-    } catch (error) {
-        if (!isRuntimeDownError(error)) {
-            throw error
-        }
-        await reconcileHostedRuntimeJob(input.env, {
-            kind: 'room-runtime-reconcile',
-            workspaceId: input.workspaceId,
-            roomId: input.roomId,
-            actorUserId: null,
-            requestedAt: new Date().toISOString(),
-        })
-        return createCronThread(input)
-    }
+    return withHostedRuntimeStarted({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+        run: () => createCronThread(input),
+    })
 }
 
 export async function runDueHostedCronJobs(env: AgentRoomHostedEnv): Promise<void> {

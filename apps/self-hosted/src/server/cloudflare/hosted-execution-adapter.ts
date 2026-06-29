@@ -43,6 +43,7 @@ import { wakeRoomRuntimeWithSnapshot } from '../rooms/wake-runtime'
 import { buildRoomSetupSnapshot } from '../rooms/room-setup-read-model'
 import type { AgentRoomHostedEnv } from './bindings'
 import { readRoomViewThread, readRoomViewThreads } from './hosted-room-view-store'
+import { withHostedRuntimeStarted } from './hosted-runtime-adapter'
 import { selectSnapshotThreadKey } from '../pi-runtime/snapshot-selection'
 import { buildChatTimelineRows } from '#/domain/message-list-model'
 import {
@@ -530,14 +531,21 @@ export async function createRoomThread(input: {
         internalInstruction: null,
         kind: 'main',
     })
-    return requestHostedPiRuntime({
+    return withHostedRuntimeStarted({
         env: context.env,
         workspaceId: actor.workspaceId,
         roomId: input.roomId,
-        path: request.path,
-        schema: createThreadSchema,
-        method: request.method,
-        body: request.body,
+        actorUserId: actor.userId,
+        run: () =>
+            requestHostedPiRuntime({
+                env: context.env,
+                workspaceId: actor.workspaceId,
+                roomId: input.roomId,
+                path: request.path,
+                schema: createThreadSchema,
+                method: request.method,
+                body: request.body,
+            }),
     })
 }
 
@@ -563,14 +571,21 @@ export async function sendRoomThreadMessage(input: {
         request: context.request,
         sessionKey: input.sessionKey,
     })
-    return requestHostedPiRuntime({
+    return withHostedRuntimeStarted({
         env: context.env,
         workspaceId: actor.workspaceId,
         roomId: input.roomId,
-        path: request.path,
-        schema: sendSchema,
-        method: request.method,
-        body: request.body,
+        actorUserId: actor.userId,
+        run: () =>
+            requestHostedPiRuntime({
+                env: context.env,
+                workspaceId: actor.workspaceId,
+                roomId: input.roomId,
+                path: request.path,
+                schema: sendSchema,
+                method: request.method,
+                body: request.body,
+            }),
     })
 }
 
@@ -688,14 +703,21 @@ export async function editRoomThreadMessage(input: {
         request: context.request,
         sessionKey: input.sessionKey,
     })
-    return requestHostedPiRuntime({
+    return withHostedRuntimeStarted({
         env: context.env,
         workspaceId: actor.workspaceId,
         roomId: input.roomId,
-        path: request.path,
-        schema: sendSchema,
-        method: request.method,
-        body: request.body,
+        actorUserId: actor.userId,
+        run: () =>
+            requestHostedPiRuntime({
+                env: context.env,
+                workspaceId: actor.workspaceId,
+                roomId: input.roomId,
+                path: request.path,
+                schema: sendSchema,
+                method: request.method,
+                body: request.body,
+            }),
     })
 }
 

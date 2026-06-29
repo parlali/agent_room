@@ -129,6 +129,35 @@ async function hydrateHostedRuntimeFiles(input: {
     }
 }
 
+export function isHostedRuntimeDownError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : ''
+    return /not running|not healthy|not active|consider calling start/i.test(message)
+}
+
+export async function withHostedRuntimeStarted<T>(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+    actorUserId?: string | null
+    run: () => Promise<T>
+}): Promise<T> {
+    try {
+        return await input.run()
+    } catch (error) {
+        if (!isHostedRuntimeDownError(error)) {
+            throw error
+        }
+        await reconcileHostedRuntimeJob(input.env, {
+            kind: 'room-runtime-reconcile',
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            actorUserId: input.actorUserId ?? null,
+            requestedAt: new Date().toISOString(),
+        })
+        return input.run()
+    }
+}
+
 export async function reconcileHostedRuntimeJob(
     env: AgentRoomHostedEnv,
     message: AgentRoomRuntimeJobMessage,
