@@ -180,15 +180,22 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     )
 
     const invalidateSessionScope = useCallback(
-        (options?: { roomId?: string; sessionKey?: string; includeRoomsList?: boolean }) => {
+        (options?: {
+            roomId?: string
+            sessionKey?: string
+            includeRoomsList?: boolean
+            includeWindow?: boolean
+        }) => {
             const targetRoomId = options?.roomId ?? roomId
             const targetSessionKey = options?.sessionKey ?? sessionKey
             void queryClient.invalidateQueries({
                 queryKey: roomQueryKey.sessionShell(targetRoomId, targetSessionKey),
             })
-            void queryClient.invalidateQueries({
-                queryKey: roomQueryKey.sessionWindow(targetRoomId, targetSessionKey),
-            })
+            if (options?.includeWindow ?? true) {
+                void queryClient.invalidateQueries({
+                    queryKey: roomQueryKey.sessionWindow(targetRoomId, targetSessionKey),
+                })
+            }
             void queryClient.invalidateQueries({
                 queryKey: roomQueryKey.roomSidebar(targetRoomId),
             })
@@ -700,6 +707,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 roomId: input.roomId,
                 sessionKey: input.sessionKey,
                 includeRoomsList: false,
+                includeWindow: false,
             })
         },
         onError: (error, input, rollback) => {
@@ -759,7 +767,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         },
         onSuccess: () => {
             setEditingMessage(null)
-            invalidateSessionScope({ includeRoomsList: false })
+            invalidateSessionScope({ includeRoomsList: false, includeWindow: false })
         },
         onError: (error, _input, rollback) => {
             rollbackOptimisticWindow({
