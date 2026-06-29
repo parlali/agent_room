@@ -640,18 +640,20 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const onRealtimeEvent = useCallback(
         (event: RoomRealtimeEvent) => {
             updateStreamTurn((current) => reduceRoomStreamEvent(current, event))
-            if (
-                event.event === 'thread.renamed' ||
-                event.event === 'thread.title_generated' ||
-                event.event === 'thread.model_changed' ||
+            const windowChangingEvent =
                 event.event === 'thread.message_edited' ||
-                event.event === 'room.files.changed' ||
-                event.event === 'browser.session_changed' ||
                 event.event === 'run.error' ||
                 event.event === 'run.finished' ||
                 event.event === 'agent_end'
+            if (
+                windowChangingEvent ||
+                event.event === 'thread.renamed' ||
+                event.event === 'thread.title_generated' ||
+                event.event === 'thread.model_changed' ||
+                event.event === 'room.files.changed' ||
+                event.event === 'browser.session_changed'
             ) {
-                invalidateSessionScope()
+                invalidateSessionScope({ includeWindow: windowChangingEvent })
                 if (event.event === 'run.finished') {
                     void queryClient.invalidateQueries({
                         queryKey: roomQueryKey.roomMemory(roomId),
@@ -864,7 +866,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             } else {
                 toast.message('No active run to stop')
             }
-            invalidateSessionScope()
+            invalidateSessionScope({ includeWindow: false })
         },
         onError: (error) => {
             toast.error(error instanceof Error ? error.message : 'Stop request failed')
