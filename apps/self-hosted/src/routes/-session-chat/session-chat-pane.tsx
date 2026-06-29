@@ -261,6 +261,8 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         getNextPageParam: (lastPage) => lastPage.beforeCursor ?? undefined,
         staleTime: roomQueryPolicy.warmStaleMs,
         gcTime: roomQueryPolicy.retainedSessionMs,
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: false,
     })
     const composerDraftQuery = useQuery<SessionComposerDraftSnapshot>({
         queryKey: composerQueryKey,
