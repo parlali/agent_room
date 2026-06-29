@@ -180,7 +180,6 @@ export function reduceRoomStreamEvent(
 export function shouldRefetchForRoomEvent(realtime: RoomRealtimeEvent): boolean {
     if (
         realtime.event === 'run.finished' ||
-        realtime.event === 'run.accepted' ||
         realtime.event === 'run.error' ||
         realtime.event === 'agent_end' ||
         realtime.event === 'thread.message_edited' ||
@@ -189,7 +188,6 @@ export function shouldRefetchForRoomEvent(realtime: RoomRealtimeEvent): boolean 
         realtime.event === 'thread.forked' ||
         realtime.event === 'thread.deleted' ||
         realtime.event === 'thread.model_changed' ||
-        realtime.event === 'thread.pending_messages_changed' ||
         realtime.event === 'room.files.changed' ||
         realtime.event === 'browser.session_changed'
     ) {

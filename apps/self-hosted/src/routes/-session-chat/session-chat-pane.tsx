@@ -624,10 +624,8 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 event.event === 'thread.title_generated' ||
                 event.event === 'thread.model_changed' ||
                 event.event === 'thread.message_edited' ||
-                event.event === 'thread.pending_messages_changed' ||
                 event.event === 'room.files.changed' ||
                 event.event === 'browser.session_changed' ||
-                event.event === 'run.accepted' ||
                 event.event === 'run.error' ||
                 event.event === 'run.finished' ||
                 event.event === 'agent_end'
