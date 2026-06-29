@@ -616,6 +616,7 @@ export interface MaterializedProviderConfig {
     authMode: ProviderAuthMode
     model: string
     modelLabel?: string
+    inputModalities?: Array<'text' | 'image'>
     contextWindowTokens?: number
     maxOutputTokens?: number
     compactionReserveTokens?: number

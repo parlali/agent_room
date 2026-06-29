@@ -171,7 +171,7 @@ function buildProviderModels(input: {
             id: input.piModel,
             name: provider.modelLabel ?? provider.model,
             reasoning: provider.api !== 'openai-completions',
-            input: ['text'],
+            input: provider.inputModalities ?? ['text'],
             contextWindow: provider.contextWindowTokens ?? 128000,
             maxTokens: provider.maxOutputTokens ?? 16384,
             cost: zeroModelCost(),

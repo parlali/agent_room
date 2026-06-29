@@ -6,8 +6,9 @@ import { isHostedBillingPlanStatusActive } from './hosted-billing-types'
 import { resolveHostedConfig } from './hosted-config'
 
 export const hostedManagedModelProvider = 'openrouter' as const
-export const hostedManagedModelId = 'z-ai/glm-5.2'
+export const hostedManagedModelId = 'moonshotai/kimi-k2.7-code'
 export const hostedManagedModelLabel = 'Hosted'
+export const hostedManagedModelInputModalities: Array<'text' | 'image'> = ['text', 'image']
 export const hostedManagedModelPolicyId = 'managed-hosted-model-v1'
 export const hostedManagedModelRequestReservationCents = 500
 export const hostedManagedModelContextWindowTokens = 128000

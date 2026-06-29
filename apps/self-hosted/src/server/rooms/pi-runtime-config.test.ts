@@ -213,6 +213,36 @@ describe('Pi runtime config materialization', () => {
         })
     })
 
+    it('declares the provider input modalities so vision-capable models can read images and PDFs', () => {
+        const root = '/tmp/agent-room-test/room-1'
+        const visionConfig = roomConfiguration()
+        visionConfig.provider = {
+            ...visionConfig.provider,
+            model: 'provider/vision-model',
+            inputModalities: ['text', 'image'],
+        }
+        const textOnlyConfig = roomConfiguration()
+        textOnlyConfig.provider = {
+            ...textOnlyConfig.provider,
+            model: 'provider/text-model',
+        }
+
+        const buildModel = (configuration: MaterializedRoomConfiguration) =>
+            buildPiRuntimeConfig({
+                roomId: 'room-1',
+                displayName: 'Room One',
+                port: 31234,
+                token: 'token-token-token-token-token',
+                paths: roomPaths(root),
+                sandbox: sandbox(),
+                sandboxHardening: defaultRuntimeSandboxHardening(),
+                roomConfiguration: configuration,
+            }).models.providers.openrouter?.models?.[0]
+
+        expect(buildModel(visionConfig)?.input).toEqual(['text', 'image'])
+        expect(buildModel(textOnlyConfig)?.input).toEqual(['text'])
+    })
+
     it('fails closed for runtime provider configs outside the app provider catalog', () => {
         const root = '/tmp/agent-room-test/room-1'
         const unsupported = roomConfiguration()
