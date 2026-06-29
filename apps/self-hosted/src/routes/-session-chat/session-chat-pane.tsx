@@ -459,6 +459,18 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const streamPersisted = streamTurnPersisted(streamTurn, rows)
     const visibleStreamTurn = streamPersisted ? emptyStreamTurnState : streamTurn
     const loadingInitialRows = windowQuery.isLoading && rows.length === 0
+    const displayRows = useMemo(() => {
+        const activeRunId = streamActive ? streamTurn.runId : null
+        if (!activeRunId) return rows
+        return rows.filter(
+            (row) =>
+                !(
+                    row.type === 'run_transcript' &&
+                    row.pending === true &&
+                    row.runId === activeRunId
+                ),
+        )
+    }, [rows, streamActive, streamTurn.runId])
 
     const settleStoppedRun = useCallback(
         (stoppedAt: number) => {
@@ -1093,7 +1105,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     key={`${roomId}:${sessionKey}`}
                     sessionKey={sessionKey}
                     room={room}
-                    rows={rows}
+                    rows={displayRows}
                     totalRows={totalRows}
                     stream={visibleStreamTurn}
                     isWorking={isWorking}
