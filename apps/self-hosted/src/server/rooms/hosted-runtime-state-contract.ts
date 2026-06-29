@@ -1,3 +1,5 @@
+import { isRoomViewReadModelRelativePath } from './room-view-readmodel-contract'
+
 export const maxHostedRuntimeStateFileBytes = 5 * 1024 * 1024
 
 export const hostedRuntimeStateOperations = ['upsert', 'delete'] as const
@@ -26,7 +28,8 @@ export function normalizeHostedRuntimeStateRelativePath(relativePath: string): s
         /^sessions\/[^/]+\.jsonl$/.test(normalized) ||
         normalized === 'internal-state/memory.json' ||
         normalized === 'internal-state/commands.json' ||
-        /^internal-state\/run-ledger\/[^/]+\.json$/.test(normalized)
+        /^internal-state\/run-ledger\/[^/]+\.json$/.test(normalized) ||
+        isRoomViewReadModelRelativePath(normalized)
     ) {
         return normalized
     }

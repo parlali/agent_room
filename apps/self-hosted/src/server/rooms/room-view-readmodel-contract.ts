@@ -16,8 +16,15 @@ export function roomViewThreadRelativePath(threadKey: string): string {
     return `${roomViewReadModelDir}/thread-${encodeRoomViewThreadKey(threadKey)}.json`
 }
 
+const roomViewThreadRelativePathPattern = new RegExp(
+    `^${roomViewReadModelDir}/thread-[a-zA-Z0-9_-]+\\.json$`,
+)
+
 export function isRoomViewReadModelRelativePath(relativePath: string): boolean {
-    return relativePath.startsWith(`${roomViewReadModelDir}/`)
+    return (
+        relativePath === roomViewThreadsRelativePath ||
+        roomViewThreadRelativePathPattern.test(relativePath)
+    )
 }
 
 export interface RoomViewThreadsReadModel {
