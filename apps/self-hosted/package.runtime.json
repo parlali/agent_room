@@ -1,0 +1,20 @@
+{
+    "name": "@agent-room/self-hosted-runtime",
+    "private": true,
+    "license": "MIT",
+    "author": "Parsa Lalianpour",
+    "description": "Runtime-only dependency manifest for the Cloudflare Containers Pi runtime image. Lists exactly the external packages reachable from src/server/pi-runtime/main.ts and the bundled skill scripts. Keep version specifiers in sync with apps/self-hosted/package.json.",
+    "type": "module",
+    "imports": {
+        "#/*": "./src/*"
+    },
+    "dependencies": {
+        "@mariozechner/pi-ai": "0.70.6",
+        "@mariozechner/pi-coding-agent": "0.70.6",
+        "@modelcontextprotocol/sdk": "1.29.0",
+        "@xmldom/xmldom": "^0.9.10",
+        "jszip": "^3.10.1",
+        "pdf-lib": "^1.17.1",
+        "zod": "^4.1.12"
+    }
+}
