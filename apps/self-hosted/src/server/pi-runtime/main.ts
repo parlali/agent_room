@@ -137,6 +137,11 @@ function assertRuntimeBundlePath(path: string): void {
     }
 }
 
+const bootStartedAt = Date.now()
+function bootMark(label: string): void {
+    console.log(`[boot] ${label} +${Date.now() - bootStartedAt}ms`)
+}
+
 for (const entry of decodeFileBundle()) {
     assertRuntimeBundlePath(entry.path)
     await mkdir(dirname(entry.path), {
@@ -150,6 +155,7 @@ for (const entry of decodeFileBundle()) {
         await chmod(entry.path, entry.mode)
     }
 }
+bootMark('hydrate')
 
 const config = JSON.parse(await readFile(configPath, 'utf8')) as PiRuntimeConfig
 const { redactPayload, redactString, redactUnboundedString, errorMessage } =
@@ -175,14 +181,18 @@ const threadIndex = await readJsonFile<ThreadIndexFile>(config.paths.threadIndex
 })
 
 threadIndex.threads = normalizeThreadIndexFile(threadIndex).threads
+bootMark('state')
 await ensureRuntimeLayout(config)
 await writeJsonFile(config.paths.modelsPath, config.models)
+bootMark('layout')
 const mcpTools = await createMcpTools({
     servers: config.mcpServers,
     cwd: config.paths.workspaceDir,
     restrictPrivateNetwork: config.sandboxHardening.restrictPrivateNetwork,
 })
+bootMark('mcp')
 let systemPrompt = await buildAgentRoomSystemPrompt(config)
+bootMark('systemPrompt')
 const { broadcast, createEventStream, createRoomEventStream } = createRuntimeEventBus({
     roomId: config.runtime.roomId,
     redactPayload,
@@ -1019,6 +1029,7 @@ async function backfillRoomViewReadModel(): Promise<void> {
 }
 
 server.listen(config.runtime.port, config.runtime.bindHost, () => {
+    bootMark('listen')
     void appendRuntimeEvent('runtime.started', {
         roomId: config.runtime.roomId,
         port: config.runtime.port,
