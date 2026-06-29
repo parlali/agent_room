@@ -1,5 +1,6 @@
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { InfiniteData } from '@tanstack/react-query'
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { ExternalLinkIcon, MessageSquareIcon, MonitorIcon, XIcon } from 'lucide-react'
@@ -49,6 +50,7 @@ import type {
     RoomSessionDisplayRow,
     RoomSessionArtifact,
     RoomSessionShellSnapshot,
+    RoomSessionWindow,
 } from '#/domain/room-execution-types'
 import {
     isOnboardingRequiredMessage,
@@ -74,6 +76,7 @@ import { useStreamingRefetch } from './streaming'
 import {
     addOptimisticUserMessage,
     editOptimisticUserMessage,
+    preserveUnsettledPendingUserRows,
     promoteOptimisticUserMessageToPendingRun,
     rollbackOptimisticWindow,
     type OptimisticWindowRollback,
@@ -263,6 +266,11 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         gcTime: roomQueryPolicy.retainedSessionMs,
         refetchOnWindowFocus: false,
         refetchOnReconnect: false,
+        structuralSharing: (oldData, newData) =>
+            preserveUnsettledPendingUserRows(
+                oldData as InfiniteData<RoomSessionWindow, string | null> | undefined,
+                newData as InfiniteData<RoomSessionWindow, string | null>,
+            ),
     })
     const composerDraftQuery = useQuery<SessionComposerDraftSnapshot>({
         queryKey: composerQueryKey,
@@ -462,7 +470,6 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const visibleStreamTurn = streamPersisted ? emptyStreamTurnState : streamTurn
     const loadingInitialRows = windowQuery.isLoading && rows.length === 0
     const displayRows = useMemo(() => {
-        const activeRunId = streamActive ? streamTurn.runId : null
         if (!activeRunId) return rows
         return rows.filter(
             (row) =>
@@ -472,7 +479,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     row.runId === activeRunId
                 ),
         )
-    }, [rows, streamActive, streamTurn.runId])
+    }, [rows, activeRunId])
 
     const settleStoppedRun = useCallback(
         (stoppedAt: number) => {

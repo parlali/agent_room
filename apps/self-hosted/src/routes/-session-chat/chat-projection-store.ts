@@ -122,6 +122,79 @@ export function rollbackOptimisticWindow(input: {
     )
 }
 
+export function preserveUnsettledPendingUserRows(
+    oldData: InfiniteData<RoomSessionWindow, string | null> | undefined,
+    newData: InfiniteData<RoomSessionWindow, string | null>,
+): InfiniteData<RoomSessionWindow, string | null> {
+    if (!oldData) return newData
+    const carried = collectUnsettledPendingUserRows(oldData, newData)
+    if (carried.length === 0) return newData
+    if (newData.pages.length === 0) {
+        return {
+            ...newData,
+            pages: [
+                {
+                    sessionKey: carried[0]!.sessionKey,
+                    rows: carried.map((entry) => entry.row),
+                    beforeCursor: null,
+                    afterCursor: null,
+                    hasOlder: false,
+                    hasNewer: false,
+                    totalRows: carried.length,
+                    artifacts: [],
+                },
+            ],
+            pageParams: [null],
+        }
+    }
+    const appended = carried.map((entry) => entry.row)
+    const pages = [...newData.pages]
+    const latestPage = pages[0]!
+    pages[0] = {
+        ...latestPage,
+        rows: [...latestPage.rows, ...appended],
+        totalRows: Math.max(
+            latestPage.totalRows + appended.length,
+            latestPage.rows.length + appended.length,
+        ),
+    }
+    return {
+        ...newData,
+        pages,
+    }
+}
+
+function collectUnsettledPendingUserRows(
+    oldData: InfiniteData<RoomSessionWindow, string | null>,
+    newData: InfiniteData<RoomSessionWindow, string | null>,
+): Array<{ row: RoomSessionDisplayRow; sessionKey: string }> {
+    const presentRowIds = new Set<string>()
+    const settledUserTexts = new Set<string>()
+    for (const page of newData.pages) {
+        for (const row of page.rows) {
+            presentRowIds.add(row.id)
+            if (row.type === 'user_message' && row.pending !== true) {
+                settledUserTexts.add(row.message.text.trim())
+            }
+        }
+    }
+    const carried: Array<{ row: RoomSessionDisplayRow; sessionKey: string }> = []
+    const seen = new Set<string>()
+    for (const page of oldData.pages) {
+        for (const row of page.rows) {
+            if (row.type !== 'user_message') continue
+            if (row.pending !== true) continue
+            if (!row.id.startsWith('pending-user-')) continue
+            if (presentRowIds.has(row.id)) continue
+            if (settledUserTexts.has(row.message.text.trim())) continue
+            if (seen.has(row.id)) continue
+            seen.add(row.id)
+            carried.push({ row, sessionKey: page.sessionKey })
+        }
+    }
+    return carried
+}
+
 export function promoteOptimisticUserMessageToPendingRun(input: {
     queryClient: QueryClient
     roomId: string
