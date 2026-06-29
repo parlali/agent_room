@@ -66,6 +66,16 @@ import { hostedCronLeaseUntil } from './hosted-cron-execution'
 
 const requireHosted = requireHostedExecutionContext
 const hostedCronTimezone = 'UTC'
+const hostedRuntimeReadTimeoutMs = 8000
+
+function isAbortLikeError(error: unknown): boolean {
+    return (
+        error instanceof Error &&
+        (error.name === 'TimeoutError' ||
+            error.name === 'AbortError' ||
+            /aborted|timed out|timeout/i.test(error.message))
+    )
+}
 
 function overview(input: {
     roomId: string
@@ -373,6 +383,7 @@ export async function getRoomExecutionSnapshot(input: {
             roomId: input.roomId,
             path: `/snapshot?${query.toString()}`,
             schema: snapshotSchema,
+            signal: AbortSignal.timeout(hostedRuntimeReadTimeoutMs),
         })
         return {
             room: roomOverview,
@@ -385,11 +396,16 @@ export async function getRoomExecutionSnapshot(input: {
             browserSession: payload.browserSession ?? null,
         }
     } catch (error) {
+        const waking = isAbortLikeError(error)
         return emptySnapshot({
             room: roomOverview,
             setup,
-            state: 'error',
-            message: error instanceof Error ? error.message : 'Unknown hosted runtime error',
+            state: waking ? 'unavailable' : 'error',
+            message: waking
+                ? 'Hosted runtime is waking up'
+                : error instanceof Error
+                  ? error.message
+                  : 'Unknown hosted runtime error',
         })
     }
 }
@@ -412,6 +428,7 @@ export async function getRoomSessionWindow(input: {
         roomId: input.roomId,
         path: `/threads/${encodeURIComponent(input.sessionKey)}/window?${query.toString()}`,
         schema: sessionWindowSchema,
+        signal: AbortSignal.timeout(hostedRuntimeReadTimeoutMs),
     })
 }
 
