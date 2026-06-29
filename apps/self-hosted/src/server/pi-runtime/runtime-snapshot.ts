@@ -9,6 +9,7 @@ import type {
     RoomExecutionThread,
 } from '../rooms/execution-types'
 import type { PiRuntimeSnapshotPayload } from './protocol'
+import type { RoomViewThreadsReadModel } from '../rooms/room-view-readmodel-contract'
 import { selectSnapshotThreadKey } from './snapshot-selection'
 import { threadAgentId, type ThreadRecord } from './thread-records'
 
@@ -54,7 +55,7 @@ export function mapThread(
     }
 }
 
-function roomAgent(config: PiRuntimeConfig, threads: RoomExecutionThread[]): RoomExecutionAgent {
+function buildRoomAgent(config: PiRuntimeConfig, threads: RoomExecutionThread[]): RoomExecutionAgent {
     return {
         id: 'main',
         name: config.runtime.displayName,
@@ -78,18 +79,33 @@ function roomAgent(config: PiRuntimeConfig, threads: RoomExecutionThread[]): Roo
     }
 }
 
+export function buildThreadsView(
+    config: PiRuntimeConfig,
+    records: ThreadRecord[],
+    compactionStats: RuntimeSnapshotInput['compactionStats'],
+): RoomViewThreadsReadModel {
+    const orderedRecords = [...records].sort((left, right) => right.updatedAt - left.updatedAt)
+    const threads = orderedRecords.map((record) => mapThread(record, compactionStats))
+    const extraAgentIds = orderedRecords
+        .filter((record) => record.kind !== 'main')
+        .map(threadAgentId)
+    return {
+        roomAgent: buildRoomAgent(config, threads),
+        threads,
+        extraAgentIds,
+    }
+}
+
 export function buildRuntimeSnapshot(input: RuntimeSnapshotInput): PiRuntimeSnapshotPayload {
     const limit =
         typeof input.messageLimit === 'number' && Number.isFinite(input.messageLimit)
             ? Math.max(0, Math.floor(input.messageLimit))
             : 200
-    const orderedRecords = [...input.records].sort(
-        (left, right) => right.updatedAt - left.updatedAt,
+    const { roomAgent: agent, threads, extraAgentIds } = buildThreadsView(
+        input.config,
+        input.records,
+        input.compactionStats,
     )
-    const threads = orderedRecords.map((record) => mapThread(record, input.compactionStats))
-    const extraAgentIds = orderedRecords
-        .filter((record) => record.kind !== 'main')
-        .map(threadAgentId)
     const selectedThreadKey = selectSnapshotThreadKey({
         requestedThreadKey: input.selectedThreadKey,
         orderedThreadKeys: threads.map((thread) => thread.key),
@@ -104,7 +120,7 @@ export function buildRuntimeSnapshot(input: RuntimeSnapshotInput): PiRuntimeSnap
         selectedRecord && limit > 0 ? input.readThreadArtifacts(selectedRecord) : []
 
     return {
-        roomAgent: roomAgent(input.config, threads),
+        roomAgent: agent,
         extraAgentIds,
         threads,
         selectedThreadKey,

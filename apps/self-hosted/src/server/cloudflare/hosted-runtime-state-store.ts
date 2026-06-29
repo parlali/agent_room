@@ -16,6 +16,7 @@ import {
     maxHostedRuntimeStateFileBytes,
     normalizeHostedRuntimeStateRelativePath,
 } from '../rooms/hosted-runtime-state-contract'
+import { isRoomViewReadModelRelativePath } from '../rooms/room-view-readmodel-contract'
 
 function runtimeStateAbsolutePath(relativePath: string): string {
     return `${hostedRoomPaths().engineStateDir}/${relativePath}`
@@ -115,6 +116,9 @@ export async function listHostedRuntimeStateFileMaterializations(
             const relativePath = normalizeHostedRuntimeStateRelativePath(
                 decodeURIComponent(object.key.slice(prefix.length)),
             )
+            if (isRoomViewReadModelRelativePath(relativePath)) {
+                continue
+            }
             const contentBase64 = await readHostedRuntimeArtifactText({
                 env: input.env,
                 key: object.key,

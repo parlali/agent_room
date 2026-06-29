@@ -34,6 +34,8 @@ import { cleanupBackgroundCommands } from './background-commands'
 import { createRuntimeRedactor } from './runtime-redaction'
 import { createHostedRuntimeStateSync } from './hosted-runtime-state-sync'
 import { readJsonFile, writeJsonFile } from './runtime-files'
+import { createRoomViewReadModelStore } from './room-view-readmodel-store'
+import { roomViewThreadMessageCap } from '../rooms/room-view-readmodel-contract'
 import { ensureRuntimeLayout } from './runtime-layout'
 import { sendError } from './runtime-http'
 import {
@@ -56,7 +58,7 @@ import {
     browserbaseRuntimeShutdownGraceMs,
 } from './browserbase-browser'
 import { createRuntimeEventBus } from './runtime-event-bus'
-import { buildRuntimeSnapshot, mapThread } from './runtime-snapshot'
+import { buildRuntimeSnapshot, buildThreadsView, mapThread } from './runtime-snapshot'
 import { createSessionWindowStore } from './session-display-window'
 import { createPiRuntimeRouter } from './pi-runtime-router'
 import { createRuntimeEventAppender, drainPendingHostedRuntimeUsage } from './runtime-event-log'
@@ -153,6 +155,13 @@ const config = JSON.parse(await readFile(configPath, 'utf8')) as PiRuntimeConfig
 const { redactPayload, redactString, redactUnboundedString, errorMessage } =
     createRuntimeRedactor(config)
 const hostedRuntimeStateSync = createHostedRuntimeStateSync(config)
+const roomViewReadModel = createRoomViewReadModelStore({
+    config,
+    stateSync: hostedRuntimeStateSync,
+    onError: (context, error) => {
+        console.error(`[room-view-readmodel] ${context} failed`, error)
+    },
+})
 const activeThreads = new Map<string, ActiveThread>()
 const maxSubagentTaskChars = 24000
 const maxActiveSubagents = 5
@@ -335,6 +344,17 @@ function compactionStats(record: ThreadRecord): RoomExecutionThread['compaction'
     }
 }
 
+function cheapCompactionStats(record: ThreadRecord): RoomExecutionThread['compaction'] {
+    return {
+        enabled: config.compaction.enabled,
+        compacting: record.status === 'compacting',
+        count: 0,
+        lastCompactedAt: null,
+        lastTokensBefore: null,
+        lastError: record.status === 'error' ? record.lastError : null,
+    }
+}
+
 function latestMessagePreview(messages: RoomExecutionMessage[]): string | null {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
         const message = messages[i]!
@@ -361,6 +381,15 @@ function latestAssistantErrorMessage(record: ThreadRecord): string | null {
 async function persistThreadIndex(): Promise<void> {
     await writeJsonFile(config.paths.threadIndexPath, threadIndex)
     await hostedRuntimeStateSync.upsert(config.paths.threadIndexPath)
+    await roomViewReadModel.persistThreads(
+        buildThreadsView(config, threadIndex.threads, cheapCompactionStats),
+    )
+}
+
+async function persistThreadView(record: ThreadRecord): Promise<void> {
+    await roomViewReadModel.persistThread(record.key, {
+        messages: readThreadMessages(record, roomViewThreadMessageCap),
+    })
 }
 
 async function restoreThreadIndex(input: {
@@ -451,6 +480,7 @@ async function deleteThread(record: ThreadRecord): Promise<void> {
         record.sessionFile,
         'Hosted deleted thread session cleanup failed',
     )
+    await roomViewReadModel.removeThread(record.key)
     await appendRuntimeEvent('thread.deleted', {
         sessionKey: record.key,
     })
@@ -571,6 +601,9 @@ async function handleSessionEvent(record: ThreadRecord, event: AgentSessionEvent
     }
     await persistThreadIndex()
     await hostedRuntimeStateSync.upsert(record.sessionFile)
+    if (eventForLog.type === 'agent_end' || eventForLog.type === 'compaction_end') {
+        await persistThreadView(record)
+    }
     await appendRuntimeEvent(eventForLog.type, {
         sessionKey: record.key,
         event: eventForLog,
@@ -863,6 +896,7 @@ async function forkThread(input: {
     }
     updateThreadFromMessages(record)
     await hostedRuntimeStateSync.upsert(record.sessionFile)
+    await persistThreadView(record)
     const before = [...threadIndex.threads]
     threadIndex.threads.unshift(record)
     try {
@@ -971,9 +1005,23 @@ process.on('SIGTERM', () => {
     setTimeout(() => process.exit(0), browserbaseRuntimeShutdownGraceMs).unref()
 })
 
+async function backfillRoomViewReadModel(): Promise<void> {
+    try {
+        await roomViewReadModel.persistThreads(
+            buildThreadsView(config, threadIndex.threads, cheapCompactionStats),
+        )
+        for (const record of threadIndex.threads) {
+            await persistThreadView(record)
+        }
+    } catch (error) {
+        console.error('[room-view-readmodel] boot backfill failed', error)
+    }
+}
+
 server.listen(config.runtime.port, config.runtime.bindHost, () => {
     void appendRuntimeEvent('runtime.started', {
         roomId: config.runtime.roomId,
         port: config.runtime.port,
     })
+    void backfillRoomViewReadModel()
 })

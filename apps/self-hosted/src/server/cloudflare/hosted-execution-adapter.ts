@@ -21,7 +21,6 @@ import {
     forkSchema,
     sendSchema,
     sessionMutationSchema,
-    sessionWindowSchema,
     snapshotSchema,
     threadModelSchema,
 } from '../rooms/pi-execution-adapter/runtime-schemas'
@@ -42,6 +41,15 @@ import {
 } from '../rooms/pi-execution-adapter/runtime-overview'
 import { wakeRoomRuntimeWithSnapshot } from '../rooms/wake-runtime'
 import { buildRoomSetupSnapshot } from '../rooms/room-setup-read-model'
+import type { AgentRoomHostedEnv } from './bindings'
+import { readRoomViewThread, readRoomViewThreads } from './hosted-room-view-store'
+import { selectSnapshotThreadKey } from '../pi-runtime/snapshot-selection'
+import { buildChatTimelineRows } from '#/domain/message-list-model'
+import {
+    finalizeSessionDisplayRows,
+    isThreadWorking,
+    sliceSessionWindow,
+} from '#/domain/session-window-projection'
 import { getHostedRoomMode, getHostedRuntimeState, listHostedRooms } from './hosted-room-service'
 import {
     clearHostedSessionCompletedBadge,
@@ -66,15 +74,35 @@ import { hostedCronLeaseUntil } from './hosted-cron-execution'
 
 const requireHosted = requireHostedExecutionContext
 const hostedCronTimezone = 'UTC'
-const hostedRuntimeReadTimeoutMs = 8000
+const roomEventStreamIdleRetryMs = 3000
 
-function isAbortLikeError(error: unknown): boolean {
-    return (
-        error instanceof Error &&
-        (error.name === 'TimeoutError' ||
-            error.name === 'AbortError' ||
-            /aborted|timed out|timeout/i.test(error.message))
-    )
+function roomRuntimeIdleStream(retryMs: number): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+        start(controller) {
+            controller.enqueue(new TextEncoder().encode(`retry: ${retryMs}\n\n`))
+            controller.close()
+        },
+    })
+}
+
+async function roomHasActiveRun(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+    sessionKey: string | null
+}): Promise<boolean> {
+    const threadsView = await readRoomViewThreads({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+    })
+    if (!threadsView) {
+        return false
+    }
+    const threads = input.sessionKey
+        ? threadsView.threads.filter((thread) => thread.key === input.sessionKey)
+        : threadsView.threads
+    return threads.some((thread) => isThreadWorking(thread.status))
 }
 
 function overview(input: {
@@ -363,50 +391,59 @@ export async function getRoomExecutionSnapshot(input: {
         runtimeMetadata: runtime?.metadata ?? null,
         onboarding,
     })
-    if (room.status !== 'running' || runtime?.row.healthStatus !== 'healthy') {
+    const executionState: RoomExecutionSnapshot['executionState'] =
+        room.status === 'failed'
+            ? 'error'
+            : room.desiredState === 'running'
+              ? 'connected'
+              : 'unavailable'
+    const executionMessage =
+        executionState === 'error'
+            ? (runtime?.row.lastError ?? roomOverview.lastError ?? 'Hosted room runtime error')
+            : executionState === 'unavailable'
+              ? 'Hosted room is paused'
+              : null
+    const threadsView = await readRoomViewThreads({
+        env: context.env,
+        workspaceId: actor.workspaceId,
+        roomId: input.roomId,
+    })
+    if (!threadsView) {
         return emptySnapshot({
             room: roomOverview,
             setup,
-            state: 'unavailable',
-            message: runtime?.row.lastError ?? 'Hosted room runtime is not connected',
+            state: executionState,
+            message: executionMessage ?? '',
         })
     }
-    try {
-        const query = new URLSearchParams()
-        if (input.selectedThreadKey) {
-            query.set('selectedThreadKey', input.selectedThreadKey)
-        }
-        query.set('messageLimit', String(input.messageLimit ?? 200))
-        const payload = await requestHostedPiRuntime({
-            env: context.env,
-            workspaceId: actor.workspaceId,
-            roomId: input.roomId,
-            path: `/snapshot?${query.toString()}`,
-            schema: snapshotSchema,
-            signal: AbortSignal.timeout(hostedRuntimeReadTimeoutMs),
-        })
-        return {
-            room: roomOverview,
-            setup,
-            executionState: 'connected',
-            executionMessage: null,
-            capabilities: buildRoomExecutionCapabilities(true),
-            ...payload,
-            selectedThreadArtifacts: payload.selectedThreadArtifacts ?? [],
-            browserSession: payload.browserSession ?? null,
-        }
-    } catch (error) {
-        const waking = isAbortLikeError(error)
-        return emptySnapshot({
-            room: roomOverview,
-            setup,
-            state: waking ? 'unavailable' : 'error',
-            message: waking
-                ? 'Hosted runtime is waking up'
-                : error instanceof Error
-                  ? error.message
-                  : 'Unknown hosted runtime error',
-        })
+    const selectedThreadKey = selectSnapshotThreadKey({
+        requestedThreadKey: input.selectedThreadKey ?? null,
+        orderedThreadKeys: threadsView.threads.map((thread) => thread.key),
+    })
+    return {
+        room: roomOverview,
+        setup,
+        executionState,
+        executionMessage,
+        capabilities: buildRoomExecutionCapabilities(executionState === 'connected'),
+        roomAgent: threadsView.roomAgent,
+        extraAgentIds: threadsView.extraAgentIds,
+        threads: threadsView.threads,
+        selectedThreadKey,
+        selectedThreadModel: null,
+        selectedThreadMessages: [],
+        selectedThreadArtifacts: [],
+        recentActivity: threadsView.threads.slice(0, 30).map((thread) => ({
+            key: thread.key,
+            agentId: thread.agentId,
+            title: thread.title,
+            status: thread.status,
+            updatedAt: thread.updatedAt,
+            runtimeMs: thread.runtimeMs,
+            totalTokens: thread.totalTokens,
+            estimatedCostUsd: thread.estimatedCostUsd,
+        })),
+        browserSession: null,
     }
 }
 
@@ -418,17 +455,42 @@ export async function getRoomSessionWindow(input: {
     limitRows?: number
 }): Promise<RoomSessionWindow> {
     const { context, actor } = await requireHosted()
-    const query = new URLSearchParams()
-    query.set('limitRows', String(input.limitRows ?? 40))
-    if (input.before) query.set('before', input.before)
-    if (input.after) query.set('after', input.after)
-    return requestHostedPiRuntime({
-        env: context.env,
-        workspaceId: actor.workspaceId,
-        roomId: input.roomId,
-        path: `/threads/${encodeURIComponent(input.sessionKey)}/window?${query.toString()}`,
-        schema: sessionWindowSchema,
-        signal: AbortSignal.timeout(hostedRuntimeReadTimeoutMs),
+    const [threadsView, threadView] = await Promise.all([
+        readRoomViewThreads({
+            env: context.env,
+            workspaceId: actor.workspaceId,
+            roomId: input.roomId,
+        }),
+        readRoomViewThread({
+            env: context.env,
+            workspaceId: actor.workspaceId,
+            roomId: input.roomId,
+            threadKey: input.sessionKey,
+        }),
+    ])
+    const thread = threadsView?.threads.find((entry) => entry.key === input.sessionKey) ?? null
+    if (!thread) {
+        return {
+            sessionKey: input.sessionKey,
+            rows: [],
+            beforeCursor: null,
+            afterCursor: null,
+            hasOlder: false,
+            hasNewer: false,
+            totalRows: 0,
+            artifacts: [],
+        }
+    }
+    const rows = finalizeSessionDisplayRows(
+        buildChatTimelineRows(threadView?.messages ?? [], isThreadWorking(thread.status), thread),
+    )
+    return sliceSessionWindow({
+        sessionKey: input.sessionKey,
+        rows,
+        artifacts: [],
+        before: input.before,
+        after: input.after,
+        limitRows: input.limitRows ?? 40,
     })
 }
 
@@ -649,6 +711,16 @@ export function createRoomSessionEventStream(input: {
         abortSignal: input.abortSignal,
         open: async () => {
             const { context, actor } = await requireHosted()
+            if (
+                !(await roomHasActiveRun({
+                    env: context.env,
+                    workspaceId: actor.workspaceId,
+                    roomId: input.roomId,
+                    sessionKey: input.sessionKey,
+                }))
+            ) {
+                return roomRuntimeIdleStream(roomEventStreamIdleRetryMs)
+            }
             return openHostedPiRuntimeStream({
                 env: context.env,
                 workspaceId: actor.workspaceId,
@@ -671,6 +743,16 @@ export function createRoomEventStream(input: {
         abortSignal: input.abortSignal,
         open: async () => {
             const { context, actor } = await requireHosted()
+            if (
+                !(await roomHasActiveRun({
+                    env: context.env,
+                    workspaceId: actor.workspaceId,
+                    roomId: input.roomId,
+                    sessionKey: null,
+                }))
+            ) {
+                return roomRuntimeIdleStream(roomEventStreamIdleRetryMs)
+            }
             return openHostedPiRuntimeStream({
                 env: context.env,
                 workspaceId: actor.workspaceId,

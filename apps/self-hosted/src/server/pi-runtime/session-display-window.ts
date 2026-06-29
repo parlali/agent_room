@@ -1,6 +1,11 @@
 import { existsSync, statSync } from 'node:fs'
 import type { SessionEntry } from '@mariozechner/pi-coding-agent'
 import { buildChatTimelineRows, createPendingUserDisplayRows } from '#/domain/message-list-model'
+import {
+    finalizeSessionDisplayRows,
+    isThreadWorking,
+    sliceSessionWindow,
+} from '#/domain/session-window-projection'
 import type {
     ChatTimelineRow,
     RoomExecutionMessage,
@@ -45,9 +50,6 @@ interface SessionWindowInput {
     after?: string | null
 }
 
-const maxWindowRows = 120
-const workingStatuses = new Set(['queued', 'running', 'compacting'])
-
 export function createSessionWindowStore(input: SessionWindowStoreInput) {
     const cache = new Map<string, CachedSessionDisplayIndex>()
 
@@ -91,31 +93,20 @@ export function createSessionWindowStore(input: SessionWindowStoreInput) {
     return {
         window(inputWindow: SessionWindowInput): RoomSessionWindow {
             const startedAt = performanceNow()
-            const limitRows = clampLimit(inputWindow.limitRows)
             const index = readIndex(inputWindow.record, inputWindow.thread)
-            const totalRows = index.rows.length
-            const bounds = rowBounds({
+            const payload = sliceSessionWindow({
+                sessionKey: inputWindow.record.key,
+                rows: index.rows,
+                artifacts: index.artifacts,
                 before: inputWindow.before,
                 after: inputWindow.after,
-                limitRows,
-                totalRows,
+                limitRows: inputWindow.limitRows,
             })
-            const rows = index.rows.slice(bounds.start, bounds.end)
-            const payload: RoomSessionWindow = {
-                sessionKey: inputWindow.record.key,
-                rows,
-                beforeCursor: bounds.start > 0 ? String(bounds.start) : null,
-                afterCursor: rows.length > 0 ? String(rows[rows.length - 1]!.seq) : null,
-                hasOlder: bounds.start > 0,
-                hasNewer: bounds.end < totalRows,
-                totalRows,
-                artifacts: index.artifacts,
-            }
             logPerformanceEvent('chat.window.load', {
                 sessionKey: inputWindow.record.key,
                 durationMs: elapsedPerformanceMs(startedAt),
-                rowCount: rows.length,
-                totalRows,
+                rowCount: payload.rows.length,
+                totalRows: payload.totalRows,
                 hasOlder: payload.hasOlder,
                 hasNewer: payload.hasNewer,
                 payloadBytes: jsonPayloadByteLength(payload),
@@ -141,12 +132,10 @@ function buildSessionDisplayIndex(input: {
         .filter((message): message is RoomExecutionMessage => message !== null)
     const rows = buildChatTimelineRows(
         messages,
-        workingStatuses.has(input.record.status),
+        isThreadWorking(input.record.status),
         input.thread,
     )
-    const displayRows = appendPendingUserRows(rows, input.record).map((row, seq) =>
-        sanitizeDisplayRow(row, seq),
-    )
+    const displayRows = finalizeSessionDisplayRows(appendPendingUserRows(rows, input.record))
     return {
         rows: displayRows,
         artifacts: extractSessionArtifacts(input.config, input.entries),
@@ -168,73 +157,6 @@ function appendPendingUserRows(rows: ChatTimelineRow[], record: ThreadRecord): C
         next.push(...pendingRows)
     }
     return next
-}
-
-function sanitizeDisplayRow(row: RoomSessionDisplayRow, seq: number): RoomSessionDisplayRow {
-    if (row.type === 'user_message' || row.type === 'assistant_final' || row.type === 'system') {
-        return {
-            ...row,
-            seq,
-            message: sanitizeDisplayMessage(row.message),
-        }
-    }
-    return {
-        ...row,
-        seq,
-    }
-}
-
-function sanitizeDisplayMessage(message: RoomExecutionMessage): RoomExecutionMessage {
-    return {
-        ...message,
-        parts: message.parts.map((part) => ({
-            ...part,
-            input: null,
-            result: null,
-        })),
-    }
-}
-
-function rowBounds(input: {
-    before?: string | null
-    after?: string | null
-    limitRows: number
-    totalRows: number
-}): { start: number; end: number } {
-    if (input.totalRows === 0) {
-        return {
-            start: 0,
-            end: 0,
-        }
-    }
-
-    if (input.after) {
-        const after = parseCursor(input.after, input.totalRows)
-        const start = after === null ? 0 : Math.min(input.totalRows, after + 1)
-        return {
-            start,
-            end: Math.min(input.totalRows, start + input.limitRows),
-        }
-    }
-
-    const before = input.before ? parseCursor(input.before, input.totalRows) : null
-    const end = before === null ? input.totalRows : Math.max(0, Math.min(input.totalRows, before))
-    return {
-        start: Math.max(0, end - input.limitRows),
-        end,
-    }
-}
-
-function parseCursor(cursor: string, totalRows: number): number | null {
-    const value = Number.parseInt(cursor, 10)
-    if (!Number.isFinite(value)) return null
-    if (value < 0 || value > totalRows) return null
-    return value
-}
-
-function clampLimit(limitRows: number): number {
-    if (!Number.isFinite(limitRows)) return 40
-    return Math.max(1, Math.min(maxWindowRows, Math.floor(limitRows)))
 }
 
 function displayCacheKey(record: ThreadRecord): string {
