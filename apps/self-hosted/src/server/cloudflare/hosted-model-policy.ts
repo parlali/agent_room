@@ -12,6 +12,33 @@ export const hostedManagedModelInputModalities: Array<'text' | 'image'> = ['text
 export const hostedManagedModelPolicyId = 'managed-hosted-model-v1'
 export const hostedManagedModelRequestReservationCents = 500
 export const hostedManagedModelContextWindowTokens = 128000
+
+export const hostedManagedModelPreflightSpendEstimateCents = 50
+
+export const hostedManagedModelInputCostMicrosPerMillionTokens = 740000
+export const hostedManagedModelOutputCostMicrosPerMillionTokens = 3500000
+
+export function estimateHostedManagedModelCostMicros(input: {
+    inputTokens: number | null
+    cachedTokens: number | null
+    outputTokens: number | null
+    reasoningTokens: number | null
+}): number | null {
+    const inputTokens = Math.max(0, input.inputTokens ?? 0)
+    const cachedTokens = Math.max(0, input.cachedTokens ?? 0)
+    const outputTokens = Math.max(0, input.outputTokens ?? 0)
+    const reasoningTokens = Math.max(0, input.reasoningTokens ?? 0)
+    if (inputTokens + cachedTokens + outputTokens + reasoningTokens === 0) {
+        return null
+    }
+    const promptTokens = inputTokens + cachedTokens
+    const completionTokens = outputTokens + reasoningTokens
+    const micros =
+        (promptTokens * hostedManagedModelInputCostMicrosPerMillionTokens +
+            completionTokens * hostedManagedModelOutputCostMicrosPerMillionTokens) /
+        1_000_000
+    return Math.ceil(micros)
+}
 export const hostedManagedModelMaxOutputTokens = 16384
 export const hostedManagedModelCompactionReserveTokens = 16384
 export const hostedManagedModelCompactionKeepRecentTokens = 20000

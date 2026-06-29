@@ -127,6 +127,47 @@ async function incrementCounters(input: {
     return (result.meta.changes ?? 0) > 0
 }
 
+export async function recordCounters(input: {
+    check: HostedQuotaCheckInput
+    rules: CounterRule[]
+    now: string
+}): Promise<void> {
+    if (input.rules.length === 0) {
+        return
+    }
+    await input.check.env.AGENT_ROOM_DB.prepare(
+        `
+            INSERT INTO hosted_quota_counter (
+                scope,
+                scope_id,
+                window_key,
+                counter_key,
+                quantity,
+                updated_at
+            )
+            VALUES ${counterRuleValuesInsertSql(input.rules)}
+            ON CONFLICT(scope, scope_id, window_key, counter_key) DO UPDATE SET
+                quantity = hosted_quota_counter.quantity + excluded.quantity,
+                updated_at = excluded.updated_at
+        `,
+    )
+        .bind(...input.rules.flatMap((rule) => counterRuleInsertValues(rule, input.now)))
+        .run()
+}
+
+function counterRuleValuesInsertSql(rules: CounterRule[]): string {
+    return rules
+        .map((_, index) => {
+            const offset = index * 6
+            return `(?${offset + 1}, ?${offset + 2}, ?${offset + 3}, ?${offset + 4}, ?${offset + 5}, ?${offset + 6})`
+        })
+        .join(', ')
+}
+
+function counterRuleInsertValues(rule: CounterRule, now: string): unknown[] {
+    return [rule.scope, rule.scopeId, rule.windowKey, rule.counterKey, rule.amount, now]
+}
+
 async function countActiveBrowserbaseSessions(input: {
     check: HostedQuotaCheckInput
     roomId?: string | null

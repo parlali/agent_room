@@ -2,6 +2,7 @@ import type { AgentRoomHostedEnv } from './bindings'
 import {
     assertHostedQuotaAllowed,
     hostedQuotaDeniedResponse,
+    recordHostedProviderSpend,
     type HostedQuotaCheckInput,
 } from './hosted-abuse-controls'
 import {
@@ -23,9 +24,11 @@ import {
     parseHostedOpenRouterProxyPath,
 } from './hosted-provider-proxy'
 import {
+    estimateHostedManagedModelCostMicros,
     hostedManagedModelAuditMetadata,
     hostedManagedModelId,
     hostedManagedModelMaxOutputTokens,
+    hostedManagedModelPreflightSpendEstimateCents,
     hostedManagedModelRequestReservationCents,
 } from './hosted-model-policy'
 import {
@@ -363,12 +366,16 @@ export async function hostedOpenRouterProxy(
         providerPath: proxyPath.targetPath,
         amount: {
             count: 1,
-            cents: reservationCents,
+            cents: 0,
         },
     } satisfies HostedQuotaCheckInput
     const quotaPreflightResponse = await assertProviderQuotaOrResponse({
         check: {
             ...quotaCheck,
+            amount: {
+                count: 1,
+                cents: hostedManagedModelPreflightSpendEstimateCents,
+            },
             consume: false,
         },
     })
@@ -486,7 +493,15 @@ export async function hostedOpenRouterProxy(
     }
     const responseText = await response.text()
     const providerUsage = openRouterUsageSnapshotFromProviderText(responseText)
-    const costMicros = providerUsage.costMicros
+    const costEstimatedFromTokens = providerUsage.costMicros === null
+    const costMicros =
+        providerUsage.costMicros ??
+        estimateHostedManagedModelCostMicros({
+            inputTokens: providerUsage.inputTokens,
+            cachedTokens: providerUsage.cachedTokens,
+            outputTokens: providerUsage.outputTokens,
+            reasoningTokens: providerUsage.reasoningTokens,
+        })
     if (costMicros === null) {
         await recordHostedProviderUsageBlocked({
             env,
@@ -572,8 +587,9 @@ export async function hostedOpenRouterProxy(
             },
         )
     }
+    let settlement: Awaited<ReturnType<typeof recordHostedProviderUsage>>
     try {
-        await recordHostedProviderUsage({
+        settlement = await recordHostedProviderUsage({
             env,
             workspaceId: proxyPath.workspaceId,
             roomId: proxyPath.roomId,
@@ -594,6 +610,7 @@ export async function hostedOpenRouterProxy(
                 ...managedModelMetadata,
                 billedBy: 'hosted_openrouter_proxy',
                 providerProxyBillingAuthority: 'worker_proxy',
+                costEstimatedFromTokens,
                 reservationId,
                 usageRequestId,
                 sessionKey: usageContext.sessionKey,
@@ -619,6 +636,21 @@ export async function hostedOpenRouterProxy(
             },
         )
     }
+    await recordHostedProviderSpend({
+        env,
+        workspaceId: proxyPath.workspaceId,
+        roomId: proxyPath.roomId,
+        sessionKey: usageContext.sessionKey,
+        runId: usageContext.runId,
+        jobId: usageContext.jobId,
+        action: 'provider_openrouter',
+        cents: settlement.debitedCents,
+    }).catch((error) => {
+        console.error(
+            'Hosted provider spend counter update failed',
+            error instanceof Error ? error.message : error,
+        )
+    })
     if (reservationId) {
         responseHeaders.set('x-agent-room-billing-reservation-id', reservationId)
     }

@@ -1,3 +1,4 @@
+import type { AgentRoomHostedEnv } from './bindings'
 import { nowIso } from './hosted-json'
 import { deny, HostedQuotaDeniedError, type HostedQuotaCheckInput } from './hosted-quota-contract'
 import { readHostedQuotaPolicy, restrictedByPolicy } from './hosted-quota-policy'
@@ -6,6 +7,7 @@ import {
     activeConcurrencyDenial,
     consumeCounters,
     counterDenial,
+    recordCounters,
     recordHostedQuotaDenied,
     storageDenial,
 } from './hosted-quota-store'
@@ -89,6 +91,51 @@ async function evaluateHostedQuota(input: HostedQuotaCheckInput): Promise<void> 
         })
         throw new HostedQuotaDeniedError(consumeDenial)
     }
+}
+
+export async function recordHostedProviderSpend(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId?: string | null
+    sessionKey?: string | null
+    runId?: string | null
+    jobId?: string | null
+    action: HostedQuotaCheckInput['action']
+    cents: number
+    now?: Date
+}): Promise<void> {
+    if (!Number.isFinite(input.cents) || input.cents <= 0) {
+        return
+    }
+    const now = input.now ?? new Date()
+    const policy = await readHostedQuotaPolicy({
+        env: input.env,
+        workspaceId: input.workspaceId,
+    })
+    const check: HostedQuotaCheckInput = {
+        env: input.env,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId ?? null,
+        sessionKey: input.sessionKey ?? null,
+        runId: input.runId ?? null,
+        jobId: input.jobId ?? null,
+        action: input.action,
+        amount: {
+            count: 0,
+            cents: Math.ceil(input.cents),
+        },
+    }
+    const rules = counterRules({
+        check,
+        policy,
+        ipScopeId: '',
+        now,
+    }).filter((rule) => rule.counterKey === 'spend_cents')
+    await recordCounters({
+        check,
+        rules,
+        now: nowIso(now),
+    })
 }
 
 export async function assertHostedQuotaAllowed(input: HostedQuotaCheckInput): Promise<void> {
