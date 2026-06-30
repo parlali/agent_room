@@ -29,6 +29,7 @@ import {
     hostedManagedModelId,
     hostedManagedModelMaxOutputTokens,
     hostedManagedModelPreflightSpendEstimateCents,
+    hostedManagedModelReasoningEffort,
     hostedManagedModelRequestReservationCents,
 } from './hosted-model-policy'
 import {
@@ -70,6 +71,10 @@ function hostedOpenRouterProviderPayload(
         usage: {
             ...objectRecord(payload.usage),
             include: true,
+        },
+        reasoning: {
+            ...objectRecord(payload.reasoning),
+            effort: hostedManagedModelReasoningEffort,
         },
     }
     if (hasOwnPayloadField(payload, 'max_completion_tokens')) {

@@ -15,6 +15,8 @@ export const hostedManagedModelContextWindowTokens = 128000
 
 export const hostedManagedModelPreflightSpendEstimateCents = 50
 
+export const hostedManagedModelReasoningEffort = 'low' as const
+
 export const hostedManagedModelInputCostMicrosPerMillionTokens = 740000
 export const hostedManagedModelOutputCostMicrosPerMillionTokens = 3500000
 
