@@ -69,6 +69,7 @@ function hostedEnv(input: {
     puts?: string[]
     tokenValue?: string
     desiredState?: () => string
+    preStartDesiredState?: () => string
 }): AgentRoomHostedEnv {
     const updates = input.updates ?? []
     const batches = input.batches ?? []
@@ -171,12 +172,15 @@ function hostedEnv(input: {
                             }
                         }
                         if (/FROM\s+hosted_room\b/.test(sql)) {
+                            const desiredState = /FROM\s+hosted_room\s+WHERE/.test(sql)
+                                ? (input.preStartDesiredState ?? currentDesiredState)()
+                                : currentDesiredState()
                             return {
                                 id: runtimeRow.roomId,
                                 slug: 'room-1',
                                 displayName: 'Room 1',
                                 status: 'starting',
-                                desiredState: currentDesiredState(),
+                                desiredState,
                                 createdByUserId: 'user_1',
                                 createdAt: now,
                                 updatedAt: now,
@@ -419,13 +423,12 @@ describe('hosted runtime reconciliation', () => {
     })
 
     it('does not start the container when a stop wins before container start', async () => {
-        let desiredState = 'running'
         const updates: RuntimeUpdate[] = []
         const starts: Array<{ name: string; args: unknown }> = []
         const destroys: string[] = []
         const env = hostedEnv({
             updates,
-            desiredState: () => desiredState,
+            preStartDesiredState: () => 'stopped',
             objectKeys: [
                 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
                 'workspaces/workspace_1/rooms/room_1/snapshots/snapshot_1.tar.zst',
@@ -438,9 +441,6 @@ describe('hosted runtime reconciliation', () => {
                 configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
                 workspaceSnapshotKey:
                     'workspaces/workspace_1/rooms/room_1/snapshots/snapshot_1.tar.zst',
-            },
-            setAllowedHosts: async () => {
-                desiredState = 'stopped'
             },
             start: async (name, args) => {
                 starts.push({ name, args })

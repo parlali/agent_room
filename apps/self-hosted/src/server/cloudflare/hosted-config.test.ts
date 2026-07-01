@@ -342,8 +342,9 @@ describe('hosted Cloudflare configuration', () => {
         expect(previewWorkflowConfig).toContain('- opened')
         expect(previewWorkflowConfig).toContain('- synchronize')
         expect(previewWorkflowConfig).toContain('- reopened')
-        expect(previewWorkflowConfig).not.toContain('- closed')
-        expect(previewWorkflowConfig).not.toContain("github.event.action != 'closed'")
+        expect(previewWorkflowConfig).toContain('- closed')
+        expect(previewWorkflowConfig).toContain("github.event.action != 'closed'")
+        expect(previewWorkflowConfig).toContain("github.event.action == 'closed'")
         expect(previewWorkflowConfig).toContain(
             'github.event.pull_request.head.repo.full_name == github.repository',
         )

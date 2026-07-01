@@ -130,11 +130,7 @@ function buildSessionDisplayIndex(input: {
     const messages = visibleProjectionEntries(input.entries)
         .map((entry, index) => mapSessionEntry(entry, index, completed, attachmentMetadata))
         .filter((message): message is RoomExecutionMessage => message !== null)
-    const rows = buildChatTimelineRows(
-        messages,
-        isThreadWorking(input.record.status),
-        input.thread,
-    )
+    const rows = buildChatTimelineRows(messages, isThreadWorking(input.record.status), input.thread)
     const displayRows = finalizeSessionDisplayRows(appendPendingUserRows(rows, input.record))
     return {
         rows: displayRows,

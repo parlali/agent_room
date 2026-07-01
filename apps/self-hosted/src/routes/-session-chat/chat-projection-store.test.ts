@@ -3,10 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { createPendingUserDisplayRows } from '#/domain/message-list-model'
 import { emptyRuntimePart } from '#/domain/runtime-message'
-import type {
-    RoomSessionDisplayRow,
-    RoomSessionWindow,
-} from '#/domain/room-execution-types'
+import type { RoomSessionDisplayRow, RoomSessionWindow } from '#/domain/room-execution-types'
 
 import { preserveUnsettledPendingUserRows } from './chat-projection-store'
 

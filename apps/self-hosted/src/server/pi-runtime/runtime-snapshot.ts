@@ -55,7 +55,10 @@ export function mapThread(
     }
 }
 
-function buildRoomAgent(config: PiRuntimeConfig, threads: RoomExecutionThread[]): RoomExecutionAgent {
+function buildRoomAgent(
+    config: PiRuntimeConfig,
+    threads: RoomExecutionThread[],
+): RoomExecutionAgent {
     return {
         id: 'main',
         name: config.runtime.displayName,
@@ -101,11 +104,11 @@ export function buildRuntimeSnapshot(input: RuntimeSnapshotInput): PiRuntimeSnap
         typeof input.messageLimit === 'number' && Number.isFinite(input.messageLimit)
             ? Math.max(0, Math.floor(input.messageLimit))
             : 200
-    const { roomAgent: agent, threads, extraAgentIds } = buildThreadsView(
-        input.config,
-        input.records,
-        input.compactionStats,
-    )
+    const {
+        roomAgent: agent,
+        threads,
+        extraAgentIds,
+    } = buildThreadsView(input.config, input.records, input.compactionStats)
     const selectedThreadKey = selectSnapshotThreadKey({
         requestedThreadKey: input.selectedThreadKey,
         orderedThreadKeys: threads.map((thread) => thread.key),
