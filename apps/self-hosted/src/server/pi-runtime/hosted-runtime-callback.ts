@@ -1,5 +1,6 @@
 const hostedRuntimeCallbackMaxAttempts = 4
 const hostedRuntimeCallbackBaseDelayMs = 200
+const hostedRuntimeCallbackTimeoutMs = 10000
 
 export async function postHostedRuntimeCallback(input: {
     url: string
@@ -18,6 +19,7 @@ export async function postHostedRuntimeCallback(input: {
                     'content-type': 'application/json',
                 },
                 body,
+                signal: AbortSignal.timeout(hostedRuntimeCallbackTimeoutMs),
             })
         } catch (error) {
             console.warn(

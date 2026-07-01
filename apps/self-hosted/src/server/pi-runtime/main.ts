@@ -610,9 +610,9 @@ async function handleSessionEvent(record: ThreadRecord, event: AgentSessionEvent
         record.activeRunId = null
     }
     await persistThreadIndex()
-    await hostedRuntimeStateSync.upsert(record.sessionFile)
     if (eventForLog.type === 'agent_end' || eventForLog.type === 'compaction_end') {
         await persistThreadView(record)
+        await hostedRuntimeStateSync.upsert(record.sessionFile)
     }
     await appendRuntimeEvent(eventForLog.type, {
         sessionKey: record.key,

@@ -116,7 +116,14 @@ export function createRuntimeEventAppender(input: RuntimeEventAppenderInput) {
             flag: 'a',
             mode: 0o600,
         })
-        await hostedStateSync?.upsert(input.config.paths.runtimeEventsPath)
+        void hostedStateSync
+            ?.upsert(input.config.paths.runtimeEventsPath)
+            ?.catch((error) => {
+                console.warn(
+                    'Hosted runtime event log sync failed',
+                    error instanceof Error ? error.message : error,
+                )
+            })
         if (hostedUsageCallbackUrl && hostedUsageCallbackToken && hostedWorkspaceId) {
             const callbackPromise = postHostedRuntimeUsage({
                 url: hostedUsageCallbackUrl,
