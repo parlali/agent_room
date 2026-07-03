@@ -75,6 +75,7 @@ export function isFabricatedRunId(runId: string | null): boolean {
 
 export function adoptRealRunId(state: StreamTurnState, runId: string): StreamTurnState {
     if (!runId.trim()) return state
+    if (state.finished) return state
     if (state.runId === runId) return state
     if (!isFabricatedRunId(state.runId)) return state
     const previousRunId = state.runId

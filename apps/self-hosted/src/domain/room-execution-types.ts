@@ -80,6 +80,7 @@ export interface RoomExecutionThread {
     title: string
     lastMessagePreview: string | null
     status: RoomExecutionSessionStatus | null
+    activeRunId: string | null
     updatedAt: number | null
     runStartedAt: number | null
     runtimeMs: number | null

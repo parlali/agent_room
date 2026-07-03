@@ -1674,6 +1674,7 @@ function stopThread(thread: RoomExecutionThread, stoppedAt: number): RoomExecuti
     return {
         ...thread,
         status: 'idle',
+        activeRunId: null,
         updatedAt: stoppedAt,
         runStartedAt: null,
         runtimeMs,

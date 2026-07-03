@@ -95,14 +95,15 @@ export function buildChatTimelineRows(
                 timestamp: message.timestamp,
             })
             const isLatestRun = message.id === latestUserId
+            const isLiveRun = isLatestRun && latestRunIsLive(isWorking, thread, message.timestamp)
             current = {
                 runId: `run-${message.id}`,
-                startedAt: isLatestRun
+                startedAt: isLiveRun
                     ? (thread?.runStartedAt ?? message.timestamp)
                     : message.timestamp,
-                runtimeMs: isLatestRun ? (thread?.runtimeMs ?? null) : null,
-                status: isLatestRun ? statusFromThread(isWorking, thread) : 'complete',
-                collapsed: !isLatestRun || !isWorking,
+                runtimeMs: isLiveRun ? (thread?.runtimeMs ?? null) : null,
+                status: isLiveRun ? statusFromThread(isWorking, thread) : 'complete',
+                collapsed: !isLiveRun || !isWorking,
                 items: [],
                 finalRows: [],
                 turnIndex: 0,
@@ -629,6 +630,21 @@ function rowForDetachedMessage(message: RoomExecutionMessage, seq: number): Chat
 
 function shouldRenderTranscript(row: RunTranscriptRow): boolean {
     return transcriptHasVisibleContent(row) || isActiveTranscriptStatus(row.status)
+}
+
+function latestRunIsLive(
+    isWorking: boolean,
+    thread: RoomExecutionThread | null,
+    userTimestamp: number | null,
+): boolean {
+    if (!isWorking || !thread) return false
+    const activeRunId = thread.activeRunId ?? null
+    if (activeRunId === null) {
+        return true
+    }
+    const runStartedAt = thread.runStartedAt
+    if (runStartedAt === null || userTimestamp === null) return true
+    return userTimestamp >= runStartedAt
 }
 
 function statusFromThread(
