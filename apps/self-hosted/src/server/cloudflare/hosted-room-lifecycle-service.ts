@@ -26,6 +26,7 @@ import {
     type ProviderSelectionConfig,
     resolveHostedProviderSelection,
 } from './hosted-runtime-materialization'
+import { throwRoomSlugConflict } from '../rooms/room-slug-conflict'
 import { hostedRuntimeContainerName } from './runtime-contract'
 import { hostedWorkspacePrefix } from './workspace-storage'
 import {
@@ -128,7 +129,7 @@ export async function createHostedRoom(input: {
         workspaceId: input.actor.workspaceId,
         roomId,
     })
-    await input.env.AGENT_ROOM_DB.batch([
+    const createStatements = [
         input.env.AGENT_ROOM_DB.prepare(
             `
                 INSERT INTO hosted_room (
@@ -215,7 +216,12 @@ export async function createHostedRoom(input: {
                 VALUES (?1, ?2, 'completed', NULL, ?3, ?3, ?3, NULL)
             `,
         ).bind(roomId, input.actor.workspaceId, now),
-    ])
+    ]
+    try {
+        await input.env.AGENT_ROOM_DB.batch(createStatements)
+    } catch (error) {
+        throwRoomSlugConflict(error, slug)
+    }
     if (input.mcpConnectionIds?.length) {
         await replaceRoomMcpBindings({
             env: input.env,
@@ -455,18 +461,23 @@ export async function updateHostedRoomIdentity(input: {
     slug?: string | null
 }): Promise<RoomRecord> {
     const { displayName, slug } = normalizeHostedRoomIdentity(input)
-    const result = await input.env.AGENT_ROOM_DB.prepare(
-        `
-            UPDATE hosted_room
-            SET display_name = ?1,
-                slug = ?2,
-                updated_at = ?3
-            WHERE workspace_id = ?4
-              AND id = ?5
-        `,
-    )
-        .bind(displayName, slug, nowIso(), input.actor.workspaceId, input.roomId)
-        .run()
+    let result
+    try {
+        result = await input.env.AGENT_ROOM_DB.prepare(
+            `
+                UPDATE hosted_room
+                SET display_name = ?1,
+                    slug = ?2,
+                    updated_at = ?3
+                WHERE workspace_id = ?4
+                  AND id = ?5
+            `,
+        )
+            .bind(displayName, slug, nowIso(), input.actor.workspaceId, input.roomId)
+            .run()
+    } catch (error) {
+        throwRoomSlugConflict(error, slug)
+    }
     assertChanged(result, 'Room not found')
     await appendHostedAudit({
         env: input.env,
@@ -670,6 +681,11 @@ async function assertHostedRuntimeStartAllowed(input: {
         roomId: input.roomId,
     })
     if (!access.allowed) {
+        if (access.reason === 'room_limit') {
+            throw new Error(
+                hostedRuntimeAccessDeniedMessage(access.reason, access.maxConcurrentRooms),
+            )
+        }
         throw new Error(hostedRuntimeAccessDeniedMessage(access.reason))
     }
     await assertHostedQuotaAllowed({

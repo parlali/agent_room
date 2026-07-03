@@ -138,23 +138,71 @@ async function batchRuntimeState(input: {
     })
 }
 
+export const hostedRuntimeStartingActiveWindowMs = 15 * 60 * 1000
+
 export async function countActiveHostedRuntimesForWorkspace(input: {
     env: AgentRoomHostedEnv
     workspaceId: string
     excludeRoomId: string
+    now?: Date
 }): Promise<number> {
+    const startingActiveCutoff = new Date(
+        (input.now ?? new Date()).getTime() - hostedRuntimeStartingActiveWindowMs,
+    ).toISOString()
     const row = await input.env.AGENT_ROOM_DB.prepare(
         `
             SELECT COUNT(*) AS activeCount
             FROM hosted_room
             WHERE workspace_id = ?1
-              AND status IN ('starting', 'running')
               AND id != ?2
+              AND (
+                  status = 'running'
+                  OR (status = 'starting' AND updated_at >= ?3)
+              )
         `,
     )
-        .bind(input.workspaceId, input.excludeRoomId)
+        .bind(input.workspaceId, input.excludeRoomId, startingActiveCutoff)
         .first<{ activeCount: number }>()
     return row?.activeCount ?? 0
+}
+
+export async function markHostedRuntimeContainerStopped(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+    now?: string
+}): Promise<boolean> {
+    const now = input.now ?? new Date().toISOString()
+    const results = await input.env.AGENT_ROOM_DB.batch([
+        input.env.AGENT_ROOM_DB.prepare(
+            `
+                UPDATE hosted_room_runtime_state
+                SET health_status = 'unknown',
+                    updated_at = ?1
+                WHERE workspace_id = ?2
+                  AND room_id = ?3
+                  AND EXISTS (
+                      SELECT 1
+                      FROM hosted_room
+                      WHERE hosted_room.workspace_id = hosted_room_runtime_state.workspace_id
+                        AND hosted_room.id = hosted_room_runtime_state.room_id
+                        AND hosted_room.status = 'running'
+                  )
+            `,
+        ).bind(now, input.workspaceId, input.roomId),
+        input.env.AGENT_ROOM_DB.prepare(
+            `
+                UPDATE hosted_room
+                SET status = 'stopped',
+                    updated_at = ?1
+                WHERE workspace_id = ?2
+                  AND id = ?3
+                  AND status = 'running'
+            `,
+        ).bind(now, input.workspaceId, input.roomId),
+    ])
+    const roomResult = results[1] as RuntimeStateBatchResult | undefined
+    return typeof roomResult?.meta?.changes === 'number' && roomResult.meta.changes > 0
 }
 
 export async function writeHostedRuntimeStateTransition(

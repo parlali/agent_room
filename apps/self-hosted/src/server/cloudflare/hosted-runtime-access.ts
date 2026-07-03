@@ -12,17 +12,24 @@ export interface HostedRuntimeAccessInput {
 
 export type HostedRuntimeAccessDecision =
     | { allowed: true }
-    | { allowed: false; reason: 'no_subscription' | 'room_limit' }
+    | { allowed: false; reason: 'no_subscription' }
+    | { allowed: false; reason: 'room_limit'; maxConcurrentRooms: number }
 
 type HostedRuntimeAccessDeniedReason = Extract<
     HostedRuntimeAccessDecision,
     { allowed: false }
 >['reason']
 
-export function hostedRuntimeAccessDeniedMessage(reason: HostedRuntimeAccessDeniedReason): string {
-    return reason === 'no_subscription'
-        ? 'Hosted runtime access denied: workspace has no active subscription'
-        : 'Hosted runtime access denied: workspace concurrent room limit reached'
+export function hostedRuntimeAccessDeniedMessage(
+    reason: HostedRuntimeAccessDeniedReason,
+    maxConcurrentRooms?: number,
+): string {
+    if (reason === 'no_subscription') {
+        return 'An active subscription is required to run rooms. Update billing to continue.'
+    }
+    return maxConcurrentRooms === undefined
+        ? 'Room limit reached. Pause a room to create or start another one.'
+        : `Room limit reached (${maxConcurrentRooms} rooms running). Pause a room to create or start another one.`
 }
 
 export async function evaluateHostedRuntimeAccess(
@@ -43,7 +50,11 @@ export async function evaluateHostedRuntimeAccess(
         excludeRoomId: input.roomId,
     })
     if (activeRuntimes >= config.billing.maxConcurrentRoomsPerWorkspace) {
-        return { allowed: false, reason: 'room_limit' }
+        return {
+            allowed: false,
+            reason: 'room_limit',
+            maxConcurrentRooms: config.billing.maxConcurrentRoomsPerWorkspace,
+        }
     }
 
     return { allowed: true }

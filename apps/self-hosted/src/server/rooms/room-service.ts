@@ -19,6 +19,7 @@ import type {
 } from '#/domain/domain-types'
 import { describeJobSchedule, type JobSchedule } from '#/domain/job-schedule'
 import { getRoomPaths } from './room-paths'
+import { throwRoomSlugConflict } from './room-slug-conflict'
 import { beginRoomOnboarding, seedDefaultRoomMemory } from './room-onboarding'
 import { reconcileRoomAutostart } from './room-autostart'
 import { assertRoomSetupReady } from './runtime-readiness'
@@ -30,25 +31,6 @@ function normalizeSlug(value: string) {
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '')
-}
-
-function isUniqueViolation(error: unknown): boolean {
-    if (typeof error !== 'object' || error === null) {
-        return false
-    }
-
-    const record = error as { code?: unknown; message?: unknown }
-    const code = String(record.code ?? '')
-    const message = String(record.message ?? '')
-
-    return code === 'SQLITE_CONSTRAINT_UNIQUE' || message.includes('UNIQUE constraint failed')
-}
-
-function throwRoomSlugConflict(error: unknown, slug: string): never {
-    if (isUniqueViolation(error)) {
-        throw new Error(`Room slug "${slug}" already exists`)
-    }
-    throw error
 }
 
 export async function createRoom(input: {

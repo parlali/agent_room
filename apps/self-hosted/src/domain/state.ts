@@ -73,6 +73,9 @@ export function describeRoomState(input: {
             }
             return { kind: 'ready', label: 'Ready', tone: 'ready' }
         case 'stopped':
+            if (input.desiredState === 'running') {
+                return { kind: 'ready', label: 'Idle', tone: 'muted' }
+            }
             return { kind: 'paused', label: 'Paused', tone: 'muted' }
         case 'degraded':
             return { kind: 'degraded', label: 'Degraded', tone: 'attention' }
