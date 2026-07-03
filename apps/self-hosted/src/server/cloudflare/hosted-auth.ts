@@ -5,6 +5,8 @@ import { sendHostedAuthEmail } from './hosted-email'
 import { resolveHostedConfig } from './hosted-config'
 import { readHostedWorkspaceOwnerMembership } from './hosted-membership'
 
+export const hostedSessionCookieCacheMaxAgeSeconds = 5 * 60
+
 export interface HostedActor {
     authProvider: 'better-auth'
     userId: string
@@ -38,6 +40,12 @@ export function createHostedAuth(env: AgentRoomHostedEnv) {
         secret: config.betterAuthSecret,
         baseURL: config.betterAuthUrl,
         trustedOrigins: [config.publicOrigin],
+        session: {
+            cookieCache: {
+                enabled: true,
+                maxAge: hostedSessionCookieCacheMaxAgeSeconds,
+            },
+        },
         emailAndPassword: {
             enabled: true,
             requireEmailVerification: true,

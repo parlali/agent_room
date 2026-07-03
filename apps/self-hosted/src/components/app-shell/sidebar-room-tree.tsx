@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
 
 import { cn } from '#/lib/utils'
 import { describeRoomState } from '#/domain/state'
 import { StatusDot } from '#/components/agent-room'
+import { markChatSelection } from '#/lib/browser-performance'
+import { getRoomSidebarServer } from '#/routes/-room-runtime-server'
+import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
 import type { RoomRuntimeOverview } from '#/domain/room-execution-types'
 
 export function SidebarRoomTree({ rooms }: { rooms: RoomRuntimeOverview[] }) {
+    const queryClient = useQueryClient()
     const pathname = useRouterState({ select: (s) => s.location.pathname })
     const [optimisticPathname, setOptimisticPathname] = useState<string | null>(null)
     const activePathname = optimisticPathname ?? pathname
@@ -17,6 +22,14 @@ export function SidebarRoomTree({ rooms }: { rooms: RoomRuntimeOverview[] }) {
             setOptimisticPathname(null)
         }
     }, [optimisticPathname, pathname])
+
+    const prefetchRoomSidebar = (roomId: string) => {
+        void queryClient.prefetchQuery({
+            queryKey: roomQueryKey.roomSidebar(roomId),
+            queryFn: () => getRoomSidebarServer({ data: { roomId } }),
+            staleTime: roomQueryPolicy.hotStaleMs,
+        })
+    }
 
     if (rooms.length === 0) {
         return (
@@ -34,21 +47,15 @@ export function SidebarRoomTree({ rooms }: { rooms: RoomRuntimeOverview[] }) {
                     desiredState: room.desiredState,
                     healthStatus: room.healthStatus,
                 })
-                return (
-                    <Link
-                        key={room.roomId}
-                        to="/rooms/$roomId"
-                        params={{ roomId: room.roomId }}
-                        onClick={() => {
-                            setOptimisticPathname(`/rooms/${room.roomId}`)
-                        }}
-                        className={cn(
-                            'flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-sidebar-accent',
-                            activeRoomId === room.roomId
-                                ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-                                : 'text-muted-foreground hover:text-sidebar-accent-foreground',
-                        )}
-                    >
+                const latestThreadKey = room.latestThreadKey ?? null
+                const linkClassName = cn(
+                    'flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-sidebar-accent',
+                    activeRoomId === room.roomId
+                        ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                        : 'text-muted-foreground hover:text-sidebar-accent-foreground',
+                )
+                const content = (
+                    <>
                         <span className="min-w-0 flex-1 truncate font-medium">
                             {room.displayName}
                         </span>
@@ -57,6 +64,39 @@ export function SidebarRoomTree({ rooms }: { rooms: RoomRuntimeOverview[] }) {
                             pulse={state.tone === 'working'}
                             className="shrink-0"
                         />
+                    </>
+                )
+                if (latestThreadKey) {
+                    return (
+                        <Link
+                            key={room.roomId}
+                            to="/rooms/$roomId/sessions/$sessionKey"
+                            params={{ roomId: room.roomId, sessionKey: latestThreadKey }}
+                            onMouseEnter={() => prefetchRoomSidebar(room.roomId)}
+                            onFocus={() => prefetchRoomSidebar(room.roomId)}
+                            onClick={() => {
+                                markChatSelection(room.roomId, latestThreadKey)
+                                setOptimisticPathname(`/rooms/${room.roomId}`)
+                            }}
+                            className={linkClassName}
+                        >
+                            {content}
+                        </Link>
+                    )
+                }
+                return (
+                    <Link
+                        key={room.roomId}
+                        to="/rooms/$roomId"
+                        params={{ roomId: room.roomId }}
+                        onMouseEnter={() => prefetchRoomSidebar(room.roomId)}
+                        onFocus={() => prefetchRoomSidebar(room.roomId)}
+                        onClick={() => {
+                            setOptimisticPathname(`/rooms/${room.roomId}`)
+                        }}
+                        className={linkClassName}
+                    >
+                        {content}
                     </Link>
                 )
             })}

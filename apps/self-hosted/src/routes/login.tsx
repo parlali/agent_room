@@ -16,6 +16,7 @@ import {
     loginServer,
     signupServer,
 } from './-auth-server'
+import { clearRouteAuthCache } from './-route-auth'
 
 function GoogleMark() {
     return (
@@ -83,6 +84,7 @@ function LoginPage() {
         onSuccess: async () => {
             setError(null)
             setNotice(null)
+            clearRouteAuthCache()
             await queryClient.invalidateQueries({ queryKey: roomQueryKey.authUser })
             await navigate({ to: '/' })
         },

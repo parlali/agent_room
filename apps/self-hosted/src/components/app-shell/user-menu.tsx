@@ -15,6 +15,7 @@ import {
 import { bottomTabClass } from '#/components/agent-room'
 import { logoutServer } from '#/routes/-auth-server'
 import type { AuthUserSnapshot } from '#/routes/-auth-server'
+import { clearRouteAuthCache } from '#/routes/-route-auth'
 import { initialsFromName, roleLabel } from '#/domain/format'
 import { roomQueryKey } from '#/lib/room-query-keys'
 import { ThemeControl } from './theme-control'
@@ -34,6 +35,7 @@ export function UserMenu({
     const logout = useMutation({
         mutationFn: () => logoutServer(),
         onSuccess: async () => {
+            clearRouteAuthCache()
             await queryClient.invalidateQueries({ queryKey: roomQueryKey.authUser })
             navigate({ to: '/login' })
         },

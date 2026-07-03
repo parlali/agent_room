@@ -281,7 +281,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     sessionKey,
                 },
             }),
-        staleTime: 0,
+        staleTime: roomQueryPolicy.warmStaleMs,
         gcTime: roomQueryPolicy.retainedSessionMs,
     })
 

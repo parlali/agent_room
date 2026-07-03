@@ -1,8 +1,28 @@
 import { redirect } from '@tanstack/react-router'
-import { currentUserServer, hostedBillingAccessServer } from './-auth-server'
+import { routeAuthServer, type RouteAuthSnapshot } from './-auth-server'
+import { createRouteAuthCache } from './-route-auth-cache'
 
 interface RouteUserOptions {
     requireHostedSubscription?: boolean
+}
+
+const routeAuthCacheTtlMs = 30_000
+
+const routeAuthCache = createRouteAuthCache<RouteAuthSnapshot>({
+    fetchSnapshot: () => routeAuthServer(),
+    hasUser: (snapshot) => snapshot.user !== null,
+    ttlMs: routeAuthCacheTtlMs,
+})
+
+export function clearRouteAuthCache(): void {
+    routeAuthCache.clear()
+}
+
+function readRouteAuthSnapshot(): Promise<RouteAuthSnapshot> {
+    if (typeof document === 'undefined') {
+        return routeAuthServer()
+    }
+    return routeAuthCache.read()
 }
 
 function routeUserOptions(input: unknown): RouteUserOptions {
@@ -15,17 +35,17 @@ function routeUserOptions(input: unknown): RouteUserOptions {
 
 export async function requireRouteUser(input?: unknown) {
     const options = routeUserOptions(input)
-    const user = await currentUserServer()
-    if (!user) {
+    const snapshot = await readRouteAuthSnapshot()
+    if (!snapshot.user) {
+        clearRouteAuthCache()
         throw redirect({
             to: '/login',
         })
     }
     if (options.requireHostedSubscription === false) {
-        return user
+        return snapshot.user
     }
-    const billing = await hostedBillingAccessServer()
-    if (billing && !billing.active) {
+    if (snapshot.billing && !snapshot.billing.active) {
         throw redirect({
             to: '/billing',
             search: {
@@ -33,5 +53,5 @@ export async function requireRouteUser(input?: unknown) {
             },
         })
     }
-    return user
+    return snapshot.user
 }

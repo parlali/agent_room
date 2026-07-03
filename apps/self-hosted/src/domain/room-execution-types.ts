@@ -21,6 +21,7 @@ export interface RoomRuntimeOverview {
     pid: number | null
     lastError: string | null
     lastHealthAt: string | null
+    latestThreadKey?: string | null
 }
 
 export type RoomSetupPhase = 'setup_required' | 'starting' | 'onboarding' | 'ready'

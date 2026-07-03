@@ -116,6 +116,7 @@ function overview(input: {
     healthStatus: RoomRuntimeOverview['healthStatus']
     lastError: string | null
     lastHealthAt: string | null
+    latestThreadKey?: string | null
 }): RoomRuntimeOverview {
     return {
         roomId: input.roomId,
@@ -129,6 +130,7 @@ function overview(input: {
         pid: null,
         lastError: input.lastError,
         lastHealthAt: input.lastHealthAt,
+        latestThreadKey: input.latestThreadKey ?? null,
     }
 }
 
@@ -317,13 +319,18 @@ export async function listRoomsWithRuntime(_input: {
     })
     return Promise.all(
         rooms.map(async (room) => {
-            const [runtime, roomMode] = await Promise.all([
+            const [runtime, roomMode, threadsView] = await Promise.all([
                 getHostedRuntimeState({
                     env: context.env,
                     workspaceId: actor.workspaceId,
                     roomId: room.id,
                 }),
                 getHostedRoomMode({
+                    env: context.env,
+                    workspaceId: actor.workspaceId,
+                    roomId: room.id,
+                }),
+                readRoomViewThreads({
                     env: context.env,
                     workspaceId: actor.workspaceId,
                     roomId: room.id,
@@ -339,6 +346,7 @@ export async function listRoomsWithRuntime(_input: {
                 healthStatus: runtime?.metadata?.healthStatus ?? null,
                 lastError: runtime?.metadata?.lastError ?? null,
                 lastHealthAt: runtime?.metadata?.lastHealthAt?.toISOString() ?? null,
+                latestThreadKey: threadsView?.threads[0]?.key ?? null,
             })
         }),
     )

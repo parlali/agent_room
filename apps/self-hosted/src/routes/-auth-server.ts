@@ -45,6 +45,11 @@ export interface HostedBillingAccessSnapshot {
     planStatus: string
 }
 
+export interface RouteAuthSnapshot {
+    user: AuthUserSnapshot | null
+    billing: HostedBillingAccessSnapshot | null
+}
+
 function toUserSnapshot(input: {
     userId: string
     email: string
@@ -119,30 +124,45 @@ export const currentUserServer = createServerFn({ method: 'GET' }).handler(async
     return toUserSnapshot(actor)
 })
 
-export const hostedBillingAccessServer = createServerFn({ method: 'GET' }).handler(async () => {
+export const routeAuthServer = createServerFn({ method: 'GET' }).handler(async () => {
     setResponseHeaders({
         'cache-control': 'no-store',
     })
     const hosted = readHostedRequestContext()
-    if (!hosted) {
-        return null
+    if (hosted) {
+        const actor = await readHostedContextActor(hosted)
+        if (!actor) {
+            return {
+                user: null,
+                billing: null,
+            } satisfies RouteAuthSnapshot
+        }
+        const { ensureHostedBillingAccount } =
+            await import('#/server/cloudflare/hosted-billing-repository')
+        const account = await ensureHostedBillingAccount({
+            env: hosted.env,
+            workspaceId: actor.workspaceId,
+        })
+        return {
+            user: toUserSnapshot({
+                userId: actor.userId,
+                email: actor.email,
+                role: 'operator',
+            }),
+            billing: {
+                hosted: true,
+                active: isHostedBillingPlanStatusActive(account.planStatus),
+                planKey: account.planKey,
+                planStatus: account.planStatus,
+            },
+        } satisfies RouteAuthSnapshot
     }
-    const actor = await readHostedContextActor(hosted)
-    if (!actor) {
-        return null
-    }
-    const { ensureHostedBillingAccount } =
-        await import('#/server/cloudflare/hosted-billing-repository')
-    const account = await ensureHostedBillingAccount({
-        env: hosted.env,
-        workspaceId: actor.workspaceId,
-    })
+    const { readAuthenticatedActor } = await import('#/server/auth/session-auth')
+    const actor = await readAuthenticatedActor()
     return {
-        hosted: true,
-        active: isHostedBillingPlanStatusActive(account.planStatus),
-        planKey: account.planKey,
-        planStatus: account.planStatus,
-    } satisfies HostedBillingAccessSnapshot
+        user: actor ? toUserSnapshot(actor) : null,
+        billing: null,
+    } satisfies RouteAuthSnapshot
 })
 
 export const loginServer = createServerFn({ method: 'POST' })
