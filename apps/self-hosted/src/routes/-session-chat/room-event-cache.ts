@@ -5,6 +5,30 @@ import { roomQueryKey } from '#/lib/room-query-keys'
 import type { RoomRealtimeEvent } from '#/domain/room-execution-types'
 import { clearCachedStreamTurnForRoomEvent } from './stream-turn-cache'
 
+const SEQ_DEDUPE_WINDOW = 512
+
+export function createRoomEventSeqDedupe(): (seq: number | null) => boolean {
+    const seen = new Set<number>()
+    const order: number[] = []
+    return (seq) => {
+        if (seq === null) {
+            return false
+        }
+        if (seen.has(seq)) {
+            return true
+        }
+        seen.add(seq)
+        order.push(seq)
+        if (order.length > SEQ_DEDUPE_WINDOW) {
+            const evicted = order.shift()
+            if (evicted !== undefined) {
+                seen.delete(evicted)
+            }
+        }
+        return false
+    }
+}
+
 export function useRoomEventCacheSync({
     roomId,
     queryClient,
@@ -21,11 +45,15 @@ export function useRoomEventCacheSync({
         if (typeof EventSource === 'undefined') return
 
         const source = new EventSource(`/api/rooms/${encodeURIComponent(roomId)}/events`)
+        const alreadyHandled = createRoomEventSeqDedupe()
 
         const onRoomEvent = (raw: MessageEvent<string>) => {
             onError?.(null)
             try {
                 const event = JSON.parse(raw.data) as RoomRealtimeEvent
+                if (alreadyHandled(event.seq)) {
+                    return
+                }
                 invalidateRoomCachesForEvent({
                     roomId,
                     queryClient,

@@ -60,6 +60,7 @@ import {
 import { ChatHeader } from './chat-header'
 import { ChatSkeleton } from './chat-skeleton'
 import { Composer, type ComposerAttachment } from './composer'
+import { shouldSendOnEnter } from './composer-input'
 import type { ModelModeChange } from './model-mode-menu'
 import { isLastMessageInProgress } from './conversation-utils'
 import {
@@ -987,11 +988,17 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     }, [clearCompletedBadge, clearingCompletedBadge, selectedThread?.badgeState.completed])
 
     const sending = sendMutation.isPending || editMutation.isPending
+    const composerBlockedReason = resolveComposerBlockedReason(snapshot)
+    const composerHasContent = draft.trim().length > 0 || attachments.length > 0
+    const canSubmitComposer =
+        composerHasContent &&
+        !sending &&
+        !attachmentMutation.isPending &&
+        composerBlockedReason === null
 
     const submitDraft = () => {
-        if (sending) return
+        if (!canSubmitComposer) return
         const value = draft.trim()
-        if (!value && attachments.length === 0) return
         const message = formatMessageWithAttachments(value, attachments)
         sendMutation.mutate({
             roomId,
@@ -1037,10 +1044,17 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     }
 
     const onComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-            event.preventDefault()
-            submitDraft()
+        if (
+            !shouldSendOnEnter({
+                key: event.key,
+                shiftKey: event.shiftKey,
+                isComposing: event.nativeEvent.isComposing,
+            })
+        ) {
+            return
         }
+        event.preventDefault()
+        submitDraft()
     }
 
     const retrySession = () => {
@@ -1190,6 +1204,8 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 onChangeDraft={onChangeComposerDraft}
                 onSubmit={onSubmit}
                 onKeyDown={onComposerKeyDown}
+                canSubmit={canSubmitComposer}
+                blockedReason={composerBlockedReason}
                 sending={sending}
                 stopping={abortMutation.isPending}
                 canStop={isWorking && (snapshot?.capabilities.canAbortGeneration ?? true)}
@@ -1620,6 +1636,16 @@ function resolveChatAttention(
             title: 'Live updates paused',
             description: 'Reconnect to keep this conversation up to date.',
         }
+    }
+    return null
+}
+
+function resolveComposerBlockedReason(
+    snapshot: RoomSessionShellSnapshot | undefined,
+): string | null {
+    if (!snapshot) return 'Getting this conversation ready...'
+    if (snapshot.setup.phase === 'setup_required') {
+        return 'Finish room setup before sending a message.'
     }
     return null
 }

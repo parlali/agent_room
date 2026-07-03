@@ -1,6 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import type { RoomRealtimeEvent } from '#/domain/room-execution-types'
+import { createRoomEventSeqDedupe } from './room-event-cache'
 
 const STREAM_ERROR_THRESHOLD = 6
 
@@ -50,6 +51,7 @@ export function useEventSourceRefetch({
         if (typeof EventSource === 'undefined') return
 
         const source = new EventSource(url)
+        const alreadyHandled = createRoomEventSeqDedupe()
         let timer: ReturnType<typeof setTimeout> | null = null
         let consecutiveErrors = 0
 
@@ -65,6 +67,9 @@ export function useEventSourceRefetch({
             consecutiveErrors = 0
             try {
                 const event = JSON.parse(raw.data) as RoomRealtimeEvent
+                if (alreadyHandled(event.seq)) {
+                    return
+                }
                 onEvent?.(event)
                 if (shouldRefetch?.(event) ?? true) {
                     scheduleRefetch()

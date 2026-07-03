@@ -51,7 +51,12 @@ import {
     isThreadWorking,
     sliceSessionWindow,
 } from '#/domain/session-window-projection'
-import { getHostedRoomMode, getHostedRuntimeState, listHostedRooms } from './hosted-room-service'
+import {
+    getHostedRoomMode,
+    getHostedRuntimeEndpointState,
+    getHostedRuntimeState,
+    listHostedRooms,
+} from './hosted-room-service'
 import {
     clearHostedSessionCompletedBadge,
     readHostedRoomOnboarding,
@@ -75,35 +80,50 @@ import { hostedCronLeaseUntil } from './hosted-cron-execution'
 
 const requireHosted = requireHostedExecutionContext
 const hostedCronTimezone = 'UTC'
-const roomEventStreamIdleRetryMs = 3000
+const hostedEventStreamIdleDetachMs = 4 * 60 * 1000
 
-function roomRuntimeIdleStream(retryMs: number): ReadableStream<Uint8Array> {
-    return new ReadableStream<Uint8Array>({
-        start(controller) {
-            controller.enqueue(new TextEncoder().encode(`retry: ${retryMs}\n\n`))
-            controller.close()
-        },
-    })
+interface HostedEventStreamContext {
+    env: AgentRoomHostedEnv
+    workspaceId: string
 }
 
-async function roomHasActiveRun(input: {
+function createHostedEventStreamContextResolver(): () => Promise<HostedEventStreamContext> {
+    let cached: HostedEventStreamContext | null = null
+    let inflight: Promise<HostedEventStreamContext> | null = null
+    return () => {
+        if (cached) {
+            return Promise.resolve(cached)
+        }
+        if (!inflight) {
+            inflight = (async () => {
+                const { context, actor } = await requireHosted()
+                cached = {
+                    env: context.env,
+                    workspaceId: actor.workspaceId,
+                }
+                return cached
+            })()
+        }
+        return inflight
+    }
+}
+
+async function hostedRuntimeEndpointHealthy(input: {
     env: AgentRoomHostedEnv
     workspaceId: string
     roomId: string
-    sessionKey: string | null
 }): Promise<boolean> {
-    const threadsView = await readRoomViewThreads({
-        env: input.env,
-        workspaceId: input.workspaceId,
-        roomId: input.roomId,
-    })
-    if (!threadsView) {
+    const endpoint = await getHostedRuntimeEndpointState(input)
+    if (!endpoint) {
         return false
     }
-    const threads = input.sessionKey
-        ? threadsView.threads.filter((thread) => thread.key === input.sessionKey)
-        : threadsView.threads
-    return threads.some((thread) => isThreadWorking(thread.status))
+    if (endpoint.desiredState !== 'running' || endpoint.status === 'stopped') {
+        return false
+    }
+    if (!endpoint.runtime.tokenObjectKey) {
+        return false
+    }
+    return endpoint.runtime.healthStatus === 'healthy'
 }
 
 function overview(input: {
@@ -734,29 +754,29 @@ export function createRoomSessionEventStream(input: {
     sessionKey: string
     abortSignal?: AbortSignal
 }): ReadableStream<Uint8Array> {
+    const resolveContext = createHostedEventStreamContextResolver()
     return createRuntimeEventProxyStream({
         roomId: input.roomId,
         sessionKey: input.sessionKey,
         streamKind: 'session',
         abortSignal: input.abortSignal,
-        open: async () => {
-            const { context, actor } = await requireHosted()
-            if (
-                !(await roomHasActiveRun({
-                    env: context.env,
-                    workspaceId: actor.workspaceId,
-                    roomId: input.roomId,
-                    sessionKey: input.sessionKey,
-                }))
-            ) {
-                return roomRuntimeIdleStream(roomEventStreamIdleRetryMs)
-            }
+        detachAfterIdleMs: hostedEventStreamIdleDetachMs,
+        checkReady: async () => {
+            const context = await resolveContext()
+            return hostedRuntimeEndpointHealthy({
+                env: context.env,
+                workspaceId: context.workspaceId,
+                roomId: input.roomId,
+            })
+        },
+        attach: async (signal) => {
+            const context = await resolveContext()
             return openHostedPiRuntimeStream({
                 env: context.env,
-                workspaceId: actor.workspaceId,
+                workspaceId: context.workspaceId,
                 roomId: input.roomId,
                 path: `/threads/${encodeURIComponent(input.sessionKey)}/events`,
-                signal: input.abortSignal,
+                signal,
             })
         },
     })
@@ -766,29 +786,29 @@ export function createRoomEventStream(input: {
     roomId: string
     abortSignal?: AbortSignal
 }): ReadableStream<Uint8Array> {
+    const resolveContext = createHostedEventStreamContextResolver()
     return createRuntimeEventProxyStream({
         roomId: input.roomId,
         sessionKey: null,
         streamKind: 'room',
         abortSignal: input.abortSignal,
-        open: async () => {
-            const { context, actor } = await requireHosted()
-            if (
-                !(await roomHasActiveRun({
-                    env: context.env,
-                    workspaceId: actor.workspaceId,
-                    roomId: input.roomId,
-                    sessionKey: null,
-                }))
-            ) {
-                return roomRuntimeIdleStream(roomEventStreamIdleRetryMs)
-            }
+        detachAfterIdleMs: hostedEventStreamIdleDetachMs,
+        checkReady: async () => {
+            const context = await resolveContext()
+            return hostedRuntimeEndpointHealthy({
+                env: context.env,
+                workspaceId: context.workspaceId,
+                roomId: input.roomId,
+            })
+        },
+        attach: async (signal) => {
+            const context = await resolveContext()
             return openHostedPiRuntimeStream({
                 env: context.env,
-                workspaceId: actor.workspaceId,
+                workspaceId: context.workspaceId,
                 roomId: input.roomId,
                 path: '/events',
-                signal: input.abortSignal,
+                signal,
             })
         },
     })

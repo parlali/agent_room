@@ -38,6 +38,8 @@ export function Composer({
     onChangeDraft,
     onSubmit,
     onKeyDown,
+    canSubmit,
+    blockedReason,
     sending,
     stopping,
     canStop,
@@ -56,6 +58,8 @@ export function Composer({
     onChangeDraft: (value: string) => void
     onSubmit: (event: FormEvent<HTMLFormElement>) => void
     onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void
+    canSubmit: boolean
+    blockedReason: string | null
     sending: boolean
     stopping: boolean
     canStop: boolean
@@ -69,13 +73,11 @@ export function Composer({
     onChangeModel: (change: ModelModeChange) => void
 }) {
     const fileInputRef = useRef<HTMLInputElement | null>(null)
-    const trimmed = draft.trim()
-    const canSend = trimmed.length > 0 || attachments.length > 0
     const showingStopAction = canStop || stopping
     const primaryActionLoading = showingStopAction ? stopping : sending
-    const primaryActionDisabled = showingStopAction ? false : attaching || !canSend
+    const primaryActionDisabled = showingStopAction ? false : !canSubmit
     const primaryActionLabel = showingStopAction ? 'Stop generation' : 'Send message'
-    const primaryActionTooltip = showingStopAction ? 'Stop' : 'Send · Cmd+Enter'
+    const primaryActionTooltip = showingStopAction ? 'Stop' : 'Send · Enter'
     const touchTargetSize = 'size-9 sm:size-8'
     const onFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files
@@ -180,6 +182,11 @@ export function Composer({
                         </Tooltip>
                     </div>
                 </div>
+                {blockedReason ? (
+                    <p className="mt-1.5 px-1 text-xs text-muted-foreground" role="status">
+                        {blockedReason}
+                    </p>
+                ) : null}
             </div>
             <input
                 ref={fileInputRef}

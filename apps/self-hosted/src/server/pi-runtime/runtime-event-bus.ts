@@ -13,6 +13,13 @@ export interface RuntimeEventBus {
 }
 
 export const RUNTIME_EVENT_STREAM_HEARTBEAT_MS = 5000
+export const RUNTIME_EVENT_REPLAY_BUFFER_LIMIT = 256
+
+interface BufferedRuntimeEvent {
+    sessionKey: string
+    seq: number
+    frame: Uint8Array
+}
 
 function encodeSse(event: string, payload: unknown): Uint8Array {
     return new TextEncoder().encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`)
@@ -21,38 +28,50 @@ function encodeSse(event: string, payload: unknown): Uint8Array {
 export function createRuntimeEventBus(input: RuntimeEventBusInput): RuntimeEventBus {
     const subscribers = new Map<string, Set<ReadableStreamDefaultController<Uint8Array>>>()
     const roomSubscribers = new Set<ReadableStreamDefaultController<Uint8Array>>()
+    const replayBuffer: BufferedRuntimeEvent[] = []
     let eventSeq = 0
 
-    const broadcast = (sessionKey: string, event: string, payload: unknown): void => {
-        const sessionTargets = subscribers.get(sessionKey)
-        if ((!sessionTargets || sessionTargets.size === 0) && roomSubscribers.size === 0) {
-            return
+    const recordReplay = (entry: BufferedRuntimeEvent): void => {
+        replayBuffer.push(entry)
+        if (replayBuffer.length > RUNTIME_EVENT_REPLAY_BUFFER_LIMIT) {
+            replayBuffer.splice(0, replayBuffer.length - RUNTIME_EVENT_REPLAY_BUFFER_LIMIT)
         }
+    }
+
+    const enqueueAll = (
+        targets: Set<ReadableStreamDefaultController<Uint8Array>>,
+        frame: Uint8Array,
+    ): void => {
+        for (const controller of targets) {
+            try {
+                controller.enqueue(frame)
+            } catch {
+                targets.delete(controller)
+            }
+        }
+    }
+
+    const broadcast = (sessionKey: string, event: string, payload: unknown): void => {
         const redactedPayload = input.redactPayload(runtimeBroadcastPayload(event, payload))
+        const seq = ++eventSeq
         const frame = encodeSse('room-event', {
             event,
             payload: redactedPayload,
-            seq: ++eventSeq,
+            seq,
             stateVersion: input.stateVersionForThread(sessionKey),
             receivedAt: Date.now(),
         })
-        const enqueue = (targets: Set<ReadableStreamDefaultController<Uint8Array>>): void => {
-            for (const controller of targets) {
-                try {
-                    controller.enqueue(frame)
-                } catch {
-                    targets.delete(controller)
-                }
-            }
-        }
+        recordReplay({ sessionKey, seq, frame })
+        const sessionTargets = subscribers.get(sessionKey)
         if (sessionTargets) {
-            enqueue(sessionTargets)
+            enqueueAll(sessionTargets, frame)
         }
-        enqueue(roomSubscribers)
+        enqueueAll(roomSubscribers, frame)
     }
 
     const createStream = (inputStream: {
         readyPayload: unknown
+        replayFrames: () => Uint8Array[]
         add: (controller: ReadableStreamDefaultController<Uint8Array>) => void
         remove: (controller: ReadableStreamDefaultController<Uint8Array>) => void
     }): ReadableStream<Uint8Array> => {
@@ -74,6 +93,9 @@ export function createRuntimeEventBus(input: RuntimeEventBusInput): RuntimeEvent
                 controllerRef = controller
                 inputStream.add(controller)
                 controller.enqueue(encodeSse('ready', inputStream.readyPayload))
+                for (const frame of inputStream.replayFrames()) {
+                    controller.enqueue(frame)
+                }
                 timer = setInterval(() => {
                     try {
                         controller.enqueue(
@@ -99,6 +121,7 @@ export function createRuntimeEventBus(input: RuntimeEventBusInput): RuntimeEvent
                 roomId: input.roomId,
                 subscribed: true,
             },
+            replayFrames: () => replayBuffer.map((entry) => entry.frame),
             add: (controller) => {
                 roomSubscribers.add(controller)
             },
@@ -114,6 +137,10 @@ export function createRuntimeEventBus(input: RuntimeEventBusInput): RuntimeEvent
                 sessionKey,
                 subscribed: true,
             },
+            replayFrames: () =>
+                replayBuffer
+                    .filter((entry) => entry.sessionKey === sessionKey)
+                    .map((entry) => entry.frame),
             add: (controller) => {
                 const set = subscribers.get(sessionKey) ?? new Set()
                 set.add(controller)
