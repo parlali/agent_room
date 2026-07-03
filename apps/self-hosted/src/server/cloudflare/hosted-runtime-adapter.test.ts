@@ -2,7 +2,9 @@ import type { D1Database, R2Bucket } from '@cloudflare/workers-types'
 import { describe, expect, it } from 'vitest'
 import type { AgentRoomHostedEnv, AgentRoomRuntimeJobMessage } from './bindings'
 import {
+    confirmHostedRuntimeContainerStopped,
     hostedRuntimeConfigPath,
+    HostedRuntimeRecreateDeferredError,
     reconcileHostedRuntimeJob,
     waitForHostedRuntimeReady,
 } from './hosted-runtime-adapter'
@@ -86,6 +88,7 @@ function hostedEnv(input: {
     preStartDesiredState?: () => string
     pushStatuses?: number[]
     readyAfterDeliver?: boolean
+    containerStopLingerPolls?: number
 }): AgentRoomHostedEnv {
     const updates = input.updates ?? []
     const batches = input.batches ?? []
@@ -94,6 +97,7 @@ function hostedEnv(input: {
     const pushStatuses = [...(input.pushStatuses ?? [])]
     let bundleDelivered = false
     let containerDestroyed = false
+    let stopLingerPollsRemaining = 0
     const objectKeys = new Set(input.objectKeys)
     const now = new Date(0).toISOString()
     const runtimeRow = {
@@ -323,10 +327,19 @@ function hostedEnv(input: {
                 setDeniedHosts: async (hosts: string[]) => {
                     await input.setDeniedHosts?.(name, hosts)
                 },
-                getState: async () => ({
-                    status: containerDestroyed ? 'stopped' : 'healthy',
-                    lastChange: 0,
-                }),
+                getState: async (): Promise<{
+                    status: 'running' | 'healthy' | 'stopped'
+                    lastChange: number
+                }> => {
+                    if (containerDestroyed && stopLingerPollsRemaining > 0) {
+                        stopLingerPollsRemaining -= 1
+                        return { status: 'healthy', lastChange: 0 }
+                    }
+                    return {
+                        status: containerDestroyed ? 'stopped' : 'healthy',
+                        lastChange: 0,
+                    }
+                },
                 startAndWaitForPorts: async (args: unknown) => {
                     containerDestroyed = false
                     await input.start?.(name, args)
@@ -334,6 +347,7 @@ function hostedEnv(input: {
                 destroy: async () => {
                     containerDestroyed = true
                     bundleDelivered = false
+                    stopLingerPollsRemaining = input.containerStopLingerPolls ?? 0
                     await input.destroy?.(name)
                 },
                 fetch: async (request: Request) => {
@@ -1008,6 +1022,179 @@ describe('hosted runtime reconciliation', () => {
         expect(starts).toHaveLength(2)
         expect(destroys.length).toBeGreaterThanOrEqual(1)
         expect(updates.some((update) => /status = 'failed'/.test(update.sql))).toBe(true)
+    })
+
+    it('recovers in a single reconcile when the destroyed container lingers before stopping', async () => {
+        const updates: RuntimeUpdate[] = []
+        const starts: Array<{ name: string; args: unknown }> = []
+        const destroys: string[] = []
+        const fetches: RecordedContainerFetch[] = []
+        const env = hostedEnv({
+            updates,
+            fetches,
+            pushStatuses: [401, 200],
+            containerStopLingerPolls: 3,
+            objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],
+            runtimeRow: {
+                roomId: 'room_1',
+                workspaceId: 'workspace_1',
+                desiredState: 'running',
+                containerName: 'workspace:workspace_1:room:room_1',
+                configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
+                workspaceSnapshotKey: null,
+            },
+            start: async (name, args) => {
+                starts.push({ name, args })
+            },
+            destroy: async (name) => {
+                destroys.push(name)
+            },
+        })
+
+        await reconcileHostedRuntimeJob(env, runtimeMessage(), { attempt: 1, maxAttempts: 4 })
+
+        expect(destroys).toEqual(['workspace:workspace_1:room:room_1'])
+        expect(starts).toHaveLength(2)
+        expect(updates.some((update) => update.args.includes('running'))).toBe(true)
+        expect(updates.some((update) => /status = 'failed'/.test(update.sql))).toBe(false)
+    })
+
+    it('defers a lingering recreate to a queue retry without failing closed, then the retry succeeds', async () => {
+        const firstUpdates: RuntimeUpdate[] = []
+        const firstStarts: Array<{ name: string; args: unknown }> = []
+        const firstDestroys: string[] = []
+        const deferredEnv = hostedEnv({
+            updates: firstUpdates,
+            pushStatuses: [401],
+            objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],
+            runtimeRow: {
+                roomId: 'room_1',
+                workspaceId: 'workspace_1',
+                desiredState: 'running',
+                containerName: 'workspace:workspace_1:room:room_1',
+                configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
+                workspaceSnapshotKey: null,
+            },
+            start: async (name, args) => {
+                firstStarts.push({ name, args })
+                if (firstStarts.length === 2) {
+                    throw new Error('container port bind raced the dying instance')
+                }
+            },
+            destroy: async (name) => {
+                firstDestroys.push(name)
+            },
+        })
+
+        await expect(
+            reconcileHostedRuntimeJob(deferredEnv, runtimeMessage(), {
+                attempt: 1,
+                maxAttempts: 4,
+            }),
+        ).rejects.toBeInstanceOf(HostedRuntimeRecreateDeferredError)
+
+        expect(firstDestroys).toEqual(['workspace:workspace_1:room:room_1'])
+        expect(firstStarts).toHaveLength(2)
+        expect(firstUpdates.some((update) => /status = 'failed'/.test(update.sql))).toBe(false)
+        expect(firstUpdates.some((update) => /desired_state = 'stopped'/.test(update.sql))).toBe(
+            false,
+        )
+
+        const retryStarts: Array<{ name: string; args: unknown }> = []
+        const retryUpdates: RuntimeUpdate[] = []
+        const retryEnv = hostedEnv({
+            updates: retryUpdates,
+            objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],
+            runtimeRow: {
+                roomId: 'room_1',
+                workspaceId: 'workspace_1',
+                desiredState: 'running',
+                containerName: 'workspace:workspace_1:room:room_1',
+                configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
+                workspaceSnapshotKey: null,
+            },
+            start: async (name, args) => {
+                retryStarts.push({ name, args })
+            },
+        })
+
+        await reconcileHostedRuntimeJob(retryEnv, runtimeMessage(), { attempt: 2, maxAttempts: 4 })
+
+        expect(retryStarts).toHaveLength(1)
+        expect(retryUpdates.some((update) => update.args.includes('running'))).toBe(true)
+        expect(retryUpdates.some((update) => /status = 'failed'/.test(update.sql))).toBe(false)
+    })
+
+    it('fails closed to paused when a lingering recreate is still deferred on the final delivery', async () => {
+        const updates: RuntimeUpdate[] = []
+        const starts: Array<{ name: string; args: unknown }> = []
+        const destroys: string[] = []
+        const env = hostedEnv({
+            updates,
+            pushStatuses: [401],
+            objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],
+            runtimeRow: {
+                roomId: 'room_1',
+                workspaceId: 'workspace_1',
+                desiredState: 'running',
+                containerName: 'workspace:workspace_1:room:room_1',
+                configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
+                workspaceSnapshotKey: null,
+            },
+            start: async (name, args) => {
+                starts.push({ name, args })
+                if (starts.length === 2) {
+                    throw new Error('container port bind raced the dying instance')
+                }
+            },
+            destroy: async (name) => {
+                destroys.push(name)
+            },
+        })
+
+        await expect(
+            reconcileHostedRuntimeJob(env, runtimeMessage(), { attempt: 4, maxAttempts: 4 }),
+        ).rejects.toBeInstanceOf(HostedRuntimeRecreateDeferredError)
+
+        expect(starts).toHaveLength(2)
+        expect(destroys.length).toBeGreaterThanOrEqual(1)
+        expect(updates.some((update) => /status = 'failed'/.test(update.sql))).toBe(true)
+    })
+})
+
+describe('confirmHostedRuntimeContainerStopped', () => {
+    function lingeringContainer(statuses: Array<'running' | 'healthy' | 'stopped'>) {
+        const queue = [...statuses]
+        return {
+            getState: async () => ({
+                status: queue.length > 1 ? queue.shift()! : (queue[0] ?? 'stopped'),
+                lastChange: 0,
+            }),
+        } as unknown as HostedRuntimeContainerStub
+    }
+
+    it('resolves once the container reports a non-running status within the bound', async () => {
+        const container = lingeringContainer(['healthy', 'healthy', 'stopped'])
+        await expect(
+            confirmHostedRuntimeContainerStopped({
+                container,
+                timeoutMs: 1000,
+                intervalMs: 1,
+            }),
+        ).resolves.toBeUndefined()
+    })
+
+    it('defers fast, well under the port timeout, when the container never stops', async () => {
+        const container = lingeringContainer(['healthy'])
+        const startedAt = Date.now()
+        await expect(
+            confirmHostedRuntimeContainerStopped({
+                container,
+                timeoutMs: 30,
+                intervalMs: 5,
+            }),
+        ).rejects.toBeInstanceOf(HostedRuntimeRecreateDeferredError)
+        expect(Date.now() - startedAt).toBeLessThan(180000)
     })
 })
 

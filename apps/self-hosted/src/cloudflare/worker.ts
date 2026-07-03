@@ -9,6 +9,10 @@ import { runWithHostedRequestContext } from '#/server/cloudflare/hosted-request-
 import { hostedRouteSameOriginResponse } from '#/server/cloudflare/hosted-route-auth'
 import { reconcileHostedRuntimeJob } from '#/server/cloudflare/hosted-runtime-adapter'
 import {
+    hostedRuntimeReconcileMaxAttempts,
+    hostedRuntimeReconcileRetryDelaySeconds,
+} from '#/server/cloudflare/runtime-contract'
+import {
     executeHostedCronRun,
     runDueHostedCronJobs,
 } from '#/server/cloudflare/hosted-cron-execution'
@@ -312,7 +316,10 @@ export default {
                 if (message.body.kind === 'room-cron-run') {
                     await executeHostedCronRun(env, message.body)
                 } else {
-                    await reconcileHostedRuntimeJob(env, message.body)
+                    await reconcileHostedRuntimeJob(env, message.body, {
+                        attempt: message.attempts,
+                        maxAttempts: hostedRuntimeReconcileMaxAttempts,
+                    })
                 }
                 message.ack()
             } catch (error) {
@@ -320,7 +327,7 @@ export default {
                     'Hosted runtime queue job failed',
                     error instanceof Error ? error.message : error,
                 )
-                message.retry()
+                message.retry({ delaySeconds: hostedRuntimeReconcileRetryDelaySeconds })
             }
         }
     },

@@ -26,7 +26,10 @@ import {
     hostedRuntimeDeniedHosts,
     hostedRuntimeContainerName,
     hostedRuntimeContainerPort,
+    hostedRuntimeRecreateStartPortReadyTimeoutMS,
     hostedRuntimeStartCancellation,
+    hostedRuntimeTeardownConfirmTimeoutMS,
+    hostedRuntimeTeardownProgressLogIntervalMS,
     type HostedRuntimeContainerStub,
 } from './runtime-contract'
 import { hostedRuntimeConfigPath } from './hosted-runtime-paths'
@@ -113,6 +116,18 @@ export class HostedRuntimeBootUnauthorizedError extends Error {
     }
 }
 
+export class HostedRuntimeRecreateDeferredError extends Error {
+    constructor(message: string, options?: { cause?: unknown }) {
+        super(message, options)
+        this.name = 'HostedRuntimeRecreateDeferredError'
+    }
+}
+
+interface HostedRuntimeReconcileDelivery {
+    attempt: number
+    maxAttempts: number
+}
+
 type HostedRuntimeReadiness = 'ready' | 'booting' | 'unauthorized'
 
 type HostedRuntimeBootOutcome = 'already-ready' | 'delivered'
@@ -193,68 +208,113 @@ export async function waitForHostedRuntimeReady(input: {
     }
 }
 
-async function assertHostedRuntimeContainerNotRunning(input: {
+export async function confirmHostedRuntimeContainerStopped(input: {
     container: HostedRuntimeContainerStub
     timeoutMs: number
     intervalMs: number
 }): Promise<void> {
-    const deadline = Date.now() + input.timeoutMs
+    const startedAt = Date.now()
+    const deadline = startedAt + input.timeoutMs
+    let lastProgressLog = 0
     for (;;) {
         const state = await input.container.getState()
         if (state.status !== 'running' && state.status !== 'healthy') {
             return
         }
-        if (Date.now() >= deadline) {
-            throw new Error('Hosted runtime container did not stop before recreate')
+        const now = Date.now()
+        const elapsedSeconds = Math.round((now - startedAt) / 1000)
+        if (now >= deadline) {
+            throw new HostedRuntimeRecreateDeferredError(
+                `Hosted runtime container was still ${state.status} ${elapsedSeconds}s after destroy; deferring recreate to a queue retry`,
+            )
+        }
+        if (now - lastProgressLog >= hostedRuntimeTeardownProgressLogIntervalMS) {
+            console.warn(
+                `Hosted runtime container still ${state.status} ${elapsedSeconds}s after destroy; waiting for teardown before recreate`,
+            )
+            lastProgressLog = now
         }
         await delay(input.intervalMs)
     }
+}
+
+type HostedRuntimeBootDelivery = 'ready' | 'delivered' | 'stale'
+
+async function deliverHostedRuntimeBoot(input: {
+    container: HostedRuntimeContainerStub
+    token: string
+    bundle: RuntimeFileBundleEntry[]
+}): Promise<HostedRuntimeBootDelivery> {
+    const readiness = await probeHostedRuntimeReady({
+        container: input.container,
+        token: input.token,
+    })
+    if (readiness === 'ready') {
+        return 'ready'
+    }
+    if (readiness === 'booting') {
+        try {
+            await pushHostedRuntimeBootBundle({
+                container: input.container,
+                token: input.token,
+                bundle: input.bundle,
+            })
+            return 'delivered'
+        } catch (error) {
+            if (!(error instanceof HostedRuntimeBootUnauthorizedError)) {
+                throw error
+            }
+        }
+    }
+    return 'stale'
 }
 
 async function ensureHostedRuntimeBootDelivered(input: {
     container: HostedRuntimeContainerStub
     token: string
     bundle: RuntimeFileBundleEntry[]
-    startContainer: () => Promise<void>
+    startContainer: (portReadyTimeoutMs: number) => Promise<void>
 }): Promise<HostedRuntimeBootOutcome> {
-    let recreated = false
-    for (;;) {
-        await input.startContainer()
-        const readiness = await probeHostedRuntimeReady({
-            container: input.container,
-            token: input.token,
-        })
-        if (readiness === 'ready') {
-            return 'already-ready'
-        }
-        if (readiness === 'booting') {
-            try {
-                await pushHostedRuntimeBootBundle({
-                    container: input.container,
-                    token: input.token,
-                    bundle: input.bundle,
-                })
-                return 'delivered'
-            } catch (error) {
-                if (!(error instanceof HostedRuntimeBootUnauthorizedError)) {
-                    throw error
-                }
-            }
-        }
-        if (recreated) {
-            throw new HostedRuntimeBootUnauthorizedError()
-        }
-        console.warn(
-            'Hosted runtime boot token is stale for the running container; recreating it once',
-        )
-        await input.container.destroy()
-        await assertHostedRuntimeContainerNotRunning({
-            container: input.container,
-            timeoutMs: hostedRuntimeStartCancellation.instanceGetTimeoutMS,
-            intervalMs: hostedRuntimeStartCancellation.waitInterval,
-        })
-        recreated = true
+    await input.startContainer(hostedRuntimeStartCancellation.portReadyTimeoutMS)
+    const first = await deliverHostedRuntimeBoot({
+        container: input.container,
+        token: input.token,
+        bundle: input.bundle,
+    })
+    if (first === 'ready') {
+        return 'already-ready'
     }
+    if (first === 'delivered') {
+        return 'delivered'
+    }
+
+    console.warn('Hosted runtime boot token is stale for the running container; recreating it once')
+    await input.container.destroy()
+    await confirmHostedRuntimeContainerStopped({
+        container: input.container,
+        timeoutMs: hostedRuntimeTeardownConfirmTimeoutMS,
+        intervalMs: hostedRuntimeStartCancellation.waitInterval,
+    })
+    try {
+        await input.startContainer(hostedRuntimeRecreateStartPortReadyTimeoutMS)
+    } catch (error) {
+        throw new HostedRuntimeRecreateDeferredError(
+            'Hosted runtime recreate did not bind ports within the bounded restart window; deferring to a queue retry',
+            { cause: error },
+        )
+    }
+    const second = await deliverHostedRuntimeBoot({
+        container: input.container,
+        token: input.token,
+        bundle: input.bundle,
+    })
+    if (second === 'ready') {
+        return 'already-ready'
+    }
+    if (second === 'delivered') {
+        return 'delivered'
+    }
+    throw new HostedRuntimeBootUnauthorizedError()
 }
 
 async function hydrateHostedRuntimeFiles(input: {
@@ -311,10 +371,13 @@ export async function withHostedRuntimeStarted<T>(input: {
 export async function reconcileHostedRuntimeJob(
     env: AgentRoomHostedEnv,
     message: AgentRoomRuntimeJobMessage,
+    delivery?: HostedRuntimeReconcileDelivery,
 ): Promise<void> {
     if (message.kind !== 'room-runtime-reconcile') {
         throw new Error(`Unsupported hosted runtime job kind ${message.kind}`)
     }
+    const recreateDeferralRetryable =
+        delivery !== undefined && delivery.attempt < delivery.maxAttempts
 
     const runtime = await readHostedRuntimeRow(env, message)
     if (runtime.desiredState !== 'running') {
@@ -423,11 +486,14 @@ export async function reconcileHostedRuntimeJob(
             container,
             token: runtimeToken,
             bundle: materialization.bundle,
-            startContainer: async () => {
+            startContainer: async (portReadyTimeoutMs: number) => {
                 await container.startAndWaitForPorts({
                     ports: hostedRuntimeContainerPort,
                     startOptions,
-                    cancellationOptions: hostedRuntimeStartCancellation,
+                    cancellationOptions: {
+                        ...hostedRuntimeStartCancellation,
+                        portReadyTimeoutMS: portReadyTimeoutMs,
+                    },
                 })
                 await Promise.all([
                     container.setAllowedHosts(materialization.egressAllowedHosts),
@@ -470,6 +536,13 @@ export async function reconcileHostedRuntimeJob(
                 roomId: runtime.roomId,
             })
             return
+        }
+        if (error instanceof HostedRuntimeRecreateDeferredError && recreateDeferralRetryable) {
+            console.warn(
+                'Hosted runtime recreate deferred; keeping desired running for a queue retry',
+                { message: error.message },
+            )
+            throw error
         }
         await failClosedHostedRuntime({
             env,
