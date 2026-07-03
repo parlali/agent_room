@@ -57,6 +57,7 @@ interface RunBuilder {
     finalRows: Array<Extract<ChatTimelineRow, { type: 'assistant_final' }>>
     turnIndex: number
     seenToolActivity: boolean
+    firstTimestamp: number | null
     latestTimestamp: number | null
 }
 
@@ -108,6 +109,7 @@ export function buildChatTimelineRows(
                 finalRows: [],
                 turnIndex: 0,
                 seenToolActivity: false,
+                firstTimestamp: message.timestamp,
                 latestTimestamp: message.timestamp,
             }
             continue
@@ -128,6 +130,10 @@ export function buildChatTimelineRows(
         if (!current) {
             rows.push(rowForDetachedMessage(message, rows.length))
             continue
+        }
+
+        if (current.firstTimestamp === null && message.timestamp !== null) {
+            current.firstTimestamp = message.timestamp
         }
 
         if (message.role === 'tool') {
@@ -579,12 +585,13 @@ function classifyPersistedTextPart(
 }
 
 function rowFromBuilder(builder: RunBuilder, seq: number): RunTranscriptRow {
+    const startForDuration = builder.startedAt ?? builder.firstTimestamp
     const runtimeMs =
         builder.runtimeMs ??
         (!isActiveTranscriptStatus(builder.status) &&
-        builder.startedAt !== null &&
+        startForDuration !== null &&
         builder.latestTimestamp !== null
-            ? Math.max(0, builder.latestTimestamp - builder.startedAt)
+            ? Math.max(0, builder.latestTimestamp - startForDuration)
             : null)
     return createRunTranscriptRow({
         id: `run-transcript-${builder.runId}`,
@@ -629,7 +636,11 @@ function rowForDetachedMessage(message: RoomExecutionMessage, seq: number): Chat
 }
 
 function shouldRenderTranscript(row: RunTranscriptRow): boolean {
-    return transcriptHasVisibleContent(row) || isActiveTranscriptStatus(row.status)
+    return (
+        transcriptHasVisibleContent(row) ||
+        isActiveTranscriptStatus(row.status) ||
+        (row.runtimeMs !== null && row.runtimeMs > 0)
+    )
 }
 
 function latestRunIsLive(

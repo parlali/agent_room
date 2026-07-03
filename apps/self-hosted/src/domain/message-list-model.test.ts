@@ -9,7 +9,7 @@ import type {
 import { mapThread } from '../server/pi-runtime/runtime-snapshot'
 import { normalizeThreadRecord } from '../server/pi-runtime/thread-records'
 
-function userMessage(id: string, timestamp: number, text = id): RoomExecutionMessage {
+function userMessage(id: string, timestamp: number | null, text = id): RoomExecutionMessage {
     return {
         id,
         role: 'user',
@@ -161,6 +161,39 @@ describe('buildChatTimelineRows run/thread binding', () => {
         const run = transcripts(rows).find((row) => row.runId === 'run-user-1')
 
         expect(run?.status).toBe('complete')
+    })
+})
+
+describe('buildChatTimelineRows duration pills', () => {
+    it('keeps a duration pill on every completed run, including tool-free answers', () => {
+        const messages = [
+            userMessage('user-1', 1000),
+            assistantToolCall('assistant-1-tool', 1200, 'Read'),
+            assistantFinal('assistant-1', 1500, 'one'),
+            userMessage('user-2', 2000),
+            assistantFinal('assistant-2', 2400, 'two'),
+            userMessage('user-3', 3000),
+            assistantFinal('assistant-3', 3600, 'three'),
+        ]
+        const runs = transcripts(buildChatTimelineRows(messages, false, thread({ status: 'idle' })))
+        const runtimeById = new Map(runs.map((run) => [run.runId, run.runtimeMs]))
+
+        expect(runtimeById.get('run-user-1')).toBe(500)
+        expect(runtimeById.get('run-user-2')).toBe(400)
+        expect(runtimeById.get('run-user-3')).toBe(600)
+    })
+
+    it('derives a duration from run content when the user message has no timestamp', () => {
+        const messages = [
+            userMessage('user-1', null),
+            assistantToolCall('assistant-1-tool', 1200, 'Read'),
+            assistantFinal('assistant-1', 1700, 'one'),
+        ]
+        const run = transcripts(
+            buildChatTimelineRows(messages, false, thread({ status: 'idle' })),
+        ).find((row) => row.runId === 'run-user-1')
+
+        expect(run?.runtimeMs).toBe(500)
     })
 })
 
