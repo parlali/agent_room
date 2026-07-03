@@ -30,7 +30,7 @@ import {
     listRoomSecrets,
 } from './hosted-room-config-store'
 import { getHostedRoom, getHostedRuntimeState } from './hosted-room-store'
-import { putHostedRuntimeArtifact } from './hosted-runtime-artifacts'
+import { putHostedRuntimeArtifact, readHostedRuntimeToken } from './hosted-runtime-artifacts'
 import { listHostedRuntimeStateFileMaterializations } from './hosted-runtime-state-store'
 import {
     buildHostedRuntimeEnv,
@@ -98,6 +98,7 @@ export async function materializeHostedRuntime(input: {
     env: AgentRoomHostedEnv
     actor: Pick<HostedActor, 'workspaceId' | 'userId'>
     roomId: string
+    rotateToken?: boolean
 }): Promise<HostedRuntimeMaterialization> {
     const [room, config, settings, providers, mcpConnections, bindings, runtimeState, roomSecrets] =
         await Promise.all([
@@ -146,7 +147,14 @@ export async function materializeHostedRuntime(input: {
         throw new Error('Runtime state not found')
     }
     const previousTokenObjectKey = runtimeState.row.tokenObjectKey
-    const token = randomHostedRuntimeToken()
+    const reuseTokenObjectKey = input.rotateToken === true ? null : previousTokenObjectKey
+    const rotateToken = reuseTokenObjectKey === null
+    const token = reuseTokenObjectKey
+        ? await readHostedRuntimeToken({
+              env: input.env,
+              tokenObjectKey: reuseTokenObjectKey,
+          })
+        : randomHostedRuntimeToken()
     const publicOrigin = new URL(input.env.BETTER_AUTH_URL).origin
     const providerMaterialization = await materializeHostedProvider({
         env: input.env,
@@ -344,7 +352,9 @@ export async function materializeHostedRuntime(input: {
         },
     }
     const nextConfigVersion = runtimeState.row.configVersion + 1
-    const nextTokenVersion = runtimeState.row.tokenVersion + 1
+    const nextTokenVersion = rotateToken
+        ? runtimeState.row.tokenVersion + 1
+        : runtimeState.row.tokenVersion
     const artifactNonce = crypto.randomUUID()
     const paths = hostedRoomPaths()
     const piConfig = buildPiRuntimeConfig({
@@ -409,19 +419,23 @@ export async function materializeHostedRuntime(input: {
         version: nextConfigVersion,
         nonce: artifactNonce,
     })
-    const tokenObjectKey = hostedRuntimeTokenKey({
-        workspaceId: input.actor.workspaceId,
-        roomId: input.roomId,
-        version: nextTokenVersion,
-        nonce: artifactNonce,
-    })
+    const tokenObjectKey =
+        reuseTokenObjectKey ??
+        hostedRuntimeTokenKey({
+            workspaceId: input.actor.workspaceId,
+            roomId: input.roomId,
+            version: nextTokenVersion,
+            nonce: artifactNonce,
+        })
     const bundleObjectKey = hostedRuntimeBundleKey({
         workspaceId: input.actor.workspaceId,
         roomId: input.roomId,
         version: nextConfigVersion,
         nonce: artifactNonce,
     })
-    const createdObjectKeys = [configObjectKey, tokenObjectKey, bundleObjectKey]
+    const createdObjectKeys = rotateToken
+        ? [configObjectKey, tokenObjectKey, bundleObjectKey]
+        : [configObjectKey, bundleObjectKey]
     try {
         await Promise.all([
             putHostedRuntimeArtifact({
@@ -436,12 +450,16 @@ export async function materializeHostedRuntime(input: {
                 plainText: JSON.stringify(bundle),
                 contentType: 'application/json',
             }),
-            putHostedRuntimeArtifact({
-                env: input.env,
-                key: tokenObjectKey,
-                plainText: token,
-                contentType: 'text/plain',
-            }),
+            ...(rotateToken
+                ? [
+                      putHostedRuntimeArtifact({
+                          env: input.env,
+                          key: tokenObjectKey,
+                          plainText: token,
+                          contentType: 'text/plain',
+                      }),
+                  ]
+                : []),
         ])
     } catch (error) {
         await deleteSupersededRuntimeArtifacts({ env: input.env, keys: createdObjectKeys })

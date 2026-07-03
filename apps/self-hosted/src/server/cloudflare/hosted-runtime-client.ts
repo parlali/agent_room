@@ -1,28 +1,14 @@
 import type { z } from 'zod'
 import type { AgentRoomHostedEnv } from './bindings'
-import { readHostedRuntimeArtifactText } from './hosted-runtime-artifacts'
+import { readHostedRuntimeToken } from './hosted-runtime-artifacts'
 import { getHostedRuntimeEndpointState } from './hosted-room-service'
+
+export { readHostedRuntimeToken }
 
 export interface HostedPiRuntimeRequestOptions {
     method?: 'GET' | 'POST' | 'DELETE'
     body?: unknown
     signal?: AbortSignal
-}
-
-export async function readHostedRuntimeToken(input: {
-    env: AgentRoomHostedEnv
-    tokenObjectKey: string
-}): Promise<string> {
-    const token = (
-        await readHostedRuntimeArtifactText({
-            env: input.env,
-            key: input.tokenObjectKey,
-        })
-    ).trim()
-    if (token.length < 24) {
-        throw new Error('Hosted runtime token is missing or invalid')
-    }
-    return token
 }
 
 async function runtimeEndpoint(input: {

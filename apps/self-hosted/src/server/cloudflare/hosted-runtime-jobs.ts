@@ -5,6 +5,7 @@ export async function enqueueHostedRuntimeReconcile(input: {
     workspaceId: string
     roomId: string
     actorUserId: string | null
+    rotateToken?: boolean
 }): Promise<void> {
     const message: AgentRoomRuntimeJobMessage = {
         kind: 'room-runtime-reconcile',
@@ -12,6 +13,7 @@ export async function enqueueHostedRuntimeReconcile(input: {
         roomId: input.roomId,
         actorUserId: input.actorUserId,
         requestedAt: new Date().toISOString(),
+        rotateToken: input.rotateToken ?? false,
     }
     await input.env.AGENT_ROOM_RUNTIME_JOBS.send(message)
 }

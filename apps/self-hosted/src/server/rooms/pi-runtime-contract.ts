@@ -4,6 +4,8 @@ export const piRuntimeBundledMainRelativePath = 'dist/runtime/main.js'
 
 export const piRuntimeBootMaterializePath = '/boot/materialize'
 
+export const piRuntimeBootReadyPath = '/boot/ready'
+
 export const piRuntimeConfigPathEnvKey = 'AGENT_ROOM_PI_RUNTIME_CONFIG_PATH'
 export const piRuntimeTokenEnvKey = 'AGENT_ROOM_PI_RUNTIME_TOKEN'
 export const piRuntimeStateDirEnvKey = 'AGENT_ROOM_PI_STATE_DIR'

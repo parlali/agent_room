@@ -1,4 +1,4 @@
-import { piRuntimeBootMaterializePath } from '../rooms/pi-runtime-contract'
+import { piRuntimeBootMaterializePath, piRuntimeBootReadyPath } from '../rooms/pi-runtime-contract'
 import type { AgentRoomHostedEnv, AgentRoomRuntimeJobMessage } from './bindings'
 import { assertHostedQuotaAllowed } from './hosted-abuse-controls'
 import { hostedRuntimeReadConcurrency, mapWithConcurrency } from './hosted-concurrency'
@@ -106,6 +106,21 @@ async function assertHostedRuntimeStillDesiredRunning(
     }
 }
 
+export class HostedRuntimeBootUnauthorizedError extends Error {
+    constructor() {
+        super('Hosted runtime boot rejected the runtime token as stale')
+        this.name = 'HostedRuntimeBootUnauthorizedError'
+    }
+}
+
+type HostedRuntimeReadiness = 'ready' | 'booting' | 'unauthorized'
+
+type HostedRuntimeBootOutcome = 'already-ready' | 'delivered'
+
+function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 async function pushHostedRuntimeBootBundle(input: {
     container: HostedRuntimeContainerStub
     token: string
@@ -121,8 +136,124 @@ async function pushHostedRuntimeBootBundle(input: {
             body: JSON.stringify(input.bundle),
         }),
     )
+    if (response.status === 401) {
+        throw new HostedRuntimeBootUnauthorizedError()
+    }
+    if (response.status === 409) {
+        return
+    }
     if (!response.ok) {
         throw new Error(`Hosted runtime boot hydration failed with status ${response.status}`)
+    }
+}
+
+async function probeHostedRuntimeReady(input: {
+    container: HostedRuntimeContainerStub
+    token: string
+}): Promise<HostedRuntimeReadiness> {
+    const response = await input.container.fetch(
+        new Request(`http://agent-room-runtime${piRuntimeBootReadyPath}`, {
+            method: 'GET',
+            headers: {
+                authorization: `Bearer ${input.token}`,
+            },
+        }),
+    )
+    if (response.status === 200) {
+        return 'ready'
+    }
+    if (response.status === 401) {
+        return 'unauthorized'
+    }
+    return 'booting'
+}
+
+export async function waitForHostedRuntimeReady(input: {
+    container: HostedRuntimeContainerStub
+    token: string
+    timeoutMs: number
+    intervalMs: number
+}): Promise<void> {
+    const deadline = Date.now() + input.timeoutMs
+    for (;;) {
+        const readiness = await probeHostedRuntimeReady({
+            container: input.container,
+            token: input.token,
+        })
+        if (readiness === 'ready') {
+            return
+        }
+        if (readiness === 'unauthorized') {
+            throw new HostedRuntimeBootUnauthorizedError()
+        }
+        if (Date.now() >= deadline) {
+            throw new Error('Hosted runtime did not become ready before the start timeout')
+        }
+        await delay(input.intervalMs)
+    }
+}
+
+async function assertHostedRuntimeContainerNotRunning(input: {
+    container: HostedRuntimeContainerStub
+    timeoutMs: number
+    intervalMs: number
+}): Promise<void> {
+    const deadline = Date.now() + input.timeoutMs
+    for (;;) {
+        const state = await input.container.getState()
+        if (state.status !== 'running' && state.status !== 'healthy') {
+            return
+        }
+        if (Date.now() >= deadline) {
+            throw new Error('Hosted runtime container did not stop before recreate')
+        }
+        await delay(input.intervalMs)
+    }
+}
+
+async function ensureHostedRuntimeBootDelivered(input: {
+    container: HostedRuntimeContainerStub
+    token: string
+    bundle: RuntimeFileBundleEntry[]
+    startContainer: () => Promise<void>
+}): Promise<HostedRuntimeBootOutcome> {
+    let recreated = false
+    for (;;) {
+        await input.startContainer()
+        const readiness = await probeHostedRuntimeReady({
+            container: input.container,
+            token: input.token,
+        })
+        if (readiness === 'ready') {
+            return 'already-ready'
+        }
+        if (readiness === 'booting') {
+            try {
+                await pushHostedRuntimeBootBundle({
+                    container: input.container,
+                    token: input.token,
+                    bundle: input.bundle,
+                })
+                return 'delivered'
+            } catch (error) {
+                if (!(error instanceof HostedRuntimeBootUnauthorizedError)) {
+                    throw error
+                }
+            }
+        }
+        if (recreated) {
+            throw new HostedRuntimeBootUnauthorizedError()
+        }
+        console.warn(
+            'Hosted runtime boot token is stale for the running container; recreating it once',
+        )
+        await input.container.destroy()
+        await assertHostedRuntimeContainerNotRunning({
+            container: input.container,
+            timeoutMs: hostedRuntimeStartCancellation.instanceGetTimeoutMS,
+            intervalMs: hostedRuntimeStartCancellation.waitInterval,
+        })
+        recreated = true
     }
 }
 
@@ -224,6 +355,7 @@ export async function reconcileHostedRuntimeJob(
                 userId: message.actorUserId ?? 'system',
             },
             roomId: runtime.roomId,
+            rotateToken: message.rotateToken ?? false,
         })
 
         if (
@@ -286,25 +418,36 @@ export async function reconcileHostedRuntimeJob(
             roomId: runtime.roomId,
         })
         roomFilesPromise.catch(() => undefined)
-        await container.startAndWaitForPorts({
-            ports: hostedRuntimeContainerPort,
-            startOptions,
-            cancellationOptions: hostedRuntimeStartCancellation,
-        })
-        await Promise.all([
-            container.setAllowedHosts(materialization.egressAllowedHosts),
-            container.setDeniedHosts(hostedRuntimeDeniedHosts),
-        ])
-        await pushHostedRuntimeBootBundle({
+        const runtimeToken = materialization.runtimeEnv.AGENT_ROOM_PI_RUNTIME_TOKEN
+        const outcome = await ensureHostedRuntimeBootDelivered({
             container,
-            token: materialization.runtimeEnv.AGENT_ROOM_PI_RUNTIME_TOKEN,
+            token: runtimeToken,
             bundle: materialization.bundle,
+            startContainer: async () => {
+                await container.startAndWaitForPorts({
+                    ports: hostedRuntimeContainerPort,
+                    startOptions,
+                    cancellationOptions: hostedRuntimeStartCancellation,
+                })
+                await Promise.all([
+                    container.setAllowedHosts(materialization.egressAllowedHosts),
+                    container.setDeniedHosts(hostedRuntimeDeniedHosts),
+                ])
+            },
         })
-        await hydrateHostedRuntimeFiles({
-            container,
-            token: materialization.runtimeEnv.AGENT_ROOM_PI_RUNTIME_TOKEN,
-            files: await roomFilesPromise,
-        })
+        if (outcome === 'delivered') {
+            await waitForHostedRuntimeReady({
+                container,
+                token: runtimeToken,
+                timeoutMs: hostedRuntimeStartCancellation.portReadyTimeoutMS,
+                intervalMs: hostedRuntimeStartCancellation.waitInterval,
+            })
+            await hydrateHostedRuntimeFiles({
+                container,
+                token: runtimeToken,
+                files: await roomFilesPromise,
+            })
+        }
         await writeHostedRuntimeStateTransition({
             env,
             workspaceId: runtime.workspaceId,

@@ -76,9 +76,41 @@ describe('hosted boot hydration', () => {
         expect(response.status).toBe(503)
     })
 
-    it('writes bundle files, holds the response until activation, then serves the runtime route', async () => {
+    it('rejects readiness probes without the runtime token', async () => {
+        const response = await fetch(serverUrl('/boot/ready'), {
+            headers: {
+                authorization: 'Bearer wrong-token',
+            },
+        })
+        expect(response.status).toBe(401)
+    })
+
+    it('reports readiness only once the runtime activates', async () => {
+        const beforeActivation = await fetch(serverUrl('/boot/ready'), {
+            headers: {
+                authorization: `Bearer ${runtimeToken}`,
+            },
+        })
+        expect(beforeActivation.status).toBe(503)
+        expect(await beforeActivation.json()).toEqual({ ready: false })
+
+        hydration.activate((_request, response) => {
+            response.writeHead(200, { 'content-type': 'application/json' })
+            response.end(JSON.stringify({ routed: true }))
+        })
+
+        const afterActivation = await fetch(serverUrl('/boot/ready'), {
+            headers: {
+                authorization: `Bearer ${runtimeToken}`,
+            },
+        })
+        expect(afterActivation.status).toBe(200)
+        expect(await afterActivation.json()).toEqual({ ready: true })
+    })
+
+    it('acknowledges the bundle immediately after writing it while init continues, then serves the route once active', async () => {
         const configPath = join(runtimeRoot, 'pi-state', 'config.json')
-        const pushPromise = pushBundle({
+        const pushResponse = await pushBundle({
             body: JSON.stringify([
                 {
                     path: configPath,
@@ -87,8 +119,17 @@ describe('hosted boot hydration', () => {
                 },
             ]),
         })
+        expect(pushResponse.status).toBe(200)
+        expect(await pushResponse.json()).toEqual({ ok: true })
         await hydration.hydrated
         expect(await readFile(configPath, 'utf8')).toBe('{"ok":true}')
+
+        const notReady = await fetch(serverUrl('/boot/ready'), {
+            headers: {
+                authorization: `Bearer ${runtimeToken}`,
+            },
+        })
+        expect(notReady.status).toBe(503)
 
         const duplicate = await pushBundle({ body: JSON.stringify([]) })
         expect(duplicate.status).toBe(409)
@@ -97,9 +138,13 @@ describe('hosted boot hydration', () => {
             response.writeHead(200, { 'content-type': 'application/json' })
             response.end(JSON.stringify({ routed: true }))
         })
-        const pushResponse = await pushPromise
-        expect(pushResponse.status).toBe(200)
-        expect(await pushResponse.json()).toEqual({ ok: true })
+
+        const ready = await fetch(serverUrl('/boot/ready'), {
+            headers: {
+                authorization: `Bearer ${runtimeToken}`,
+            },
+        })
+        expect(ready.status).toBe(200)
 
         const routed = await fetch(serverUrl('/snapshot'))
         expect(routed.status).toBe(200)

@@ -1,9 +1,13 @@
 import type { D1Database, R2Bucket } from '@cloudflare/workers-types'
 import { describe, expect, it } from 'vitest'
 import type { AgentRoomHostedEnv, AgentRoomRuntimeJobMessage } from './bindings'
-import { hostedRuntimeConfigPath, reconcileHostedRuntimeJob } from './hosted-runtime-adapter'
+import {
+    hostedRuntimeConfigPath,
+    reconcileHostedRuntimeJob,
+    waitForHostedRuntimeReady,
+} from './hosted-runtime-adapter'
 import { hostedProviderAuthPath } from './hosted-runtime-paths'
-import { hostedRuntimeDeniedHosts } from './runtime-contract'
+import { hostedRuntimeDeniedHosts, type HostedRuntimeContainerStub } from './runtime-contract'
 import { encryptHostedSecret } from './hosted-secret-store'
 import { hostedRuntimeManagedOpenRouterEnvKey } from '../rooms/pi-runtime-contract'
 import { hostedManagedModelId } from './hosted-model-policy'
@@ -80,11 +84,16 @@ function hostedEnv(input: {
     tokenValue?: string
     desiredState?: () => string
     preStartDesiredState?: () => string
+    pushStatuses?: number[]
+    readyAfterDeliver?: boolean
 }): AgentRoomHostedEnv {
     const updates = input.updates ?? []
     const batches = input.batches ?? []
     const fetches = input.fetches ?? []
     const puts = input.puts ?? []
+    const pushStatuses = [...(input.pushStatuses ?? [])]
+    let bundleDelivered = false
+    let containerDestroyed = false
     const objectKeys = new Set(input.objectKeys)
     const now = new Date(0).toISOString()
     const runtimeRow = {
@@ -278,8 +287,18 @@ function hostedEnv(input: {
             get: async (key: string) =>
                 objectKeys.has(key)
                     ? {
-                          text: async () =>
-                              input.tokenValue ?? 'stored-runtime-token-value-aaaaaaaa',
+                          text: async () => {
+                              const encrypted = await encryptHostedSecret({
+                                  env: hosted,
+                                  plainText:
+                                      input.tokenValue ?? 'stored-runtime-token-value-aaaaaaaa',
+                              })
+                              return JSON.stringify({
+                                  format: 'agent-room-hosted-runtime-artifact-v1',
+                                  ...encrypted,
+                                  contentType: 'text/plain',
+                              })
+                          },
                       }
                     : null,
             put: async (key: string) => {
@@ -305,16 +324,26 @@ function hostedEnv(input: {
                     await input.setDeniedHosts?.(name, hosts)
                 },
                 getState: async () => ({
-                    status: 'healthy',
+                    status: containerDestroyed ? 'stopped' : 'healthy',
                     lastChange: 0,
                 }),
                 startAndWaitForPorts: async (args: unknown) => {
+                    containerDestroyed = false
                     await input.start?.(name, args)
                 },
                 destroy: async () => {
+                    containerDestroyed = true
+                    bundleDelivered = false
                     await input.destroy?.(name)
                 },
                 fetch: async (request: Request) => {
+                    const requestUrl = new URL(request.url)
+                    if (request.method === 'GET' && requestUrl.pathname === '/boot/ready') {
+                        const ready = bundleDelivered && input.readyAfterDeliver !== false
+                        return new Response(JSON.stringify({ ready }), {
+                            status: ready ? 200 : 503,
+                        })
+                    }
                     fetches.push({
                         name,
                         url: request.url,
@@ -325,6 +354,15 @@ function hostedEnv(input: {
                             .json()
                             .catch(() => null),
                     })
+                    if (request.method === 'POST' && requestUrl.pathname === '/boot/materialize') {
+                        const status = pushStatuses.length > 0 ? pushStatuses.shift()! : 200
+                        if (status === 200) {
+                            bundleDelivered = true
+                        }
+                        return new Response(JSON.stringify({ ok: status === 200 }), {
+                            status,
+                        })
+                    }
                     return new Response(JSON.stringify({ ok: true }), { status: 200 })
                 },
             }),
@@ -352,13 +390,14 @@ function hostedEnv(input: {
     return hosted
 }
 
-function runtimeMessage(): AgentRoomRuntimeJobMessage {
+function runtimeMessage(overrides?: { rotateToken?: boolean }): AgentRoomRuntimeJobMessage {
     return {
         kind: 'room-runtime-reconcile',
         workspaceId: 'workspace_1',
         roomId: 'room_1',
         actorUserId: 'user_1',
         requestedAt: new Date(0).toISOString(),
+        ...(overrides?.rotateToken === undefined ? {} : { rotateToken: overrides.rotateToken }),
     }
 }
 
@@ -802,7 +841,63 @@ describe('hosted runtime reconciliation', () => {
         expect(puts).toHaveLength(0)
     })
 
-    it('rotates the runtime token across reconciles so stale containers cannot keep posting callbacks', async () => {
+    it('reuses the persisted runtime token across reconciles so a running container keeps matching', async () => {
+        const updates: RuntimeUpdate[] = []
+        const puts: string[] = []
+        const starts: Array<{ name: string; args: unknown }> = []
+        const fetches: RecordedContainerFetch[] = []
+        const tokenValue = 'persistent-runtime-token-value-bbbbbbbb'
+        const env = hostedEnv({
+            updates,
+            puts,
+            fetches,
+            tokenValue,
+            objectKeys: [
+                'workspaces/workspace_1/rooms/room_1/runtime/config-v3.json',
+                'workspaces/workspace_1/rooms/room_1/runtime/token-v2.txt',
+                'workspaces/workspace_1/rooms/room_1/runtime/bundle-v3.json',
+            ],
+            runtimeRow: {
+                roomId: 'room_1',
+                workspaceId: 'workspace_1',
+                desiredState: 'running',
+                containerName: 'workspace:workspace_1:room:room_1',
+                configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config-v3.json',
+                tokenObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/token-v2.txt',
+                runtimeBundleObjectKey:
+                    'workspaces/workspace_1/rooms/room_1/runtime/bundle-v3.json',
+                configVersion: 3,
+                tokenVersion: 2,
+                workspaceSnapshotKey: null,
+            },
+            start: async (name, args) => {
+                starts.push({ name, args })
+            },
+        })
+
+        await reconcileHostedRuntimeJob(env, runtimeMessage())
+
+        expect(starts).toHaveLength(1)
+        const nextTokenKey = puts.find((key) =>
+            /^workspaces\/workspace_1\/rooms\/room_1\/runtime\/token-v3-[^.]+\.txt$/.test(key),
+        )
+        expect(nextTokenKey).toBeUndefined()
+        const startArgs = starts[0]?.args as { startOptions: { envVars: Record<string, string> } }
+        expect(startArgs.startOptions.envVars.AGENT_ROOM_PI_RUNTIME_TOKEN).toBe(tokenValue)
+        const bundlePush = fetches.find((recorded) => recorded.url.endsWith('/boot/materialize'))
+        expect(bundlePush?.authorization).toBe(`Bearer ${tokenValue}`)
+        expect(
+            updates.some(
+                (update) =>
+                    /UPDATE\s+hosted_room_runtime_state/.test(update.sql) &&
+                    update.args.includes(
+                        'workspaces/workspace_1/rooms/room_1/runtime/token-v2.txt',
+                    ),
+            ),
+        ).toBe(true)
+    })
+
+    it('rotates the runtime token when the reconcile explicitly requests rotation', async () => {
         const updates: RuntimeUpdate[] = []
         const puts: string[] = []
         const starts: Array<{ name: string; args: unknown }> = []
@@ -834,22 +929,136 @@ describe('hosted runtime reconciliation', () => {
             },
         })
 
-        await reconcileHostedRuntimeJob(env, runtimeMessage())
+        await reconcileHostedRuntimeJob(env, runtimeMessage({ rotateToken: true }))
 
         expect(starts).toHaveLength(1)
         const nextTokenKey = puts.find((key) =>
             /^workspaces\/workspace_1\/rooms\/room_1\/runtime\/token-v3-[^.]+\.txt$/.test(key),
         )
         expect(nextTokenKey).toBeTruthy()
-        expect(
-            updates.some(
-                (update) =>
-                    /UPDATE\s+hosted_room_runtime_state/.test(update.sql) &&
-                    update.args.includes(nextTokenKey ?? ''),
-            ),
-        ).toBe(true)
         const startArgs = starts[0]?.args as { startOptions: { envVars: Record<string, string> } }
         expect(startArgs.startOptions.envVars.AGENT_ROOM_PI_RUNTIME_TOKEN).toBeTruthy()
         expect(startArgs.startOptions.envVars.AGENT_ROOM_PI_RUNTIME_TOKEN).not.toBe(tokenValue)
+    })
+
+    it('recreates a container once when the boot push is rejected with a stale token, then succeeds', async () => {
+        const updates: RuntimeUpdate[] = []
+        const starts: Array<{ name: string; args: unknown }> = []
+        const destroys: string[] = []
+        const fetches: RecordedContainerFetch[] = []
+        const env = hostedEnv({
+            updates,
+            fetches,
+            pushStatuses: [401, 200],
+            objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],
+            runtimeRow: {
+                roomId: 'room_1',
+                workspaceId: 'workspace_1',
+                desiredState: 'running',
+                containerName: 'workspace:workspace_1:room:room_1',
+                configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
+                workspaceSnapshotKey: null,
+            },
+            start: async (name, args) => {
+                starts.push({ name, args })
+            },
+            destroy: async (name) => {
+                destroys.push(name)
+            },
+        })
+
+        await reconcileHostedRuntimeJob(env, runtimeMessage())
+
+        expect(destroys).toEqual(['workspace:workspace_1:room:room_1'])
+        expect(starts).toHaveLength(2)
+        const materializePushes = fetches.filter((recorded) =>
+            recorded.url.endsWith('/boot/materialize'),
+        )
+        expect(materializePushes).toHaveLength(2)
+        expect(updates.some((update) => update.args.includes('running'))).toBe(true)
+        expect(updates.some((update) => /status = 'failed'/.test(update.sql))).toBe(false)
+    })
+
+    it('fails closed when the boot push is still rejected after a single recreate', async () => {
+        const updates: RuntimeUpdate[] = []
+        const starts: Array<{ name: string; args: unknown }> = []
+        const destroys: string[] = []
+        const env = hostedEnv({
+            updates,
+            pushStatuses: [401, 401],
+            objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],
+            runtimeRow: {
+                roomId: 'room_1',
+                workspaceId: 'workspace_1',
+                desiredState: 'running',
+                containerName: 'workspace:workspace_1:room:room_1',
+                configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
+                workspaceSnapshotKey: null,
+            },
+            start: async (name, args) => {
+                starts.push({ name, args })
+            },
+            destroy: async (name) => {
+                destroys.push(name)
+            },
+        })
+
+        await expect(reconcileHostedRuntimeJob(env, runtimeMessage())).rejects.toThrow(/stale/)
+
+        expect(starts).toHaveLength(2)
+        expect(destroys.length).toBeGreaterThanOrEqual(1)
+        expect(updates.some((update) => /status = 'failed'/.test(update.sql))).toBe(true)
+    })
+})
+
+describe('waitForHostedRuntimeReady', () => {
+    function readinessContainer(statuses: number[]): HostedRuntimeContainerStub {
+        const queue = [...statuses]
+        return {
+            fetch: async (request: Request) => {
+                const requestUrl = new URL(request.url)
+                if (requestUrl.pathname === '/boot/ready') {
+                    const status = queue.length > 1 ? queue.shift()! : (queue[0] ?? 503)
+                    return new Response(JSON.stringify({ ready: status === 200 }), { status })
+                }
+                return new Response('{}', { status: 200 })
+            },
+        } as unknown as HostedRuntimeContainerStub
+    }
+
+    it('resolves once the runtime reports ready', async () => {
+        const container = readinessContainer([503, 503, 200])
+        await expect(
+            waitForHostedRuntimeReady({
+                container,
+                token: 't'.repeat(24),
+                timeoutMs: 1000,
+                intervalMs: 1,
+            }),
+        ).resolves.toBeUndefined()
+    })
+
+    it('fails closed when readiness never flips before the timeout', async () => {
+        const container = readinessContainer([503])
+        await expect(
+            waitForHostedRuntimeReady({
+                container,
+                token: 't'.repeat(24),
+                timeoutMs: 20,
+                intervalMs: 5,
+            }),
+        ).rejects.toThrow(/ready/)
+    })
+
+    it('treats a stale-token readiness rejection as unauthorized', async () => {
+        const container = readinessContainer([401])
+        await expect(
+            waitForHostedRuntimeReady({
+                container,
+                token: 't'.repeat(24),
+                timeoutMs: 1000,
+                intervalMs: 5,
+            }),
+        ).rejects.toThrow(/stale/)
     })
 })
