@@ -1,4 +1,6 @@
+import type { ExecutionContext } from '@cloudflare/workers-types'
 import type { AgentRoomHostedEnv } from './bindings'
+import type { HostedRuntimeUsageContext } from './hosted-runtime-usage-context'
 import {
     assertHostedQuotaAllowed,
     hostedQuotaDeniedResponse,
@@ -229,10 +231,249 @@ function hostedBraveSearchReservationCents(input: { usageMarkupBps: number }): n
     })
 }
 
+const hostedOpenRouterStreamUsageAccumulationMaxChars = 4 * 1024 * 1024
+
+function isHostedOpenRouterStreamResponse(response: Response): boolean {
+    return (
+        response.body !== null &&
+        (response.headers.get('content-type')?.toLowerCase().includes('text/event-stream') ?? false)
+    )
+}
+
+async function accumulateHostedProviderStreamText(input: {
+    stream: ReadableStream<Uint8Array>
+    maxChars: number
+}): Promise<string> {
+    const reader = input.stream.getReader()
+    const decoder = new TextDecoder()
+    let accumulated = ''
+    const retainTail = () => {
+        if (accumulated.length > input.maxChars) {
+            accumulated = accumulated.slice(accumulated.length - input.maxChars)
+        }
+    }
+    try {
+        for (;;) {
+            const { done, value } = await reader.read()
+            if (done) {
+                break
+            }
+            accumulated += decoder.decode(value, { stream: true })
+            retainTail()
+        }
+        accumulated += decoder.decode()
+        retainTail()
+        return accumulated
+    } finally {
+        reader.releaseLock()
+    }
+}
+
+type HostedOpenRouterProxySettlementOutcome =
+    | { kind: 'settled' }
+    | { kind: 'cost_missing' }
+    | { kind: 'cost_exceeds_ceiling' }
+    | { kind: 'settlement_failed' }
+
+interface HostedOpenRouterProxySettlementInput {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+    usageContext: HostedRuntimeUsageContext
+    model: string
+    managedModelMetadata: Record<string, unknown>
+    reservationId: string | null
+    reservationCents: number
+    usageMarkupBps: number
+    usageRequestId: string
+    targetPath: string | null
+    usageIdempotencyKey: string
+    responseStatus: number
+    responseText: string
+}
+
+async function settleHostedOpenRouterProxyUsage(
+    input: HostedOpenRouterProxySettlementInput,
+): Promise<HostedOpenRouterProxySettlementOutcome> {
+    const providerUsage = openRouterUsageSnapshotFromProviderText(input.responseText)
+    const costEstimatedFromTokens = providerUsage.costMicros === null
+    const costMicros =
+        providerUsage.costMicros ??
+        estimateHostedManagedModelCostMicros({
+            inputTokens: providerUsage.inputTokens,
+            cachedTokens: providerUsage.cachedTokens,
+            outputTokens: providerUsage.outputTokens,
+            reasoningTokens: providerUsage.reasoningTokens,
+        })
+    if (costMicros === null) {
+        await recordHostedProviderUsageBlocked({
+            env: input.env,
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            sessionKey: input.usageContext.sessionKey,
+            runId: input.usageContext.runId,
+            jobId: input.usageContext.jobId,
+            provider: 'openrouter',
+            model: input.model,
+            metadata: {
+                ...input.managedModelMetadata,
+                billedBy: 'hosted_openrouter_proxy',
+                providerProxyBillingAuthority: 'worker_proxy',
+                missingProviderActualCost: true,
+                reservationId: input.reservationId,
+                usageRequestId: input.usageRequestId,
+                sessionKey: input.usageContext.sessionKey,
+                runId: input.usageContext.runId,
+                jobId: input.usageContext.jobId,
+                targetPath: input.targetPath,
+                status: input.responseStatus,
+            },
+            idempotencyKey: input.usageIdempotencyKey,
+        })
+        await releaseHostedProviderPreflightReservation({
+            env: input.env,
+            workspaceId: input.workspaceId,
+            reservationId: input.reservationId,
+        })
+        return { kind: 'cost_missing' }
+    }
+    const billedMicros = applyUsageMarkupMicros(costMicros, input.usageMarkupBps)
+    const billedCents = centsFromMicrosCeil(billedMicros)
+    if (billedCents > input.reservationCents) {
+        await recordHostedProviderUsageBlocked({
+            env: input.env,
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            sessionKey: input.usageContext.sessionKey,
+            runId: input.usageContext.runId,
+            jobId: input.usageContext.jobId,
+            provider: 'openrouter',
+            model: input.model,
+            metadata: {
+                ...input.managedModelMetadata,
+                billedBy: 'hosted_openrouter_proxy',
+                providerProxyBillingAuthority: 'worker_proxy',
+                actualCostExceededAuthorizedMaximum: true,
+                costMicros,
+                billedMicros,
+                billedCents,
+                reservationId: input.reservationId,
+                usageRequestId: input.usageRequestId,
+                sessionKey: input.usageContext.sessionKey,
+                runId: input.usageContext.runId,
+                jobId: input.usageContext.jobId,
+                targetPath: input.targetPath,
+                status: input.responseStatus,
+            },
+            idempotencyKey: input.usageIdempotencyKey,
+        })
+        await releaseHostedProviderPreflightReservation({
+            env: input.env,
+            workspaceId: input.workspaceId,
+            reservationId: input.reservationId,
+        })
+        return { kind: 'cost_exceeds_ceiling' }
+    }
+    let settlement: Awaited<ReturnType<typeof recordHostedProviderUsage>>
+    try {
+        settlement = await recordHostedProviderUsage({
+            env: input.env,
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            sessionKey: input.usageContext.sessionKey,
+            runId: input.usageContext.runId,
+            jobId: input.usageContext.jobId,
+            provider: 'openrouter',
+            model: input.model,
+            inputTokens: providerUsage.inputTokens,
+            outputTokens: providerUsage.outputTokens,
+            cachedTokens: providerUsage.cachedTokens,
+            reasoningTokens: providerUsage.reasoningTokens,
+            totalTokens: providerUsage.totalTokens,
+            estimatedCostUsd: costMicros / 1_000_000,
+            costMicros,
+            billingReservationId: input.reservationId,
+            metadata: {
+                ...input.managedModelMetadata,
+                billedBy: 'hosted_openrouter_proxy',
+                providerProxyBillingAuthority: 'worker_proxy',
+                costEstimatedFromTokens,
+                reservationId: input.reservationId,
+                usageRequestId: input.usageRequestId,
+                sessionKey: input.usageContext.sessionKey,
+                runId: input.usageContext.runId,
+                jobId: input.usageContext.jobId,
+                targetPath: input.targetPath,
+            },
+            idempotencyKey: input.usageIdempotencyKey,
+        })
+    } catch {
+        await releaseHostedProviderSettlementFailureReservation({
+            env: input.env,
+            workspaceId: input.workspaceId,
+            reservationId: input.reservationId,
+        })
+        return { kind: 'settlement_failed' }
+    }
+    await recordHostedProviderSpend({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+        sessionKey: input.usageContext.sessionKey,
+        runId: input.usageContext.runId,
+        jobId: input.usageContext.jobId,
+        action: 'provider_openrouter',
+        cents: settlement.debitedCents,
+    }).catch((error) => {
+        console.error(
+            'Hosted provider spend counter update failed',
+            error instanceof Error ? error.message : error,
+        )
+    })
+    return { kind: 'settled' }
+}
+
+function hostedOpenRouterProxySettlementFailureResponse(
+    outcome: Exclude<HostedOpenRouterProxySettlementOutcome, { kind: 'settled' }>,
+): Response {
+    if (outcome.kind === 'cost_missing') {
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'provider_actual_cost_missing',
+            },
+            {
+                status: 502,
+            },
+        )
+    }
+    if (outcome.kind === 'cost_exceeds_ceiling') {
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'provider_actual_cost_exceeds_authorized_maximum',
+            },
+            {
+                status: 402,
+            },
+        )
+    }
+    return hostedJsonResponse(
+        {
+            ok: false,
+            code: 'provider_billing_settlement_failed',
+        },
+        {
+            status: 502,
+        },
+    )
+}
+
 export async function hostedOpenRouterProxy(
     env: AgentRoomHostedEnv,
     request: Request,
     url: URL,
+    ctx: Pick<ExecutionContext, 'waitUntil'>,
 ): Promise<Response> {
     const proxyPath = parseHostedOpenRouterProxyPath(url.pathname)
     if (request.method !== 'POST' || !proxyPath) {
@@ -496,168 +737,72 @@ export async function hostedOpenRouterProxy(
             headers: responseHeaders,
         })
     }
-    const responseText = await response.text()
-    const providerUsage = openRouterUsageSnapshotFromProviderText(responseText)
-    const costEstimatedFromTokens = providerUsage.costMicros === null
-    const costMicros =
-        providerUsage.costMicros ??
-        estimateHostedManagedModelCostMicros({
-            inputTokens: providerUsage.inputTokens,
-            cachedTokens: providerUsage.cachedTokens,
-            outputTokens: providerUsage.outputTokens,
-            reasoningTokens: providerUsage.reasoningTokens,
-        })
-    if (costMicros === null) {
-        await recordHostedProviderUsageBlocked({
-            env,
-            workspaceId: proxyPath.workspaceId,
-            roomId: proxyPath.roomId,
-            sessionKey: usageContext.sessionKey,
-            runId: usageContext.runId,
-            jobId: usageContext.jobId,
-            provider: 'openrouter',
-            model: providerRequest.model,
-            metadata: {
-                ...managedModelMetadata,
-                billedBy: 'hosted_openrouter_proxy',
-                providerProxyBillingAuthority: 'worker_proxy',
-                missingProviderActualCost: true,
-                reservationId,
-                usageRequestId,
-                sessionKey: usageContext.sessionKey,
-                runId: usageContext.runId,
-                jobId: usageContext.jobId,
-                targetPath: proxyPath.targetPath,
-                status: response.status,
-            },
-            idempotencyKey: usageIdempotencyKey,
-        })
-        await releaseHostedProviderPreflightReservation({
-            env,
-            workspaceId: proxyPath.workspaceId,
-            reservationId,
-        })
-        return hostedJsonResponse(
-            {
-                ok: false,
-                code: 'provider_actual_cost_missing',
-            },
-            {
-                status: 502,
-            },
-        )
-    }
-    const billedMicros = applyUsageMarkupMicros(costMicros, config.billing.usageMarkupBps)
-    const billedCents = centsFromMicrosCeil(billedMicros)
-    if (billedCents > reservationCents) {
-        await recordHostedProviderUsageBlocked({
-            env,
-            workspaceId: proxyPath.workspaceId,
-            roomId: proxyPath.roomId,
-            sessionKey: usageContext.sessionKey,
-            runId: usageContext.runId,
-            jobId: usageContext.jobId,
-            provider: 'openrouter',
-            model: providerRequest.model,
-            metadata: {
-                ...managedModelMetadata,
-                billedBy: 'hosted_openrouter_proxy',
-                providerProxyBillingAuthority: 'worker_proxy',
-                actualCostExceededAuthorizedMaximum: true,
-                costMicros,
-                billedMicros,
-                billedCents,
-                reservationId,
-                usageRequestId,
-                sessionKey: usageContext.sessionKey,
-                runId: usageContext.runId,
-                jobId: usageContext.jobId,
-                targetPath: proxyPath.targetPath,
-                status: response.status,
-            },
-            idempotencyKey: usageIdempotencyKey,
-        })
-        await releaseHostedProviderPreflightReservation({
-            env,
-            workspaceId: proxyPath.workspaceId,
-            reservationId,
-        })
-        return hostedJsonResponse(
-            {
-                ok: false,
-                code: 'provider_actual_cost_exceeds_authorized_maximum',
-            },
-            {
-                status: 402,
-            },
-        )
-    }
-    let settlement: Awaited<ReturnType<typeof recordHostedProviderUsage>>
-    try {
-        settlement = await recordHostedProviderUsage({
-            env,
-            workspaceId: proxyPath.workspaceId,
-            roomId: proxyPath.roomId,
-            sessionKey: usageContext.sessionKey,
-            runId: usageContext.runId,
-            jobId: usageContext.jobId,
-            provider: 'openrouter',
-            model: providerRequest.model,
-            inputTokens: providerUsage.inputTokens,
-            outputTokens: providerUsage.outputTokens,
-            cachedTokens: providerUsage.cachedTokens,
-            reasoningTokens: providerUsage.reasoningTokens,
-            totalTokens: providerUsage.totalTokens,
-            estimatedCostUsd: costMicros / 1_000_000,
-            costMicros,
-            billingReservationId: reservationId,
-            metadata: {
-                ...managedModelMetadata,
-                billedBy: 'hosted_openrouter_proxy',
-                providerProxyBillingAuthority: 'worker_proxy',
-                costEstimatedFromTokens,
-                reservationId,
-                usageRequestId,
-                sessionKey: usageContext.sessionKey,
-                runId: usageContext.runId,
-                jobId: usageContext.jobId,
-                targetPath: proxyPath.targetPath,
-            },
-            idempotencyKey: usageIdempotencyKey,
-        })
-    } catch {
-        await releaseHostedProviderSettlementFailureReservation({
-            env,
-            workspaceId: proxyPath.workspaceId,
-            reservationId,
-        })
-        return hostedJsonResponse(
-            {
-                ok: false,
-                code: 'provider_billing_settlement_failed',
-            },
-            {
-                status: 502,
-            },
-        )
-    }
-    await recordHostedProviderSpend({
+    const settlementInputBase = {
         env,
         workspaceId: proxyPath.workspaceId,
         roomId: proxyPath.roomId,
-        sessionKey: usageContext.sessionKey,
-        runId: usageContext.runId,
-        jobId: usageContext.jobId,
-        action: 'provider_openrouter',
-        cents: settlement.debitedCents,
-    }).catch((error) => {
-        console.error(
-            'Hosted provider spend counter update failed',
-            error instanceof Error ? error.message : error,
-        )
-    })
+        usageContext,
+        model: providerRequest.model,
+        managedModelMetadata,
+        reservationId,
+        reservationCents,
+        usageMarkupBps: config.billing.usageMarkupBps,
+        usageRequestId,
+        targetPath: proxyPath.targetPath,
+        usageIdempotencyKey,
+        responseStatus: response.status,
+    }
     if (reservationId) {
         responseHeaders.set('x-agent-room-billing-reservation-id', reservationId)
+    }
+    if (isHostedOpenRouterStreamResponse(response) && response.body) {
+        const [clientStream, usageStream] = response.body.tee()
+        const settlementPromise = accumulateHostedProviderStreamText({
+            stream: usageStream,
+            maxChars: hostedOpenRouterStreamUsageAccumulationMaxChars,
+        })
+            .then((responseText) =>
+                settleHostedOpenRouterProxyUsage({
+                    ...settlementInputBase,
+                    responseText,
+                }),
+            )
+            .then((outcome) => {
+                if (outcome.kind !== 'settled') {
+                    console.error('Hosted OpenRouter streaming settlement did not bill', {
+                        workspaceId: proxyPath.workspaceId,
+                        roomId: proxyPath.roomId,
+                        provider: 'openrouter',
+                        usageRequestId,
+                        reservationId,
+                        outcome: outcome.kind,
+                    })
+                }
+            })
+            .catch((error) => {
+                console.error('Hosted OpenRouter streaming settlement failed', {
+                    workspaceId: proxyPath.workspaceId,
+                    roomId: proxyPath.roomId,
+                    provider: 'openrouter',
+                    usageRequestId,
+                    reservationId,
+                    error: error instanceof Error ? error.message : error,
+                })
+            })
+        ctx.waitUntil(settlementPromise)
+        return new Response(clientStream, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: responseHeaders,
+        })
+    }
+    const responseText = await response.text()
+    const outcome = await settleHostedOpenRouterProxyUsage({
+        ...settlementInputBase,
+        responseText,
+    })
+    if (outcome.kind !== 'settled') {
+        return hostedOpenRouterProxySettlementFailureResponse(outcome)
     }
     return new Response(responseText, {
         status: response.status,

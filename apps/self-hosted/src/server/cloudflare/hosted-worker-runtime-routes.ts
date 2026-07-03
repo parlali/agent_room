@@ -1,3 +1,4 @@
+import type { ExecutionContext } from '@cloudflare/workers-types'
 import type { AgentRoomHostedEnv } from './bindings'
 import {
     hostedRuntimeFileCallback,
@@ -21,6 +22,7 @@ export async function hostedRuntimeWorkerRoute(input: {
     env: AgentRoomHostedEnv
     request: Request
     url: URL
+    ctx: Pick<ExecutionContext, 'waitUntil'>
 }): Promise<Response | null> {
     if (input.url.pathname === '/api/hosted/runtime/usage' && input.request.method === 'POST') {
         return hostedRuntimeUsageCallback(input.env, input.request)
@@ -38,7 +40,7 @@ export async function hostedRuntimeWorkerRoute(input: {
         input.url.pathname === hostedOpenRouterProxyPathPrefix ||
         input.url.pathname.startsWith(`${hostedOpenRouterProxyPathPrefix}/`)
     ) {
-        return hostedOpenRouterProxy(input.env, input.request, input.url)
+        return hostedOpenRouterProxy(input.env, input.request, input.url, input.ctx)
     }
     if (
         input.url.pathname === hostedBraveProxyPathPrefix ||

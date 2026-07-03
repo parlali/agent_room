@@ -279,7 +279,7 @@ interface HostedWorkerHandler {
 }
 
 export default {
-    async fetch(request: Request, env: AgentRoomHostedEnv, _ctx: ExecutionContext) {
+    async fetch(request: Request, env: AgentRoomHostedEnv, ctx: ExecutionContext) {
         const url = new URL(request.url)
         if (url.pathname === '/api/hosted/health') {
             return hostedHealth(env)
@@ -296,7 +296,7 @@ export default {
         if (url.pathname === '/api/hosted/stripe/webhook' && request.method === 'POST') {
             return hostedStripeWebhook(env, request)
         }
-        const runtimeResponse = await hostedRuntimeWorkerRoute({ env, request, url })
+        const runtimeResponse = await hostedRuntimeWorkerRoute({ env, request, url, ctx })
         if (runtimeResponse) {
             return runtimeResponse
         }

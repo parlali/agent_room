@@ -178,12 +178,60 @@ function runtimeEndpoint(
     }
 }
 
+function collectingExecutionContext(): {
+    ctx: { waitUntil: (promise: Promise<unknown>) => void; passThroughOnException: () => void }
+    settled: () => Promise<void>
+} {
+    const pending: Array<Promise<unknown>> = []
+    return {
+        ctx: {
+            waitUntil: (promise: Promise<unknown>) => {
+                pending.push(promise)
+            },
+            passThroughOnException: () => {},
+        },
+        settled: async () => {
+            await Promise.all(pending)
+        },
+    }
+}
+
+function manualReadableStream(): {
+    stream: ReadableStream<Uint8Array>
+    enqueue: (text: string) => void
+    close: () => void
+} {
+    const encoder = new TextEncoder()
+    let controller: ReadableStreamDefaultController<Uint8Array>
+    const stream = new ReadableStream<Uint8Array>({
+        start(streamController) {
+            controller = streamController
+        },
+    })
+    return {
+        stream,
+        enqueue: (text: string) => controller.enqueue(encoder.encode(text)),
+        close: () => controller.close(),
+    }
+}
+
+async function drainReadableStream(stream: ReadableStream<Uint8Array>): Promise<void> {
+    const reader = stream.getReader()
+    for (;;) {
+        const chunk = await reader.read()
+        if (chunk.done) {
+            break
+        }
+    }
+}
+
 async function callRoute(input: {
     path: string
     body?: unknown
     token?: string | null
     method?: string
     headers?: Record<string, string>
+    ctx?: { waitUntil: (promise: Promise<unknown>) => void }
 }): Promise<Response> {
     const headers = new Headers({
         'content-type': 'application/json',
@@ -202,6 +250,7 @@ async function callRoute(input: {
             body: input.method === 'GET' ? undefined : JSON.stringify(input.body),
         }),
         url: new URL(`https://rooms.example.test${input.path}`),
+        ctx: input.ctx ?? { waitUntil: () => {} },
     })
     if (!response) {
         throw new Error(`No hosted runtime route matched ${input.path}`)
@@ -1057,6 +1106,225 @@ describe('hosted runtime worker route security gates', () => {
                 reservationId: 'reservation_1',
             }),
         )
+    })
+
+    it('streams OpenRouter SSE chunks before completion and settles usage after the stream ends', async () => {
+        const upstream = manualReadableStream()
+        const fetchMock = vi.fn(
+            async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) =>
+                new Response(upstream.stream, {
+                    headers: {
+                        'content-type': 'text/event-stream',
+                    },
+                }),
+        )
+        vi.stubGlobal('fetch', fetchMock)
+        const execution = collectingExecutionContext()
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
+            headers: openRouterRuntimeHeaders(),
+            body: {
+                model: hostedManagedModelId,
+                messages: [{ role: 'user', content: 'hi' }],
+            },
+            ctx: execution.ctx,
+        })
+
+        expect(response.status).toBe(200)
+        expect(response.headers.get('content-type')).toContain('text/event-stream')
+        expect(response.headers.get('x-agent-room-billing-reservation-id')).toBe('reservation_1')
+
+        const reader = response.body!.getReader()
+        const decoder = new TextDecoder()
+        upstream.enqueue('data: {"id":"c1","choices":[{"delta":{"content":"Hel"}}]}\n\n')
+        const first = await reader.read()
+        expect(decoder.decode(first.value)).toContain('"content":"Hel"')
+        expect(mocks.recordHostedProviderUsage).not.toHaveBeenCalled()
+
+        upstream.enqueue(
+            'data: {"id":"c1","usage":{"cost":0.05,"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}\n\n',
+        )
+        upstream.enqueue('data: [DONE]\n\n')
+        upstream.close()
+        for (;;) {
+            const chunk = await reader.read()
+            if (chunk.done) {
+                break
+            }
+        }
+        await execution.settled()
+
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        const providerInit = fetchMock.mock.calls[0]![1] as RequestInit
+        expect(JSON.parse(String(providerInit.body))).toMatchObject({
+            model: hostedManagedModelId,
+            usage: {
+                include: true,
+            },
+        })
+        expect(mocks.recordHostedProviderUsage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                provider: 'openrouter',
+                model: hostedManagedModelId,
+                inputTokens: 10,
+                outputTokens: 5,
+                totalTokens: 15,
+                costMicros: 50000,
+                billingReservationId: 'reservation_1',
+                idempotencyKey: 'provider_proxy:openrouter:workspace_1:room_1:usage-request-123456',
+            }),
+        )
+        expect(mocks.releaseHostedBillingReservation).not.toHaveBeenCalled()
+    })
+
+    it('settles OpenRouter streaming usage even when the client aborts mid-stream', async () => {
+        const upstream = manualReadableStream()
+        const fetchMock = vi.fn(
+            async () =>
+                new Response(upstream.stream, {
+                    headers: {
+                        'content-type': 'text/event-stream',
+                    },
+                }),
+        )
+        vi.stubGlobal('fetch', fetchMock)
+        const execution = collectingExecutionContext()
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
+            headers: openRouterRuntimeHeaders(),
+            body: {
+                model: hostedManagedModelId,
+                messages: [{ role: 'user', content: 'hi' }],
+            },
+            ctx: execution.ctx,
+        })
+
+        expect(response.status).toBe(200)
+        const reader = response.body!.getReader()
+        upstream.enqueue('data: {"id":"c1","choices":[{"delta":{"content":"Hel"}}]}\n\n')
+        await reader.read()
+        void reader.cancel()
+
+        upstream.enqueue(
+            'data: {"id":"c1","usage":{"cost":0.02,"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}\n\n',
+        )
+        upstream.enqueue('data: [DONE]\n\n')
+        upstream.close()
+        await execution.settled()
+
+        expect(mocks.recordHostedProviderUsage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                provider: 'openrouter',
+                model: hostedManagedModelId,
+                costMicros: 20000,
+                billingReservationId: 'reservation_1',
+                idempotencyKey: 'provider_proxy:openrouter:workspace_1:room_1:usage-request-123456',
+            }),
+        )
+        expect(mocks.releaseHostedBillingReservation).not.toHaveBeenCalled()
+    })
+
+    it('fails closed by releasing the reservation when OpenRouter streaming settlement throws', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const upstream = manualReadableStream()
+        const fetchMock = vi.fn(
+            async () =>
+                new Response(upstream.stream, {
+                    headers: {
+                        'content-type': 'text/event-stream',
+                    },
+                }),
+        )
+        vi.stubGlobal('fetch', fetchMock)
+        mocks.recordHostedProviderUsage.mockRejectedValue(new Error('settlement failed'))
+        const execution = collectingExecutionContext()
+
+        try {
+            const response = await callRoute({
+                path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
+                headers: openRouterRuntimeHeaders(),
+                body: {
+                    model: hostedManagedModelId,
+                    messages: [],
+                },
+                ctx: execution.ctx,
+            })
+
+            expect(response.status).toBe(200)
+            upstream.enqueue('data: {"id":"c1","usage":{"cost":0.01}}\n\n')
+            upstream.enqueue('data: [DONE]\n\n')
+            upstream.close()
+            await drainReadableStream(response.body!)
+            await execution.settled()
+
+            expect(mocks.recordHostedProviderUsage).toHaveBeenCalled()
+            expect(mocks.releaseHostedBillingReservation).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    workspaceId: 'workspace_1',
+                    reservationId: 'reservation_1',
+                }),
+            )
+        } finally {
+            errorSpy.mockRestore()
+        }
+    })
+
+    it('records blocked audit and releases the reservation when OpenRouter streaming usage lacks cost', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const upstream = manualReadableStream()
+        const fetchMock = vi.fn(
+            async () =>
+                new Response(upstream.stream, {
+                    headers: {
+                        'content-type': 'text/event-stream',
+                    },
+                }),
+        )
+        vi.stubGlobal('fetch', fetchMock)
+        const execution = collectingExecutionContext()
+
+        try {
+            const response = await callRoute({
+                path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
+                headers: openRouterRuntimeHeaders(),
+                body: {
+                    model: hostedManagedModelId,
+                    messages: [],
+                },
+                ctx: execution.ctx,
+            })
+
+            expect(response.status).toBe(200)
+            upstream.enqueue('data: {"id":"c1","choices":[{"delta":{"content":"x"}}]}\n\n')
+            upstream.enqueue('data: [DONE]\n\n')
+            upstream.close()
+            await drainReadableStream(response.body!)
+            await execution.settled()
+
+            expect(mocks.recordHostedProviderUsage).not.toHaveBeenCalled()
+            expect(mocks.recordHostedProviderUsageBlocked).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    provider: 'openrouter',
+                    model: hostedManagedModelId,
+                    metadata: expect.objectContaining({
+                        missingProviderActualCost: true,
+                        reservationId: 'reservation_1',
+                    }),
+                }),
+            )
+            expect(mocks.releaseHostedBillingReservation).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    workspaceId: 'workspace_1',
+                    reservationId: 'reservation_1',
+                }),
+            )
+        } finally {
+            errorSpy.mockRestore()
+        }
     })
 
     it('settles managed Brave proxy usage before returning the body', async () => {
