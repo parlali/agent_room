@@ -1,5 +1,6 @@
 import type { AgentRoomHostedEnv } from './bindings'
 import { assertChanged } from './hosted-d1'
+import { appendHostedAudit } from './hosted-audit'
 import type { HostedBillingAccountSnapshot, HostedBillingPlanStatus } from './hosted-billing-types'
 import { nowIso } from './hosted-json'
 
@@ -9,6 +10,7 @@ interface BillingAccountRow {
     stripeSubscriptionId: string | null
     planKey: string
     planStatus: HostedBillingPlanStatus
+    billingFrozen?: number
     includedBalanceCents: number
     purchasedBalanceCents: number
     includedReservedCents?: number
@@ -18,6 +20,22 @@ interface BillingAccountRow {
     updatedAt: string
 }
 
+const billingAccountSelectProjection = `
+    workspace_id AS workspaceId,
+    stripe_customer_id AS stripeCustomerId,
+    stripe_subscription_id AS stripeSubscriptionId,
+    plan_key AS planKey,
+    plan_status AS planStatus,
+    billing_frozen AS billingFrozen,
+    included_balance_cents AS includedBalanceCents,
+    purchased_balance_cents AS purchasedBalanceCents,
+    included_reserved_cents AS includedReservedCents,
+    purchased_reserved_cents AS purchasedReservedCents,
+    included_monthly_credit_cents AS includedMonthlyCreditCents,
+    created_at AS createdAt,
+    updated_at AS updatedAt
+`
+
 function mapAccount(row: BillingAccountRow): HostedBillingAccountSnapshot {
     return {
         workspaceId: row.workspaceId,
@@ -25,6 +43,7 @@ function mapAccount(row: BillingAccountRow): HostedBillingAccountSnapshot {
         stripeSubscriptionId: row.stripeSubscriptionId,
         planKey: row.planKey,
         planStatus: row.planStatus,
+        billingFrozen: (row.billingFrozen ?? 0) === 1,
         includedBalanceCents: row.includedBalanceCents,
         purchasedBalanceCents: row.purchasedBalanceCents,
         currentBalanceCents: row.includedBalanceCents + row.purchasedBalanceCents,
@@ -75,18 +94,7 @@ export async function readHostedBillingAccount(input: {
     const row = await input.env.AGENT_ROOM_DB.prepare(
         `
             SELECT
-                workspace_id AS workspaceId,
-                stripe_customer_id AS stripeCustomerId,
-                stripe_subscription_id AS stripeSubscriptionId,
-                plan_key AS planKey,
-                plan_status AS planStatus,
-                included_balance_cents AS includedBalanceCents,
-                purchased_balance_cents AS purchasedBalanceCents,
-                included_reserved_cents AS includedReservedCents,
-                purchased_reserved_cents AS purchasedReservedCents,
-                included_monthly_credit_cents AS includedMonthlyCreditCents,
-                created_at AS createdAt,
-                updated_at AS updatedAt
+                ${billingAccountSelectProjection}
             FROM hosted_billing_account
             WHERE workspace_id = ?1
             LIMIT 1
@@ -108,18 +116,7 @@ export async function findHostedBillingAccountByStripeIds(input: {
     const row = await input.env.AGENT_ROOM_DB.prepare(
         `
             SELECT
-                workspace_id AS workspaceId,
-                stripe_customer_id AS stripeCustomerId,
-                stripe_subscription_id AS stripeSubscriptionId,
-                plan_key AS planKey,
-                plan_status AS planStatus,
-                included_balance_cents AS includedBalanceCents,
-                purchased_balance_cents AS purchasedBalanceCents,
-                included_reserved_cents AS includedReservedCents,
-                purchased_reserved_cents AS purchasedReservedCents,
-                included_monthly_credit_cents AS includedMonthlyCreditCents,
-                created_at AS createdAt,
-                updated_at AS updatedAt
+                ${billingAccountSelectProjection}
             FROM hosted_billing_account
             WHERE (?1 IS NOT NULL AND stripe_subscription_id = ?1)
                OR (?2 IS NOT NULL AND stripe_customer_id = ?2)
@@ -131,6 +128,11 @@ export async function findHostedBillingAccountByStripeIds(input: {
     return row ? mapAccount(row) : null
 }
 
+export interface HostedStripeCustomerUpsertResult {
+    updated: boolean
+    reason: 'applied' | 'customer_mismatch'
+}
+
 export async function upsertHostedStripeCustomer(input: {
     env: AgentRoomHostedEnv
     workspaceId: string
@@ -140,7 +142,7 @@ export async function upsertHostedStripeCustomer(input: {
     planKey?: string
     includedMonthlyCreditCents?: number
     now?: Date
-}): Promise<void> {
+}): Promise<HostedStripeCustomerUpsertResult> {
     const now = nowIso(input.now)
     const result = await input.env.AGENT_ROOM_DB.prepare(
         `
@@ -152,6 +154,7 @@ export async function upsertHostedStripeCustomer(input: {
                 included_monthly_credit_cents = COALESCE(?6, included_monthly_credit_cents),
                 updated_at = ?7
             WHERE workspace_id = ?1
+              AND (stripe_customer_id IS NULL OR stripe_customer_id = ?2)
         `,
     )
         .bind(
@@ -164,5 +167,64 @@ export async function upsertHostedStripeCustomer(input: {
             now,
         )
         .run()
-    assertChanged(result, 'Hosted billing account was not found while updating Stripe customer')
+    if ((result.meta.changes ?? 0) > 0) {
+        return {
+            updated: true,
+            reason: 'applied',
+        }
+    }
+    const account = await input.env.AGENT_ROOM_DB.prepare(
+        `
+            SELECT stripe_customer_id AS stripeCustomerId
+            FROM hosted_billing_account
+            WHERE workspace_id = ?1
+            LIMIT 1
+        `,
+    )
+        .bind(input.workspaceId)
+        .first<{ stripeCustomerId: string | null }>()
+    if (!account) {
+        throw new Error('Hosted billing account was not found while updating Stripe customer')
+    }
+    console.error('Hosted billing Stripe customer mismatch rejected', {
+        workspaceId: input.workspaceId,
+        storedStripeCustomerId: account.stripeCustomerId,
+        reportedStripeCustomerId: input.stripeCustomerId,
+    })
+    await appendHostedAudit({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        actorUserId: null,
+        roomId: null,
+        action: 'hosted_billing_stripe_customer_mismatch',
+        payload: {
+            storedStripeCustomerId: account.stripeCustomerId,
+            reportedStripeCustomerId: input.stripeCustomerId,
+            reportedStripeSubscriptionId: input.stripeSubscriptionId ?? null,
+        },
+        now: input.now,
+    })
+    return {
+        updated: false,
+        reason: 'customer_mismatch',
+    }
+}
+
+export async function setHostedBillingFrozen(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    frozen: boolean
+    now?: Date
+}): Promise<void> {
+    const result = await input.env.AGENT_ROOM_DB.prepare(
+        `
+            UPDATE hosted_billing_account
+            SET billing_frozen = ?2,
+                updated_at = ?3
+            WHERE workspace_id = ?1
+        `,
+    )
+        .bind(input.workspaceId, input.frozen ? 1 : 0, nowIso(input.now))
+        .run()
+    assertChanged(result, 'Hosted billing account was not found while updating the freeze flag')
 }

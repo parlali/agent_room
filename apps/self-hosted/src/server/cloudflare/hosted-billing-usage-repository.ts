@@ -274,6 +274,49 @@ export async function listRecentHostedBillableUsage(input: {
     return result.results.map(mapUsage)
 }
 
+export interface HostedStalePendingUsageEvent {
+    id: string
+    workspaceId: string
+    roomId: string | null
+    provider: HostedBillingReservationProvider
+    model: string | null
+    costMicros: number
+    metadata: string
+    createdAt: string
+}
+
+export async function listStaleHostedPendingUsageEvents(input: {
+    env: AgentRoomHostedEnv
+    olderThan: Date
+    limit?: number
+}): Promise<HostedStalePendingUsageEvent[]> {
+    const limit = Math.max(1, Math.min(input.limit ?? 25, 100))
+    const result = await input.env.AGENT_ROOM_DB.prepare(
+        `
+            SELECT
+                id,
+                workspace_id AS workspaceId,
+                room_id AS roomId,
+                provider,
+                model,
+                cost_micros AS costMicros,
+                metadata,
+                created_at AS createdAt
+            FROM hosted_usage_event
+            WHERE billing_status = 'pending'
+              AND kind = 'provider'
+              AND provider IN ('openrouter', 'brave', 'browserbase', 'fetch_url')
+              AND cost_micros IS NOT NULL
+              AND created_at <= ?1
+            ORDER BY created_at ASC
+            LIMIT ${limit}
+        `,
+    )
+        .bind(input.olderThan.toISOString())
+        .all<HostedStalePendingUsageEvent>()
+    return result.results
+}
+
 export async function markHostedUsageBillingBlocked(input: {
     env: AgentRoomHostedEnv
     workspaceId: string

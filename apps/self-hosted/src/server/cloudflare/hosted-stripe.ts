@@ -1,24 +1,31 @@
 import type { AgentRoomHostedEnv } from './bindings'
 import { resolveHostedConfig } from './hosted-config'
 import {
+    clawbackHostedBalance,
     creditHostedBalance,
     ensureHostedBillingAccount,
     expireIncludedBalance,
     findHostedBillingAccountByStripeIds,
+    findHostedTopupCreditByPaymentIntentId,
+    findLedgerEntryByIdempotencyKey,
     hostedStripeEventExists,
     listHostedBillingLedger,
+    listHostedClawbacksByPaymentIntentId,
     listRecentHostedBillableUsage,
     recordHostedStripeEvent,
     readHostedBillingAccount,
     releaseExpiredHostedBillingReservations,
+    setHostedBillingFrozen,
     upsertHostedStripeCustomer,
 } from './hosted-billing-repository'
 import {
     hostedBillingCheckoutKindSchema,
     type HostedBillingCheckoutKind,
+    type HostedBillingClawbackSource,
     type HostedBillingPlan,
     isHostedBillingPlanStatusActive,
 } from './hosted-billing-types'
+import { appendHostedAudit } from './hosted-audit'
 import type { HostedActor } from './hosted-auth'
 import { hostedModelSourceLabels } from './hosted-model-policy'
 import { timingSafeEqualHex } from '../security/timing-safe'
@@ -30,14 +37,38 @@ export class HostedStripeWebhookError extends Error {
     }
 }
 
+export class HostedStripeCheckoutBlockedError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'HostedStripeCheckoutBlockedError'
+    }
+}
+
 interface StripeCheckoutSession {
     id: string
     customer: string | null
     subscription: string | null
+    payment_intent: string | null
     mode: string
     payment_status: string | null
     amount_total: number | null
     amount_subtotal: number | null
+    metadata: Record<string, string> | null
+}
+
+interface StripeCharge {
+    id: string
+    payment_intent: string | null
+    amount_refunded: number | null
+    refunded: boolean
+    metadata: Record<string, string> | null
+}
+
+interface StripeDispute {
+    id: string
+    charge: string | null
+    payment_intent: string | null
+    amount: number | null
     metadata: Record<string, string> | null
 }
 
@@ -134,10 +165,39 @@ function parseCheckoutSession(value: unknown): StripeCheckoutSession {
         id: stringField(record, 'id') ?? '',
         customer: stringField(record, 'customer'),
         subscription: stringField(record, 'subscription'),
+        payment_intent: stringField(record, 'payment_intent'),
         mode: stringField(record, 'mode') ?? '',
         payment_status: stringField(record, 'payment_status'),
         amount_total: numberField(record, 'amount_total'),
         amount_subtotal: numberField(record, 'amount_subtotal'),
+        metadata: metadataField(record),
+    }
+}
+
+function parseCharge(value: unknown): StripeCharge {
+    const record = jsonRecord(value)
+    if (!record) {
+        throw new Error('Stripe charge payload was invalid')
+    }
+    return {
+        id: stringField(record, 'id') ?? '',
+        payment_intent: stringField(record, 'payment_intent'),
+        amount_refunded: numberField(record, 'amount_refunded'),
+        refunded: record.refunded === true,
+        metadata: metadataField(record),
+    }
+}
+
+function parseDispute(value: unknown): StripeDispute {
+    const record = jsonRecord(value)
+    if (!record) {
+        throw new Error('Stripe dispute payload was invalid')
+    }
+    return {
+        id: stringField(record, 'id') ?? '',
+        charge: stringField(record, 'charge'),
+        payment_intent: stringField(record, 'payment_intent'),
+        amount: numberField(record, 'amount'),
         metadata: metadataField(record),
     }
 }
@@ -316,11 +376,20 @@ export type HostedStripeCheckoutInput =
           kind: 'credit_topup'
       }
 
+export function hostedSubscriptionCheckoutBlocked(account: {
+    stripeSubscriptionId: string | null
+    planStatus: Parameters<typeof isHostedBillingPlanStatusActive>[0]
+}): boolean {
+    return (
+        Boolean(account.stripeSubscriptionId) && isHostedBillingPlanStatusActive(account.planStatus)
+    )
+}
+
 export async function createHostedStripeCheckout(
     input: HostedStripeCheckoutInput,
 ): Promise<{ url: string }> {
     const config = resolveHostedConfig(input.env)
-    await ensureHostedBillingAccount({
+    const account = await ensureHostedBillingAccount({
         env: input.env,
         workspaceId: input.actor.workspaceId,
     })
@@ -328,6 +397,11 @@ export async function createHostedStripeCheckout(
     let price: string
     let planKey: string | null = null
     if (input.kind === 'subscription') {
+        if (hostedSubscriptionCheckoutBlocked(account)) {
+            throw new HostedStripeCheckoutBlockedError(
+                'Hosted workspace already has an active subscription; use the Stripe billing portal to change plans',
+            )
+        }
         const plan = resolvePlanByKey(config.billing.plans, input.planKey)
         price = plan.priceId
         planKey = plan.key
@@ -349,9 +423,17 @@ export async function createHostedStripeCheckout(
         'metadata[kind]': input.kind,
         client_reference_id: input.actor.workspaceId,
     })
+    if (account.stripeCustomerId) {
+        form.set('customer', account.stripeCustomerId)
+    } else if (input.kind === 'credit_topup') {
+        form.set('customer_creation', 'always')
+    }
     if (config.billing.taxMode === 'automatic') {
         form.set('automatic_tax[enabled]', 'true')
         form.set('billing_address_collection', 'required')
+        if (account.stripeCustomerId) {
+            form.set('customer_update[address]', 'auto')
+        }
     }
     if (input.kind === 'subscription' && planKey) {
         form.set('metadata[plan_key]', planKey)
@@ -456,11 +538,12 @@ export async function readHostedBillingSummary(input: {
         }),
     ])
 
+    const subscriptionBlocked = hostedSubscriptionCheckoutBlocked(account)
     const planActions = config.billing.plans.map((plan) => ({
         kind: 'subscription' as const,
         planKey: plan.key,
         label: `Subscribe to ${plan.key}`,
-        enabled: true,
+        enabled: !subscriptionBlocked,
     }))
 
     return {
@@ -508,11 +591,35 @@ export async function processHostedStripeWebhook(input: {
         }
     }
 
-    if (event.type === 'checkout.session.completed') {
+    if (
+        event.type === 'checkout.session.completed' ||
+        event.type === 'checkout.session.async_payment_succeeded'
+    ) {
         await processCheckoutCompleted({
             env: input.env,
             eventId: event.id,
             session: parseCheckoutSession(event.data.object),
+        })
+    }
+    if (event.type === 'checkout.session.async_payment_failed') {
+        await processCheckoutAsyncPaymentFailed({
+            env: input.env,
+            eventId: event.id,
+            session: parseCheckoutSession(event.data.object),
+        })
+    }
+    if (event.type === 'charge.refunded') {
+        await processChargeRefunded({
+            env: input.env,
+            eventId: event.id,
+            charge: parseCharge(event.data.object),
+        })
+    }
+    if (event.type === 'charge.dispute.created') {
+        await processChargeDisputeCreated({
+            env: input.env,
+            eventId: event.id,
+            dispute: parseDispute(event.data.object),
         })
     }
     if (event.type === 'invoice.paid') {
@@ -532,7 +639,12 @@ export async function processHostedStripeWebhook(input: {
             env: input.env,
             subscription: parseSubscription(event.data.object),
             plans: config.billing.plans,
-            deleted: event.type === 'customer.subscription.deleted',
+            eventType:
+                event.type === 'customer.subscription.deleted'
+                    ? 'deleted'
+                    : event.type === 'customer.subscription.created'
+                      ? 'created'
+                      : 'updated',
         })
     }
 
@@ -553,7 +665,7 @@ async function processSubscriptionChanged(input: {
     env: AgentRoomHostedEnv
     subscription: StripeSubscription
     plans: HostedBillingPlan[]
-    deleted: boolean
+    eventType: 'created' | 'updated' | 'deleted'
 }): Promise<void> {
     if (!input.subscription.customer || !input.subscription.id) {
         throw new Error('Stripe subscription is missing hosted billing metadata')
@@ -567,10 +679,23 @@ async function processSubscriptionChanged(input: {
     if (!workspaceId) {
         throw new Error('Stripe subscription could not be matched to a hosted workspace')
     }
-    await ensureHostedBillingAccount({
+    const account = await ensureHostedBillingAccount({
         env: input.env,
         workspaceId,
     })
+    if (
+        input.eventType !== 'created' &&
+        account.stripeSubscriptionId &&
+        account.stripeSubscriptionId !== input.subscription.id
+    ) {
+        console.warn('Ignoring Stripe subscription event for a non-current subscription', {
+            workspaceId,
+            eventType: input.eventType,
+            eventSubscriptionId: input.subscription.id,
+            storedSubscriptionId: account.stripeSubscriptionId,
+        })
+        return
+    }
     const existingPlan = nullablePlanByKey(input.plans, existingAccount?.planKey ?? null)
     const plan =
         nullablePlanByKey(input.plans, input.subscription.metadata?.plan_key ?? null) ??
@@ -581,12 +706,17 @@ async function processSubscriptionChanged(input: {
         workspaceId,
         stripeCustomerId: input.subscription.customer,
         stripeSubscriptionId: input.subscription.id,
-        planStatus: input.deleted
-            ? 'canceled'
-            : planStatusFromStripeSubscription(input.subscription.status),
+        planStatus:
+            input.eventType === 'deleted'
+                ? 'canceled'
+                : planStatusFromStripeSubscription(input.subscription.status),
         planKey: plan?.key,
         includedMonthlyCreditCents: plan?.includedCents,
     })
+}
+
+function stripeCheckoutSessionPaid(session: StripeCheckoutSession): boolean {
+    return session.payment_status === 'paid' || session.payment_status === 'no_payment_required'
 }
 
 async function processCheckoutCompleted(input: {
@@ -603,18 +733,31 @@ async function processCheckoutCompleted(input: {
         env: input.env,
         workspaceId,
     })
-    await upsertHostedStripeCustomer({
+    const paid = stripeCheckoutSessionPaid(input.session)
+    const upsert = await upsertHostedStripeCustomer({
         env: input.env,
         workspaceId,
         stripeCustomerId: input.session.customer,
         stripeSubscriptionId: input.session.subscription,
-        planStatus: input.session.subscription ? 'active' : undefined,
+        planStatus: input.session.subscription && paid ? 'active' : undefined,
         planKey: input.session.metadata?.plan_key ?? undefined,
     })
+    if (input.session.subscription && !paid) {
+        console.warn('Stripe subscription checkout completed without payment; not activating', {
+            workspaceId,
+            checkoutSessionId: input.session.id,
+            paymentStatus: input.session.payment_status,
+        })
+    }
     if (kind.data === 'credit_topup') {
         const amountCents = input.session.amount_subtotal
         if (input.session.payment_status !== 'paid') {
-            throw new Error('Stripe top-up checkout session was not paid')
+            console.warn('Stripe top-up checkout session is not paid yet; skipping credit', {
+                workspaceId,
+                checkoutSessionId: input.session.id,
+                paymentStatus: input.session.payment_status,
+            })
+            return
         }
         if (!amountCents) {
             throw new Error('Stripe top-up checkout session is missing a pre-tax subtotal')
@@ -627,13 +770,253 @@ async function processCheckoutCompleted(input: {
             idempotencyKey: `stripe_checkout:${input.session.id}`,
             stripeEventId: input.eventId,
             stripeCheckoutSessionId: input.session.id,
+            stripePaymentIntentId: input.session.payment_intent,
             metadata: {
                 checkoutKind: kind.data,
                 amountSubtotalCents: amountCents,
                 amountTotalCents: input.session.amount_total,
+                ...(upsert.reason === 'customer_mismatch' ? { stripeCustomerMismatch: true } : {}),
             },
         })
     }
+}
+
+async function applyHostedClawback(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    source: HostedBillingClawbackSource
+    requestedCents: number
+    idempotencyKey: string
+    stripeEventId: string
+    stripePaymentIntentId: string | null
+    freezeAlways: boolean
+    auditAction: string
+    auditPayload: Record<string, string | number | boolean | null>
+    metadata: Record<string, unknown>
+}): Promise<void> {
+    const result = await clawbackHostedBalance({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        source: input.source,
+        requestedCents: input.requestedCents,
+        idempotencyKey: input.idempotencyKey,
+        stripeEventId: input.stripeEventId,
+        stripePaymentIntentId: input.stripePaymentIntentId,
+        metadata: input.metadata,
+    })
+    const freeze = input.freezeAlways || result.shortfallCents > 0
+    if (freeze) {
+        await setHostedBillingFrozen({
+            env: input.env,
+            workspaceId: input.workspaceId,
+            frozen: true,
+        })
+        console.error('Hosted billing account frozen after Stripe clawback', {
+            workspaceId: input.workspaceId,
+            source: input.source,
+            requestedCents: input.requestedCents,
+            clawedBackCents: result.clawedBackCents,
+            shortfallCents: result.shortfallCents,
+        })
+    }
+    await appendHostedAudit({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        actorUserId: null,
+        roomId: null,
+        action: input.auditAction,
+        payload: {
+            ...input.auditPayload,
+            requestedCents: input.requestedCents,
+            clawedBackCents: result.clawedBackCents,
+            shortfallCents: result.shortfallCents,
+            frozen: freeze,
+        },
+    })
+}
+
+async function processChargeRefunded(input: {
+    env: AgentRoomHostedEnv
+    eventId: string
+    charge: StripeCharge
+}): Promise<void> {
+    if (!input.charge.id) {
+        throw new Error('Stripe charge payload is missing an id')
+    }
+    if (!input.charge.payment_intent) {
+        console.error('Stripe refunded charge has no payment intent; cannot map to a workspace', {
+            chargeId: input.charge.id,
+            stripeEventId: input.eventId,
+        })
+        return
+    }
+    const credit = await findHostedTopupCreditByPaymentIntentId({
+        env: input.env,
+        stripePaymentIntentId: input.charge.payment_intent,
+    })
+    if (!credit) {
+        console.warn('Stripe refunded charge does not match a hosted top-up credit', {
+            chargeId: input.charge.id,
+            stripePaymentIntentId: input.charge.payment_intent,
+            stripeEventId: input.eventId,
+        })
+        return
+    }
+    const targetCents = Math.min(input.charge.amount_refunded ?? 0, credit.amountCents)
+    if (targetCents <= 0) {
+        return
+    }
+    const priorClawbacks = await listHostedClawbacksByPaymentIntentId({
+        env: input.env,
+        workspaceId: credit.workspaceId,
+        stripePaymentIntentId: input.charge.payment_intent,
+    })
+    const priorRequestedCents = priorClawbacks
+        .filter((entry) => entry.source === 'stripe_refund_clawback')
+        .reduce((sum, entry) => {
+            const requested = entry.metadata.requestedCents
+            return sum + (typeof requested === 'number' ? requested : entry.amountCents)
+        }, 0)
+    const deltaCents = targetCents - priorRequestedCents
+    if (deltaCents <= 0) {
+        return
+    }
+    await applyHostedClawback({
+        env: input.env,
+        workspaceId: credit.workspaceId,
+        source: 'stripe_refund_clawback',
+        requestedCents: deltaCents,
+        idempotencyKey: `stripe_refund:${input.charge.id}:${targetCents}`,
+        stripeEventId: input.eventId,
+        stripePaymentIntentId: input.charge.payment_intent,
+        freezeAlways: false,
+        auditAction: 'hosted_billing_refund_clawback',
+        auditPayload: {
+            chargeId: input.charge.id,
+            amountRefundedCents: input.charge.amount_refunded ?? 0,
+            originalCreditCents: credit.amountCents,
+        },
+        metadata: {
+            chargeId: input.charge.id,
+            amountRefundedCents: input.charge.amount_refunded ?? 0,
+            originalCreditCents: credit.amountCents,
+            originalCreditLedgerEntryId: credit.id,
+        },
+    })
+}
+
+async function processChargeDisputeCreated(input: {
+    env: AgentRoomHostedEnv
+    eventId: string
+    dispute: StripeDispute
+}): Promise<void> {
+    if (!input.dispute.id) {
+        throw new Error('Stripe dispute payload is missing an id')
+    }
+    if (!input.dispute.payment_intent) {
+        console.error('Stripe dispute has no payment intent; cannot map to a workspace', {
+            disputeId: input.dispute.id,
+            chargeId: input.dispute.charge,
+            stripeEventId: input.eventId,
+        })
+        return
+    }
+    const credit = await findHostedTopupCreditByPaymentIntentId({
+        env: input.env,
+        stripePaymentIntentId: input.dispute.payment_intent,
+    })
+    if (!credit) {
+        console.warn('Stripe dispute does not match a hosted top-up credit', {
+            disputeId: input.dispute.id,
+            stripePaymentIntentId: input.dispute.payment_intent,
+            stripeEventId: input.eventId,
+        })
+        return
+    }
+    const requestedCents = Math.min(input.dispute.amount ?? 0, credit.amountCents)
+    if (requestedCents <= 0) {
+        await setHostedBillingFrozen({
+            env: input.env,
+            workspaceId: credit.workspaceId,
+            frozen: true,
+        })
+        return
+    }
+    await applyHostedClawback({
+        env: input.env,
+        workspaceId: credit.workspaceId,
+        source: 'stripe_dispute_clawback',
+        requestedCents,
+        idempotencyKey: `stripe_dispute:${input.dispute.id}`,
+        stripeEventId: input.eventId,
+        stripePaymentIntentId: input.dispute.payment_intent,
+        freezeAlways: true,
+        auditAction: 'hosted_billing_dispute_clawback',
+        auditPayload: {
+            disputeId: input.dispute.id,
+            chargeId: input.dispute.charge,
+            disputeAmountCents: input.dispute.amount ?? 0,
+            originalCreditCents: credit.amountCents,
+        },
+        metadata: {
+            disputeId: input.dispute.id,
+            chargeId: input.dispute.charge,
+            disputeAmountCents: input.dispute.amount ?? 0,
+            originalCreditCents: credit.amountCents,
+            originalCreditLedgerEntryId: credit.id,
+        },
+    })
+}
+
+async function processCheckoutAsyncPaymentFailed(input: {
+    env: AgentRoomHostedEnv
+    eventId: string
+    session: StripeCheckoutSession
+}): Promise<void> {
+    const workspaceId = input.session.metadata?.workspace_id
+    const kind = hostedBillingCheckoutKindSchema.safeParse(input.session.metadata?.kind)
+    if (!workspaceId || !kind.success) {
+        throw new Error('Stripe checkout session is missing hosted billing metadata')
+    }
+    if (kind.data !== 'credit_topup') {
+        return
+    }
+    await ensureHostedBillingAccount({
+        env: input.env,
+        workspaceId,
+    })
+    const credit = await findLedgerEntryByIdempotencyKey({
+        env: input.env,
+        workspaceId,
+        idempotencyKey: `stripe_checkout:${input.session.id}`,
+    })
+    if (!credit) {
+        console.warn('Stripe async top-up payment failed before any credit was granted', {
+            workspaceId,
+            checkoutSessionId: input.session.id,
+        })
+        return
+    }
+    await applyHostedClawback({
+        env: input.env,
+        workspaceId,
+        source: 'stripe_refund_clawback',
+        requestedCents: credit.amountCents,
+        idempotencyKey: `stripe_async_failed:${input.session.id}`,
+        stripeEventId: input.eventId,
+        stripePaymentIntentId: input.session.payment_intent ?? credit.stripePaymentIntentId,
+        freezeAlways: false,
+        auditAction: 'hosted_billing_async_payment_failed_clawback',
+        auditPayload: {
+            checkoutSessionId: input.session.id,
+            originalCreditCents: credit.amountCents,
+        },
+        metadata: {
+            checkoutSessionId: input.session.id,
+            originalCreditCents: credit.amountCents,
+            originalCreditLedgerEntryId: credit.id,
+        },
+    })
 }
 
 async function processInvoicePaid(input: {
@@ -662,13 +1045,33 @@ async function processInvoicePaid(input: {
         env: input.env,
         workspaceId,
     })
+    if (
+        account.stripeSubscriptionId &&
+        account.stripeSubscriptionId !== input.invoice.subscription
+    ) {
+        console.warn('Ignoring Stripe invoice for a non-current subscription', {
+            workspaceId,
+            invoiceId: input.invoice.id,
+            invoiceSubscriptionId: input.invoice.subscription,
+            storedSubscriptionId: account.stripeSubscriptionId,
+        })
+        return
+    }
+    if (account.planStatus === 'canceled') {
+        console.warn('Ignoring stale Stripe invoice for a canceled subscription', {
+            workspaceId,
+            invoiceId: input.invoice.id,
+            invoiceSubscriptionId: input.invoice.subscription,
+        })
+        return
+    }
     const plan = resolveInvoicePlan({
         plans: input.plans,
         planKey: account.planKey,
         linePriceId: input.invoice.linePriceId,
     })
 
-    await upsertHostedStripeCustomer({
+    const upsert = await upsertHostedStripeCustomer({
         env: input.env,
         workspaceId,
         stripeCustomerId: input.invoice.customer,
@@ -677,6 +1080,13 @@ async function processInvoicePaid(input: {
         planKey: plan.key,
         includedMonthlyCreditCents: plan.includedCents,
     })
+    if (!upsert.updated) {
+        console.error('Skipping Stripe invoice credit after customer mismatch', {
+            workspaceId,
+            invoiceId: input.invoice.id,
+        })
+        return
+    }
 
     await expireIncludedBalance({
         env: input.env,

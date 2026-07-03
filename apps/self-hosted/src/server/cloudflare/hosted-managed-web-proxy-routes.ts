@@ -3,6 +3,7 @@ import type { AgentRoomHostedEnv } from './bindings'
 import {
     assertHostedQuotaAllowed,
     hostedQuotaDeniedResponse,
+    refundHostedProviderSpend,
     type HostedQuotaCheckInput,
 } from './hosted-abuse-controls'
 import {
@@ -433,6 +434,7 @@ export async function hostedBrowserbaseProxy(
     let usageIdempotencyKey: string | null = null
     let reservationId: string | null = null
     let pendingBrowserbaseSlotId: string | null = null
+    let refundConsumedSpend: (() => Promise<void>) | null = null
     if (operation.billable && operation.costMicros !== null) {
         const usageRequestResult = await hostedProviderProxyUsageRequest({
             env,
@@ -570,6 +572,28 @@ export async function hostedBrowserbaseProxy(
             })
             return quotaConsumeResponse
         }
+        const consumedUsageContext = usageRequest.usageContext
+        refundConsumedSpend = async () => {
+            try {
+                await refundHostedProviderSpend({
+                    env,
+                    workspaceId: proxyPath.workspaceId,
+                    roomId: proxyPath.roomId,
+                    sessionKey: consumedUsageContext.sessionKey,
+                    runId: consumedUsageContext.runId,
+                    jobId: consumedUsageContext.jobId,
+                    action: quotaCheck.action,
+                    cents: reservationCents,
+                })
+            } catch (error) {
+                console.error('Hosted provider spend counter refund failed', {
+                    workspaceId: proxyPath.workspaceId,
+                    roomId: proxyPath.roomId,
+                    provider: 'browserbase',
+                    error: error instanceof Error ? error.message : error,
+                })
+            }
+        }
     }
 
     const accept = request.headers.get('accept')
@@ -595,6 +619,7 @@ export async function hostedBrowserbaseProxy(
             workspaceId: proxyPath.workspaceId,
             reservationId,
         })
+        await refundConsumedSpend?.()
         throw error
     }
     const responseHeaders = hostedProviderResponseHeaders(response)
@@ -611,6 +636,7 @@ export async function hostedBrowserbaseProxy(
             workspaceId: proxyPath.workspaceId,
             reservationId,
         })
+        await refundConsumedSpend?.()
         return new Response(responseText, {
             status: response.status,
             statusText: response.statusText,
@@ -631,6 +657,7 @@ export async function hostedBrowserbaseProxy(
                 workspaceId: proxyPath.workspaceId,
                 reservationId,
             })
+            await refundConsumedSpend?.()
             return hostedJsonResponse(
                 {
                     ok: false,
@@ -672,6 +699,7 @@ export async function hostedBrowserbaseProxy(
                 workspaceId: proxyPath.workspaceId,
                 reservationId,
             })
+            await refundConsumedSpend?.()
             try {
                 await releaseBrowserbaseProviderSession({
                     apiKey,
@@ -953,6 +981,25 @@ export async function hostedManagedFetchProxy(
             workspaceId: proxyPath.workspaceId,
             reservationId: reservation,
         })
+        try {
+            await refundHostedProviderSpend({
+                env,
+                workspaceId: proxyPath.workspaceId,
+                roomId: proxyPath.roomId,
+                sessionKey: usageRequest.usageContext.sessionKey,
+                runId: usageRequest.usageContext.runId,
+                jobId: usageRequest.usageContext.jobId,
+                action: 'provider_fetch_url',
+                cents: reservationCents,
+            })
+        } catch (refundError) {
+            console.error('Hosted provider spend counter refund failed', {
+                workspaceId: proxyPath.workspaceId,
+                roomId: proxyPath.roomId,
+                provider: 'fetch_url',
+                error: refundError instanceof Error ? refundError.message : refundError,
+            })
+        }
         return hostedJsonResponse(
             {
                 ok: false,

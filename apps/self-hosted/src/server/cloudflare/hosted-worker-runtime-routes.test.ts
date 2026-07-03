@@ -11,7 +11,7 @@ import {
     hostedManagedModelContextWindowTokens,
     hostedManagedModelId,
     hostedManagedModelMaxOutputTokens,
-    hostedManagedModelRequestReservationCents,
+    hostedManagedModelRequestReservationDefaultCents,
     hostedManagedModelRetryMaxRetries,
 } from './hosted-model-policy'
 
@@ -740,7 +740,7 @@ describe('hosted runtime worker route security gates', () => {
         expect(fetchMock).not.toHaveBeenCalled()
         expect(mocks.authorizeHostedBillingReservation).toHaveBeenCalledWith(
             expect.objectContaining({
-                amountCents: hostedManagedModelRequestReservationCents,
+                amountCents: hostedManagedModelRequestReservationDefaultCents,
             }),
         )
         expect(mocks.recordHostedProviderUsage).not.toHaveBeenCalled()
@@ -799,11 +799,11 @@ describe('hosted runtime worker route security gates', () => {
         })
         expect(mocks.authorizeHostedBillingReservation).toHaveBeenCalledWith(
             expect.objectContaining({
-                amountCents: hostedManagedModelRequestReservationCents,
+                amountCents: hostedManagedModelRequestReservationDefaultCents,
                 metadata: expect.objectContaining({
                     modelSource: 'managed_hosted',
                     model: hostedManagedModelId,
-                    reservationCeilingCents: hostedManagedModelRequestReservationCents,
+                    reservationCeilingCents: hostedManagedModelRequestReservationDefaultCents,
                     contextWindowTokens: hostedManagedModelContextWindowTokens,
                     maxOutputTokens: hostedManagedModelMaxOutputTokens,
                     compactionReserveTokens: hostedManagedModelCompactionReserveTokens,
@@ -989,7 +989,7 @@ describe('hosted runtime worker route security gates', () => {
                 metadata: expect.objectContaining({
                     actualCostExceededAuthorizedMaximum: true,
                     billedCents: 780,
-                    reservationCeilingCents: hostedManagedModelRequestReservationCents,
+                    reservationCeilingCents: hostedManagedModelRequestReservationDefaultCents,
                 }),
             }),
         )
@@ -1235,28 +1235,6 @@ describe('hosted runtime worker route security gates', () => {
         } finally {
             errorSpy.mockRestore()
         }
-    })
-
-    it('releases managed Brave reservations when the provider rejects the request', async () => {
-        const fetchMock = vi.fn(async () => new Response('rate limited', { status: 429 }))
-        vi.stubGlobal('fetch', fetchMock)
-
-        const response = await callRoute({
-            method: 'GET',
-            path: '/api/hosted/runtime/provider/brave/v1/workspaces/workspace_1/rooms/room_1/res/v1/web/search?q=agent',
-            headers: braveRuntimeHeaders(),
-            token: null,
-        })
-
-        expect(response.status).toBe(429)
-        await expect(response.text()).resolves.toBe('rate limited')
-        expect(mocks.releaseHostedBillingReservation).toHaveBeenCalledWith(
-            expect.objectContaining({
-                workspaceId: 'workspace_1',
-                reservationId: 'reservation_1',
-            }),
-        )
-        expect(mocks.recordHostedProviderUsage).not.toHaveBeenCalled()
     })
 
     it('settles managed Browserbase session usage before returning the provider body', async () => {

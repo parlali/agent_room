@@ -14,7 +14,7 @@ import {
     recordHostedProviderUsage,
 } from './hosted-usage-billing'
 import { FakeD1, hostedEnv, totalBalance } from './hosted-billing-test-support'
-import { hostedManagedModelRequestReservationCents } from './hosted-model-policy'
+import { hostedManagedModelRequestReservationDefaultCents } from './hosted-model-policy'
 
 describe('hosted billing money units', () => {
     it('settles micros to integer cents without rounding down billable usage', () => {
@@ -389,7 +389,7 @@ describe('hosted billing reservations', () => {
             env,
             workspaceId: 'workspace_1',
             source: 'subscription_included_credit',
-            amountCents: hostedManagedModelRequestReservationCents,
+            amountCents: hostedManagedModelRequestReservationDefaultCents,
             idempotencyKey: 'included_gate',
             now: new Date(1),
         })
@@ -398,7 +398,7 @@ describe('hosted billing reservations', () => {
             workspaceId: 'workspace_1',
             roomId: 'room_1',
             provider: 'openrouter',
-            amountCents: hostedManagedModelRequestReservationCents,
+            amountCents: hostedManagedModelRequestReservationDefaultCents,
             idempotencyKey: 'expired_gate_reservation',
             expiresAt: new Date(5),
             now: new Date(2),
@@ -425,8 +425,54 @@ describe('hosted billing reservations', () => {
             workspaceId: 'workspace_1',
         })
         expect(db.reservations.get(reservation.id)?.status).toBe('expired')
-        expect(account.availableBalanceCents).toBe(hostedManagedModelRequestReservationCents)
+        expect(account.availableBalanceCents).toBe(hostedManagedModelRequestReservationDefaultCents)
         expect(account.reservedBalanceCents).toBe(0)
+    })
+
+    it('gates the pre-send balance against the configured reservation ceiling', async () => {
+        const db = new FakeD1()
+        const env = {
+            ...hostedEnv(db),
+            AGENT_ROOM_BILLING_MODEL_RESERVATION_CENTS: '900',
+        }
+        await ensureHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+            now: new Date(0),
+        })
+        await creditHostedBalance({
+            env,
+            workspaceId: 'workspace_1',
+            source: 'subscription_included_credit',
+            amountCents: hostedManagedModelRequestReservationDefaultCents,
+            idempotencyKey: 'configured_gate',
+            now: new Date(1),
+        })
+
+        await expect(
+            assertHostedProviderCreditsAvailable({
+                env,
+                workspaceId: 'workspace_1',
+                now: new Date(2),
+            }),
+        ).rejects.toThrow('Hosted billing balance is exhausted')
+
+        await creditHostedBalance({
+            env,
+            workspaceId: 'workspace_1',
+            source: 'subscription_included_credit',
+            amountCents: 400,
+            idempotencyKey: 'configured_gate_topup',
+            now: new Date(3),
+        })
+
+        await expect(
+            assertHostedProviderCreditsAvailable({
+                env,
+                workspaceId: 'workspace_1',
+                now: new Date(4),
+            }),
+        ).resolves.toBeUndefined()
     })
 })
 

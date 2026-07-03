@@ -368,6 +368,7 @@ describe('hosted billing usage markup', () => {
             stripeEventId: null,
             stripeCheckoutSessionId: null,
             stripeInvoiceId: null,
+            stripePaymentIntentId: null,
             usageEventId,
             idempotencyKey: `hosted_usage:${usageEventId}`,
             metadata: '{}',

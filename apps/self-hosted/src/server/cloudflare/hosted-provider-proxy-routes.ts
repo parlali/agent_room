@@ -3,6 +3,7 @@ import {
     assertHostedQuotaAllowed,
     hostedQuotaDeniedResponse,
     recordHostedProviderSpend,
+    refundHostedProviderSpend,
     type HostedQuotaCheckInput,
 } from './hosted-abuse-controls'
 import {
@@ -30,7 +31,6 @@ import {
     hostedManagedModelMaxOutputTokens,
     hostedManagedModelPreflightSpendEstimateCents,
     hostedManagedModelReasoningEffort,
-    hostedManagedModelRequestReservationCents,
 } from './hosted-model-policy'
 import {
     authorizeFixedProviderReservation,
@@ -321,7 +321,7 @@ export async function hostedOpenRouterProxy(
         )
     }
     const providerRequest = await hostedOpenRouterProviderRequestBody(request)
-    const reservationCents = hostedManagedModelRequestReservationCents
+    const reservationCents = config.billing.modelReservationCents
     const managedModelMetadata = hostedManagedModelAuditMetadata({
         reservationCents,
     })
@@ -824,6 +824,27 @@ export async function hostedBraveProxy(
     if (quotaConsumeResponse) {
         return quotaConsumeResponse
     }
+    const refundConsumedSpend = async () => {
+        try {
+            await refundHostedProviderSpend({
+                env,
+                workspaceId: proxyPath.workspaceId,
+                roomId: proxyPath.roomId,
+                sessionKey: usageContext.sessionKey,
+                runId: usageContext.runId,
+                jobId: usageContext.jobId,
+                action: 'provider_brave',
+                cents: reservationCents,
+            })
+        } catch (error) {
+            console.error('Hosted provider spend counter refund failed', {
+                workspaceId: proxyPath.workspaceId,
+                roomId: proxyPath.roomId,
+                provider: 'brave',
+                error: error instanceof Error ? error.message : error,
+            })
+        }
+    }
 
     const headers = new Headers()
     const accept = request.headers.get('accept')
@@ -846,6 +867,7 @@ export async function hostedBraveProxy(
             workspaceId: proxyPath.workspaceId,
             reservationId,
         })
+        await refundConsumedSpend()
         throw error
     }
     const responseHeaders = hostedProviderResponseHeaders(response)
@@ -856,6 +878,7 @@ export async function hostedBraveProxy(
             workspaceId: proxyPath.workspaceId,
             reservationId,
         })
+        await refundConsumedSpend()
         return new Response(responseText, {
             status: response.status,
             statusText: response.statusText,

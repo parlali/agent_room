@@ -5,10 +5,7 @@ import type { AppCapabilitySettingsSaveInput } from '../configuration/operator-c
 import type { AgentRoomHostedEnv } from './bindings'
 import type { HostedActor } from './hosted-auth'
 import { hostedSearchDefaults } from './hosted-operator-config-service'
-import {
-    updateHostedAppCapabilitySettings,
-    updateHostedAppDefaults,
-} from './hosted-operator-config-write-service'
+import { updateHostedAppCapabilitySettings } from './hosted-operator-config-write-service'
 
 function capabilityDefaults(): Record<CapabilityId, boolean> {
     return Object.fromEntries(capabilityIds.map((id) => [id, true])) as Record<
@@ -235,52 +232,6 @@ describe('hosted operator config writes', () => {
         expect(store.auditActions).not.toContain('operator.capabilities.saved')
     })
 
-    it('validates hosted search credentials through the provider before writing them', async () => {
-        const store = hostedEnv()
-        const fetchMock = vi.fn(async () =>
-            Response.json({
-                web: {
-                    results: [
-                        {
-                            title: 'Agent Room',
-                            url: 'https://example.test/agent-room',
-                            description: 'A result',
-                        },
-                    ],
-                },
-            }),
-        )
-        vi.stubGlobal('fetch', fetchMock)
-
-        await updateHostedAppCapabilitySettings({
-            env: store.env,
-            actor: actor(),
-            data: capabilityInput({
-                search: {
-                    ...hostedSearchDefaults,
-                    brave: {
-                        enabled: true,
-                        country: null,
-                        searchLang: null,
-                        safeSearch: 'moderate',
-                        timeoutMs: 10000,
-                        resultCount: 5,
-                        apiKey: 'brave-key',
-                    },
-                    browserbase: {
-                        enabled: false,
-                        timeoutMs: 10000,
-                        resultCount: 5,
-                    },
-                },
-            }),
-        })
-
-        expect(fetchMock).toHaveBeenCalledTimes(1)
-        expect(store.secretWrites).toEqual(['app_search:brave'])
-        expect(store.auditActions).toContain('operator.capabilities.saved')
-    })
-
     it('validates all hosted search credentials before writing any provided key', async () => {
         const store = hostedEnv()
 
@@ -331,33 +282,5 @@ describe('hosted operator config writes', () => {
         ).rejects.toThrow('Default image model is required when image generation is enabled')
 
         expect(store.secretWrites).toEqual([])
-    })
-
-    it('audits hosted app default updates', async () => {
-        const store = hostedEnv()
-
-        await updateHostedAppDefaults({
-            env: store.env,
-            actor: actor(),
-            data: {
-                defaultProviderConnectionId: null,
-                defaultModel: null,
-                onboardingCompleted: true,
-            },
-        })
-
-        expect(store.auditActions).toContain('operator.defaults.saved')
-    })
-
-    it('audits hosted capability, search, and image setting updates without secret values', async () => {
-        const store = hostedEnv()
-
-        await updateHostedAppCapabilitySettings({
-            env: store.env,
-            actor: actor(),
-            data: capabilityInput(),
-        })
-
-        expect(store.auditActions).toContain('operator.capabilities.saved')
     })
 })

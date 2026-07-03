@@ -3,6 +3,7 @@ import type { AgentRoomHostedEnv } from './bindings'
 import { readHostedBillingAccount } from './hosted-billing-repository'
 import type { HostedBillingAccountSnapshot, HostedBillingPlanStatus } from './hosted-billing-types'
 import { isHostedBillingPlanStatusActive } from './hosted-billing-types'
+import { hostedBillingModelReservationDefaultCents } from './hosted-config-contract'
 import { resolveHostedConfig } from './hosted-config'
 
 export const hostedManagedModelProvider = 'openrouter' as const
@@ -10,7 +11,8 @@ export const hostedManagedModelId = 'moonshotai/kimi-k2.7-code'
 export const hostedManagedModelLabel = 'Hosted'
 export const hostedManagedModelInputModalities: Array<'text' | 'image'> = ['text', 'image']
 export const hostedManagedModelPolicyId = 'managed-hosted-model-v1'
-export const hostedManagedModelRequestReservationCents = 500
+export const hostedManagedModelRequestReservationDefaultCents =
+    hostedBillingModelReservationDefaultCents
 export const hostedManagedModelContextWindowTokens = 128000
 
 export const hostedManagedModelPreflightSpendEstimateCents = 50
@@ -30,11 +32,11 @@ export function estimateHostedManagedModelCostMicros(input: {
     const cachedTokens = Math.max(0, input.cachedTokens ?? 0)
     const outputTokens = Math.max(0, input.outputTokens ?? 0)
     const reasoningTokens = Math.max(0, input.reasoningTokens ?? 0)
-    if (inputTokens + cachedTokens + outputTokens + reasoningTokens === 0) {
+    const promptTokens = Math.max(inputTokens, cachedTokens)
+    const completionTokens = Math.max(outputTokens, reasoningTokens)
+    if (promptTokens + completionTokens === 0) {
         return null
     }
-    const promptTokens = inputTokens + cachedTokens
-    const completionTokens = outputTokens + reasoningTokens
     const micros =
         (promptTokens * hostedManagedModelInputCostMicrosPerMillionTokens +
             completionTokens * hostedManagedModelOutputCostMicrosPerMillionTokens) /

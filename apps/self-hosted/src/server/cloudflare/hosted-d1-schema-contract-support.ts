@@ -265,7 +265,9 @@ export async function insertHostedBillingReservation(input: {
 }
 
 export function extractTableDefinition(sql: string, tableName: string): string {
-    const start = sql.indexOf(`CREATE TABLE ${tableName} `)
+    const rebuiltStart = sql.lastIndexOf(`CREATE TABLE ${tableName}_migrated (`)
+    const start =
+        rebuiltStart !== -1 ? rebuiltStart : sql.lastIndexOf(`CREATE TABLE ${tableName} (`)
     if (start === -1) {
         throw new Error(`Missing D1 table ${tableName}`)
     }

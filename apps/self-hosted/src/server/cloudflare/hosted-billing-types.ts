@@ -16,6 +16,8 @@ export const hostedBillingLedgerSources = [
     'subscription_included_credit',
     'included_credit_expiry',
     'stripe_topup',
+    'stripe_refund_clawback',
+    'stripe_dispute_clawback',
     'hosted_openrouter_usage',
     'hosted_brave_usage',
     'hosted_browserbase_usage',
@@ -49,11 +51,23 @@ export type HostedBillingReservationStatus = (typeof hostedBillingReservationSta
 export type HostedBillingReservationProvider = (typeof hostedBillingReservationProviders)[number]
 
 export class HostedBillingBalanceExhaustedError extends Error {
-    constructor() {
-        super('Hosted billing balance is exhausted')
+    constructor(message = 'Hosted billing balance is exhausted') {
+        super(message)
         this.name = 'HostedBillingBalanceExhaustedError'
     }
 }
+
+export class HostedBillingFrozenError extends HostedBillingBalanceExhaustedError {
+    constructor() {
+        super('Hosted billing account is frozen after a refund or dispute')
+        this.name = 'HostedBillingFrozenError'
+    }
+}
+
+export type HostedBillingClawbackSource = Extract<
+    HostedBillingLedgerSource,
+    'stripe_refund_clawback' | 'stripe_dispute_clawback'
+>
 
 export interface HostedBillingAccountSnapshot {
     workspaceId: string
@@ -61,6 +75,7 @@ export interface HostedBillingAccountSnapshot {
     stripeSubscriptionId: string | null
     planKey: string
     planStatus: HostedBillingPlanStatus
+    billingFrozen: boolean
     includedBalanceCents: number
     purchasedBalanceCents: number
     currentBalanceCents: number
@@ -83,6 +98,7 @@ export interface HostedBillingLedgerEntry {
     stripeEventId: string | null
     stripeCheckoutSessionId: string | null
     stripeInvoiceId: string | null
+    stripePaymentIntentId: string | null
     usageEventId: string | null
     idempotencyKey: string
     metadata: Record<string, unknown>

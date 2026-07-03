@@ -6,6 +6,10 @@ export const hostedConfigValues = {
     runtimeStorage: 'r2',
 } as const
 
+export const hostedBillingModelReservationDefaultCents = 500
+export const hostedBillingModelReservationMinCents = 25
+export const hostedBillingModelReservationMaxCents = 2000
+
 export const hostedRequiredSecretNames = [
     'BETTER_AUTH_SECRET',
     'BETTER_AUTH_URL',
@@ -82,6 +86,12 @@ export const hostedConfigSchema = z
     .object({
         AGENT_ROOM_AUTH_MODE: z.literal(hostedConfigValues.authMode),
         AGENT_ROOM_BILLING_USAGE_MARKUP_BPS: z.coerce.number().int().min(10000),
+        AGENT_ROOM_BILLING_MODEL_RESERVATION_CENTS: z.coerce
+            .number()
+            .int()
+            .min(hostedBillingModelReservationMinCents)
+            .max(hostedBillingModelReservationMaxCents)
+            .default(hostedBillingModelReservationDefaultCents),
         AGENT_ROOM_BILLING_TAX_MODE: z.enum(['none', 'automatic']),
         AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS: z.coerce.number().int().min(1),
         AGENT_ROOM_HOSTED_DISABLE_RUNTIME_EXECUTION: optionalBooleanSchema,

@@ -155,6 +155,38 @@ export async function recordCounters(input: {
         .run()
 }
 
+export async function refundCounters(input: {
+    check: HostedQuotaCheckInput
+    rules: CounterRule[]
+    now: string
+}): Promise<void> {
+    if (input.rules.length === 0) {
+        return
+    }
+    await input.check.env.AGENT_ROOM_DB.batch(
+        input.rules.map((rule) =>
+            input.check.env.AGENT_ROOM_DB.prepare(
+                `
+                    UPDATE hosted_quota_counter
+                    SET quantity = MAX(0, quantity - ?5),
+                        updated_at = ?6
+                    WHERE scope = ?1
+                      AND scope_id = ?2
+                      AND window_key = ?3
+                      AND counter_key = ?4
+                `,
+            ).bind(
+                rule.scope,
+                rule.scopeId,
+                rule.windowKey,
+                rule.counterKey,
+                rule.amount,
+                input.now,
+            ),
+        ),
+    )
+}
+
 function counterRuleValuesInsertSql(rules: CounterRule[]): string {
     return rules
         .map((_, index) => {

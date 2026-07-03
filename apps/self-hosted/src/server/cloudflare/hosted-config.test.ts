@@ -4,7 +4,9 @@ import { hostedBillingPlans, hostedCreditTopupPriceId } from '@agent-room/billin
 import { describe, expect, it } from 'vitest'
 import type { AgentRoomHostedEnv } from './bindings'
 import {
+    createHostedAuth,
     ensureHostedSessionWorkspace,
+    hostedSessionCookieCacheMaxAgeSeconds,
     hostedVerifiedEmailBillingUrl,
     mapHostedSessionToActor,
 } from './hosted-auth'
@@ -160,6 +162,7 @@ describe('hosted Cloudflare configuration', () => {
             billing: {
                 plans: hostedBillingPlans(),
                 usageMarkupBps: 13000,
+                modelReservationCents: 500,
                 taxMode: 'automatic',
                 maxConcurrentRoomsPerWorkspace: 3,
                 stripe: {
@@ -286,6 +289,54 @@ describe('hosted Cloudflare configuration', () => {
         expect(config.billing.usageMarkupBps).toBe(13000)
         expect(config.billing.taxMode).toBe('automatic')
         expect(config.billing.maxConcurrentRoomsPerWorkspace).toBe(3)
+    })
+
+    it('defaults the managed model reservation to 500 cents when unset', () => {
+        const config = resolveHostedConfig(
+            hostedEnv({
+                AGENT_ROOM_BILLING_MODEL_RESERVATION_CENTS: undefined,
+            }),
+        )
+        expect(config.billing.modelReservationCents).toBe(500)
+    })
+
+    it('resolves a configured managed model reservation override', () => {
+        const config = resolveHostedConfig(
+            hostedEnv({
+                AGENT_ROOM_BILLING_MODEL_RESERVATION_CENTS: '750',
+            }),
+        )
+        expect(config.billing.modelReservationCents).toBe(750)
+    })
+
+    it('fails closed when the managed model reservation is below the lower bound', () => {
+        expect(() =>
+            resolveHostedConfig(
+                hostedEnv({
+                    AGENT_ROOM_BILLING_MODEL_RESERVATION_CENTS: '10',
+                }),
+            ),
+        ).toThrow(/AGENT_ROOM_BILLING_MODEL_RESERVATION_CENTS/)
+    })
+
+    it('fails closed when the managed model reservation exceeds the upper bound', () => {
+        expect(() =>
+            resolveHostedConfig(
+                hostedEnv({
+                    AGENT_ROOM_BILLING_MODEL_RESERVATION_CENTS: '5000',
+                }),
+            ),
+        ).toThrow(/AGENT_ROOM_BILLING_MODEL_RESERVATION_CENTS/)
+    })
+
+    it('fails closed when the managed model reservation is not numeric', () => {
+        expect(() =>
+            resolveHostedConfig(
+                hostedEnv({
+                    AGENT_ROOM_BILLING_MODEL_RESERVATION_CENTS: 'not-a-number',
+                }),
+            ),
+        ).toThrow(/AGENT_ROOM_BILLING_MODEL_RESERVATION_CENTS/)
     })
 
     it('requires the managed Browserbase platform key', () => {
@@ -441,6 +492,16 @@ describe('hosted auth actor mapping', () => {
                 },
             }),
         ).toBeNull()
+    })
+
+    it('enables a short-lived session cookie cache so navigation does not hit D1 per request', async () => {
+        const auth = createHostedAuth(hostedEnv())
+        await (auth.$context as Promise<unknown>).catch(() => null)
+        expect(auth.options.session?.cookieCache).toEqual({
+            enabled: true,
+            maxAge: hostedSessionCookieCacheMaxAgeSeconds,
+        })
+        expect(hostedSessionCookieCacheMaxAgeSeconds).toBeLessThanOrEqual(5 * 60)
     })
 })
 

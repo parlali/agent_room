@@ -5,7 +5,7 @@ import {
     hostedManagedModelInputCostMicrosPerMillionTokens,
     hostedManagedModelOutputCostMicrosPerMillionTokens,
     hostedManagedModelPreflightSpendEstimateCents,
-    hostedManagedModelRequestReservationCents,
+    hostedManagedModelRequestReservationDefaultCents,
 } from './hosted-model-policy'
 
 describe('estimateHostedManagedModelCostMicros', () => {
@@ -41,12 +41,25 @@ describe('estimateHostedManagedModelCostMicros', () => {
         )
     })
 
-    it('counts cached tokens as prompt and reasoning tokens as completion', () => {
+    it('treats cached and reasoning tokens as subsets and never double-counts them', () => {
         const micros = estimateHostedManagedModelCostMicros({
-            inputTokens: 500_000,
-            cachedTokens: 500_000,
-            outputTokens: 500_000,
-            reasoningTokens: 500_000,
+            inputTokens: 1_000_000,
+            cachedTokens: 600_000,
+            outputTokens: 1_000_000,
+            reasoningTokens: 400_000,
+        })
+        expect(micros).toBe(
+            hostedManagedModelInputCostMicrosPerMillionTokens +
+                hostedManagedModelOutputCostMicrosPerMillionTokens,
+        )
+    })
+
+    it('falls back to the subset counts when only cached or reasoning tokens are reported', () => {
+        const micros = estimateHostedManagedModelCostMicros({
+            inputTokens: null,
+            cachedTokens: 1_000_000,
+            outputTokens: null,
+            reasoningTokens: 1_000_000,
         })
         expect(micros).toBe(
             hostedManagedModelInputCostMicrosPerMillionTokens +
@@ -71,7 +84,7 @@ describe('hosted managed spend-cap invariants', () => {
     it('keeps the preflight spend estimate well below the per-request reservation', () => {
         expect(hostedManagedModelPreflightSpendEstimateCents).toBeGreaterThan(0)
         expect(hostedManagedModelPreflightSpendEstimateCents).toBeLessThan(
-            hostedManagedModelRequestReservationCents,
+            hostedManagedModelRequestReservationDefaultCents,
         )
     })
 })

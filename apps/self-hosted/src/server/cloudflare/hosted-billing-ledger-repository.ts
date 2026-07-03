@@ -3,6 +3,7 @@ import {
     assertPositiveCents,
     bucketForCreditSource,
     HostedBillingBalanceExhaustedError,
+    type HostedBillingClawbackSource,
     type HostedBillingCreditSource,
     type HostedBillingLedgerEntry,
     type HostedBillingLedgerSource,
@@ -24,11 +25,29 @@ interface LedgerRow {
     stripeEventId: string | null
     stripeCheckoutSessionId: string | null
     stripeInvoiceId: string | null
+    stripePaymentIntentId?: string | null
     usageEventId: string | null
     idempotencyKey: string
     metadata: string
     createdAt: string
 }
+
+const ledgerSelectProjection = `
+    id,
+    workspace_id AS workspaceId,
+    direction,
+    source,
+    amount_cents AS amountCents,
+    balance_after_cents AS balanceAfterCents,
+    stripe_event_id AS stripeEventId,
+    stripe_checkout_session_id AS stripeCheckoutSessionId,
+    stripe_invoice_id AS stripeInvoiceId,
+    stripe_payment_intent_id AS stripePaymentIntentId,
+    usage_event_id AS usageEventId,
+    idempotency_key AS idempotencyKey,
+    metadata,
+    created_at AS createdAt
+`
 
 function mapLedger(row: LedgerRow): HostedBillingLedgerEntry {
     return {
@@ -41,6 +60,7 @@ function mapLedger(row: LedgerRow): HostedBillingLedgerEntry {
         stripeEventId: row.stripeEventId,
         stripeCheckoutSessionId: row.stripeCheckoutSessionId,
         stripeInvoiceId: row.stripeInvoiceId,
+        stripePaymentIntentId: row.stripePaymentIntentId ?? null,
         usageEventId: row.usageEventId,
         idempotencyKey: row.idempotencyKey,
         metadata: JSON.parse(row.metadata) as Record<string, unknown>,
@@ -56,19 +76,7 @@ export async function listHostedBillingLedger(input: {
     const result = await input.env.AGENT_ROOM_DB.prepare(
         `
             SELECT
-                id,
-                workspace_id AS workspaceId,
-                direction,
-                source,
-                amount_cents AS amountCents,
-                balance_after_cents AS balanceAfterCents,
-                stripe_event_id AS stripeEventId,
-                stripe_checkout_session_id AS stripeCheckoutSessionId,
-                stripe_invoice_id AS stripeInvoiceId,
-                usage_event_id AS usageEventId,
-                idempotency_key AS idempotencyKey,
-                metadata,
-                created_at AS createdAt
+                ${ledgerSelectProjection}
             FROM hosted_billing_ledger_entry
             WHERE workspace_id = ?1
             ORDER BY created_at DESC
@@ -92,6 +100,7 @@ export async function creditHostedBalance(input: {
     stripeEventId?: string | null
     stripeCheckoutSessionId?: string | null
     stripeInvoiceId?: string | null
+    stripePaymentIntentId?: string | null
     metadata?: Record<string, unknown>
     now?: Date
 }): Promise<HostedBillingLedgerEntry> {
@@ -122,9 +131,10 @@ export async function creditHostedBalance(input: {
                     usage_event_id,
                     idempotency_key,
                     metadata,
-                    created_at
+                    created_at,
+                    stripe_payment_intent_id
                 )
-                SELECT ?1, ?2, 'credit', ?3, ?4, ?5, ?6, ?7, ?8, NULL, ?9, ?10, ?11
+                SELECT ?1, ?2, 'credit', ?3, ?4, ?5, ?6, ?7, ?8, NULL, ?9, ?10, ?11, ?14
                 WHERE EXISTS (
                     SELECT 1
                     FROM hosted_billing_account
@@ -153,6 +163,7 @@ export async function creditHostedBalance(input: {
             now,
             before.includedBalanceCents,
             before.purchasedBalanceCents,
+            input.stripePaymentIntentId ?? null,
         ),
         input.env.AGENT_ROOM_DB.prepare(
             `
@@ -652,19 +663,7 @@ export async function findLedgerEntryByIdempotencyKey(input: {
     const row = await input.env.AGENT_ROOM_DB.prepare(
         `
             SELECT
-                id,
-                workspace_id AS workspaceId,
-                direction,
-                source,
-                amount_cents AS amountCents,
-                balance_after_cents AS balanceAfterCents,
-                stripe_event_id AS stripeEventId,
-                stripe_checkout_session_id AS stripeCheckoutSessionId,
-                stripe_invoice_id AS stripeInvoiceId,
-                usage_event_id AS usageEventId,
-                idempotency_key AS idempotencyKey,
-                metadata,
-                created_at AS createdAt
+                ${ledgerSelectProjection}
             FROM hosted_billing_ledger_entry
             WHERE workspace_id = ?1
               AND idempotency_key = ?2
@@ -674,4 +673,218 @@ export async function findLedgerEntryByIdempotencyKey(input: {
         .bind(input.workspaceId, input.idempotencyKey)
         .first<LedgerRow>()
     return row ? mapLedger(row) : null
+}
+
+export async function findHostedTopupCreditByPaymentIntentId(input: {
+    env: AgentRoomHostedEnv
+    stripePaymentIntentId: string
+}): Promise<HostedBillingLedgerEntry | null> {
+    const row = await input.env.AGENT_ROOM_DB.prepare(
+        `
+            SELECT
+                ${ledgerSelectProjection}
+            FROM hosted_billing_ledger_entry
+            WHERE stripe_payment_intent_id = ?1
+              AND direction = 'credit'
+              AND source = 'stripe_topup'
+            LIMIT 1
+        `,
+    )
+        .bind(input.stripePaymentIntentId)
+        .first<LedgerRow>()
+    return row ? mapLedger(row) : null
+}
+
+export async function listHostedClawbacksByPaymentIntentId(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    stripePaymentIntentId: string
+}): Promise<HostedBillingLedgerEntry[]> {
+    const result = await input.env.AGENT_ROOM_DB.prepare(
+        `
+            SELECT
+                ${ledgerSelectProjection}
+            FROM hosted_billing_ledger_entry
+            WHERE workspace_id = ?1
+              AND stripe_payment_intent_id = ?2
+              AND direction = 'debit'
+              AND source IN ('stripe_refund_clawback', 'stripe_dispute_clawback')
+            ORDER BY created_at ASC
+        `,
+    )
+        .bind(input.workspaceId, input.stripePaymentIntentId)
+        .all<LedgerRow>()
+    return result.results.map(mapLedger)
+}
+
+export interface HostedBillingClawbackResult {
+    requestedCents: number
+    clawedBackCents: number
+    shortfallCents: number
+    ledgerEntry: HostedBillingLedgerEntry | null
+}
+
+function clawbackResultFromEntry(entry: HostedBillingLedgerEntry): HostedBillingClawbackResult {
+    const metadata = entry.metadata
+    const requested =
+        typeof metadata.requestedCents === 'number' ? metadata.requestedCents : entry.amountCents
+    const shortfall =
+        typeof metadata.shortfallCents === 'number'
+            ? metadata.shortfallCents
+            : Math.max(0, requested - entry.amountCents)
+    return {
+        requestedCents: requested,
+        clawedBackCents: entry.amountCents,
+        shortfallCents: shortfall,
+        ledgerEntry: entry,
+    }
+}
+
+export async function clawbackHostedBalance(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    source: HostedBillingClawbackSource
+    requestedCents: number
+    idempotencyKey: string
+    stripeEventId?: string | null
+    stripePaymentIntentId?: string | null
+    metadata?: Record<string, unknown>
+    now?: Date
+}): Promise<HostedBillingClawbackResult> {
+    assertPositiveCents(input.requestedCents)
+    const existing = await findLedgerEntryByIdempotencyKey(input)
+    if (existing) {
+        return clawbackResultFromEntry(existing)
+    }
+
+    const id = crypto.randomUUID()
+    const now = nowIso(input.now)
+    const maxAttempts = 8
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        const retryExisting = await findLedgerEntryByIdempotencyKey(input)
+        if (retryExisting) {
+            return clawbackResultFromEntry(retryExisting)
+        }
+        const before = await readHostedBillingAccount(input)
+        const purchasedDraw = Math.min(before.purchasedBalanceCents, input.requestedCents)
+        const includedDraw = Math.min(
+            before.includedBalanceCents,
+            input.requestedCents - purchasedDraw,
+        )
+        const clawedBackCents = purchasedDraw + includedDraw
+        const shortfallCents = input.requestedCents - clawedBackCents
+        if (clawedBackCents === 0) {
+            console.error('Hosted billing clawback found no remaining balance to debit', {
+                workspaceId: input.workspaceId,
+                source: input.source,
+                requestedCents: input.requestedCents,
+                idempotencyKey: input.idempotencyKey,
+            })
+            return {
+                requestedCents: input.requestedCents,
+                clawedBackCents: 0,
+                shortfallCents,
+                ledgerEntry: null,
+            }
+        }
+        const balanceAfterCents = before.currentBalanceCents - clawedBackCents
+        const metadata = JSON.stringify({
+            ...input.metadata,
+            requestedCents: input.requestedCents,
+            clawedBackCents,
+            shortfallCents,
+            includedClawedCents: includedDraw,
+            purchasedClawedCents: purchasedDraw,
+        })
+        const [inserted, updated] = await input.env.AGENT_ROOM_DB.batch([
+            input.env.AGENT_ROOM_DB.prepare(
+                `
+                    INSERT INTO hosted_billing_ledger_entry (
+                        id,
+                        workspace_id,
+                        direction,
+                        source,
+                        amount_cents,
+                        balance_after_cents,
+                        stripe_event_id,
+                        stripe_checkout_session_id,
+                        stripe_invoice_id,
+                        stripe_payment_intent_id,
+                        usage_event_id,
+                        idempotency_key,
+                        metadata,
+                        created_at
+                    )
+                    SELECT ?1, ?2, 'debit', ?3, ?4, ?5, ?6, NULL, NULL, ?7, NULL, ?8, ?9, ?10
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM hosted_billing_account
+                        WHERE workspace_id = ?2
+                          AND included_balance_cents = ?11
+                          AND purchased_balance_cents = ?12
+                    )
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM hosted_billing_ledger_entry
+                          WHERE workspace_id = ?2
+                            AND idempotency_key = ?8
+                      )
+                `,
+            ).bind(
+                id,
+                input.workspaceId,
+                input.source,
+                clawedBackCents,
+                balanceAfterCents,
+                input.stripeEventId ?? null,
+                input.stripePaymentIntentId ?? null,
+                input.idempotencyKey,
+                metadata,
+                now,
+                before.includedBalanceCents,
+                before.purchasedBalanceCents,
+            ),
+            input.env.AGENT_ROOM_DB.prepare(
+                `
+                    UPDATE hosted_billing_account
+                    SET included_balance_cents = included_balance_cents - ?2,
+                        purchased_balance_cents = purchased_balance_cents - ?3,
+                        updated_at = ?4
+                    WHERE workspace_id = ?1
+                      AND included_balance_cents = ?5
+                      AND purchased_balance_cents = ?6
+                      AND included_reserved_cents = ?7
+                      AND purchased_reserved_cents = ?8
+                      AND EXISTS (
+                          SELECT 1
+                          FROM hosted_billing_ledger_entry
+                          WHERE id = ?9
+                            AND workspace_id = ?1
+                      )
+                `,
+            ).bind(
+                input.workspaceId,
+                includedDraw,
+                purchasedDraw,
+                now,
+                before.includedBalanceCents,
+                before.purchasedBalanceCents,
+                before.includedReservedCents,
+                before.purchasedReservedCents,
+                id,
+            ),
+        ])
+        if ((inserted.meta.changes ?? 0) < 1) {
+            continue
+        }
+        if ((updated.meta.changes ?? 0) < 1) {
+            throw new Error('Hosted billing clawback ledger was inserted without balance update')
+        }
+        const entry = await findLedgerEntryByIdempotencyKey(input)
+        if (!entry) {
+            throw new Error('Hosted billing clawback ledger entry was not persisted')
+        }
+        return clawbackResultFromEntry(entry)
+    }
+    throw new Error('Hosted billing clawback failed due to concurrent balance contention')
 }

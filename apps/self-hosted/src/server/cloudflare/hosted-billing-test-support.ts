@@ -9,6 +9,7 @@ export interface AccountRow {
     stripeSubscriptionId: string | null
     planKey: string
     planStatus: string
+    billingFrozen: number
     includedBalanceCents: number
     purchasedBalanceCents: number
     includedReservedCents: number
@@ -28,10 +29,17 @@ export interface LedgerRow {
     stripeEventId: string | null
     stripeCheckoutSessionId: string | null
     stripeInvoiceId: string | null
+    stripePaymentIntentId: string | null
     usageEventId: string | null
     idempotencyKey: string
     metadata: string
     createdAt: string
+}
+
+export interface AuditRow {
+    workspaceId: string
+    action: string
+    payload: string
 }
 
 export interface UsageRow {
@@ -81,6 +89,7 @@ export class FakeD1 {
     usage = new Map<string, UsageRow>()
     reservations = new Map<string, ReservationRow>()
     stripeEvents = new Set<string>()
+    audits: AuditRow[] = []
 
     prepare(sql: string) {
         return {
@@ -116,6 +125,18 @@ export class FakeD1 {
                 (account) =>
                     (subscriptionId && account.stripeSubscriptionId === subscriptionId) ||
                     (customerId && account.stripeCustomerId === customerId),
+            ) ?? null) as T | null
+        }
+        if (
+            sql.includes('FROM hosted_billing_ledger_entry') &&
+            sql.includes('stripe_payment_intent_id = ?1')
+        ) {
+            const stripePaymentIntentId = String(args[0])
+            return (Array.from(this.ledger.values()).find(
+                (entry) =>
+                    entry.stripePaymentIntentId === stripePaymentIntentId &&
+                    entry.direction === 'credit' &&
+                    entry.source === 'stripe_topup',
             ) ?? null) as T | null
         }
         if (sql.includes('FROM hosted_billing_ledger_entry')) {
@@ -272,10 +293,52 @@ export class FakeD1 {
                 )
                 .sort((a, b) => a.expiresAt.localeCompare(b.expiresAt)) as T[]
         }
+        if (
+            sql.includes('FROM hosted_billing_ledger_entry') &&
+            sql.includes('stripe_payment_intent_id = ?2')
+        ) {
+            const workspaceId = String(args[0])
+            const stripePaymentIntentId = String(args[1])
+            return Array.from(this.ledger.values())
+                .filter(
+                    (entry) =>
+                        entry.workspaceId === workspaceId &&
+                        entry.stripePaymentIntentId === stripePaymentIntentId &&
+                        entry.direction === 'debit' &&
+                        (entry.source === 'stripe_refund_clawback' ||
+                            entry.source === 'stripe_dispute_clawback'),
+                )
+                .sort((a, b) => a.createdAt.localeCompare(b.createdAt)) as T[]
+        }
         if (sql.includes('FROM hosted_billing_ledger_entry')) {
             return Array.from(this.ledger.values())
                 .filter((entry) => entry.workspaceId === String(args[0]))
                 .slice(0, Number(args[1])) as T[]
+        }
+        if (sql.includes('FROM hosted_usage_event') && sql.includes("billing_status = 'pending'")) {
+            const olderThan = String(args[0])
+            return Array.from(this.usage.values())
+                .filter(
+                    (entry) =>
+                        entry.billingStatus === 'pending' &&
+                        entry.kind === 'provider' &&
+                        ['openrouter', 'brave', 'browserbase', 'fetch_url'].includes(
+                            entry.provider ?? '',
+                        ) &&
+                        entry.costMicros !== null &&
+                        entry.createdAt <= olderThan,
+                )
+                .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+                .map((entry) => ({
+                    id: entry.id,
+                    workspaceId: entry.workspaceId,
+                    roomId: entry.roomId,
+                    provider: entry.provider,
+                    model: entry.model,
+                    costMicros: entry.costMicros,
+                    metadata: entry.metadata ?? '{}',
+                    createdAt: entry.createdAt,
+                })) as T[]
         }
         if (sql.includes('FROM hosted_usage_event')) {
             return Array.from(this.usage.values())
@@ -296,6 +359,7 @@ export class FakeD1 {
                     stripeSubscriptionId: null,
                     planKey: 'none',
                     planStatus: 'none',
+                    billingFrozen: 0,
                     includedBalanceCents: 0,
                     purchasedBalanceCents: 0,
                     includedReservedCents: 0,
@@ -306,6 +370,14 @@ export class FakeD1 {
                 })
                 changes = 1
             }
+        }
+        if (sql.includes('INSERT INTO hosted_audit_event')) {
+            this.audits.push({
+                workspaceId: String(args[0]),
+                action: String(args[3]),
+                payload: String(args[4]),
+            })
+            changes = 1
         }
         if (sql.includes('INSERT INTO hosted_billing_reservation')) {
             const workspaceId = String(args[1])
@@ -361,12 +433,14 @@ export class FakeD1 {
             if (sql.includes('SELECT ?1') && sql.includes('NOT EXISTS')) {
                 const account = this.accounts.get(entry.workspaceId)
                 const creditInsert = sql.includes("'credit'")
-                const expectedIncluded = Number(args[creditInsert ? 11 : 9])
-                const expectedPurchased = Number(args[creditInsert ? 12 : 10])
-                const expectedIncludedReserved = creditInsert ? 0 : Number(args[11])
-                const expectedPurchasedReserved = creditInsert ? 0 : Number(args[12])
-                const includedReservedDraw = creditInsert ? 0 : Number(args[13])
-                const purchasedReservedDraw = creditInsert ? 0 : Number(args[14])
+                const clawbackInsert = !creditInsert && sql.includes('stripe_payment_intent_id')
+                const skipSpendGuard = creditInsert || clawbackInsert
+                const expectedIncluded = Number(args[creditInsert ? 11 : clawbackInsert ? 10 : 9])
+                const expectedPurchased = Number(args[creditInsert ? 12 : clawbackInsert ? 11 : 10])
+                const expectedIncludedReserved = skipSpendGuard ? 0 : Number(args[11])
+                const expectedPurchasedReserved = skipSpendGuard ? 0 : Number(args[12])
+                const includedReservedDraw = skipSpendGuard ? 0 : Number(args[13])
+                const purchasedReservedDraw = skipSpendGuard ? 0 : Number(args[14])
                 const existing = Array.from(this.ledger.values()).find(
                     (candidate) =>
                         candidate.workspaceId === entry.workspaceId &&
@@ -385,7 +459,7 @@ export class FakeD1 {
                     !existing &&
                     account.includedBalanceCents === expectedIncluded &&
                     account.purchasedBalanceCents === expectedPurchased &&
-                    (creditInsert ||
+                    (skipSpendGuard ||
                         (account.includedReservedCents === expectedIncludedReserved &&
                             account.purchasedReservedCents === expectedPurchasedReserved &&
                             spendable >= entry.amountCents))
@@ -551,7 +625,11 @@ export class FakeD1 {
                 }
             } else if (sql.includes('SET stripe_customer_id')) {
                 const account = this.accounts.get(String(args[0]))
-                if (account) {
+                if (
+                    account &&
+                    (account.stripeCustomerId === null ||
+                        account.stripeCustomerId === String(args[1]))
+                ) {
                     account.stripeCustomerId = String(args[1])
                     const subscriptionId = args[2] as string | null
                     if (subscriptionId !== null) account.stripeSubscriptionId = subscriptionId
@@ -564,6 +642,13 @@ export class FakeD1 {
                         account.includedMonthlyCreditCents = includedMonthlyCreditCents
                     }
                     account.updatedAt = String(args[6])
+                    changes = 1
+                }
+            } else if (sql.includes('SET billing_frozen')) {
+                const account = this.accounts.get(String(args[0]))
+                if (account) {
+                    account.billingFrozen = Number(args[1])
+                    account.updatedAt = String(args[2])
                     changes = 1
                 }
             }
@@ -630,6 +715,7 @@ export class FakeD1 {
                 stripeEventId: (args[4] as string | null) ?? null,
                 stripeCheckoutSessionId: null,
                 stripeInvoiceId: (args[5] as string | null) ?? null,
+                stripePaymentIntentId: null,
                 usageEventId: null,
                 idempotencyKey: String(args[6]),
                 metadata: String(args[7]),
@@ -646,10 +732,28 @@ export class FakeD1 {
                 stripeEventId: (args[5] as string | null) ?? null,
                 stripeCheckoutSessionId: (args[6] as string | null) ?? null,
                 stripeInvoiceId: (args[7] as string | null) ?? null,
+                stripePaymentIntentId: (args[13] as string | null) ?? null,
                 usageEventId: null,
                 idempotencyKey: String(args[8]),
                 metadata: String(args[9]),
                 createdAt: String(args[10]),
+            }
+        }
+        if (sql.includes('stripe_payment_intent_id')) {
+            return {
+                ...base,
+                direction: 'debit',
+                source: String(args[2]),
+                amountCents: Number(args[3]),
+                balanceAfterCents: Number(args[4]),
+                stripeEventId: (args[5] as string | null) ?? null,
+                stripeCheckoutSessionId: null,
+                stripeInvoiceId: null,
+                stripePaymentIntentId: (args[6] as string | null) ?? null,
+                usageEventId: null,
+                idempotencyKey: String(args[7]),
+                metadata: String(args[8]),
+                createdAt: String(args[9]),
             }
         }
         return {
@@ -661,6 +765,7 @@ export class FakeD1 {
             stripeEventId: null,
             stripeCheckoutSessionId: null,
             stripeInvoiceId: null,
+            stripePaymentIntentId: null,
             usageEventId: String(args[5]),
             idempotencyKey: String(args[6]),
             metadata: String(args[7]),

@@ -5,6 +5,8 @@ import {
     assertHostedQuotaAllowed,
     HostedQuotaDeniedError,
     hostedQuotaDeniedResponse,
+    recordHostedProviderSpend,
+    refundHostedProviderSpend,
 } from './hosted-abuse-controls'
 import { hostedTestEnv } from './hosted-env-test-support'
 
@@ -87,9 +89,23 @@ class FakeQuotaD1 {
         return null
     }
 
+    async batch(statements: Array<{ run: () => Promise<unknown> }>) {
+        const results = []
+        for (const statement of statements) {
+            results.push(await statement.run())
+        }
+        return results
+    }
+
     private async run(sql: string, args: unknown[]) {
         if (/INSERT INTO hosted_quota_counter/.test(sql)) {
-            return this.incrementCounters(args)
+            if (/WITH increments/.test(sql)) {
+                return this.incrementCounters(args)
+            }
+            return this.upsertCounters(args)
+        }
+        if (/UPDATE hosted_quota_counter/.test(sql)) {
+            return this.refundCounter(args)
         }
         if (/INSERT INTO hosted_quota_event/.test(sql)) {
             this.quotaEvents.push({
@@ -114,6 +130,35 @@ class FakeQuotaD1 {
             success: true,
             meta: {
                 changes: 1,
+            },
+            results: [],
+        }
+    }
+
+    private upsertCounters(args: unknown[]) {
+        for (let index = 0; index < args.length; index += 6) {
+            const key = counterKey(args, index)
+            this.counters.set(key, (this.counters.get(key) ?? 0) + Number(args[index + 4]))
+        }
+        return {
+            success: true,
+            meta: {
+                changes: args.length / 6,
+            },
+            results: [],
+        }
+    }
+
+    private refundCounter(args: unknown[]) {
+        const key = counterKey(args)
+        const current = this.counters.get(key)
+        if (current !== undefined) {
+            this.counters.set(key, Math.max(0, current - Number(args[4])))
+        }
+        return {
+            success: true,
+            meta: {
+                changes: current === undefined ? 0 : 1,
             },
             results: [],
         }
@@ -472,6 +517,47 @@ describe('hosted abuse controls', () => {
             expect(db.usageEvents).toEqual([{ kind: 'run', billingStatus: 'blocked' }])
         } finally {
             consoleError.mockRestore()
+        }
+    })
+
+    it('refunds consumed spend counters after a failed provider call, bounded at zero', async () => {
+        const db = new FakeQuotaD1()
+        const env = quotaEnv(db)
+        const now = new Date('2026-01-02T03:04:05.000Z')
+        const spendInput = {
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            runId: 'run_1',
+            action: 'provider_brave' as const,
+            cents: 2,
+            now,
+        }
+        const dayKey = ['workspace', 'workspace_1', '2026-01-02', 'spend_cents'].join('\u0000')
+        const monthKey = ['workspace', 'workspace_1', '2026-01', 'spend_cents'].join('\u0000')
+        const runKey = ['runtime', 'workspace_1:run_1', 'run', 'spend_cents'].join('\u0000')
+
+        await recordHostedProviderSpend(spendInput)
+        expect(db.counters.get(dayKey)).toBe(2)
+        expect(db.counters.get(monthKey)).toBe(2)
+        expect(db.counters.get(runKey)).toBe(2)
+
+        const consoleLog = vi.spyOn(console, 'log').mockImplementation(() => {})
+        try {
+            await refundHostedProviderSpend(spendInput)
+            expect(db.counters.get(dayKey)).toBe(0)
+            expect(db.counters.get(monthKey)).toBe(0)
+            expect(db.counters.get(runKey)).toBe(0)
+
+            await refundHostedProviderSpend({
+                ...spendInput,
+                cents: 5,
+            })
+            expect(db.counters.get(dayKey)).toBe(0)
+            expect(db.counters.get(monthKey)).toBe(0)
+            expect(db.counters.get(runKey)).toBe(0)
+        } finally {
+            consoleLog.mockRestore()
         }
     })
 })

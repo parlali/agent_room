@@ -14,6 +14,7 @@ export interface HostedConfig {
     billing: {
         plans: HostedBillingPlan[]
         usageMarkupBps: number
+        modelReservationCents: number
         taxMode: 'none' | 'automatic'
         maxConcurrentRoomsPerWorkspace: number
         stripe: {
@@ -65,6 +66,7 @@ export function resolveHostedConfig(env: AgentRoomHostedEnv): HostedConfig {
         billing: {
             plans: hostedBillingPlans(),
             usageMarkupBps: data.AGENT_ROOM_BILLING_USAGE_MARKUP_BPS,
+            modelReservationCents: data.AGENT_ROOM_BILLING_MODEL_RESERVATION_CENTS,
             taxMode: data.AGENT_ROOM_BILLING_TAX_MODE,
             maxConcurrentRoomsPerWorkspace: data.AGENT_ROOM_BILLING_MAX_CONCURRENT_ROOMS,
             stripe: {

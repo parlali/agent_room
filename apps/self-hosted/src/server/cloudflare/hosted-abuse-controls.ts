@@ -9,6 +9,7 @@ import {
     counterDenial,
     recordCounters,
     recordHostedQuotaDenied,
+    refundCounters,
     storageDenial,
 } from './hosted-quota-store'
 
@@ -93,7 +94,7 @@ async function evaluateHostedQuota(input: HostedQuotaCheckInput): Promise<void> 
     }
 }
 
-export async function recordHostedProviderSpend(input: {
+interface HostedProviderSpendCounterInput {
     env: AgentRoomHostedEnv
     workspaceId: string
     roomId?: string | null
@@ -103,9 +104,15 @@ export async function recordHostedProviderSpend(input: {
     action: HostedQuotaCheckInput['action']
     cents: number
     now?: Date
-}): Promise<void> {
+}
+
+async function hostedProviderSpendCounterRules(input: HostedProviderSpendCounterInput): Promise<{
+    check: HostedQuotaCheckInput
+    rules: ReturnType<typeof counterRules>
+    now: Date
+} | null> {
     if (!Number.isFinite(input.cents) || input.cents <= 0) {
-        return
+        return null
     }
     const now = input.now ?? new Date()
     const policy = await readHostedQuotaPolicy({
@@ -131,10 +138,43 @@ export async function recordHostedProviderSpend(input: {
         ipScopeId: '',
         now,
     }).filter((rule) => rule.counterKey === 'spend_cents')
-    await recordCounters({
+    return {
         check,
         rules,
-        now: nowIso(now),
+        now,
+    }
+}
+
+export async function recordHostedProviderSpend(
+    input: HostedProviderSpendCounterInput,
+): Promise<void> {
+    const prepared = await hostedProviderSpendCounterRules(input)
+    if (!prepared) {
+        return
+    }
+    await recordCounters({
+        check: prepared.check,
+        rules: prepared.rules,
+        now: nowIso(prepared.now),
+    })
+}
+
+export async function refundHostedProviderSpend(
+    input: HostedProviderSpendCounterInput,
+): Promise<void> {
+    const prepared = await hostedProviderSpendCounterRules(input)
+    if (!prepared) {
+        return
+    }
+    await refundCounters({
+        check: prepared.check,
+        rules: prepared.rules,
+        now: nowIso(prepared.now),
+    })
+    console.log('Hosted provider spend counters refunded after failed provider call', {
+        workspaceId: input.workspaceId,
+        action: input.action,
+        cents: Math.ceil(input.cents),
     })
 }
 

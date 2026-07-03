@@ -2,6 +2,7 @@ import type { AgentRoomHostedEnv } from './bindings'
 import {
     assertPositiveCents,
     HostedBillingBalanceExhaustedError,
+    HostedBillingFrozenError,
     type HostedBillingReservationProvider,
     type HostedBillingReservationStatus,
 } from './hosted-billing-types'
@@ -281,6 +282,9 @@ export async function authorizeHostedBillingReservation(input: {
         }
 
         const account = await readHostedBillingAccount(input)
+        if (account.billingFrozen) {
+            throw new HostedBillingFrozenError()
+        }
         if (account.availableBalanceCents < input.amountCents) {
             throw new HostedBillingBalanceExhaustedError()
         }

@@ -15,10 +15,12 @@ import {
 import {
     createHostedStripePortalSession,
     createHostedStripeCheckout,
+    HostedStripeCheckoutBlockedError,
     HostedStripeWebhookError,
     processHostedStripeWebhook,
     readHostedBillingSummary,
 } from '#/server/cloudflare/hosted-stripe'
+import { sweepHostedBillingSettlements } from '#/server/cloudflare/hosted-usage-billing'
 import { hostedJsonResponse as jsonResponse } from '#/server/cloudflare/hosted-worker-response'
 import { hostedRuntimeWorkerRoute } from '#/server/cloudflare/hosted-worker-runtime-routes'
 import { AgentRoomRuntimeContainer } from '#/server/cloudflare/runtime-container'
@@ -137,41 +139,57 @@ async function hostedBillingCheckout(env: AgentRoomHostedEnv, request: Request):
         )
     }
     const kind = kindResult.data
-    if (kind === 'credit_topup') {
+    try {
+        if (kind === 'credit_topup') {
+            const checkout = await createHostedStripeCheckout({
+                env,
+                actor,
+                kind,
+            })
+            return jsonResponse({
+                ok: true,
+                checkout,
+            })
+        }
+        const planKey = typeof record.planKey === 'string' ? record.planKey : ''
+        const config = resolveHostedConfig(env)
+        if (!planKey || !config.billing.plans.some((plan) => plan.key === planKey)) {
+            return jsonResponse(
+                {
+                    ok: false,
+                    code: 'invalid_plan_key',
+                    message: 'A valid subscription plan key is required',
+                },
+                {
+                    status: 400,
+                },
+            )
+        }
         const checkout = await createHostedStripeCheckout({
             env,
             actor,
             kind,
+            planKey,
         })
         return jsonResponse({
             ok: true,
             checkout,
         })
+    } catch (error) {
+        if (error instanceof HostedStripeCheckoutBlockedError) {
+            return jsonResponse(
+                {
+                    ok: false,
+                    code: 'subscription_already_active',
+                    message: error.message,
+                },
+                {
+                    status: 409,
+                },
+            )
+        }
+        throw error
     }
-    const planKey = typeof record.planKey === 'string' ? record.planKey : ''
-    const config = resolveHostedConfig(env)
-    if (!planKey || !config.billing.plans.some((plan) => plan.key === planKey)) {
-        return jsonResponse(
-            {
-                ok: false,
-                code: 'invalid_plan_key',
-                message: 'A valid subscription plan key is required',
-            },
-            {
-                status: 400,
-            },
-        )
-    }
-    const checkout = await createHostedStripeCheckout({
-        env,
-        actor,
-        kind,
-        planKey,
-    })
-    return jsonResponse({
-        ok: true,
-        checkout,
-    })
 }
 
 async function hostedBillingPortal(env: AgentRoomHostedEnv, request: Request): Promise<Response> {
@@ -317,6 +335,14 @@ export default {
         } catch (error) {
             console.error(
                 'Hosted cron scheduler tick failed',
+                error instanceof Error ? error.message : error,
+            )
+        }
+        try {
+            await sweepHostedBillingSettlements({ env })
+        } catch (error) {
+            console.error(
+                'Hosted billing settlement sweep tick failed',
                 error instanceof Error ? error.message : error,
             )
         }

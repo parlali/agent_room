@@ -6,6 +6,7 @@ import {
     debitHostedBalance,
     ensureHostedBillingAccount,
     findHostedBillingReservationById,
+    listStaleHostedPendingUsageEvents,
     readHostedBillingAccount,
     releaseHostedBillingReservation,
     releaseExpiredHostedBillingReservations,
@@ -14,12 +15,12 @@ import {
     applyUsageMarkupMicros,
     centsFromMicrosCeil,
     HostedBillingBalanceExhaustedError,
+    HostedBillingFrozenError,
     hostedBillingLedgerSourceForProvider,
     type HostedBillingReservationProvider,
 } from './hosted-billing-types'
 import { resolveHostedConfig } from './hosted-config'
 import { nowIso } from './hosted-json'
-import { hostedManagedModelRequestReservationCents } from './hosted-model-policy'
 
 export interface HostedProviderUsageInput {
     env: AgentRoomHostedEnv
@@ -62,8 +63,11 @@ export async function assertHostedProviderCreditsAvailable(input: {
         now: input.now,
     })
     const account = await readHostedBillingAccount(input)
-    const minimumBalanceCents =
-        input.minimumBalanceCents ?? hostedManagedModelRequestReservationCents
+    if (account.billingFrozen) {
+        throw new HostedBillingFrozenError()
+    }
+    const config = resolveHostedConfig(input.env)
+    const minimumBalanceCents = input.minimumBalanceCents ?? config.billing.modelReservationCents
     if (account.availableBalanceCents < minimumBalanceCents) {
         throw new HostedBillingBalanceExhaustedError()
     }
@@ -358,4 +362,128 @@ export async function recordHostedRuntimeUsageEvent(input: {
         debitedCents: 0,
         ledgerEntryId: null,
     }
+}
+
+export interface HostedBillingSettlementSweepResult {
+    releasedReservations: number
+    scanned: number
+    settled: number
+    blocked: number
+    failed: number
+}
+
+function reservationIdFromUsageMetadata(metadata: string): string | null {
+    try {
+        const parsed = JSON.parse(metadata) as unknown
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            const reservationId = (parsed as Record<string, unknown>).reservationId
+            return typeof reservationId === 'string' && reservationId ? reservationId : null
+        }
+    } catch {
+        return null
+    }
+    return null
+}
+
+export async function sweepHostedBillingSettlements(input: {
+    env: AgentRoomHostedEnv
+    now?: Date
+    pendingOlderThanMs?: number
+    limit?: number
+}): Promise<HostedBillingSettlementSweepResult> {
+    const now = input.now ?? new Date()
+    const pendingOlderThanMs = input.pendingOlderThanMs ?? 5 * 60 * 1000
+    const releasedReservations = await releaseExpiredHostedBillingReservations({
+        env: input.env,
+        now,
+        limit: 100,
+    })
+    const stale = await listStaleHostedPendingUsageEvents({
+        env: input.env,
+        olderThan: new Date(now.getTime() - pendingOlderThanMs),
+        limit: input.limit ?? 25,
+    })
+    const config = resolveHostedConfig(input.env)
+    const result: HostedBillingSettlementSweepResult = {
+        releasedReservations,
+        scanned: stale.length,
+        settled: 0,
+        blocked: 0,
+        failed: 0,
+    }
+    const nowString = nowIso(now)
+    for (const event of stale) {
+        const billedMicros = applyUsageMarkupMicros(event.costMicros, config.billing.usageMarkupBps)
+        const amountCents = centsFromMicrosCeil(billedMicros)
+        if (amountCents === 0) {
+            continue
+        }
+        const reservationId = reservationIdFromUsageMetadata(event.metadata)
+        const reservation = reservationId
+            ? await findHostedBillingReservationById({
+                  env: input.env,
+                  workspaceId: event.workspaceId,
+                  reservationId,
+              })
+            : null
+        const activeReservation =
+            reservation &&
+            reservation.status === 'authorized' &&
+            reservation.provider === event.provider &&
+            reservation.expiresAt > nowString
+                ? reservation
+                : null
+        try {
+            await debitHostedBalance({
+                env: input.env,
+                workspaceId: event.workspaceId,
+                source: hostedBillingLedgerSourceForProvider(event.provider),
+                amountCents,
+                usageEventId: event.id,
+                idempotencyKey: `hosted_usage:${event.id}`,
+                reservedDraw: activeReservation
+                    ? {
+                          includedCents: activeReservation.includedReservedCents,
+                          purchasedCents: activeReservation.purchasedReservedCents,
+                      }
+                    : undefined,
+                settleReservation: activeReservation
+                    ? {
+                          reservationId: activeReservation.id,
+                          reservedCents: activeReservation.reservedCents,
+                          includedReservedCents: activeReservation.includedReservedCents,
+                          purchasedReservedCents: activeReservation.purchasedReservedCents,
+                          settledCents: amountCents,
+                      }
+                    : undefined,
+                metadata: {
+                    provider: event.provider,
+                    model: event.model,
+                    costMicros: event.costMicros,
+                    markupBps: config.billing.usageMarkupBps,
+                    billedMicros,
+                    settlementSweep: true,
+                    ...(activeReservation ? { reservationId: activeReservation.id } : {}),
+                },
+                now,
+            })
+            result.settled += 1
+        } catch (error) {
+            if (error instanceof HostedBillingBalanceExhaustedError) {
+                result.blocked += 1
+                continue
+            }
+            result.failed += 1
+            console.error('Hosted billing settlement sweep failed for usage event', {
+                workspaceId: event.workspaceId,
+                usageEventId: event.id,
+                provider: event.provider,
+                error: error instanceof Error ? error.message : error,
+            })
+        }
+    }
+    if (result.releasedReservations > 0 || result.scanned > 0) {
+        console.log('Hosted billing settlement sweep completed', result)
+    }
+    return result
 }
