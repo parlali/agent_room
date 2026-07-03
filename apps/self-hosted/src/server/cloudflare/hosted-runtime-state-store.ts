@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer'
 import type { AgentRoomHostedEnv } from './bindings'
 import { assertHostedQuotaAllowed } from './hosted-abuse-controls'
+import { hostedRuntimeReadConcurrency, mapWithConcurrency } from './hosted-concurrency'
 import {
     readHostedRuntimeArtifactText,
     readHostedRuntimeArtifactTextOrNull,
@@ -105,7 +106,7 @@ export async function listHostedRuntimeStateFileMaterializations(
     } & HostedWorkspaceRoomIdentity,
 ): Promise<HostedRuntimeStateFileMaterialization[]> {
     const prefix = hostedRuntimeStatePrefix(input)
-    const files: HostedRuntimeStateFileMaterialization[] = []
+    const objects: Array<{ objectKey: string; relativePath: string }> = []
     let cursor: string | undefined
     do {
         const listing = await input.env.AGENT_ROOM_WORKSPACE_BUCKET.list({
@@ -119,17 +120,22 @@ export async function listHostedRuntimeStateFileMaterializations(
             if (isRoomViewReadModelRelativePath(relativePath)) {
                 continue
             }
-            const contentBase64 = await readHostedRuntimeArtifactText({
-                env: input.env,
-                key: object.key,
-            })
-            files.push({
-                path: runtimeStateAbsolutePath(relativePath),
-                content: Buffer.from(contentBase64, 'base64url').toString('utf8'),
-                mode: 0o600,
+            objects.push({
+                objectKey: object.key,
+                relativePath,
             })
         }
         cursor = listing.truncated ? listing.cursor : undefined
     } while (cursor)
-    return files
+    return mapWithConcurrency(objects, hostedRuntimeReadConcurrency, async (object) => {
+        const contentBase64 = await readHostedRuntimeArtifactText({
+            env: input.env,
+            key: object.objectKey,
+        })
+        return {
+            path: runtimeStateAbsolutePath(object.relativePath),
+            content: Buffer.from(contentBase64, 'base64url').toString('utf8'),
+            mode: 0o600,
+        }
+    })
 }

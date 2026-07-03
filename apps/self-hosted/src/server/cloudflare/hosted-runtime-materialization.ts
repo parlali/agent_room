@@ -30,7 +30,6 @@ import {
     hostedRuntimeWorkspaceIdEnvKey,
     piCodingAgentDirEnvKey,
     piRuntimeConfigPathEnvKey,
-    piRuntimeFileBundleEnvKey,
     piRuntimeRedactionSecretsEnvKey,
     piRuntimeStateDirEnvKey,
     piRuntimeTokenEnvKey,
@@ -99,6 +98,7 @@ export interface HostedRuntimeMaterialization {
     bundleObjectKey: string
     runtimeConfig: unknown
     runtimeEnv: Record<string, string>
+    bundle: RuntimeFileBundleEntry[]
     providerCandidate: HostedProviderCandidate
     egressAllowedHosts: string[]
 }
@@ -380,26 +380,6 @@ export async function materializeHostedMcpServers(input: {
     return servers
 }
 
-function encodeBundle(bundle: RuntimeFileBundleEntry[]): string {
-    return Buffer.from(JSON.stringify(bundle), 'utf8').toString('base64url')
-}
-
-const hostedRuntimeBundleChunkSize = 15000
-
-function setHostedRuntimeBundleEnv(env: Record<string, string>, encoded: string): void {
-    env[piRuntimeFileBundleEnvKey] = encoded.slice(0, hostedRuntimeBundleChunkSize)
-    let offset = hostedRuntimeBundleChunkSize
-    let index = 1
-    while (offset < encoded.length) {
-        env[`${piRuntimeFileBundleEnvKey}_${index}`] = encoded.slice(
-            offset,
-            offset + hostedRuntimeBundleChunkSize,
-        )
-        offset += hostedRuntimeBundleChunkSize
-        index += 1
-    }
-}
-
 function collectStringLeaves(value: unknown): string[] {
     if (typeof value === 'string') {
         return [value]
@@ -451,7 +431,6 @@ export function hostedRuntimeRedactionSecrets(input: {
 export function buildHostedRuntimeEnv(input: {
     roomConfiguration: MaterializedRoomConfiguration
     token: string
-    bundle: RuntimeFileBundleEntry[]
     redactionSecrets: string[]
     providerCandidate: HostedProviderCandidate
     workspaceId: string
@@ -484,7 +463,6 @@ export function buildHostedRuntimeEnv(input: {
         TMPDIR: '/workspace/runtime/pi-state/tmp',
         NODE_EXTRA_CA_CERTS: hostedRuntimeEgressCaCertPath,
     }
-    setHostedRuntimeBundleEnv(env, encodeBundle(input.bundle))
     if (input.providerCandidate === 'hosted_openrouter') {
         env[hostedRuntimeManagedOpenRouterEnvKey] = '1'
     }

@@ -1,5 +1,7 @@
+import { piRuntimeBootMaterializePath } from '../rooms/pi-runtime-contract'
 import type { AgentRoomHostedEnv, AgentRoomRuntimeJobMessage } from './bindings'
 import { assertHostedQuotaAllowed } from './hosted-abuse-controls'
+import { hostedRuntimeReadConcurrency, mapWithConcurrency } from './hosted-concurrency'
 import {
     evaluateHostedRuntimeAccess,
     hostedRuntimeAccessDeniedMessage,
@@ -10,7 +12,11 @@ import {
     materializeHostedRuntime,
     stopHostedRuntime,
 } from './hosted-room-service'
-import { listHostedRoomFileMaterializations } from './hosted-file-read-store'
+import {
+    listHostedRoomFileMaterializations,
+    type HostedRoomFileMaterialization,
+} from './hosted-file-read-store'
+import type { RuntimeFileBundleEntry } from './hosted-runtime-materialization'
 import {
     HostedRuntimeDesiredStateChangedError,
     writeHostedRuntimeStateTransition,
@@ -21,6 +27,7 @@ import {
     hostedRuntimeContainerName,
     hostedRuntimeContainerPort,
     hostedRuntimeStartCancellation,
+    type HostedRuntimeContainerStub,
 } from './runtime-contract'
 import { hostedRuntimeConfigPath } from './hosted-runtime-paths'
 
@@ -99,21 +106,33 @@ async function assertHostedRuntimeStillDesiredRunning(
     }
 }
 
-async function hydrateHostedRuntimeFiles(input: {
-    env: AgentRoomHostedEnv
-    workspaceId: string
-    roomId: string
-    containerName: string
+async function pushHostedRuntimeBootBundle(input: {
+    container: HostedRuntimeContainerStub
     token: string
+    bundle: RuntimeFileBundleEntry[]
 }): Promise<void> {
-    const files = await listHostedRoomFileMaterializations({
-        env: input.env,
-        workspaceId: input.workspaceId,
-        roomId: input.roomId,
-    })
-    const container = input.env.AGENT_ROOM_RUNTIME.getByName(input.containerName)
-    for (const file of files) {
-        const response = await container.fetch(
+    const response = await input.container.fetch(
+        new Request(`http://agent-room-runtime${piRuntimeBootMaterializePath}`, {
+            method: 'POST',
+            headers: {
+                authorization: `Bearer ${input.token}`,
+                'content-type': 'application/json',
+            },
+            body: JSON.stringify(input.bundle),
+        }),
+    )
+    if (!response.ok) {
+        throw new Error(`Hosted runtime boot hydration failed with status ${response.status}`)
+    }
+}
+
+async function hydrateHostedRuntimeFiles(input: {
+    container: HostedRuntimeContainerStub
+    token: string
+    files: HostedRoomFileMaterialization[]
+}): Promise<void> {
+    await mapWithConcurrency(input.files, hostedRuntimeReadConcurrency, async (file) => {
+        const response = await input.container.fetch(
             new Request('http://agent-room-runtime/files/materialize', {
                 method: 'POST',
                 headers: {
@@ -126,7 +145,7 @@ async function hydrateHostedRuntimeFiles(input: {
         if (!response.ok) {
             throw new Error(`Hosted runtime file hydration failed with status ${response.status}`)
         }
-    }
+    })
 }
 
 export function isHostedRuntimeDownError(error: unknown): boolean {
@@ -215,28 +234,23 @@ export async function reconcileHostedRuntimeJob(
             throw new Error('Hosted runtime objects are required before starting a container')
         }
 
-        await assertObjectExists({
-            bucket: env.AGENT_ROOM_WORKSPACE_BUCKET,
-            key: materialization.configObjectKey,
-            label: 'Runtime config',
-        })
-        await assertObjectExists({
-            bucket: env.AGENT_ROOM_WORKSPACE_BUCKET,
-            key: materialization.tokenObjectKey,
-            label: 'Runtime token',
-        })
-        await assertObjectExists({
-            bucket: env.AGENT_ROOM_WORKSPACE_BUCKET,
-            key: materialization.bundleObjectKey,
-            label: 'Runtime boot bundle',
-        })
-        if (runtime.workspaceSnapshotKey) {
-            await assertObjectExists({
-                bucket: env.AGENT_ROOM_WORKSPACE_BUCKET,
-                key: runtime.workspaceSnapshotKey,
-                label: 'Workspace snapshot',
-            })
-        }
+        const requiredObjects = [
+            { key: materialization.configObjectKey, label: 'Runtime config' },
+            { key: materialization.tokenObjectKey, label: 'Runtime token' },
+            { key: materialization.bundleObjectKey, label: 'Runtime boot bundle' },
+            ...(runtime.workspaceSnapshotKey
+                ? [{ key: runtime.workspaceSnapshotKey, label: 'Workspace snapshot' }]
+                : []),
+        ]
+        await Promise.all(
+            requiredObjects.map((object) =>
+                assertObjectExists({
+                    bucket: env.AGENT_ROOM_WORKSPACE_BUCKET,
+                    key: object.key,
+                    label: object.label,
+                }),
+            ),
+        )
 
         await writeHostedRuntimeStateTransition({
             env,
@@ -266,19 +280,30 @@ export async function reconcileHostedRuntimeJob(
                 count: 1,
             },
         })
+        const roomFilesPromise = listHostedRoomFileMaterializations({
+            env,
+            workspaceId: runtime.workspaceId,
+            roomId: runtime.roomId,
+        })
+        roomFilesPromise.catch(() => undefined)
         await container.startAndWaitForPorts({
             ports: hostedRuntimeContainerPort,
             startOptions,
             cancellationOptions: hostedRuntimeStartCancellation,
         })
-        await container.setAllowedHosts(materialization.egressAllowedHosts)
-        await container.setDeniedHosts(hostedRuntimeDeniedHosts)
-        await hydrateHostedRuntimeFiles({
-            env,
-            workspaceId: runtime.workspaceId,
-            roomId: runtime.roomId,
-            containerName: runtime.containerName,
+        await Promise.all([
+            container.setAllowedHosts(materialization.egressAllowedHosts),
+            container.setDeniedHosts(hostedRuntimeDeniedHosts),
+        ])
+        await pushHostedRuntimeBootBundle({
+            container,
             token: materialization.runtimeEnv.AGENT_ROOM_PI_RUNTIME_TOKEN,
+            bundle: materialization.bundle,
+        })
+        await hydrateHostedRuntimeFiles({
+            container,
+            token: materialization.runtimeEnv.AGENT_ROOM_PI_RUNTIME_TOKEN,
+            files: await roomFilesPromise,
         })
         await writeHostedRuntimeStateTransition({
             env,

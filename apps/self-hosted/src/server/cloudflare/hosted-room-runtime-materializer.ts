@@ -21,6 +21,7 @@ import {
 import { assertNoReservedRoomRuntimeEnvKeys } from '../security/process-env'
 import type { AgentRoomHostedEnv } from './bindings'
 import type { HostedActor } from './hosted-auth'
+import { hostedRuntimeReadConcurrency, mapWithConcurrency } from './hosted-concurrency'
 import { resolveHostedConfig } from './hosted-config'
 import { nowIso } from './hosted-json'
 import {
@@ -240,7 +241,7 @@ export async function materializeHostedRuntime(input: {
         env[imageEnvKeyName] = imageSecret
     }
     const usedRuntimeEnvKeys = new Set(Object.keys(env).map((key) => upperSnake(key)))
-    for (const roomSecret of roomSecrets) {
+    const roomSecretReads = roomSecrets.map((roomSecret) => {
         const envKey = upperSnake(roomSecret.envKey)
         if (!envKey) {
             throw new Error(`Room secret ${roomSecret.label} has an empty env key`)
@@ -254,15 +255,27 @@ export async function materializeHostedRuntime(input: {
         if (usedRuntimeEnvKeys.has(envKey)) {
             throw new Error(`Room secret env key ${envKey} conflicts with materialized config`)
         }
-        const plainText = await readRequiredHostedSecretPlainText({
-            env: input.env,
-            workspaceId: input.actor.workspaceId,
+        usedRuntimeEnvKeys.add(envKey)
+        return {
+            envKey,
             secretId: roomSecret.secretId,
             label: `Room secret ${roomSecret.label}`,
-        })
-        env[envKey] = plainText
-        usedRuntimeEnvKeys.add(envKey)
-    }
+        }
+    })
+    const roomSecretValues = await mapWithConcurrency(
+        roomSecretReads,
+        hostedRuntimeReadConcurrency,
+        (read) =>
+            readRequiredHostedSecretPlainText({
+                env: input.env,
+                workspaceId: input.actor.workspaceId,
+                secretId: read.secretId,
+                label: read.label,
+            }),
+    )
+    roomSecretReads.forEach((read, index) => {
+        env[read.envKey] = roomSecretValues[index]!
+    })
     const mcpServers = await materializeHostedMcpServers({
         env: input.env,
         workspaceId: input.actor.workspaceId,
@@ -375,7 +388,6 @@ export async function materializeHostedRuntime(input: {
     const runtimeEnv = buildHostedRuntimeEnv({
         roomConfiguration,
         token,
-        bundle,
         redactionSecrets: hostedRuntimeRedactionSecrets({
             providerAuthJson: providerMaterialization.authJson,
             env,
@@ -492,6 +504,7 @@ export async function materializeHostedRuntime(input: {
         bundleObjectKey,
         runtimeConfig: piConfig,
         runtimeEnv,
+        bundle,
         providerCandidate: providerMaterialization.candidate,
         egressAllowedHosts,
     }

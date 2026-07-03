@@ -237,21 +237,31 @@ export async function createMcpTools(input: {
     cwd: string
     restrictPrivateNetwork?: boolean
 }): Promise<ToolDefinition[]> {
+    const connections = await Promise.all(
+        input.servers.map(async (server) => {
+            const connected = await connectServer({
+                server,
+                cwd: input.cwd,
+                restrictPrivateNetwork: input.restrictPrivateNetwork ?? false,
+            })
+            try {
+                const listed = await connected.client.listTools(
+                    {},
+                    {
+                        timeout: 10000,
+                    },
+                )
+                return { server, connected, listed }
+            } catch (error) {
+                await closeConnectedServer(connected)
+                throw error
+            }
+        }),
+    )
     const tools: ToolDefinition[] = []
     const exposedNames = new Set<string>()
-    for (const server of input.servers) {
-        const connected = await connectServer({
-            server,
-            cwd: input.cwd,
-            restrictPrivateNetwork: input.restrictPrivateNetwork ?? false,
-        })
-        try {
-            const listed = await connected.client.listTools(
-                {},
-                {
-                    timeout: 10000,
-                },
-            )
+    try {
+        for (const { server, connected, listed } of connections) {
             for (const tool of listed.tools) {
                 if (server.allowedTools.length > 0 && !server.allowedTools.includes(tool.name)) {
                     continue
@@ -276,10 +286,10 @@ export async function createMcpTools(input: {
                     }),
                 )
             }
-        } catch (error) {
-            await closeConnectedServer(connected)
-            throw error
         }
+    } catch (error) {
+        await closeMcpConnections()
+        throw error
     }
     return tools
 }

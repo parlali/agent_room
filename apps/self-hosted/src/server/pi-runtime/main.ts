@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { dirname, isAbsolute, relative, resolve } from 'node:path'
+import { readFile, rm } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import {
     SessionManager,
@@ -69,72 +68,12 @@ import { promptAttachmentMetadataByEntryId } from './prompt-attachments'
 import { createSessionEventQueue } from './session-event-queue'
 import { removeDeliveredPendingUserMessage } from './pending-user-messages'
 import { visibleProjectionEntries } from './hidden-projection'
-import { piRuntimeFileBundleEnvKey } from '../rooms/pi-runtime-contract'
+import { piRuntimeTokenEnvKey } from '../rooms/pi-runtime-contract'
+import { startHostedBootHydration, type HostedBootHydration } from './hosted-boot-hydration'
 
 const configPath = process.env.AGENT_ROOM_PI_RUNTIME_CONFIG_PATH
 if (!configPath) {
     throw new Error('AGENT_ROOM_PI_RUNTIME_CONFIG_PATH is required')
-}
-
-interface RuntimeFileBundleEntry {
-    path: string
-    contentBase64: string
-    mode?: number
-}
-
-function readFileBundleRaw(): string | null {
-    const base = process.env[piRuntimeFileBundleEnvKey]
-    if (base === undefined) {
-        return null
-    }
-    let raw = base
-    let index = 1
-    for (;;) {
-        const chunk = process.env[`${piRuntimeFileBundleEnvKey}_${index}`]
-        if (chunk === undefined) {
-            break
-        }
-        raw += chunk
-        index += 1
-    }
-    return raw
-}
-
-function decodeFileBundle(): RuntimeFileBundleEntry[] {
-    const raw = readFileBundleRaw()
-    if (!raw) {
-        return []
-    }
-    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as unknown
-    if (!Array.isArray(parsed)) {
-        throw new Error('Runtime file bundle must be an array')
-    }
-    return parsed.map((entry) => {
-        if (!entry || typeof entry !== 'object') {
-            throw new Error('Runtime file bundle entry must be an object')
-        }
-        const record = entry as Record<string, unknown>
-        if (typeof record.path !== 'string' || typeof record.contentBase64 !== 'string') {
-            throw new Error('Runtime file bundle entry is missing path or content')
-        }
-        return {
-            path: record.path,
-            contentBase64: record.contentBase64,
-            mode: typeof record.mode === 'number' ? record.mode : undefined,
-        }
-    })
-}
-
-function assertRuntimeBundlePath(path: string): void {
-    if (!isAbsolute(path)) {
-        throw new Error('Runtime file bundle path must be absolute')
-    }
-    const resolved = resolve(path)
-    const allowedRoot = '/workspace/runtime'
-    const relativePath = relative(allowedRoot, resolved)
-    if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
-        throw new Error('Runtime file bundle path is outside the hosted runtime root')
-    }
 }
 
 const bootStartedAt = Date.now()
@@ -142,22 +81,33 @@ function bootMark(label: string): void {
     console.log(`[boot] ${label} +${Date.now() - bootStartedAt}ms`)
 }
 
-for (const entry of decodeFileBundle()) {
-    assertRuntimeBundlePath(entry.path)
-    await mkdir(dirname(entry.path), {
-        recursive: true,
-        mode: 0o700,
-    })
-    await writeFile(entry.path, Buffer.from(entry.contentBase64, 'base64url'), {
-        mode: entry.mode ?? 0o600,
-    })
-    if (entry.mode) {
-        await chmod(entry.path, entry.mode)
+let bootHydration: HostedBootHydration | null = null
+if (!existsSync(configPath)) {
+    const bootPort = Number(process.env.PORT)
+    if (!Number.isInteger(bootPort) || bootPort <= 0) {
+        throw new Error('Hosted boot hydration requires a valid PORT')
     }
+    const bootToken = process.env[piRuntimeTokenEnvKey]
+    if (!bootToken) {
+        throw new Error('Hosted boot hydration requires the runtime token')
+    }
+    bootHydration = await startHostedBootHydration({
+        port: bootPort,
+        bindHost: '0.0.0.0',
+        token: bootToken,
+    })
+    bootMark('port')
+    await bootHydration.hydrated
 }
 bootMark('hydrate')
 
 const config = JSON.parse(await readFile(configPath, 'utf8')) as PiRuntimeConfig
+if (bootHydration && config.runtime.port !== Number(process.env.PORT)) {
+    throw new Error('Hosted runtime config port does not match the boot hydration port')
+}
+if (bootHydration && config.runtime.bindHost !== '0.0.0.0') {
+    throw new Error('Hosted runtime config bind host does not match the boot hydration bind host')
+}
 const { redactPayload, redactString, redactUnboundedString, errorMessage } =
     createRuntimeRedactor(config)
 const hostedRuntimeStateSync = createHostedRuntimeStateSync(config)
@@ -990,11 +940,16 @@ const route = createPiRuntimeRouter({
     persistThreadIndex,
 })
 
-const server = createServer((request, response) => {
+const handleRuntimeRequest = (
+    request: Parameters<typeof route>[0],
+    response: Parameters<typeof route>[1],
+): void => {
     void route(request, response).catch((error) => {
         sendError(response, error, errorMessage)
     })
-})
+}
+
+const server = bootHydration ? bootHydration.server : createServer(handleRuntimeRequest)
 
 process.on('SIGTERM', () => {
     for (const active of activeThreads.values()) {
@@ -1028,11 +983,18 @@ async function backfillRoomViewReadModel(): Promise<void> {
     }
 }
 
-server.listen(config.runtime.port, config.runtime.bindHost, () => {
+function announceRuntimeStarted(): void {
     bootMark('listen')
     void appendRuntimeEvent('runtime.started', {
         roomId: config.runtime.roomId,
         port: config.runtime.port,
     })
     void backfillRoomViewReadModel()
-})
+}
+
+if (bootHydration) {
+    bootHydration.activate(handleRuntimeRequest)
+    announceRuntimeStarted()
+} else {
+    server.listen(config.runtime.port, config.runtime.bindHost, announceRuntimeStarted)
+}

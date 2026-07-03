@@ -2,6 +2,7 @@ import {
     buildPiRuntimeEntrypoint,
     hostedRuntimeRoomIdEnvKey,
     hostedRuntimeWorkspaceIdEnvKey,
+    piRuntimeBundledMainRelativePath,
     piRuntimeConfigPathEnvKey,
     piRuntimeTokenEnvKey,
 } from '../rooms/pi-runtime-contract'
@@ -10,7 +11,7 @@ import { assertStorageId } from './workspace-storage'
 
 export const hostedRuntimeContainerPort = hostedRuntimePort
 export const hostedRuntimeSleepAfter = '10m'
-export const hostedRuntimeEntrypoint = buildPiRuntimeEntrypoint()
+export const hostedRuntimeEntrypoint = buildPiRuntimeEntrypoint(piRuntimeBundledMainRelativePath)
 export const hostedRuntimeDeniedHosts = [
     '169.254.169.254',
     '169.254.169.253',
@@ -49,7 +50,7 @@ export interface HostedRuntimeCancellationOptions {
 export const hostedRuntimeStartCancellation: HostedRuntimeCancellationOptions = {
     instanceGetTimeoutMS: 120000,
     portReadyTimeoutMS: 180000,
-    waitInterval: 1000,
+    waitInterval: 300,
 }
 
 export interface HostedRuntimeStartAndWaitArgs {

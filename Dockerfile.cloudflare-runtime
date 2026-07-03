@@ -51,15 +51,13 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/apps/self-hosted/package.json apps/self-hosted/package.json
-COPY --from=builder /app/apps/self-hosted/tsconfig.json apps/self-hosted/tsconfig.json
 COPY --from=builder /app/apps/self-hosted/node_modules apps/self-hosted/node_modules
-COPY --from=builder /app/apps/self-hosted/src apps/self-hosted/src
 COPY --from=builder /app/apps/self-hosted/dist apps/self-hosted/dist
 
 RUN groupadd --system agentroom \
     && useradd --system --gid agentroom --home-dir /workspace --create-home agentroom \
     && mkdir -p /workspace/.agent-room \
-    && chown -R agentroom:agentroom /workspace apps/self-hosted/src apps/self-hosted/dist
+    && chown -R agentroom:agentroom /workspace apps/self-hosted/dist
 
 WORKDIR /app/apps/self-hosted
 

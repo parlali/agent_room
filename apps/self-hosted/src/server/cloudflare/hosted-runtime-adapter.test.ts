@@ -19,14 +19,23 @@ interface RuntimeStatement extends RuntimeUpdate {
     run: () => Promise<{ success: true; meta: { changes: number } }>
 }
 
-function decodeRuntimeBundle(args: unknown): Array<{ path: string; contentBase64: string }> {
-    const envVars = runtimeEnvVars(args)
-    const encodedBundle = envVars?.AGENT_ROOM_PI_RUNTIME_FILE_BUNDLE_B64
-    expect(encodedBundle).toBeTruthy()
-    return JSON.parse(Buffer.from(encodedBundle!, 'base64url').toString('utf8')) as Array<{
-        path: string
-        contentBase64: string
-    }>
+interface RecordedContainerFetch {
+    name: string
+    url: string
+    method: string
+    authorization: string | null
+    body: unknown
+}
+
+function decodeRuntimeBundle(
+    fetches: RecordedContainerFetch[],
+): Array<{ path: string; contentBase64: string }> {
+    const bundlePush = fetches.find(
+        (recorded) => recorded.method === 'POST' && recorded.url.endsWith('/boot/materialize'),
+    )
+    expect(bundlePush).toBeTruthy()
+    expect(Array.isArray(bundlePush!.body)).toBe(true)
+    return bundlePush!.body as Array<{ path: string; contentBase64: string }>
 }
 
 function runtimeEnvVars(args: unknown): Record<string, string> | undefined {
@@ -60,6 +69,7 @@ function hostedEnv(input: {
     destroy?: (name: string) => Promise<void>
     updates?: RuntimeUpdate[]
     batches?: RuntimeUpdate[][]
+    fetches?: RecordedContainerFetch[]
     billingAccountRow?: unknown
     activeRuntimeCountRow?: unknown
     providerRows?: unknown[]
@@ -73,6 +83,7 @@ function hostedEnv(input: {
 }): AgentRoomHostedEnv {
     const updates = input.updates ?? []
     const batches = input.batches ?? []
+    const fetches = input.fetches ?? []
     const puts = input.puts ?? []
     const objectKeys = new Set(input.objectKeys)
     const now = new Date(0).toISOString()
@@ -303,6 +314,19 @@ function hostedEnv(input: {
                 destroy: async () => {
                     await input.destroy?.(name)
                 },
+                fetch: async (request: Request) => {
+                    fetches.push({
+                        name,
+                        url: request.url,
+                        method: request.method,
+                        authorization: request.headers.get('authorization'),
+                        body: await request
+                            .clone()
+                            .json()
+                            .catch(() => null),
+                    })
+                    return new Response(JSON.stringify({ ok: true }), { status: 200 })
+                },
             }),
         } as unknown as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME'],
         AGENT_ROOM_AUTH_MODE: 'better-auth',
@@ -342,12 +366,14 @@ describe('hosted runtime reconciliation', () => {
     it('starts the canonical room container with direct egress disabled after D1 and R2 state are verified', async () => {
         const updates: RuntimeUpdate[] = []
         const batches: RuntimeUpdate[][] = []
+        const fetches: RecordedContainerFetch[] = []
         const starts: Array<{ name: string; args: unknown }> = []
         const allowedHosts: Array<{ name: string; hosts: string[] }> = []
         const deniedHosts: Array<{ name: string; hosts: string[] }> = []
         const env = hostedEnv({
             updates,
             batches,
+            fetches,
             objectKeys: [
                 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
                 'workspaces/workspace_1/rooms/room_1/snapshots/snapshot_1.tar.zst',
@@ -407,7 +433,15 @@ describe('hosted runtime reconciliation', () => {
         expect(
             runtimeEnvVars(starts[0]?.args)?.[hostedRuntimeManagedOpenRouterEnvKey],
         ).toBeUndefined()
-        const bundle = decodeRuntimeBundle(starts[0]?.args)
+        expect(
+            runtimeEnvVars(starts[0]?.args)?.AGENT_ROOM_PI_RUNTIME_FILE_BUNDLE_B64,
+        ).toBeUndefined()
+        const bundlePush = fetches.find((recorded) => recorded.url.endsWith('/boot/materialize'))
+        expect(bundlePush?.name).toBe('workspace:workspace_1:room:room_1')
+        expect(bundlePush?.authorization).toBe(
+            `Bearer ${runtimeEnvVars(starts[0]?.args)?.AGENT_ROOM_PI_RUNTIME_TOKEN}`,
+        )
+        const bundle = decodeRuntimeBundle(fetches)
         const providerAuth = bundledFileText(bundle, hostedProviderAuthPath)
         expect(providerAuth).not.toContain('openrouter-hosted-key')
         expect(providerAuth).toContain('runtime-openrouter-api-key')
@@ -510,7 +544,9 @@ describe('hosted runtime reconciliation', () => {
 
     it('marks only managed hosted OpenRouter runtimes for managed cost truth', async () => {
         const starts: Array<{ name: string; args: unknown }> = []
+        const fetches: RecordedContainerFetch[] = []
         const env = hostedEnv({
+            fetches,
             billingAccountRow: { planStatus: 'active' },
             activeRuntimeCountRow: { activeCount: 0 },
             objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],
@@ -539,7 +575,7 @@ describe('hosted runtime reconciliation', () => {
         await reconcileHostedRuntimeJob(env, runtimeMessage())
 
         expect(runtimeEnvVars(starts[0]?.args)?.[hostedRuntimeManagedOpenRouterEnvKey]).toBe('1')
-        const bundle = decodeRuntimeBundle(starts[0]?.args)
+        const bundle = decodeRuntimeBundle(fetches)
         const runtimeConfig = JSON.parse(
             bundledFileText(bundle, hostedRuntimeConfigPath),
         ) as Record<string, unknown>
@@ -553,7 +589,9 @@ describe('hosted runtime reconciliation', () => {
 
     it('does not materialize app image secrets for a room-scoped image provider', async () => {
         const starts: Array<{ name: string; args: unknown }> = []
+        const fetches: RecordedContainerFetch[] = []
         const env = hostedEnv({
+            fetches,
             objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],
             runtimeRow: {
                 roomId: 'room_1',
@@ -585,7 +623,7 @@ describe('hosted runtime reconciliation', () => {
         const envVars = runtimeEnvVars(starts[0]?.args)
         expect(envVars?.OPENAI_API_KEY).toBeUndefined()
         expect(envVars?.GEMINI_API_KEY).toBeUndefined()
-        const bundle = decodeRuntimeBundle(starts[0]?.args)
+        const bundle = decodeRuntimeBundle(fetches)
         const runtimeConfig = JSON.parse(
             bundledFileText(bundle, hostedRuntimeConfigPath),
         ) as Record<string, unknown>

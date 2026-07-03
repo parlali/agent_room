@@ -15,6 +15,7 @@ import {
     roomFileBreadcrumbs,
 } from '../rooms/file-paths'
 import type { AgentRoomHostedEnv } from './bindings'
+import { hostedRuntimeReadConcurrency, mapWithConcurrency } from './hosted-concurrency'
 import { assertHostedFileVisible } from './hosted-file-store'
 
 const maxPreviewBytes = 512000
@@ -33,25 +34,25 @@ export async function listHostedRoomFileMaterializations(input: {
     roomId: string
 }): Promise<HostedRoomFileMaterialization[]> {
     const rows = (await listIndexedFiles(input)).filter((row) => row.kind === 'file')
-    const materializations: HostedRoomFileMaterialization[] = []
     for (const row of rows) {
-        const surface = row.surface as RoomFileSurface
         assertHostedFileVisible({
-            surface,
+            surface: row.surface as RoomFileSurface,
             relativePath: row.relativePath,
         })
+    }
+    return mapWithConcurrency(rows, hostedRuntimeReadConcurrency, async (row) => {
+        const surface = row.surface as RoomFileSurface
         const object = await input.env.AGENT_ROOM_WORKSPACE_BUCKET.get(row.objectKey)
         if (!object) {
             throw new Error(`Hosted file object is missing for ${surface}:${row.relativePath}`)
         }
-        materializations.push({
+        return {
             surface,
             relativePath: row.relativePath,
             contentBase64: Buffer.from(await object.arrayBuffer()).toString('base64url'),
             mode: 0o600,
-        })
-    }
-    return materializations
+        }
+    })
 }
 
 async function listIndexedFiles(input: {
