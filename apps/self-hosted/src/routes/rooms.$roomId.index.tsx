@@ -1,7 +1,7 @@
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect } from 'react'
-import { MessagesSquareIcon, RotateCwIcon, TriangleAlertIcon } from 'lucide-react'
+import { Loader2Icon, MessagesSquareIcon, RotateCwIcon, TriangleAlertIcon } from 'lucide-react'
 
 import { Button } from '#/components/ui/button'
 import { RoomSetupRequiredState, roomNeedsSetup } from '#/components/room-dashboard'
@@ -33,6 +33,7 @@ function RoomChatLanding({ roomId }: { roomId: string }) {
     const threads = snapshot?.threads ?? []
     const latestThread = threads[0] ?? null
     const onboarding = setup?.phase === 'onboarding'
+    const starting = setup?.phase === 'starting'
     const shouldOpenLatest = Boolean(latestThread) && !onboarding
     const needsSetup = Boolean(setup && room && roomNeedsSetup({ setup, room }))
 
@@ -79,6 +80,29 @@ function RoomChatLanding({ roomId }: { roomId: string }) {
                     </Button>
                 }
             />
+        ) : starting ? (
+            <EmptyState
+                icon={RotateCwIcon}
+                title="This room is starting"
+                description={
+                    setup?.message ??
+                    'The room is waking up. This page will update when it is ready to start a conversation.'
+                }
+                action={
+                    <Button
+                        variant="outline"
+                        onClick={() => void sidebarQuery.refetch()}
+                        disabled={sidebarQuery.isFetching}
+                    >
+                        {sidebarQuery.isFetching ? (
+                            <Loader2Icon className="animate-spin" />
+                        ) : (
+                            <RotateCwIcon />
+                        )}
+                        Check again
+                    </Button>
+                }
+            />
         ) : needsSetup ? (
             <RoomSetupRequiredState
                 action={
@@ -93,26 +117,46 @@ function RoomChatLanding({ roomId }: { roomId: string }) {
             <StartConversationEmptyState
                 roomId={roomId}
                 canStart={setup?.canStartSessions ?? true}
+                disabledReason={setup?.message ?? null}
             />
         )
 
     return <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">{content}</div>
 }
 
-function StartConversationEmptyState({ roomId, canStart }: { roomId: string; canStart: boolean }) {
+function StartConversationEmptyState({
+    roomId,
+    canStart,
+    disabledReason,
+}: {
+    roomId: string
+    canStart: boolean
+    disabledReason: string | null
+}) {
     const startSession = useStartRoomSession({ roomId })
+    const pending = startSession.isPending
     return (
         <EmptyState
             icon={MessagesSquareIcon}
             title="Start your first conversation"
             description="Ask this room to research a topic, read a link, draft a document, or work with your files."
             action={
-                <Button
-                    onClick={() => startSession.mutate()}
-                    disabled={startSession.isPending || !canStart}
-                >
-                    <MessagesSquareIcon /> Start a conversation
-                </Button>
+                <div className="flex flex-col items-center gap-2">
+                    <Button onClick={() => startSession.mutate()} disabled={pending || !canStart}>
+                        {pending ? (
+                            <>
+                                <Loader2Icon className="animate-spin" /> Starting...
+                            </>
+                        ) : (
+                            <>
+                                <MessagesSquareIcon /> Start a conversation
+                            </>
+                        )}
+                    </Button>
+                    {!canStart && disabledReason ? (
+                        <p className="text-xs text-muted-foreground">{disabledReason}</p>
+                    ) : null}
+                </div>
             }
         />
     )

@@ -8,20 +8,25 @@ import { StatusDot } from '#/components/agent-room'
 import { markChatSelection } from '#/lib/browser-performance'
 import { getRoomSidebarServer } from '#/routes/-room-runtime-server'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
+import {
+    resolveActiveRoomId,
+    roomIdFromPathname,
+    shouldClearOptimisticRoomId,
+} from '#/lib/room-pathname'
 import type { RoomRuntimeOverview } from '#/domain/room-execution-types'
 
 export function SidebarRoomTree({ rooms }: { rooms: RoomRuntimeOverview[] }) {
     const queryClient = useQueryClient()
     const pathname = useRouterState({ select: (s) => s.location.pathname })
-    const [optimisticPathname, setOptimisticPathname] = useState<string | null>(null)
-    const activePathname = optimisticPathname ?? pathname
-    const activeRoomId = activePathname.match(/^\/rooms\/([^/]+)/)?.[1] ?? null
+    const routeRoomId = roomIdFromPathname(pathname)
+    const [optimisticRoomId, setOptimisticRoomId] = useState<string | null>(null)
+    const activeRoomId = resolveActiveRoomId({ routeRoomId, optimisticRoomId })
 
     useEffect(() => {
-        if (optimisticPathname === pathname) {
-            setOptimisticPathname(null)
+        if (shouldClearOptimisticRoomId({ routeRoomId, optimisticRoomId })) {
+            setOptimisticRoomId(null)
         }
-    }, [optimisticPathname, pathname])
+    }, [routeRoomId, optimisticRoomId])
 
     const prefetchRoomSidebar = (roomId: string) => {
         void queryClient.prefetchQuery({
@@ -62,6 +67,7 @@ export function SidebarRoomTree({ rooms }: { rooms: RoomRuntimeOverview[] }) {
                         <StatusDot
                             tone={state.tone}
                             pulse={state.tone === 'working'}
+                            label={state.label}
                             className="shrink-0"
                         />
                     </>
@@ -76,7 +82,7 @@ export function SidebarRoomTree({ rooms }: { rooms: RoomRuntimeOverview[] }) {
                             onFocus={() => prefetchRoomSidebar(room.roomId)}
                             onClick={() => {
                                 markChatSelection(room.roomId, latestThreadKey)
-                                setOptimisticPathname(`/rooms/${room.roomId}`)
+                                setOptimisticRoomId(room.roomId)
                             }}
                             className={linkClassName}
                         >
@@ -92,7 +98,7 @@ export function SidebarRoomTree({ rooms }: { rooms: RoomRuntimeOverview[] }) {
                         onMouseEnter={() => prefetchRoomSidebar(room.roomId)}
                         onFocus={() => prefetchRoomSidebar(room.roomId)}
                         onClick={() => {
-                            setOptimisticPathname(`/rooms/${room.roomId}`)
+                            setOptimisticRoomId(room.roomId)
                         }}
                         className={linkClassName}
                     >

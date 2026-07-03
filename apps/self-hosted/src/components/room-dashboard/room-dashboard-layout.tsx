@@ -4,6 +4,7 @@ import {
     BrainIcon,
     CalendarClockIcon,
     FolderIcon,
+    Loader2Icon,
     MessagesSquareIcon,
     PauseIcon,
     PlayIcon,
@@ -19,6 +20,7 @@ import { sanitizeRuntimeError } from '#/domain/runtime-error'
 import { Button } from '#/components/ui/button'
 import { Skeleton } from '#/components/ui/skeleton'
 import { Popover, PopoverContent, PopoverTrigger } from '#/components/ui/popover'
+import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
 import {
     Chip,
     NavTabBar,
@@ -241,6 +243,24 @@ function RoomHeaderContent({
     const readiness = buildRoomReadiness({ room, setup, config })
     const needsSetup = roomNeedsSetup({ setup, room })
     const startSession = useStartRoomSession({ roomId })
+    const startDisabledReason = setup.canStartSessions === false ? setup.message : null
+    const startButton = (
+        <Button
+            size="sm"
+            onClick={() => startSession.mutate()}
+            disabled={startSession.isPending || setup.canStartSessions === false}
+        >
+            {startSession.isPending ? (
+                <>
+                    <Loader2Icon className="animate-spin" /> Starting...
+                </>
+            ) : (
+                <>
+                    <PlusIcon /> New conversation
+                </>
+            )}
+        </Button>
+    )
 
     return (
         <PageHeader
@@ -298,14 +318,15 @@ function RoomHeaderContent({
                                 Finish setup
                             </Link>
                         </Button>
+                    ) : startDisabledReason ? (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span tabIndex={0}>{startButton}</span>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom">{startDisabledReason}</TooltipContent>
+                        </Tooltip>
                     ) : (
-                        <Button
-                            size="sm"
-                            onClick={() => startSession.mutate()}
-                            disabled={startSession.isPending || setup.canStartSessions === false}
-                        >
-                            <PlusIcon /> New conversation
-                        </Button>
+                        startButton
                     )}
                     <Button
                         variant="outline"
