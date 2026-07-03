@@ -10,13 +10,13 @@ import type {
 } from '#/domain/room-execution-types'
 
 import type { EditingMessageDraft } from '#/domain/message-list-model'
-import { createRunTranscriptRow, rowContainsMessage } from '#/domain/message-list-model'
+import { rowContainsMessage } from '#/domain/message-list-model'
 import { DisplayRow } from './message-rows'
 import { ChatEmptyState } from './chat-empty-state'
-import { isActiveRunStatus } from './conversation-utils'
 import { recordClientPerformance } from '#/lib/browser-performance'
 import type { StreamTurnState } from './stream-state'
 import { streamTurnHasContent } from './stream-state'
+import { buildTimelineRows } from './timeline-rows'
 import { cn } from '#/lib/utils'
 
 export function MessageList({
@@ -67,11 +67,20 @@ export function MessageList({
     const mountedAtRef = useRef(performance.now())
     const renderLoggedSessionRef = useRef<string | null>(null)
     const pendingPrependRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null)
+    const previousTimelineRowsRef = useRef<ChatTimelineRow[]>([])
+    const measureFrameRef = useRef<number | null>(null)
     const [collapsedByRunId, setCollapsedByRunId] = useState<Map<string, boolean>>(() => new Map())
-    const timelineRows = useMemo(
-        () => buildTimelineRows(rows, stream, isWorking, sessionKey),
-        [isWorking, rows, sessionKey, stream],
-    )
+    const timelineRows = useMemo(() => {
+        const built = buildTimelineRows(
+            rows,
+            stream,
+            isWorking,
+            sessionKey,
+            previousTimelineRowsRef.current,
+        )
+        previousTimelineRowsRef.current = built
+        return built
+    }, [isWorking, rows, sessionKey, stream])
     const editingMeasurementKey = editingMessage
         ? `${editingMessage.id}:${editingMessage.text}:${editingMessage.attachments.length}`
         : null
@@ -126,6 +135,7 @@ export function MessageList({
     }, [rowVirtualizer, scrollRequestId, scrollToMessageId, timelineRows])
 
     const measureVisibleRows = useCallback(() => {
+        if (measureFrameRef.current !== null) return
         const measure = () => {
             const node = containerRef.current
             if (!node) return
@@ -133,11 +143,24 @@ export function MessageList({
                 rowVirtualizer.measureElement(element)
             }
         }
-        window.requestAnimationFrame(() => {
+        measureFrameRef.current = window.requestAnimationFrame(() => {
             measure()
-            window.requestAnimationFrame(measure)
+            measureFrameRef.current = window.requestAnimationFrame(() => {
+                measureFrameRef.current = null
+                measure()
+            })
         })
     }, [rowVirtualizer])
+
+    useEffect(
+        () => () => {
+            if (measureFrameRef.current !== null) {
+                window.cancelAnimationFrame(measureFrameRef.current)
+                measureFrameRef.current = null
+            }
+        },
+        [],
+    )
 
     useLayoutEffect(() => {
         measureVisibleRows()
@@ -259,120 +282,6 @@ export function MessageList({
             </div>
         </div>
     )
-}
-
-export function buildTimelineRows(
-    rows: RoomSessionDisplayRow[],
-    stream: StreamTurnState,
-    isWorking: boolean,
-    sessionKey: string,
-): ChatTimelineRow[] {
-    const streamRows = stream.rows
-    const persistentMerge =
-        streamRows.length > 0
-            ? persistedRowsForLiveRun(rows, stream)
-            : {
-                  before: rows,
-                  after: [],
-              }
-    const fallback =
-        isWorking && streamRows.length === 0 && !persistentMerge.before.some(hasActiveTranscript)
-            ? [
-                  createRunTranscriptRow({
-                      id: `run-transcript-pending-${sessionKey}`,
-                      seq: persistentMerge.before.length,
-                      runId: `pending-${sessionKey}`,
-                      status: 'working',
-                      startedAt: null,
-                      runtimeMs: null,
-                      collapsed: false,
-                      timestamp: null,
-                  }),
-              ]
-            : []
-    return [...persistentMerge.before, ...streamRows, ...persistentMerge.after, ...fallback].map(
-        (row, seq) => ({
-            ...row,
-            seq,
-        }),
-    )
-}
-
-function persistedRowsForLiveRun(
-    rows: RoomSessionDisplayRow[],
-    stream: StreamTurnState,
-): { before: RoomSessionDisplayRow[]; after: RoomSessionDisplayRow[] } {
-    const pendingAnchor = persistedRowsForMatchingPendingRun(rows, stream.runId)
-    if (pendingAnchor) return pendingAnchor
-
-    const persistedRunAnchor = persistedRowsForMatchingRun(rows, stream.runId)
-    if (persistedRunAnchor) return persistedRunAnchor
-
-    return {
-        before: rows.filter((row) => {
-            if (row.type === 'run_transcript')
-                return row.pending === true || !isActiveRunStatus(row.status)
-            return true
-        }),
-        after: [],
-    }
-}
-
-function persistedRowsForMatchingPendingRun(
-    rows: RoomSessionDisplayRow[],
-    runId: string | null,
-): { before: RoomSessionDisplayRow[]; after: RoomSessionDisplayRow[] } | null {
-    if (!runId) return null
-    const pendingRunIndex = rows.findIndex(
-        (row) => row.type === 'run_transcript' && row.pending === true && row.runId === runId,
-    )
-    if (pendingRunIndex < 0) return null
-    const userIndex = nearestUserRowIndexBefore(rows, pendingRunIndex)
-    if (userIndex < 0) {
-        return {
-            before: rows.slice(0, pendingRunIndex),
-            after: rows.slice(pendingRunIndex + 1),
-        }
-    }
-    return {
-        before: rows.slice(0, userIndex + 1),
-        after: rows.slice(pendingRunIndex + 1),
-    }
-}
-
-function persistedRowsForMatchingRun(
-    rows: RoomSessionDisplayRow[],
-    runId: string | null,
-): { before: RoomSessionDisplayRow[]; after: RoomSessionDisplayRow[] } | null {
-    if (!runId) return null
-    const runIndex = rows.findIndex((row) => row.type === 'run_transcript' && row.runId === runId)
-    if (runIndex < 0) return null
-    const userIndex = nearestUserRowIndexBefore(rows, runIndex)
-    const replacementStart = userIndex < 0 ? runIndex : userIndex + 1
-    return {
-        before: rows.slice(0, replacementStart),
-        after: rows.slice(currentRunReplacementEnd(rows, replacementStart - 1)),
-    }
-}
-
-function nearestUserRowIndexBefore(rows: RoomSessionDisplayRow[], beforeIndex: number): number {
-    for (let index = beforeIndex - 1; index >= 0; index -= 1) {
-        if (rows[index]?.type === 'user_message') return index
-    }
-    return -1
-}
-
-function currentRunReplacementEnd(rows: RoomSessionDisplayRow[], userIndex: number): number {
-    for (let index = userIndex + 1; index < rows.length; index += 1) {
-        const row = rows[index]
-        if (!row) return index
-        if (row.type === 'user_message' || row.type === 'system') return index
-    }
-    return rows.length
-}
-
-function hasActiveTranscript(row: ChatTimelineRow): boolean {
-    return row.type === 'run_transcript' && isActiveRunStatus(row.status)
 }
 
 export function timelineRowKey(

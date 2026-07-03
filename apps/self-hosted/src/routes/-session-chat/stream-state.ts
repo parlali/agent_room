@@ -69,6 +69,30 @@ export const emptyStreamTurnState: StreamTurnState = {
     currentTurnHasToolCall: false,
 }
 
+export function isFabricatedRunId(runId: string | null): boolean {
+    return runId === null || runId.startsWith('live-')
+}
+
+export function adoptRealRunId(state: StreamTurnState, runId: string): StreamTurnState {
+    if (!runId.trim()) return state
+    if (state.runId === runId) return state
+    if (!isFabricatedRunId(state.runId)) return state
+    const previousRunId = state.runId
+    return {
+        ...state,
+        runId,
+        rows: state.rows.map((row): ChatTimelineRow => {
+            if (row.type !== 'run_transcript') return row
+            if (previousRunId !== null && row.runId !== previousRunId) return row
+            return {
+                ...row,
+                runId,
+                id: `run-transcript-${runId}`,
+            }
+        }),
+    }
+}
+
 export function streamTurnHasContent(state: StreamTurnState): boolean {
     return state.rows.some((row) => {
         if (row.type === 'run_transcript') return transcriptHasVisibleContent(row)

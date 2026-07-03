@@ -63,6 +63,7 @@ import { Composer, type ComposerAttachment } from './composer'
 import type { ModelModeChange } from './model-mode-menu'
 import { isLastMessageInProgress } from './conversation-utils'
 import {
+    adoptRealRunId,
     emptyStreamTurnState,
     reduceRoomStreamEvent,
     shouldRefetchForRoomEvent,
@@ -157,6 +158,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         readCachedStreamTurn(streamStateKey),
     )
     const draftRef = useRef(draft)
+    const authoritativeRunIdRef = useRef<string | null>(null)
     const activeComposerKeyRef = useRef(composerStateKey)
     const composerEditedSinceLoadRef = useRef(false)
     const draftSaveTimerRef = useRef<number | null>(null)
@@ -500,6 +502,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         setStreamTurn(readCachedStreamTurn(streamStateKey))
         setAttachments([])
         setEditingMessage(null)
+        authoritativeRunIdRef.current = null
         shellPaintLoggedRef.current = null
         latestPaintLoggedRef.current = null
     }, [streamStateKey])
@@ -646,7 +649,18 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
 
     const onRealtimeEvent = useCallback(
         (event: RoomRealtimeEvent) => {
-            updateStreamTurn((current) => reduceRoomStreamEvent(current, event))
+            updateStreamTurn((current) => {
+                const reduced = reduceRoomStreamEvent(current, event)
+                const authoritative = authoritativeRunIdRef.current
+                return authoritative ? adoptRealRunId(reduced, authoritative) : reduced
+            })
+            const runTerminated =
+                event.event === 'run.error' ||
+                event.event === 'run.finished' ||
+                event.event === 'agent_end'
+            if (runTerminated) {
+                authoritativeRunIdRef.current = null
+            }
             const windowChangingEvent =
                 event.event === 'thread.message_edited' ||
                 event.event === 'run.error' ||
@@ -694,6 +708,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 },
             }),
         onMutate: async (input): Promise<OptimisticWindowRollback> => {
+            authoritativeRunIdRef.current = null
             return addOptimisticUserMessage({
                 queryClient,
                 roomId: input.roomId,
@@ -725,6 +740,11 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 rollback,
                 runId: result.runId,
             })
+            const acceptedRunId = result.runId
+            if (acceptedRunId) {
+                authoritativeRunIdRef.current = acceptedRunId
+                updateStreamTurn((current) => adoptRealRunId(current, acceptedRunId))
+            }
             clearSentComposer(input)
             invalidateSessionScope({
                 roomId: input.roomId,
