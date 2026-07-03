@@ -66,6 +66,7 @@ import { createRuntimeModelState } from './runtime-model-state'
 import { cleanManualThreadTitle, createThreadTitleGenerator } from './runtime-title-generator'
 import { promptAttachmentMetadataByEntryId } from './prompt-attachments'
 import { createSessionEventQueue } from './session-event-queue'
+import { createDebouncedPersister } from './runtime-persistence-scheduler'
 import { removeDeliveredPendingUserMessage } from './pending-user-messages'
 import { visibleProjectionEntries } from './hidden-projection'
 import { piRuntimeTokenEnvKey } from '../rooms/pi-runtime-contract'
@@ -119,6 +120,7 @@ const roomViewReadModel = createRoomViewReadModelStore({
     },
 })
 const activeThreads = new Map<string, ActiveThread>()
+const threadIndexPersistDebounceMs = 500
 const maxSubagentTaskChars = 24000
 const maxActiveSubagents = 5
 const maxDeepWorkObjectiveChars = 48000
@@ -338,12 +340,26 @@ function latestAssistantErrorMessage(record: ThreadRecord): string | null {
     }
 }
 
+const threadIndexPersister = createDebouncedPersister({
+    intervalMs: threadIndexPersistDebounceMs,
+    persist: async () => {
+        await writeJsonFile(config.paths.threadIndexPath, threadIndex)
+        await hostedRuntimeStateSync.upsert(config.paths.threadIndexPath)
+        await roomViewReadModel.persistThreads(
+            buildThreadsView(config, threadIndex.threads, cheapCompactionStats),
+        )
+    },
+    onError: (error) => {
+        console.error('[thread-index-persist] background persistence failed', error)
+    },
+})
+
 async function persistThreadIndex(): Promise<void> {
-    await writeJsonFile(config.paths.threadIndexPath, threadIndex)
-    await hostedRuntimeStateSync.upsert(config.paths.threadIndexPath)
-    await roomViewReadModel.persistThreads(
-        buildThreadsView(config, threadIndex.threads, cheapCompactionStats),
-    )
+    await threadIndexPersister.flush()
+}
+
+function schedulePersistThreadIndex(): void {
+    threadIndexPersister.schedule()
 }
 
 async function persistThreadView(record: ThreadRecord): Promise<void> {
@@ -559,10 +575,13 @@ async function handleSessionEvent(record: ThreadRecord, event: AgentSessionEvent
         record.lastError = latestError
         record.activeRunId = null
     }
-    await persistThreadIndex()
-    if (eventForLog.type === 'agent_end' || eventForLog.type === 'compaction_end') {
+    const runTerminal = eventForLog.type === 'agent_end' || eventForLog.type === 'compaction_end'
+    if (runTerminal) {
+        await persistThreadIndex()
         await persistThreadView(record)
         await hostedRuntimeStateSync.upsert(record.sessionFile)
+    } else {
+        schedulePersistThreadIndex()
     }
     await appendRuntimeEvent(eventForLog.type, {
         sessionKey: record.key,
@@ -960,8 +979,10 @@ process.on('SIGTERM', () => {
         void cleanupBackgroundCommands(config).finally(() => {
             void closeMcpConnections().finally(() => {
                 void drainPendingHostedRuntimeUsage().finally(() => {
-                    server.close(() => {
-                        process.exit(0)
+                    void threadIndexPersister.shutdown().finally(() => {
+                        server.close(() => {
+                            process.exit(0)
+                        })
                     })
                 })
             })
