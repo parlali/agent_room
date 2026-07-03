@@ -117,6 +117,18 @@ export function createRuntimeEventProxyStream(input: {
                 } catch {}
             }
 
+            const emitRuntimeStatus = (ready: boolean): void => {
+                if (input.streamKind !== 'room') {
+                    return
+                }
+                safeEnqueue(
+                    encodeRoomSseEvent('runtime-status', {
+                        roomId: input.roomId,
+                        ready,
+                    }),
+                )
+            }
+
             const enqueueUpstream = (chunk: Uint8Array): void => {
                 if (closed) {
                     return
@@ -321,6 +333,7 @@ export function createRuntimeEventProxyStream(input: {
                     }
                     attachCount += 1
                     logTransition('attached', {})
+                    emitRuntimeStatus(true)
                     const reader = upstream.getReader()
                     const outcome = await pumpUpstream(reader, attachController)
                     activeAttachController = null
@@ -332,6 +345,7 @@ export function createRuntimeEventProxyStream(input: {
                         sleepCooldownUntil = Date.now() + sleepCooldownMs
                         wasReady = true
                         logTransition('idle_detach', {})
+                        emitRuntimeStatus(false)
                         await delay(readyRecheckMinMs)
                         continue
                     }

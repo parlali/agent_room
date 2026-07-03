@@ -64,6 +64,11 @@ export function useRoomEventCacheSync({
             }
         }
 
+        const onRuntimeStatus = () => {
+            onError?.(null)
+            invalidateRoomSummaryQueries({ roomId, queryClient })
+        }
+
         const onStreamError = (raw: MessageEvent<string>) => {
             try {
                 const event = JSON.parse(raw.data) as {
@@ -79,14 +84,29 @@ export function useRoomEventCacheSync({
         }
 
         source.addEventListener('room-event', onRoomEvent as EventListener)
+        source.addEventListener('runtime-status', onRuntimeStatus as EventListener)
         source.addEventListener('stream-error', onStreamError as EventListener)
 
         return () => {
             source.removeEventListener('room-event', onRoomEvent as EventListener)
+            source.removeEventListener('runtime-status', onRuntimeStatus as EventListener)
             source.removeEventListener('stream-error', onStreamError as EventListener)
             source.close()
         }
     }, [enabled, onError, queryClient, roomId])
+}
+
+export function invalidateRoomSummaryQueries(input: {
+    roomId: string
+    queryClient: QueryClient
+}): void {
+    void input.queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
+    void input.queryClient.invalidateQueries({
+        queryKey: roomQueryKey.roomSidebar(input.roomId),
+    })
+    void input.queryClient.invalidateQueries({
+        queryKey: roomQueryKey.roomExecution(input.roomId),
+    })
 }
 
 export function invalidateRoomCachesForEvent(input: {
@@ -96,15 +116,8 @@ export function invalidateRoomCachesForEvent(input: {
 }): void {
     const sessionKey = sessionKeyFromRealtimeEvent(input.event)
     const sessionRefetchType = shouldRefetchInactiveSessionForEvent(input.event) ? 'all' : 'active'
-    const invalidateRoomSummary = () => {
-        void input.queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
-        void input.queryClient.invalidateQueries({
-            queryKey: roomQueryKey.roomSidebar(input.roomId),
-        })
-        void input.queryClient.invalidateQueries({
-            queryKey: roomQueryKey.roomExecution(input.roomId),
-        })
-    }
+    const invalidateRoomSummary = () =>
+        invalidateRoomSummaryQueries({ roomId: input.roomId, queryClient: input.queryClient })
 
     if (
         input.event.event === 'thread.renamed' ||

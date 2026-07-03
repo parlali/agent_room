@@ -91,6 +91,89 @@ describe('runtime event proxy stream', () => {
         await reader.cancel()
     })
 
+    it('emits a runtime-status ready frame when the room stream attaches', async () => {
+        let readyCalls = 0
+        const stream = createRuntimeEventProxyStream({
+            roomId: 'room',
+            sessionKey: null,
+            streamKind: 'room',
+            intervals: FAST_INTERVALS,
+            checkReady: async () => {
+                readyCalls += 1
+                return readyCalls >= 2
+            },
+            attach: async () => streamOf([], true),
+        })
+        const reader = stream.getReader()
+        const frame = await readUntil(reader, (text) => text.includes('event: runtime-status'))
+        expect(frame).toContain('"ready":true')
+        await reader.cancel()
+    })
+
+    it('emits a runtime-status idle frame when the room stream detaches for sleep', async () => {
+        const stream = createRuntimeEventProxyStream({
+            roomId: 'room',
+            sessionKey: null,
+            streamKind: 'room',
+            detachAfterIdleMs: 40,
+            intervals: FAST_INTERVALS,
+            checkReady: async () => true,
+            attach: async (signal) =>
+                new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        controller.enqueue(encode('event: heartbeat\ndata: {}\n\n'))
+                        signal.addEventListener(
+                            'abort',
+                            () => {
+                                try {
+                                    controller.error(new Error('detached'))
+                                } catch {}
+                            },
+                            { once: true },
+                        )
+                    },
+                }),
+        })
+        const reader = stream.getReader()
+        const ready = await readUntil(reader, (text) => text.includes('event: runtime-status'))
+        expect(ready).toContain('"ready":true')
+        const idle = await readUntil(
+            reader,
+            (text) => text.includes('event: runtime-status') && text.includes('"ready":false'),
+        )
+        expect(idle).toContain('"ready":false')
+        await reader.cancel()
+    })
+
+    it('does not emit runtime-status frames on the session stream', async () => {
+        const stream = createRuntimeEventProxyStream({
+            roomId: 'room',
+            sessionKey: 'session',
+            streamKind: 'session',
+            intervals: FAST_INTERVALS,
+            checkReady: async () => true,
+            attach: async () => streamOf([roomEventFrame('run.finished', 3)], true),
+        })
+        const reader = stream.getReader()
+        const decoder = new TextDecoder()
+        let seenRoomEvent = false
+        let combined = ''
+        for (let attempt = 0; attempt < 200 && !seenRoomEvent; attempt += 1) {
+            const result = await reader.read()
+            if (result.done) {
+                break
+            }
+            const text = decoder.decode(result.value)
+            combined += text
+            if (text.includes('event: room-event')) {
+                seenRoomEvent = true
+            }
+        }
+        expect(seenRoomEvent).toBe(true)
+        expect(combined).not.toContain('runtime-status')
+        await reader.cancel()
+    })
+
     it('does not close the browser stream when the container stream ends', async () => {
         let attachCalls = 0
         const stream = createRuntimeEventProxyStream({
