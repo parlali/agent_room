@@ -70,6 +70,7 @@ export interface ActiveThread {
     queue: Promise<void>
     abortController: AbortController | null
     touchRunHeartbeat: ((reason: string) => Promise<void>) | null
+    promptVersion: number
 }
 
 export interface RunPromptInput {

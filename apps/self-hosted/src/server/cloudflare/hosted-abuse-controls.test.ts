@@ -5,6 +5,7 @@ import {
     assertHostedQuotaAllowed,
     HostedQuotaDeniedError,
     hostedQuotaDeniedResponse,
+    readHostedQuotaPolicy,
     recordHostedProviderSpend,
     refundHostedProviderSpend,
 } from './hosted-abuse-controls'
@@ -45,19 +46,40 @@ class FakeQuotaD1 {
     quotaEvents: QuotaEventRow[] = []
     auditEvents: AuditEventRow[] = []
     usageEvents: UsageEventRow[] = []
+    statements: string[] = []
 
     prepare(sql: string) {
+        this.statements.push(sql)
         return {
             bind: (...args: unknown[]) => this.statement(sql, args),
         }
     }
 
+    countStatements(pattern: RegExp): number {
+        return this.statements.filter((sql) => pattern.test(sql)).length
+    }
+
     private statement(sql: string, args: unknown[]) {
         return {
             first: async <T>() => this.first<T>(sql, args),
-            all: async <T>() => ({ results: [] as T[] }),
+            all: async <T>() => this.all<T>(sql, args),
             run: async () => this.run(sql, args),
         }
+    }
+
+    private async all<T>(sql: string, args: unknown[]): Promise<{ results: T[] }> {
+        if (/hosted_quota_counter/.test(sql) && /WITH wanted/.test(sql)) {
+            const results: Array<{ idx: number; quantity: number }> = []
+            for (let offset = 0; offset + 5 <= args.length; offset += 5) {
+                const key = counterKey(args, offset + 1)
+                results.push({
+                    idx: Number(args[offset]),
+                    quantity: this.counters.get(key) ?? 0,
+                })
+            }
+            return { results: results as unknown as T[] }
+        }
+        return { results: [] as T[] }
     }
 
     private async first<T>(sql: string, args: unknown[]): Promise<T | null> {
@@ -281,6 +303,76 @@ describe('hosted abuse controls', () => {
             code: 'hosted_quota_denied',
             reason: 'capability_disabled',
         })
+    })
+
+    it('reads every run_start counter in a single batched statement', async () => {
+        const db = new FakeQuotaD1()
+        db.policy = {
+            status: 'active',
+            limits: JSON.stringify({
+                maxWorkspaceRunStartsPerMinute: 30,
+                maxUserRunStartsPerMinute: 20,
+                maxIpRunStartsPerMinute: 30,
+                maxRoomRunStartsPerMinute: 10,
+            }),
+            restrictions: '{}',
+        }
+        const env = quotaEnv(db)
+        const now = new Date('2026-01-01T00:00:30.000Z')
+
+        await assertHostedQuotaAllowed({
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            actorUserId: 'user_1',
+            action: 'run_start',
+            amount: {
+                count: 1,
+            },
+            now,
+        })
+
+        expect(db.countStatements(/WITH wanted/)).toBe(1)
+        expect(db.countStatements(/FROM hosted_quota_counter\s+WHERE/)).toBe(0)
+        expect(db.countStatements(/hosted_quota_policy/)).toBe(1)
+        expect(db.countStatements(/WITH increments/)).toBe(1)
+    })
+
+    it('does not read the quota policy when a prefetched policy is supplied', async () => {
+        const db = new FakeQuotaD1()
+        db.policy = {
+            status: 'active',
+            limits: JSON.stringify({
+                maxWorkspaceRunStartsPerMinute: 30,
+            }),
+            restrictions: '{}',
+        }
+        const env = quotaEnv(db)
+        const now = new Date('2026-01-01T00:00:30.000Z')
+        const policy = await readHostedQuotaPolicy({
+            env,
+            workspaceId: 'workspace_1',
+        })
+        db.statements = []
+
+        await assertHostedQuotaAllowed(
+            {
+                env,
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                actorUserId: 'user_1',
+                action: 'run_start',
+                amount: {
+                    count: 1,
+                },
+                now,
+            },
+            { policy },
+        )
+
+        expect(db.countStatements(/hosted_quota_policy/)).toBe(0)
+        expect(db.countStatements(/WITH wanted/)).toBe(1)
+        expect(db.countStatements(/WITH increments/)).toBe(1)
     })
 
     it('consumes bounded counters and denies later work in the same window', async () => {

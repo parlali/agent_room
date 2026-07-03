@@ -542,6 +542,11 @@ export async function createRoomThread(input: {
     firstMessage?: string | null
 }): Promise<{ key: string }> {
     const { context, actor } = await requireHosted()
+    const endpoint = await getHostedRuntimeEndpointState({
+        env: context.env,
+        workspaceId: actor.workspaceId,
+        roomId: input.roomId,
+    })
     if (input.firstMessage?.trim()) {
         await assertHostedRunAllowed({
             env: context.env,
@@ -549,6 +554,7 @@ export async function createRoomThread(input: {
             roomId: input.roomId,
             actorUserId: actor.userId,
             request: context.request,
+            resolvedProviderCandidate: endpoint?.runtime.providerCandidate ?? null,
         })
     }
     const request = createThreadRuntimeRequest({
@@ -559,13 +565,16 @@ export async function createRoomThread(input: {
         internalInstruction: null,
         kind: 'main',
     })
+    let endpointHint = endpoint
     return withHostedRuntimeStarted({
         env: context.env,
         workspaceId: actor.workspaceId,
         roomId: input.roomId,
         actorUserId: actor.userId,
-        run: () =>
-            requestHostedPiRuntime({
+        run: () => {
+            const prefetchedEndpoint = endpointHint
+            endpointHint = null
+            return requestHostedPiRuntime({
                 env: context.env,
                 workspaceId: actor.workspaceId,
                 roomId: input.roomId,
@@ -573,7 +582,9 @@ export async function createRoomThread(input: {
                 schema: createThreadSchema,
                 method: request.method,
                 body: request.body,
-            }),
+                prefetchedEndpoint,
+            })
+        },
     })
 }
 
@@ -591,6 +602,11 @@ export async function sendRoomThreadMessage(input: {
         runKind: 'manual',
         hideUserMessage: false,
     })
+    const endpoint = await getHostedRuntimeEndpointState({
+        env: context.env,
+        workspaceId: actor.workspaceId,
+        roomId: input.roomId,
+    })
     await assertHostedRunAllowed({
         env: context.env,
         workspaceId: actor.workspaceId,
@@ -598,14 +614,18 @@ export async function sendRoomThreadMessage(input: {
         actorUserId: actor.userId,
         request: context.request,
         sessionKey: input.sessionKey,
+        resolvedProviderCandidate: endpoint?.runtime.providerCandidate ?? null,
     })
+    let endpointHint = endpoint
     return withHostedRuntimeStarted({
         env: context.env,
         workspaceId: actor.workspaceId,
         roomId: input.roomId,
         actorUserId: actor.userId,
-        run: () =>
-            requestHostedPiRuntime({
+        run: () => {
+            const prefetchedEndpoint = endpointHint
+            endpointHint = null
+            return requestHostedPiRuntime({
                 env: context.env,
                 workspaceId: actor.workspaceId,
                 roomId: input.roomId,
@@ -613,7 +633,9 @@ export async function sendRoomThreadMessage(input: {
                 schema: sendSchema,
                 method: request.method,
                 body: request.body,
-            }),
+                prefetchedEndpoint,
+            })
+        },
     })
 }
 
@@ -723,6 +745,11 @@ export async function editRoomThreadMessage(input: {
 }): Promise<RoomThreadSendResult> {
     const { context, actor } = await requireHosted()
     const request = editThreadMessageRuntimeRequest(input)
+    const endpoint = await getHostedRuntimeEndpointState({
+        env: context.env,
+        workspaceId: actor.workspaceId,
+        roomId: input.roomId,
+    })
     await assertHostedRunAllowed({
         env: context.env,
         workspaceId: actor.workspaceId,
@@ -730,14 +757,18 @@ export async function editRoomThreadMessage(input: {
         actorUserId: actor.userId,
         request: context.request,
         sessionKey: input.sessionKey,
+        resolvedProviderCandidate: endpoint?.runtime.providerCandidate ?? null,
     })
+    let endpointHint = endpoint
     return withHostedRuntimeStarted({
         env: context.env,
         workspaceId: actor.workspaceId,
         roomId: input.roomId,
         actorUserId: actor.userId,
-        run: () =>
-            requestHostedPiRuntime({
+        run: () => {
+            const prefetchedEndpoint = endpointHint
+            endpointHint = null
+            return requestHostedPiRuntime({
                 env: context.env,
                 workspaceId: actor.workspaceId,
                 roomId: input.roomId,
@@ -745,7 +776,9 @@ export async function editRoomThreadMessage(input: {
                 schema: sendSchema,
                 method: request.method,
                 body: request.body,
-            }),
+                prefetchedEndpoint,
+            })
+        },
     })
 }
 

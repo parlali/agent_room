@@ -1,6 +1,11 @@
 import type { AgentRoomHostedEnv } from './bindings'
 import { nowIso } from './hosted-json'
-import { deny, HostedQuotaDeniedError, type HostedQuotaCheckInput } from './hosted-quota-contract'
+import {
+    deny,
+    HostedQuotaDeniedError,
+    type HostedQuotaCheckInput,
+    type HostedQuotaPolicy,
+} from './hosted-quota-contract'
 import { readHostedQuotaPolicy, restrictedByPolicy } from './hosted-quota-policy'
 import { counterRules, ipScopeId } from './hosted-quota-rules'
 import {
@@ -24,16 +29,23 @@ export {
     type HostedQuotaAction,
     type HostedQuotaAmount,
     type HostedQuotaCheckInput,
+    type HostedQuotaPolicy,
     type HostedQuotaScope,
 } from './hosted-quota-contract'
+export { readHostedQuotaPolicy } from './hosted-quota-policy'
 
-async function evaluateHostedQuota(input: HostedQuotaCheckInput): Promise<void> {
+async function evaluateHostedQuota(
+    input: HostedQuotaCheckInput,
+    prefetchedPolicy?: HostedQuotaPolicy,
+): Promise<void> {
     const now = input.now ?? new Date()
     const nowString = nowIso(now)
-    const policy = await readHostedQuotaPolicy({
-        env: input.env,
-        workspaceId: input.workspaceId,
-    })
+    const policy =
+        prefetchedPolicy ??
+        (await readHostedQuotaPolicy({
+            env: input.env,
+            workspaceId: input.workspaceId,
+        }))
     const requestIpScope = await ipScopeId(input.request)
     const restriction = restrictedByPolicy({
         policy,
@@ -178,9 +190,12 @@ export async function refundHostedProviderSpend(
     })
 }
 
-export async function assertHostedQuotaAllowed(input: HostedQuotaCheckInput): Promise<void> {
+export async function assertHostedQuotaAllowed(
+    input: HostedQuotaCheckInput,
+    options?: { policy?: HostedQuotaPolicy },
+): Promise<void> {
     try {
-        await evaluateHostedQuota(input)
+        await evaluateHostedQuota(input, options?.policy)
     } catch (error) {
         if (error instanceof HostedQuotaDeniedError) {
             throw error

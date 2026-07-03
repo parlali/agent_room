@@ -62,7 +62,7 @@ export {
     getHostedRuntimeState,
     listHostedRooms,
 } from './hosted-room-store'
-export type { HostedRuntimeState } from './hosted-room-store'
+export type { HostedRuntimeEndpointState, HostedRuntimeState } from './hosted-room-store'
 export { getHostedRoomMode } from './hosted-room-config-store'
 export {
     HostedRuntimeMaterializationConflictError,

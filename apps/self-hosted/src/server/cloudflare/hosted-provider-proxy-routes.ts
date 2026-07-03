@@ -4,9 +4,11 @@ import type { HostedRuntimeUsageContext } from './hosted-runtime-usage-context'
 import {
     assertHostedQuotaAllowed,
     hostedQuotaDeniedResponse,
+    readHostedQuotaPolicy,
     recordHostedProviderSpend,
     refundHostedProviderSpend,
     type HostedQuotaCheckInput,
+    type HostedQuotaPolicy,
 } from './hosted-abuse-controls'
 import {
     applyUsageMarkupMicros,
@@ -93,9 +95,10 @@ function hostedOpenRouterProviderPayload(
 async function assertProviderQuotaOrResponse(input: {
     check: HostedQuotaCheckInput
     reservationId?: string | null
+    policy?: HostedQuotaPolicy
 }): Promise<Response | null> {
     try {
-        await assertHostedQuotaAllowed(input.check)
+        await assertHostedQuotaAllowed(input.check, { policy: input.policy })
         return null
     } catch (error) {
         const response = hostedQuotaDeniedResponse(error)
@@ -615,25 +618,38 @@ export async function hostedOpenRouterProxy(
             cents: 0,
         },
     } satisfies HostedQuotaCheckInput
-    const quotaPreflightResponse = await assertProviderQuotaOrResponse({
-        check: {
-            ...quotaCheck,
-            amount: {
-                count: 1,
-                cents: hostedManagedModelPreflightSpendEstimateCents,
-            },
-            consume: false,
-        },
+    const quotaPolicy = await readHostedQuotaPolicy({
+        env,
+        workspaceId: proxyPath.workspaceId,
     })
-    if (quotaPreflightResponse) {
-        return quotaPreflightResponse
+    const [preflightSettled, ensureSettled] = await Promise.allSettled([
+        assertProviderQuotaOrResponse({
+            check: {
+                ...quotaCheck,
+                amount: {
+                    count: 1,
+                    cents: hostedManagedModelPreflightSpendEstimateCents,
+                },
+                consume: false,
+            },
+            policy: quotaPolicy,
+        }),
+        ensureHostedBillingAccount({
+            env,
+            workspaceId: proxyPath.workspaceId,
+        }),
+    ])
+    if (preflightSettled.status === 'rejected') {
+        throw preflightSettled.reason
+    }
+    if (preflightSettled.value) {
+        return preflightSettled.value
     }
     let reservationId: string | null = null
     try {
-        await ensureHostedBillingAccount({
-            env,
-            workspaceId: proxyPath.workspaceId,
-        })
+        if (ensureSettled.status === 'rejected') {
+            throw ensureSettled.reason
+        }
         const reservationIdOrResponse = await authorizeFixedProviderReservation({
             env,
             workspaceId: proxyPath.workspaceId,
@@ -664,6 +680,7 @@ export async function hostedOpenRouterProxy(
     const quotaConsumeResponse = await assertProviderQuotaOrResponse({
         check: quotaCheck,
         reservationId,
+        policy: quotaPolicy,
     })
     if (quotaConsumeResponse) {
         return quotaConsumeResponse

@@ -138,15 +138,17 @@ export async function getHostedRuntimeState(input: {
     }
 }
 
+export interface HostedRuntimeEndpointState {
+    desiredState: string
+    status: string
+    runtime: HostedRuntimeRow
+}
+
 export async function getHostedRuntimeEndpointState(input: {
     env: AgentRoomHostedEnv
     workspaceId: string
     roomId: string
-}): Promise<{
-    desiredState: string
-    status: string
-    runtime: HostedRuntimeRow
-} | null> {
+}): Promise<HostedRuntimeEndpointState | null> {
     const row = await input.env.AGENT_ROOM_DB.prepare(
         `
             SELECT

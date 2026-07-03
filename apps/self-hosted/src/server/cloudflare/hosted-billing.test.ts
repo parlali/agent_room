@@ -474,6 +474,36 @@ describe('hosted billing reservations', () => {
             }),
         ).resolves.toBeUndefined()
     })
+
+    it('skips the expired-hold release and account re-read when balance already covers the gate', async () => {
+        const db = new FakeD1()
+        const env = hostedEnv(db)
+        await ensureHostedBillingAccount({
+            env,
+            workspaceId: 'workspace_1',
+            now: new Date(0),
+        })
+        await creditHostedBalance({
+            env,
+            workspaceId: 'workspace_1',
+            source: 'subscription_included_credit',
+            amountCents: hostedManagedModelRequestReservationDefaultCents,
+            idempotencyKey: 'sufficient_gate',
+            now: new Date(1),
+        })
+        db.statements = []
+
+        await expect(
+            assertHostedProviderCreditsAvailable({
+                env,
+                workspaceId: 'workspace_1',
+                now: new Date(2),
+            }),
+        ).resolves.toBeUndefined()
+
+        expect(db.countStatements(/FROM hosted_billing_reservation/)).toBe(0)
+        expect(db.countStatements(/SELECT[\s\S]*FROM hosted_billing_account/)).toBe(1)
+    })
 })
 
 describe('hosted billing debit two-bucket split', () => {

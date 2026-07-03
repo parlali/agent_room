@@ -98,6 +98,7 @@ function fakeActiveThread(input: {
         queue: Promise.resolve(),
         abortController: null,
         touchRunHeartbeat: null,
+        promptVersion: 0,
     }
 }
 
