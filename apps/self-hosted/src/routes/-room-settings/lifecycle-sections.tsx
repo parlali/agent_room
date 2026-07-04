@@ -49,7 +49,9 @@ export function PauseAndArchiveSection({
                 queryClient.invalidateQueries({ queryKey: roomQueryKey.roomExecution(roomId) }),
                 queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) }),
             ])
-            toast.success(next ? 'Room paused' : 'Room resumed')
+            toast.success(next ? 'Room paused' : 'Room resumed', {
+                id: `room-state-${roomId}`,
+            })
         },
         onError: (e: unknown) =>
             toast.error('Could not change room state', {

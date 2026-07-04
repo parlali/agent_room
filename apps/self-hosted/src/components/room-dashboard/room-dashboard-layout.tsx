@@ -162,7 +162,9 @@ function RoomHeader({ roomId }: { roomId: string }) {
             await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
             await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomExecution(roomId) })
             await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) })
-            toast.success(desiredState === 'running' ? 'Room resumed' : 'Room paused')
+            toast.success(desiredState === 'running' ? 'Room resumed' : 'Room paused', {
+                id: `room-state-${roomId}`,
+            })
         },
         onError: (e: unknown) =>
             toast.error('Could not change room state', {
