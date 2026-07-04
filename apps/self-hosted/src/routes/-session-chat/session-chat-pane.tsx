@@ -79,6 +79,8 @@ import { useStreamingRefetch } from './streaming'
 import {
     addOptimisticUserMessage,
     editOptimisticUserMessage,
+    isPendingRunStale,
+    markStalePendingRunRows,
     preserveUnsettledPendingUserRows,
     promoteOptimisticUserMessageToPendingRun,
     rollbackOptimisticWindow,
@@ -106,6 +108,7 @@ const SessionArtifactsPanel = lazy(() =>
 
 const initialSessionRowLimit = 8
 const olderSessionRowLimit = 24
+const pendingRunStalePollMs = 15_000
 const backgroundOlderRowsDelayMs = 900
 const artifactsAutoOpenDelayMs = 1300
 const completedBadgeClearVisibleMs = 1000
@@ -465,7 +468,23 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     const activeRunId = streamActive && liveRun ? liveRun.runId : null
     const liveRunSettled =
         liveRun !== null && liveRunFinished(liveRun) && persistedRunSettled(rows, liveRun)
-    const visibleLiveRun = liveRunSettled ? null : liveRun
+    const hasLiveContent = liveRun ? liveRunHasContent(liveRun) : false
+    const [stalenessNow, setStalenessNow] = useState(() => Date.now())
+    useEffect(() => {
+        if (!isWorking || hasLiveContent) return
+        setStalenessNow(Date.now())
+        const timer = window.setInterval(() => setStalenessNow(Date.now()), pendingRunStalePollMs)
+        return () => window.clearInterval(timer)
+    }, [isWorking, hasLiveContent])
+    const pendingRunStale = isPendingRunStale({
+        rows,
+        liveRun,
+        isWorking,
+        now: stalenessNow,
+    })
+    const effectiveIsWorking = isWorking && !pendingRunStale
+    const displayRows = pendingRunStale ? markStalePendingRunRows(rows) : rows
+    const visibleLiveRun = liveRunSettled || pendingRunStale ? null : liveRun
     const loadingInitialRows = windowQuery.isLoading && rows.length === 0
 
     const settleStoppedRun = useCallback(
@@ -696,6 +715,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             }),
         onMutate: async (input): Promise<OptimisticWindowRollback> => {
             authoritativeRunIdRef.current = null
+            clearSentComposer(input)
             const rollback = await addOptimisticUserMessage({
                 queryClient,
                 roomId: input.roomId,
@@ -703,7 +723,6 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 message: input.message,
                 timestamp: Date.now(),
             })
-            clearSentComposer(input)
             return rollback
         },
         onSuccess: (result, input, rollback) => {
@@ -1053,6 +1072,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         snapshot?.setup.phase ?? null,
         snapshot?.executionMessage ?? null,
         streamError,
+        pendingRunStale,
     )
 
     if (executionQuery.isLoading && !snapshot) {
@@ -1136,10 +1156,10 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     key={`${roomId}:${sessionKey}`}
                     sessionKey={sessionKey}
                     room={room}
-                    rows={rows}
+                    rows={displayRows}
                     totalRows={totalRows}
                     liveRun={visibleLiveRun}
-                    isWorking={isWorking}
+                    isWorking={effectiveIsWorking}
                     loadingInitialRows={loadingInitialRows}
                     hasOlderRows={windowQuery.hasNextPage}
                     loadingOlderRows={windowQuery.isFetchingNextPage}
@@ -1545,7 +1565,7 @@ function SessionArtifactsShell({
 }
 
 type ChatAttention = {
-    kind: 'runtime_error' | 'setup_required' | 'stream_paused' | 'out_of_credits'
+    kind: 'runtime_error' | 'setup_required' | 'stream_paused' | 'out_of_credits' | 'stalled_run'
     tone: 'danger' | 'attention'
     title: string
     description: string
@@ -1574,6 +1594,7 @@ function resolveChatAttention(
     setupPhase: RoomSessionShellSnapshot['setup']['phase'] | null,
     executionMessage: string | null,
     streamError: string | null,
+    stalledRun: boolean,
 ): ChatAttention | null {
     if (executionState === 'error') {
         if (isOutOfCreditsMessage(executionMessage)) {
@@ -1603,6 +1624,15 @@ function resolveChatAttention(
             tone: 'attention',
             title: 'Live updates paused',
             description: 'Reconnect to keep this conversation up to date.',
+        }
+    }
+    if (stalledRun) {
+        return {
+            kind: 'stalled_run',
+            tone: 'danger',
+            title: 'The agent did not respond',
+            description:
+                'This run stalled without a reply. Your message was kept so you can try again.',
         }
     }
     return null

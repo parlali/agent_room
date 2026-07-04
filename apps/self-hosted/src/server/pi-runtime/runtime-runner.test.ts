@@ -125,17 +125,19 @@ function createRunner(input: {
         record: ThreadRecord
         active: ActiveThread
     }) => Promise<void>
+    refreshSystemPrompt?: (active?: ActiveThread) => Promise<void>
+    broadcast?: (sessionKey: string, event: string, payload: unknown) => void
 }) {
     const activeThreads = new Map<string, ActiveThread>([[input.record.key, input.active]])
     return createRuntimeRunPrompt({
         config: input.config,
         activeThreads,
-        refreshSystemPrompt: async () => {},
+        refreshSystemPrompt: input.refreshSystemPrompt ?? (async () => {}),
         getActiveThread: async () => input.active,
         compactOversizedThreadContext: input.compactOversizedThreadContext ?? (async () => {}),
         updateThreadFromMessages: () => {},
         persistThreadIndex: async () => {},
-        broadcast: () => {},
+        broadcast: input.broadcast ?? (() => {}),
         appendRuntimeEvent: async (event, payload) => {
             input.events.push({
                 event,
@@ -300,6 +302,55 @@ describe('runtime runner memory capture audit', () => {
                 errorMessage: 'Codex error: cyber_policy rejected the request',
             })
             expect(JSON.stringify(assistant?.content)).toContain('safety policy')
+        })
+    })
+
+    it('emits run.error and persists the user message when startup fails before the run begins', async () => {
+        await withConfig(async ({ config, root }) => {
+            const record = threadRecord(root)
+            const entries: SessionEntry[] = []
+            const active = fakeActiveThread({
+                entries,
+                prompt: async () => {
+                    throw new Error('prompt should never run after a startup failure')
+                },
+            })
+            const events: Array<{ event: string; payload: unknown }> = []
+            const broadcasts: Array<{ event: string; payload: unknown }> = []
+            const runPrompt = createRunner({
+                config,
+                record,
+                active,
+                events,
+                refreshSystemPrompt: async () => {
+                    throw new Error('session reload failed on resume')
+                },
+                broadcast: (_sessionKey, event, payload) => {
+                    broadcasts.push({ event, payload })
+                },
+            })
+
+            await runPrompt({
+                record,
+                message: 'Hello after resume',
+                runId: 'run-resume',
+                awaitCompletion: true,
+            })
+
+            const runError = broadcasts.find((entry) => entry.event === 'run.error')
+            expect(runError).toBeDefined()
+            expect((runError?.payload as { message?: string }).message).toContain(
+                'session reload failed on resume',
+            )
+
+            const userMessage = entries
+                .map((entry) => (entry.type === 'message' ? entry.message : null))
+                .find((message) => message?.role === 'user') as Record<string, unknown> | undefined
+            expect(JSON.stringify(userMessage?.content)).toContain('Hello after resume')
+
+            expect(record.status).toBe('error')
+            expect(record.lastError).toContain('session reload failed on resume')
+            expect(record.pendingUserMessages ?? []).toEqual([])
         })
     })
 

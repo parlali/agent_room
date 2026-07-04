@@ -287,9 +287,9 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
             const abortController = new AbortController()
             let hostedProviderReservationIds: string[] = []
             let hostedProviderUsageCharges: HostedProviderUsageCharge[] = []
-            await dependencies.refreshSystemPrompt(dependencies.activeThreads.get(input.record.key))
             const active = await dependencies.getActiveThread(input.record)
             try {
+                await dependencies.refreshSystemPrompt(active)
                 if (input.editMessageId) {
                     if (active.session.isStreaming || input.record.activeRunId) {
                         throw new Error('Cannot edit a message while a run is active')
@@ -677,7 +677,24 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                 pendingCount: input.record.pendingUserMessages?.length ?? 0,
             })
         }
-        active.queue = active.queue.then(execute, execute)
+        const guardedExecute = async () => {
+            try {
+                await execute()
+            } catch (error) {
+                input.record.status = 'error'
+                input.record.lastError = dependencies.errorMessage(error)
+                input.record.activeRunId = null
+                dependencies.updateThreadFromMessages(input.record)
+                dependencies.broadcast(input.record.key, 'run.error', {
+                    sessionKey: input.record.key,
+                    runId: input.runId,
+                    message: input.record.lastError,
+                    reason: null,
+                })
+                await dependencies.persistThreadIndex()
+            }
+        }
+        active.queue = active.queue.then(guardedExecute, guardedExecute)
         if (input.awaitCompletion) {
             await active.queue
         }

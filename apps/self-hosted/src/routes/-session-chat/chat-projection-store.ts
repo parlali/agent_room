@@ -14,6 +14,8 @@ import {
     getRoomSessionShellServer,
     getRoomSessionWindowServer,
 } from '#/routes/-room-runtime-server'
+import { isActiveRunStatus } from './conversation-utils'
+import { liveRunHasContent, type LiveRun } from './live-run'
 
 export interface SessionDetailPrewarmTarget {
     roomId: string
@@ -122,12 +124,27 @@ export function rollbackOptimisticWindow(input: {
     )
 }
 
+const pendingUserRowCache = new Map<string, RoomSessionDisplayRow[]>()
+
+export function rememberPendingUserRow(sessionKey: string, row: RoomSessionDisplayRow): void {
+    const existing = pendingUserRowCache.get(sessionKey) ?? []
+    const next = existing.some((candidate) => candidate.id === row.id)
+        ? existing.map((candidate) => (candidate.id === row.id ? row : candidate))
+        : [...existing, row]
+    pendingUserRowCache.set(sessionKey, next)
+}
+
+export function forgetPendingUserRowsForSession(sessionKey: string): void {
+    pendingUserRowCache.delete(sessionKey)
+}
+
 export function preserveUnsettledPendingUserRows(
     oldData: InfiniteData<RoomSessionWindow, string | null> | undefined,
     newData: InfiniteData<RoomSessionWindow, string | null>,
 ): InfiniteData<RoomSessionWindow, string | null> {
-    if (!oldData) return newData
-    const carried = collectUnsettledPendingUserRows(oldData, newData)
+    const sessionKey = sessionKeyFromWindows(oldData, newData)
+    if (!sessionKey) return newData
+    const carried = collectUnsettledPendingUserRows(oldData, newData, sessionKey)
     if (carried.length === 0) return newData
     if (newData.pages.length === 0) {
         return {
@@ -164,9 +181,25 @@ export function preserveUnsettledPendingUserRows(
     }
 }
 
-function collectUnsettledPendingUserRows(
-    oldData: InfiniteData<RoomSessionWindow, string | null>,
+function sessionKeyFromWindows(
+    oldData: InfiniteData<RoomSessionWindow, string | null> | undefined,
     newData: InfiniteData<RoomSessionWindow, string | null>,
+): string | null {
+    for (const page of newData.pages) {
+        if (page.sessionKey) return page.sessionKey
+    }
+    if (oldData) {
+        for (const page of oldData.pages) {
+            if (page.sessionKey) return page.sessionKey
+        }
+    }
+    return null
+}
+
+function collectUnsettledPendingUserRows(
+    oldData: InfiniteData<RoomSessionWindow, string | null> | undefined,
+    newData: InfiniteData<RoomSessionWindow, string | null>,
+    sessionKey: string,
 ): Array<{ row: RoomSessionDisplayRow; sessionKey: string }> {
     const presentRowIds = new Set<string>()
     const settledUserTexts = new Set<string>()
@@ -178,21 +211,93 @@ function collectUnsettledPendingUserRows(
             }
         }
     }
-    const carried: Array<{ row: RoomSessionDisplayRow; sessionKey: string }> = []
-    const seen = new Set<string>()
-    for (const page of oldData.pages) {
-        for (const row of page.rows) {
-            if (row.type !== 'user_message') continue
-            if (row.pending !== true) continue
-            if (!row.id.startsWith('pending-user-')) continue
-            if (presentRowIds.has(row.id)) continue
-            if (settledUserTexts.has(row.message.text.trim())) continue
-            if (seen.has(row.id)) continue
-            seen.add(row.id)
-            carried.push({ row, sessionKey: page.sessionKey })
+    const known = new Map<string, RoomSessionDisplayRow>()
+    const consider = (row: RoomSessionDisplayRow) => {
+        if (row.type !== 'user_message') return
+        if (row.pending !== true) return
+        if (!row.id.startsWith('pending-user-')) return
+        if (!known.has(row.id)) known.set(row.id, row)
+    }
+    for (const page of newData.pages) {
+        for (const row of page.rows) consider(row)
+    }
+    if (oldData) {
+        for (const page of oldData.pages) {
+            for (const row of page.rows) consider(row)
         }
     }
+    for (const row of pendingUserRowCache.get(sessionKey) ?? []) {
+        consider(row)
+    }
+    const stillUnsettled: RoomSessionDisplayRow[] = []
+    const carried: Array<{ row: RoomSessionDisplayRow; sessionKey: string }> = []
+    for (const row of known.values()) {
+        if (row.type !== 'user_message') continue
+        if (settledUserTexts.has(row.message.text.trim())) continue
+        stillUnsettled.push(row)
+        if (presentRowIds.has(row.id)) continue
+        carried.push({ row, sessionKey })
+    }
+    if (stillUnsettled.length > 0) {
+        pendingUserRowCache.set(sessionKey, stillUnsettled)
+    } else {
+        pendingUserRowCache.delete(sessionKey)
+    }
     return carried
+}
+
+export const pendingRunStaleThresholdMs = 3 * 60_000
+
+export function pendingRunLastActivityAt(
+    rows: RoomSessionDisplayRow[],
+    liveRun: LiveRun | null,
+): number | null {
+    if (liveRun && liveRun.outcome === null) {
+        return liveRun.updatedAt
+    }
+    let runAnchor: number | null = null
+    let userAnchor: number | null = null
+    for (const row of rows) {
+        if (row.type === 'run_transcript' && isActiveRunStatus(row.status)) {
+            const startedAt = row.startedAt ?? row.timestamp
+            if (startedAt !== null) {
+                runAnchor = runAnchor === null ? startedAt : Math.max(runAnchor, startedAt)
+            }
+        } else if (row.type === 'user_message' && row.timestamp !== null) {
+            userAnchor = userAnchor === null ? row.timestamp : Math.max(userAnchor, row.timestamp)
+        }
+    }
+    return runAnchor ?? userAnchor
+}
+
+export function isPendingRunStale(input: {
+    rows: RoomSessionDisplayRow[]
+    liveRun: LiveRun | null
+    isWorking: boolean
+    now: number
+    thresholdMs?: number
+}): boolean {
+    if (!input.isWorking) return false
+    if (input.liveRun && liveRunHasContent(input.liveRun)) return false
+    const lastActivityAt = pendingRunLastActivityAt(input.rows, input.liveRun)
+    if (lastActivityAt === null) return false
+    const threshold = input.thresholdMs ?? pendingRunStaleThresholdMs
+    return input.now - lastActivityAt >= threshold
+}
+
+export function markStalePendingRunRows(rows: RoomSessionDisplayRow[]): RoomSessionDisplayRow[] {
+    let changed = false
+    const next = rows.map((row) => {
+        if (row.type !== 'run_transcript') return row
+        if (!isActiveRunStatus(row.status)) return row
+        changed = true
+        return {
+            ...row,
+            status: 'error' as const,
+            pending: false,
+        }
+    })
+    return changed ? next : rows
 }
 
 export function promoteOptimisticUserMessageToPendingRun(input: {
@@ -205,9 +310,17 @@ export function promoteOptimisticUserMessageToPendingRun(input: {
     const optimistic = input.rollback?.optimisticUserMessage
     const runId = input.runId
     if (!optimistic || !runId) return
+    const [pendingUserRow, pendingRunRow] = createPendingUserDisplayRows({
+        messageId: runId,
+        runId,
+        text: optimistic.text,
+        queuedAt: optimistic.timestamp,
+        startSeq: optimistic.timestamp,
+    })
+    rememberPendingUserRow(input.sessionKey, pendingUserRow)
     input.queryClient.setQueryData<InfiniteData<RoomSessionWindow, string | null>>(
         roomQueryKey.sessionWindow(input.roomId, input.sessionKey),
-        (current) => promoteOptimisticRow(current, optimistic, runId),
+        (current) => promoteOptimisticRow(current, optimistic, pendingUserRow, pendingRunRow),
     )
 }
 
@@ -260,16 +373,10 @@ function appendOptimisticRow(
 function promoteOptimisticRow(
     current: InfiniteData<RoomSessionWindow, string | null> | undefined,
     optimistic: NonNullable<OptimisticWindowRollback['optimisticUserMessage']>,
-    runId: string,
+    pendingUserRow: RoomSessionDisplayRow,
+    pendingRunRow: RoomSessionDisplayRow,
 ): InfiniteData<RoomSessionWindow, string | null> | undefined {
     if (!current || current.pages.length === 0) return current
-    const [pendingUserRow, pendingRunRow] = createPendingUserDisplayRows({
-        messageId: runId,
-        runId,
-        text: optimistic.text,
-        queuedAt: optimistic.timestamp,
-        startSeq: optimistic.timestamp,
-    })
     const hasPendingUser = windowHasRow(current, pendingUserRow.id)
     const hasPendingRun = windowHasRow(current, pendingRunRow.id)
     let insertedUser = hasPendingUser
