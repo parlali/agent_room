@@ -134,10 +134,29 @@ export async function requireHostedRuntimeCallback(input: {
         )
     }
     const token = bearerToken(input.request)
-    const expectedToken = await readHostedRuntimeToken({
-        env: input.env,
-        tokenObjectKey: runtime.runtime.tokenObjectKey,
-    })
+    let expectedToken: string
+    try {
+        expectedToken = await readHostedRuntimeToken({
+            env: input.env,
+            tokenObjectKey: runtime.runtime.tokenObjectKey,
+        })
+    } catch (error) {
+        console.error('Hosted runtime callback token object unreadable; denying callback', {
+            workspaceId,
+            roomId,
+            tokenObjectKey: runtime.runtime.tokenObjectKey,
+            error: error instanceof Error ? error.message : error,
+        })
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'runtime_token_unreadable',
+            },
+            {
+                status: 403,
+            },
+        )
+    }
     if (!token || !timingSafeEqualString(token, expectedToken)) {
         return hostedJsonResponse(
             {

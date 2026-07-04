@@ -300,7 +300,25 @@ export default {
         if (url.pathname === '/api/hosted/stripe/webhook' && request.method === 'POST') {
             return hostedStripeWebhook(env, request)
         }
-        const runtimeResponse = await hostedRuntimeWorkerRoute({ env, request, url, ctx })
+        let runtimeResponse: Response | null
+        try {
+            runtimeResponse = await hostedRuntimeWorkerRoute({ env, request, url, ctx })
+        } catch (error) {
+            console.error('Hosted runtime callback route dispatch failed', {
+                path: url.pathname,
+                method: request.method,
+                error: error instanceof Error ? error.message : error,
+            })
+            return jsonResponse(
+                {
+                    ok: false,
+                    code: 'runtime_callback_internal_error',
+                },
+                {
+                    status: 500,
+                },
+            )
+        }
         if (runtimeResponse) {
             return runtimeResponse
         }

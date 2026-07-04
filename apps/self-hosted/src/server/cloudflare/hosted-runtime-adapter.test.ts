@@ -1,5 +1,5 @@
 import type { D1Database, R2Bucket } from '@cloudflare/workers-types'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { AgentRoomHostedEnv, AgentRoomRuntimeJobMessage } from './bindings'
 import {
     confirmHostedRuntimeContainerStopped,
@@ -909,6 +909,64 @@ describe('hosted runtime reconciliation', () => {
                     ),
             ),
         ).toBe(true)
+    })
+
+    it('rotates on a warm start when the persisted token object is unreadable so a wedged room self-heals', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const updates: RuntimeUpdate[] = []
+        const puts: string[] = []
+        const starts: Array<{ name: string; args: unknown }> = []
+        const tokenValue = 'persistent-runtime-token-value-bbbbbbbb'
+        const env = hostedEnv({
+            updates,
+            puts,
+            tokenValue,
+            objectKeys: [
+                'workspaces/workspace_1/rooms/room_1/runtime/config-v3.json',
+                'workspaces/workspace_1/rooms/room_1/runtime/bundle-v3.json',
+            ],
+            runtimeRow: {
+                roomId: 'room_1',
+                workspaceId: 'workspace_1',
+                desiredState: 'running',
+                containerName: 'workspace:workspace_1:room:room_1',
+                configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config-v3.json',
+                tokenObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/token-missing.txt',
+                runtimeBundleObjectKey:
+                    'workspaces/workspace_1/rooms/room_1/runtime/bundle-v3.json',
+                configVersion: 3,
+                tokenVersion: 2,
+                workspaceSnapshotKey: null,
+            },
+            start: async (name, args) => {
+                starts.push({ name, args })
+            },
+        })
+
+        try {
+            await reconcileHostedRuntimeJob(env, runtimeMessage())
+
+            expect(starts).toHaveLength(1)
+            const nextTokenKey = puts.find((key) =>
+                /^workspaces\/workspace_1\/rooms\/room_1\/runtime\/token-v3-[^.]+\.txt$/.test(key),
+            )
+            expect(nextTokenKey).toBeTruthy()
+            const startArgs = starts[0]?.args as {
+                startOptions: { envVars: Record<string, string> }
+            }
+            expect(startArgs.startOptions.envVars.AGENT_ROOM_PI_RUNTIME_TOKEN).toBeTruthy()
+            expect(startArgs.startOptions.envVars.AGENT_ROOM_PI_RUNTIME_TOKEN).not.toBe(tokenValue)
+            expect(errorSpy).toHaveBeenCalledWith(
+                'Hosted runtime token object unreadable, rotating',
+                expect.objectContaining({
+                    workspaceId: 'workspace_1',
+                    roomId: 'room_1',
+                    tokenObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/token-missing.txt',
+                }),
+            )
+        } finally {
+            errorSpy.mockRestore()
+        }
     })
 
     it('rotates the runtime token when the reconcile explicitly requests rotation', async () => {

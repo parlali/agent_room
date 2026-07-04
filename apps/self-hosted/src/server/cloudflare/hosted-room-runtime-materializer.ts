@@ -147,14 +147,28 @@ export async function materializeHostedRuntime(input: {
         throw new Error('Runtime state not found')
     }
     const previousTokenObjectKey = runtimeState.row.tokenObjectKey
-    const reuseTokenObjectKey = input.rotateToken === true ? null : previousTokenObjectKey
+    let reuseTokenObjectKey = input.rotateToken === true ? null : previousTokenObjectKey
+    let token: string
+    if (reuseTokenObjectKey) {
+        try {
+            token = await readHostedRuntimeToken({
+                env: input.env,
+                tokenObjectKey: reuseTokenObjectKey,
+            })
+        } catch (error) {
+            console.error('Hosted runtime token object unreadable, rotating', {
+                workspaceId: input.actor.workspaceId,
+                roomId: input.roomId,
+                tokenObjectKey: reuseTokenObjectKey,
+                error: error instanceof Error ? error.message : error,
+            })
+            reuseTokenObjectKey = null
+            token = randomHostedRuntimeToken()
+        }
+    } else {
+        token = randomHostedRuntimeToken()
+    }
     const rotateToken = reuseTokenObjectKey === null
-    const token = reuseTokenObjectKey
-        ? await readHostedRuntimeToken({
-              env: input.env,
-              tokenObjectKey: reuseTokenObjectKey,
-          })
-        : randomHostedRuntimeToken()
     const publicOrigin = new URL(input.env.BETTER_AUTH_URL).origin
     const providerMaterialization = await materializeHostedProvider({
         env: input.env,
