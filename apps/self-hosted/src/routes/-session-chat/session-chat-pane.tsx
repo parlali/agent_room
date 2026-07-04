@@ -40,7 +40,6 @@ import {
     updateThreadModelServer,
 } from '#/routes/-room-runtime-server'
 import type {
-    ChatTimelineRow,
     RoomExecutionActivity,
     RoomBrowserSessionSnapshot,
     RoomExecutionMessage,
@@ -64,14 +63,16 @@ import { shouldSendOnEnter } from './composer-input'
 import type { ModelModeChange } from './model-mode-menu'
 import { isLastMessageInProgress } from './conversation-utils'
 import {
-    adoptRealRunId,
-    emptyStreamTurnState,
-    reduceRoomStreamEvent,
+    adoptLiveRunId,
+    finishLiveRun,
+    liveRunActive,
+    liveRunFinished,
+    liveRunHasContent,
+    persistedRunSettled,
+    reduceLiveRunEvent,
     shouldRefetchForRoomEvent,
-    stopStreamTurn,
-    streamTurnHasContent,
-    type StreamTurnState,
-} from './stream-state'
+    type LiveRun,
+} from './live-run'
 import { MessageList } from './message-list'
 import type { EditingMessageDraft } from '#/domain/message-list-model'
 import { useStreamingRefetch } from './streaming'
@@ -83,7 +84,7 @@ import {
     rollbackOptimisticWindow,
     type OptimisticWindowRollback,
 } from './chat-projection-store'
-import { cacheStreamTurn, readCachedStreamTurn, sessionStreamStateKey } from './stream-turn-cache'
+import { cacheLiveRun, readCachedLiveRun, sessionStreamStateKey } from './stream-turn-cache'
 import { rowContainsMessage } from '#/domain/message-list-model'
 import {
     artifactPanelStatesEqual,
@@ -155,9 +156,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         () => sessionStreamStateKey(roomId, sessionKey),
         [roomId, sessionKey],
     )
-    const [streamTurn, setStreamTurn] = useState<StreamTurnState>(() =>
-        readCachedStreamTurn(streamStateKey),
-    )
+    const [liveRun, setLiveRun] = useState<LiveRun | null>(() => readCachedLiveRun(streamStateKey))
     const draftRef = useRef(draft)
     const authoritativeRunIdRef = useRef<string | null>(null)
     const activeComposerKeyRef = useRef(composerStateKey)
@@ -174,11 +173,11 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         () => roomQueryKey.sessionWindow(roomId, sessionKey),
         [roomId, sessionKey],
     )
-    const updateStreamTurn = useCallback(
-        (nextState: StreamTurnState | ((current: StreamTurnState) => StreamTurnState)) => {
-            setStreamTurn((current) => {
+    const updateLiveRun = useCallback(
+        (nextState: LiveRun | null | ((current: LiveRun | null) => LiveRun | null)) => {
+            setLiveRun((current) => {
                 const next = typeof nextState === 'function' ? nextState(current) : nextState
-                cacheStreamTurn(streamStateKey, next)
+                cacheLiveRun(streamStateKey, next)
                 return next
             })
         },
@@ -460,33 +459,20 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         [artifactStateKey, updateArtifactState],
     )
     const sessionTone = describeSessionState(selectedThread?.status ?? null)
-    const streamActive =
-        !streamTurn.finished &&
-        (streamTurn.status === 'queued' ||
-            streamTurn.status === 'thinking' ||
-            streamTurn.status === 'working' ||
-            streamTurn.status === 'responding')
+    const streamActive = liveRunActive(liveRun)
     const isWorking =
         streamActive || sessionTone.tone === 'working' || isLastMessageInProgress(messages)
-    const activeRunId = streamActive ? streamTurn.runId : null
-    const streamPersisted = streamTurnPersisted(streamTurn, rows)
-    const visibleStreamTurn = streamPersisted ? emptyStreamTurnState : streamTurn
+    const activeRunId = streamActive && liveRun ? liveRun.runId : null
+    const liveRunSettled =
+        liveRun !== null && liveRunFinished(liveRun) && persistedRunSettled(rows, liveRun)
+    const visibleLiveRun = liveRunSettled ? null : liveRun
     const loadingInitialRows = windowQuery.isLoading && rows.length === 0
-    const displayRows = useMemo(() => {
-        if (!activeRunId) return rows
-        return rows.filter(
-            (row) =>
-                !(
-                    row.type === 'run_transcript' &&
-                    row.pending === true &&
-                    row.runId === activeRunId
-                ),
-        )
-    }, [rows, activeRunId])
 
     const settleStoppedRun = useCallback(
         (stoppedAt: number) => {
-            updateStreamTurn((current) => stopStreamTurn(current, stoppedAt))
+            updateLiveRun((current) =>
+                current ? finishLiveRun(current, 'stopped', stoppedAt) : current,
+            )
             queryClient.setQueryData<RoomSessionShellSnapshot>(queryKey, (current) =>
                 current ? stopSessionInShell(current, sessionKey, stoppedAt) : current,
             )
@@ -496,11 +482,11 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     current ? stopSessionInSidebar(current, sessionKey, stoppedAt) : current,
             )
         },
-        [queryClient, queryKey, roomId, sessionKey, updateStreamTurn],
+        [queryClient, queryKey, roomId, sessionKey, updateLiveRun],
     )
 
     useEffect(() => {
-        setStreamTurn(readCachedStreamTurn(streamStateKey))
+        setLiveRun(readCachedLiveRun(streamStateKey))
         setAttachments([])
         setEditingMessage(null)
         authoritativeRunIdRef.current = null
@@ -634,26 +620,26 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     ])
 
     useEffect(() => {
-        if (streamPersisted) {
-            updateStreamTurn(emptyStreamTurnState)
+        if (!liveRun) return
+        if (liveRunSettled) {
+            updateLiveRun(null)
             return
         }
-        if (!streamTurn.finished || executionQuery.isFetching || streamTurn.rows.length === 0) {
-            return
-        }
-        const clearDelayMs = streamTurnHasContent(streamTurn) ? 1500 : 0
+        if (!liveRunFinished(liveRun)) return
+        if (liveRunHasContent(liveRun)) return
+        if (executionQuery.isFetching || windowQuery.isFetching) return
         const timer = setTimeout(() => {
-            updateStreamTurn(emptyStreamTurnState)
-        }, clearDelayMs)
+            updateLiveRun(null)
+        }, 1500)
         return () => clearTimeout(timer)
-    }, [streamTurn, streamPersisted, executionQuery.isFetching, updateStreamTurn])
+    }, [liveRun, liveRunSettled, executionQuery.isFetching, windowQuery.isFetching, updateLiveRun])
 
     const onRealtimeEvent = useCallback(
         (event: RoomRealtimeEvent) => {
-            updateStreamTurn((current) => {
-                const reduced = reduceRoomStreamEvent(current, event)
+            updateLiveRun((current) => {
+                const reduced = reduceLiveRunEvent(current, event)
                 const authoritative = authoritativeRunIdRef.current
-                return authoritative ? adoptRealRunId(reduced, authoritative) : reduced
+                return authoritative ? adoptLiveRunId(reduced, authoritative) : reduced
             })
             const runTerminated =
                 event.event === 'run.error' ||
@@ -686,7 +672,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 }
             }
         },
-        [invalidateSessionScope, queryClient, roomId, updateStreamTurn],
+        [invalidateSessionScope, queryClient, roomId, updateLiveRun],
     )
 
     useStreamingRefetch({
@@ -710,13 +696,15 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             }),
         onMutate: async (input): Promise<OptimisticWindowRollback> => {
             authoritativeRunIdRef.current = null
-            return addOptimisticUserMessage({
+            const rollback = await addOptimisticUserMessage({
                 queryClient,
                 roomId: input.roomId,
                 sessionKey: input.sessionKey,
                 message: input.message,
                 timestamp: Date.now(),
             })
+            clearSentComposer(input)
+            return rollback
         },
         onSuccess: (result, input, rollback) => {
             if (result.status === onboardingDeferredStatus) {
@@ -726,7 +714,6 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     sessionKey: input.sessionKey,
                     rollback,
                 })
-                clearSentComposer(input)
                 invalidateSessionScope({
                     roomId: input.roomId,
                     sessionKey: input.sessionKey,
@@ -744,9 +731,8 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             const acceptedRunId = result.runId
             if (acceptedRunId) {
                 authoritativeRunIdRef.current = acceptedRunId
-                updateStreamTurn((current) => adoptRealRunId(current, acceptedRunId))
+                updateLiveRun((current) => adoptLiveRunId(current, acceptedRunId))
             }
-            clearSentComposer(input)
             invalidateSessionScope({
                 roomId: input.roomId,
                 sessionKey: input.sessionKey,
@@ -1012,7 +998,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         if (sending || !editingMessage) return
         const value = editingMessage.text.trim()
         if (!value && editingMessage.attachments.length === 0) return
-        updateStreamTurn(emptyStreamTurnState)
+        updateLiveRun(null)
         editMutation.mutate({
             messageId: editingMessage.id,
             message: formatMessageWithAttachments(value, editingMessage.attachments),
@@ -1150,9 +1136,9 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     key={`${roomId}:${sessionKey}`}
                     sessionKey={sessionKey}
                     room={room}
-                    rows={displayRows}
+                    rows={rows}
                     totalRows={totalRows}
-                    stream={visibleStreamTurn}
+                    liveRun={visibleLiveRun}
                     isWorking={isWorking}
                     loadingInitialRows={loadingInitialRows}
                     hasOlderRows={windowQuery.hasNextPage}
@@ -1397,24 +1383,6 @@ function formatBrowserUrl(value: string): string {
     } catch {
         return value
     }
-}
-
-function streamTurnPersisted(streamTurn: StreamTurnState, rows: ChatTimelineRow[]): boolean {
-    if (!streamTurn.finished) return false
-    if (streamTurn.rows.length === 0) return false
-
-    const streamSignature = timelineSignature(streamTurn.rows)
-    if (streamSignature.toolCallIds.length === 0 && streamSignature.finalCount === 0) {
-        return false
-    }
-    const persistedSignature = timelineSignature(rows, streamTurn.startedAt)
-    const persistedToolIds = new Set(persistedSignature.toolCallIds)
-    const toolsPersisted = streamSignature.toolCallIds.every((id) => persistedToolIds.has(id))
-    const finalsPersisted = persistedSignature.finalCount >= streamSignature.finalCount
-    if (streamSignature.toolCallIds.length > 0) {
-        return toolsPersisted && finalsPersisted
-    }
-    return finalsPersisted
 }
 
 function SessionArtifactsShell({
@@ -1722,35 +1690,5 @@ function stopActivity(activity: RoomExecutionActivity, stoppedAt: number): RoomE
         ...activity,
         status: 'idle',
         updatedAt: stoppedAt,
-    }
-}
-
-function timelineSignature(
-    rows: ChatTimelineRow[],
-    afterTimestamp: number | null = null,
-): {
-    toolCallIds: string[]
-    finalCount: number
-} {
-    const toolCallIds: string[] = []
-    let finalCount = 0
-    for (const row of rows) {
-        if (afterTimestamp !== null && row.timestamp !== null && row.timestamp < afterTimestamp) {
-            continue
-        }
-        if (row.type === 'assistant_final' && row.message.text.trim()) {
-            finalCount += 1
-            continue
-        }
-        if (row.type !== 'run_transcript') continue
-        for (const item of row.items) {
-            if (item.type === 'tool_activity') {
-                toolCallIds.push(item.toolCallId)
-            }
-        }
-    }
-    return {
-        toolCallIds,
-        finalCount,
     }
 }

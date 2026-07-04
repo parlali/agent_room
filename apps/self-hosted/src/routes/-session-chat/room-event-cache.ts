@@ -3,7 +3,7 @@ import type { QueryClient } from '@tanstack/react-query'
 
 import { roomQueryKey } from '#/lib/room-query-keys'
 import type { RoomRealtimeEvent } from '#/domain/room-execution-types'
-import { clearCachedStreamTurnForRoomEvent } from './stream-turn-cache'
+import { clearCachedLiveRunForRoomEvent } from './stream-turn-cache'
 
 const SEQ_DEDUPE_WINDOW = 512
 
@@ -152,7 +152,7 @@ export function invalidateRoomCachesForEvent(input: {
     }
 
     if (!sessionKey) return
-    clearCachedStreamTurnForRoomEvent({
+    clearCachedLiveRunForRoomEvent({
         roomId: input.roomId,
         sessionKey,
         event: input.event,

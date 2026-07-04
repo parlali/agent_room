@@ -1,13 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import { emptyRuntimePart } from '#/domain/runtime-message'
-import type {
-    ChatTimelineRow,
-    RoomSessionDisplayRow,
-    RunTranscriptRow,
-} from '#/domain/room-execution-types'
+import type { RoomSessionDisplayRow, RunTranscriptRow } from '#/domain/room-execution-types'
 
-import { emptyStreamTurnState, type StreamTurnState } from './stream-state'
+import type { LiveRun } from './live-run'
 import { buildTimelineRows } from './timeline-rows'
 
 function userRow(id: string, seq: number, text: string): RoomSessionDisplayRow {
@@ -43,61 +39,129 @@ function assistantFinalRow(id: string, seq: number, text: string): RoomSessionDi
     }
 }
 
-function transcriptRow(runId: string, markdown: string, updatedAt: number): RunTranscriptRow {
+function persistedTranscriptRow(
+    runId: string,
+    status: RunTranscriptRow['status'],
+): RunTranscriptRow {
     return {
         type: 'run_transcript',
         id: `run-transcript-${runId}`,
         seq: 0,
         runId,
-        status: 'responding',
+        status,
+        startedAt: 1000,
+        runtimeMs: status === 'complete' ? 1234 : null,
+        collapsed: true,
+        items: [],
+        timestamp: 1200,
+    }
+}
+
+function liveRunWith(overrides: Partial<LiveRun> = {}): LiveRun {
+    return {
+        runId: 'run-1',
+        activity: 'thinking',
+        outcome: null,
         startedAt: 1000,
         runtimeMs: null,
-        collapsed: false,
-        items: [
+        updatedAt: 2000,
+        turnIndex: 0,
+        segments: [
             {
-                type: 'model_text',
-                id: 'model-text-0-thinking-0',
+                kind: 'thinking',
+                id: 'thinking-0-stream',
                 turnIndex: 0,
-                contentIndex: 0,
-                markdown,
-                complete: false,
-                phase: 'thinking',
-                timestamp: updatedAt,
+                text: 'thinking about it',
+                done: false,
+                timestamp: 2000,
             },
         ],
-        timestamp: updatedAt,
+        errorText: null,
+        ...overrides,
     }
 }
 
-function streamWith(rows: ChatTimelineRow[], updatedAt: number): StreamTurnState {
-    return {
-        ...emptyStreamTurnState,
-        runId: 'live-run-1',
-        status: 'responding',
-        rows,
-        startedAt: 1000,
-        updatedAt,
-    }
-}
+describe('buildTimelineRows ownership', () => {
+    it('suppresses every persisted row after the last user message while a run is live', () => {
+        const persisted = [
+            userRow('user-1', 0, 'earlier'),
+            assistantFinalRow('assistant-prior', 1, 'previous answer'),
+            userRow('user-2', 2, 'current prompt'),
+            persistedTranscriptRow('run-1', 'working'),
+            assistantFinalRow('assistant-partial', 4, 'stale partial'),
+        ]
+
+        const rows = buildTimelineRows(persisted, liveRunWith(), true, 'session-1', [])
+
+        expect(rows.map((row) => row.id)).toEqual([
+            'user-1',
+            'assistant-prior',
+            'user-2',
+            'run-transcript-run-1',
+        ])
+    })
+
+    it('suppresses mid-run persisted rows even when their status looks terminal', () => {
+        const persisted = [
+            userRow('user-1', 0, 'prompt'),
+            persistedTranscriptRow('run-1', 'complete'),
+        ]
+
+        const rows = buildTimelineRows(persisted, liveRunWith(), true, 'session-1', [])
+
+        expect(rows.map((row) => row.id)).toEqual(['user-1', 'run-transcript-run-1'])
+        const transcript = rows[1]
+        expect(transcript.type).toBe('run_transcript')
+        if (transcript.type === 'run_transcript') {
+            expect(transcript.status).toBe('thinking')
+        }
+    })
+
+    it('renders persisted rows untouched when no run is live', () => {
+        const persisted = [
+            userRow('user-1', 0, 'prompt'),
+            persistedTranscriptRow('run-1', 'complete'),
+            assistantFinalRow('assistant-1', 2, 'the answer'),
+        ]
+
+        const rows = buildTimelineRows(persisted, null, false, 'session-1', [])
+
+        expect(rows.map((row) => row.id)).toEqual(['user-1', 'run-transcript-run-1', 'assistant-1'])
+    })
+
+    it('adds a pending placeholder when working with no live run and no active transcript', () => {
+        const persisted = [userRow('user-1', 0, 'prompt')]
+
+        const rows = buildTimelineRows(persisted, null, true, 'session-1', [])
+
+        expect(rows.map((row) => row.id)).toEqual(['user-1', 'run-transcript-pending-session-1'])
+    })
+})
 
 describe('buildTimelineRows reference stability', () => {
-    it('keeps unchanged row identities when only the live transcript delta changes', () => {
+    it('keeps unchanged row identities when only the live run delta changes', () => {
         const persisted = [
             userRow('user-1', 0, 'hello'),
             assistantFinalRow('assistant-prior', 1, 'previous answer'),
+            userRow('user-2', 2, 'current prompt'),
         ]
 
-        const first = buildTimelineRows(
-            persisted,
-            streamWith([transcriptRow('live-run-1', 'thinking about', 2000)], 2000),
-            true,
-            'session-1',
-            [],
-        )
-
+        const first = buildTimelineRows(persisted, liveRunWith(), true, 'session-1', [])
         const second = buildTimelineRows(
             persisted,
-            streamWith([transcriptRow('live-run-1', 'thinking about it', 2001)], 2001),
+            liveRunWith({
+                updatedAt: 2001,
+                segments: [
+                    {
+                        kind: 'thinking',
+                        id: 'thinking-0-stream',
+                        turnIndex: 0,
+                        text: 'thinking about it more',
+                        done: false,
+                        timestamp: 2001,
+                    },
+                ],
+            }),
             true,
             'session-1',
             first,
@@ -105,20 +169,22 @@ describe('buildTimelineRows reference stability', () => {
 
         expect(second[0]).toBe(first[0])
         expect(second[1]).toBe(first[1])
-        expect(second[2]).not.toBe(first[2])
+        expect(second[2]).toBe(first[2])
+        expect(second[3]).not.toBe(first[3])
         expect(second.map((row) => row.id)).toEqual([
             'user-1',
             'assistant-prior',
-            'run-transcript-live-run-1',
+            'user-2',
+            'run-transcript-run-1',
         ])
     })
 
     it('reuses identities when nothing changed between rebuilds', () => {
         const persisted = [userRow('user-1', 0, 'hello')]
-        const stream = streamWith([transcriptRow('live-run-1', 'steady', 2000)], 2000)
+        const run = liveRunWith()
 
-        const first = buildTimelineRows(persisted, stream, true, 'session-1', [])
-        const second = buildTimelineRows(persisted, stream, true, 'session-1', first)
+        const first = buildTimelineRows(persisted, run, true, 'session-1', [])
+        const second = buildTimelineRows(persisted, run, true, 'session-1', first)
 
         expect(second[0]).toBe(first[0])
         expect(second[1]).toBe(first[1])
