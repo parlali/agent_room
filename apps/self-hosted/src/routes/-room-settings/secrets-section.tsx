@@ -22,6 +22,7 @@ import {
     SelectValue,
 } from '#/components/ui/select'
 import { formatRelativeTime } from '#/domain/format'
+import { reportRoomActionError } from '#/lib/room-action-error'
 import { saveRoomSecretServer } from '#/routes/-operator-config-server'
 import type { RoomSecretSummary } from '#/server/configuration/operator-configuration'
 import type { SecretDraft, SecretPurpose } from './model'
@@ -60,9 +61,7 @@ export function SecretsSection({
             setEditingExisting(null)
         },
         onError: (e: unknown) =>
-            toast.error('Could not save secret', {
-                description: e instanceof Error ? e.message : 'Unexpected error',
-            }),
+            reportRoomActionError({ roomId, error: e, title: 'Could not save secret' }),
     })
 
     const handleAdd = () => {

@@ -7,6 +7,17 @@ import { clearCachedLiveRunForRoomEvent } from './stream-turn-cache'
 
 const SEQ_DEDUPE_WINDOW = 512
 
+const EVENT_SOURCE_RECONNECT_MIN_MS = 1000
+const EVENT_SOURCE_RECONNECT_MAX_MS = 15000
+
+export function createEventSourceReconnectDelay(): (attempt: number) => number {
+    return (attempt) => {
+        const exponent = Math.max(0, attempt - 1)
+        const raw = EVENT_SOURCE_RECONNECT_MIN_MS * 2 ** exponent
+        return Math.min(EVENT_SOURCE_RECONNECT_MAX_MS, raw)
+    }
+}
+
 export function createRoomEventSeqDedupe(): (seq: number | null) => boolean {
     const seen = new Set<number>()
     const order: number[] = []
@@ -44,8 +55,13 @@ export function useRoomEventCacheSync({
         if (!enabled) return
         if (typeof EventSource === 'undefined') return
 
-        const source = new EventSource(`/api/rooms/${encodeURIComponent(roomId)}/events`)
+        const url = `/api/rooms/${encodeURIComponent(roomId)}/events`
         const alreadyHandled = createRoomEventSeqDedupe()
+        const reconnectDelay = createEventSourceReconnectDelay()
+        let source: EventSource | null = null
+        let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+        let reconnectAttempts = 0
+        let disposed = false
 
         const onRoomEvent = (raw: MessageEvent<string>) => {
             onError?.(null)
@@ -83,15 +99,48 @@ export function useRoomEventCacheSync({
             }
         }
 
-        source.addEventListener('room-event', onRoomEvent as EventListener)
-        source.addEventListener('runtime-status', onRuntimeStatus as EventListener)
-        source.addEventListener('stream-error', onStreamError as EventListener)
+        const onOpen = () => {
+            reconnectAttempts = 0
+            onError?.(null)
+        }
 
-        return () => {
+        const onConnectionError = () => {
+            if (disposed) return
+            if (!source || source.readyState !== EventSource.CLOSED) {
+                return
+            }
+            teardown()
+            reconnectAttempts += 1
+            reconnectTimer = setTimeout(connect, reconnectDelay(reconnectAttempts))
+        }
+
+        function teardown(): void {
+            if (!source) return
             source.removeEventListener('room-event', onRoomEvent as EventListener)
             source.removeEventListener('runtime-status', onRuntimeStatus as EventListener)
             source.removeEventListener('stream-error', onStreamError as EventListener)
+            source.removeEventListener('open', onOpen)
+            source.removeEventListener('error', onConnectionError)
             source.close()
+            source = null
+        }
+
+        function connect(): void {
+            if (disposed) return
+            source = new EventSource(url)
+            source.addEventListener('room-event', onRoomEvent as EventListener)
+            source.addEventListener('runtime-status', onRuntimeStatus as EventListener)
+            source.addEventListener('stream-error', onStreamError as EventListener)
+            source.addEventListener('open', onOpen)
+            source.addEventListener('error', onConnectionError)
+        }
+
+        connect()
+
+        return () => {
+            disposed = true
+            if (reconnectTimer) clearTimeout(reconnectTimer)
+            teardown()
         }
     }, [enabled, onError, queryClient, roomId])
 }

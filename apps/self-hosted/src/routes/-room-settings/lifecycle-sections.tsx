@@ -25,6 +25,7 @@ import { Label } from '#/components/ui/label'
 import { Switch } from '#/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipTrigger } from '#/components/ui/tooltip'
 import { roomQueryKey } from '#/lib/room-query-keys'
+import { dismissRoomActionErrors, reportRoomActionError } from '#/lib/room-action-error'
 import { deleteRoomServer, setRoomDesiredStateServer } from '#/routes/-room-runtime-server'
 
 export function PauseAndArchiveSection({
@@ -49,14 +50,15 @@ export function PauseAndArchiveSection({
                 queryClient.invalidateQueries({ queryKey: roomQueryKey.roomExecution(roomId) }),
                 queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) }),
             ])
+            dismissRoomActionErrors(roomId)
             toast.success(next ? 'Room paused' : 'Room resumed', {
                 id: `room-state-${roomId}`,
             })
         },
-        onError: (e: unknown) =>
-            toast.error('Could not change room state', {
-                description: e instanceof Error ? e.message : 'Unexpected error',
-            }),
+        onError: async (e: unknown) => {
+            await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) })
+            reportRoomActionError({ roomId, error: e, title: 'Could not change room state' })
+        },
     })
 
     return (
@@ -142,9 +144,7 @@ export function DangerZoneSection({
             navigate({ to: '/' })
         },
         onError: (e: unknown) =>
-            toast.error('Could not delete room', {
-                description: e instanceof Error ? e.message : 'Unexpected error',
-            }),
+            reportRoomActionError({ roomId, error: e, title: 'Could not delete room' }),
     })
 
     const canDelete = confirmSlug === roomSlug && roomSlug.length > 0

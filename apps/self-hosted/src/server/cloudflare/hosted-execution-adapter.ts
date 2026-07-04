@@ -82,30 +82,9 @@ const requireHosted = requireHostedExecutionContext
 const hostedCronTimezone = 'UTC'
 const hostedEventStreamIdleDetachMs = 4 * 60 * 1000
 
-interface HostedEventStreamContext {
+export interface HostedEventStreamContext {
     env: AgentRoomHostedEnv
     workspaceId: string
-}
-
-function createHostedEventStreamContextResolver(): () => Promise<HostedEventStreamContext> {
-    let cached: HostedEventStreamContext | null = null
-    let inflight: Promise<HostedEventStreamContext> | null = null
-    return () => {
-        if (cached) {
-            return Promise.resolve(cached)
-        }
-        if (!inflight) {
-            inflight = (async () => {
-                const { context, actor } = await requireHosted()
-                cached = {
-                    env: context.env,
-                    workspaceId: actor.workspaceId,
-                }
-                return cached
-            })()
-        }
-        return inflight
-    }
 }
 
 async function hostedRuntimeEndpointHealthy(input: {
@@ -786,64 +765,58 @@ export function createRoomSessionEventStream(input: {
     roomId: string
     sessionKey: string
     abortSignal?: AbortSignal
+    context: HostedEventStreamContext
 }): ReadableStream<Uint8Array> {
-    const resolveContext = createHostedEventStreamContextResolver()
+    const context = input.context
     return createRuntimeEventProxyStream({
         roomId: input.roomId,
         sessionKey: input.sessionKey,
         streamKind: 'session',
         abortSignal: input.abortSignal,
         detachAfterIdleMs: hostedEventStreamIdleDetachMs,
-        checkReady: async () => {
-            const context = await resolveContext()
-            return hostedRuntimeEndpointHealthy({
+        checkReady: () =>
+            hostedRuntimeEndpointHealthy({
                 env: context.env,
                 workspaceId: context.workspaceId,
                 roomId: input.roomId,
-            })
-        },
-        attach: async (signal) => {
-            const context = await resolveContext()
-            return openHostedPiRuntimeStream({
+            }),
+        attach: (signal) =>
+            openHostedPiRuntimeStream({
                 env: context.env,
                 workspaceId: context.workspaceId,
                 roomId: input.roomId,
                 path: `/threads/${encodeURIComponent(input.sessionKey)}/events`,
                 signal,
-            })
-        },
+            }),
     })
 }
 
 export function createRoomEventStream(input: {
     roomId: string
     abortSignal?: AbortSignal
+    context: HostedEventStreamContext
 }): ReadableStream<Uint8Array> {
-    const resolveContext = createHostedEventStreamContextResolver()
+    const context = input.context
     return createRuntimeEventProxyStream({
         roomId: input.roomId,
         sessionKey: null,
         streamKind: 'room',
         abortSignal: input.abortSignal,
         detachAfterIdleMs: hostedEventStreamIdleDetachMs,
-        checkReady: async () => {
-            const context = await resolveContext()
-            return hostedRuntimeEndpointHealthy({
+        checkReady: () =>
+            hostedRuntimeEndpointHealthy({
                 env: context.env,
                 workspaceId: context.workspaceId,
                 roomId: input.roomId,
-            })
-        },
-        attach: async (signal) => {
-            const context = await resolveContext()
-            return openHostedPiRuntimeStream({
+            }),
+        attach: (signal) =>
+            openHostedPiRuntimeStream({
                 env: context.env,
                 workspaceId: context.workspaceId,
                 roomId: input.roomId,
                 path: '/events',
                 signal,
-            })
-        },
+            }),
     })
 }
 

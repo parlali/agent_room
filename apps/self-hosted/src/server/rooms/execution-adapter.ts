@@ -71,15 +71,6 @@ export interface RoomExecutionAdapter {
         messageId: string
         message: string
     }) => Promise<RoomThreadSendResult>
-    createRoomSessionEventStream: (input: {
-        roomId: string
-        sessionKey: string
-        abortSignal?: AbortSignal
-    }) => ReadableStream<Uint8Array>
-    createRoomEventStream: (input: {
-        roomId: string
-        abortSignal?: AbortSignal
-    }) => ReadableStream<Uint8Array>
     publishRoomFileChanged: (input: RoomFileChangedPayload) => Promise<void>
     createRoomThread: (input: {
         roomId: string

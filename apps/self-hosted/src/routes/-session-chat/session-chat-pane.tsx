@@ -12,6 +12,7 @@ import { Button } from '#/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '#/components/ui/sheet'
 import { useIsMobile } from '#/lib/use-media-query'
 import { describeSessionState } from '#/domain/state'
+import { sanitizeRuntimeError } from '#/domain/runtime-error'
 import { uploadRoomFiles } from '#/lib/room-file-upload'
 import { formatMessageWithAttachments } from '#/domain/room-attachments'
 import {
@@ -558,12 +559,14 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         if (!composerDraftQuery.isError) return
         if (draftSaveErrorKeyRef.current === composerStateKey) return
         draftSaveErrorKeyRef.current = composerStateKey
-        toast.error(
-            composerDraftQuery.error instanceof Error
-                ? composerDraftQuery.error.message
-                : 'Composer draft could not be loaded',
-        )
-    }, [composerDraftQuery.error, composerDraftQuery.isError, composerStateKey])
+        const rawMessage =
+            composerDraftQuery.error instanceof Error ? composerDraftQuery.error.message : ''
+        const errorClass = roomRuntimeErrorClass(rawMessage)
+        if (isRecurringRoomErrorClass(errorClass)) return
+        toast.error(sanitizeRuntimeError(rawMessage || 'Composer draft could not be loaded'), {
+            id: roomErrorToastId(roomId, errorClass),
+        })
+    }, [composerDraftQuery.error, composerDraftQuery.isError, composerStateKey, roomId])
 
     useEffect(() => {
         return () => {
