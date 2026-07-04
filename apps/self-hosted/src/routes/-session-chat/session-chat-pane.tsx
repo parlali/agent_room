@@ -77,6 +77,12 @@ import { MessageList } from './message-list'
 import type { EditingMessageDraft } from '#/domain/message-list-model'
 import { useStreamingRefetch } from './streaming'
 import {
+    isRecurringRoomErrorClass,
+    roomErrorClasses,
+    roomErrorToastId,
+    roomRuntimeErrorClass,
+} from './room-error-toast'
+import {
     addOptimisticUserMessage,
     editOptimisticUserMessage,
     isPendingRunStale,
@@ -560,6 +566,14 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
     }, [composerDraftQuery.error, composerDraftQuery.isError, composerStateKey])
 
     useEffect(() => {
+        return () => {
+            for (const errorClass of roomErrorClasses) {
+                toast.dismiss(roomErrorToastId(roomId, errorClass))
+            }
+        }
+    }, [roomId])
+
+    useEffect(() => {
         if (isMobile) return
         if (!showArtifacts) return
         if (artifacts.length === 0) return
@@ -726,6 +740,8 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             return rollback
         },
         onSuccess: (result, input, rollback) => {
+            setStreamError(null)
+            toast.dismiss(roomErrorToastId(input.roomId, 'transient'))
             if (result.status === onboardingDeferredStatus) {
                 rollbackOptimisticWindow({
                     queryClient,
@@ -791,7 +807,12 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                     })
                 return
             }
-            toast.error(message)
+            const errorClass = roomRuntimeErrorClass(message)
+            if (isRecurringRoomErrorClass(errorClass)) {
+                setStreamError(message)
+                return
+            }
+            toast.error(message, { id: roomErrorToastId(input.roomId, errorClass) })
         },
     })
 
@@ -1618,6 +1639,14 @@ function resolveChatAttention(
     if (streamError) {
         if (isOutOfCreditsMessage(streamError)) {
             return outOfCreditsAttention
+        }
+        if (isRecurringRoomErrorClass(roomRuntimeErrorClass(streamError))) {
+            return {
+                kind: 'runtime_error',
+                tone: 'danger',
+                title: 'This room hit a problem',
+                description: 'The room could not reach its runtime. Retry in a moment.',
+            }
         }
         return {
             kind: 'stream_paused',

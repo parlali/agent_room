@@ -194,11 +194,7 @@ export function counterRules(input: {
         }
     }
 
-    if (
-        input.check.action === 'file_upload' ||
-        input.check.action === 'runtime_file_sync' ||
-        input.check.action === 'runtime_state_sync'
-    ) {
+    if (input.check.action === 'file_upload' || input.check.action === 'runtime_file_sync') {
         add({
             scope: 'workspace',
             scopeId: input.check.workspaceId,
@@ -215,11 +211,31 @@ export function counterRules(input: {
                 windowKey: day,
                 counterKey: 'file_write_bytes',
                 amount: bytes,
-                limit:
-                    input.check.action === 'runtime_state_sync'
-                        ? input.policy.limits.maxRuntimeStateWriteBytesPerDay
-                        : input.policy.limits.maxRoomFileWriteBytesPerDay,
+                limit: input.policy.limits.maxRoomFileWriteBytesPerDay,
                 reason: 'storage_quota_exceeded',
+            })
+        }
+    }
+
+    if (input.check.action === 'runtime_state_sync') {
+        add({
+            scope: 'workspace',
+            scopeId: input.check.workspaceId,
+            windowKey: minute,
+            counterKey: 'state_syncs',
+            amount: count,
+            limit: input.policy.limits.maxWorkspaceRuntimeStateSyncsPerMinute,
+            reason: 'scope_rate_limited',
+        })
+        if (input.check.roomId) {
+            add({
+                scope: 'room',
+                scopeId: input.check.roomId,
+                windowKey: minute,
+                counterKey: 'state_syncs',
+                amount: count,
+                limit: input.policy.limits.maxRoomRuntimeStateSyncsPerMinute,
+                reason: 'scope_rate_limited',
             })
         }
     }

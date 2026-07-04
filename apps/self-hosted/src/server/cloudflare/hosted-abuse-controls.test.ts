@@ -242,6 +242,19 @@ function runStartCounterKey(input: {
         .join('\u0000')
 }
 
+function stateSyncCounterKey(input: {
+    scope: 'workspace' | 'room'
+    scopeId: string
+    now: Date
+}): string {
+    return [
+        input.scope,
+        input.scopeId,
+        `${input.now.toISOString().slice(0, 16)}Z`,
+        'state_syncs',
+    ].join(String.fromCharCode(0))
+}
+
 function quotaEnv(
     db: FakeQuotaD1,
     overrides: Partial<AgentRoomHostedEnv> = {},
@@ -504,6 +517,66 @@ describe('hosted abuse controls', () => {
 
         expect(error.decision.reason).toBe('storage_quota_exceeded')
         expect(error.decision.counterKey).toBe('file_write_bytes')
+    })
+
+    it('rate limits runtime state sync per minute and recovers once the window advances', async () => {
+        const db = new FakeQuotaD1()
+        db.policy = {
+            status: 'active',
+            limits: JSON.stringify({
+                maxWorkspaceRuntimeStateSyncsPerMinute: 5,
+                maxRoomRuntimeStateSyncsPerMinute: 2,
+            }),
+            restrictions: '{}',
+        }
+        const env = quotaEnv(db)
+        const firstMinute = new Date('2026-07-04T00:00:30.000Z')
+        const roomKey = stateSyncCounterKey({
+            scope: 'room',
+            scopeId: 'room_1',
+            now: firstMinute,
+        })
+        db.counters.set(roomKey, 2)
+
+        const error = await expectDenied(() =>
+            assertHostedQuotaAllowed({
+                env,
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                action: 'runtime_state_sync',
+                amount: {
+                    bytes: 4096,
+                },
+                now: firstMinute,
+            }),
+        )
+
+        expect(error.decision.reason).toBe('scope_rate_limited')
+        expect(error.decision.scope).toBe('room')
+        expect(error.decision.counterKey).toBe('state_syncs')
+        expect(error.decision.message).toBe(
+            'This room is temporarily rate limited. It will recover shortly.',
+        )
+        expect(db.counters.get(roomKey)).toBe(2)
+
+        const nextMinute = new Date('2026-07-04T00:01:05.000Z')
+        await assertHostedQuotaAllowed({
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            action: 'runtime_state_sync',
+            amount: {
+                bytes: 4096,
+            },
+            now: nextMinute,
+        })
+
+        const nextRoomKey = stateSyncCounterKey({
+            scope: 'room',
+            scopeId: 'room_1',
+            now: nextMinute,
+        })
+        expect(db.counters.get(nextRoomKey)).toBe(1)
     })
 
     it('fails closed when persisted quota policy values are malformed', async () => {
