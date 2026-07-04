@@ -1,3 +1,4 @@
 dist
 .wrangler
 src/routeTree.gen.ts
+.agent-room
