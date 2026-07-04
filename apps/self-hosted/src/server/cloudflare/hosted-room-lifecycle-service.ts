@@ -261,7 +261,7 @@ export async function createHostedRoom(input: {
 
 export async function setHostedRoomDesiredState(input: {
     env: AgentRoomHostedEnv
-    actor: HostedActor
+    actor: Pick<HostedActor, 'workspaceId' | 'userId'>
     roomId: string
     desiredState: RoomDesiredState
 }): Promise<void> {

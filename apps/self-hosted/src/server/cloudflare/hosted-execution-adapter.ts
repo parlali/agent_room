@@ -550,6 +550,7 @@ export async function createRoomThread(input: {
         workspaceId: actor.workspaceId,
         roomId: input.roomId,
         actorUserId: actor.userId,
+        autoResume: true,
         run: () => {
             const prefetchedEndpoint = endpointHint
             endpointHint = null
@@ -601,6 +602,7 @@ export async function sendRoomThreadMessage(input: {
         workspaceId: actor.workspaceId,
         roomId: input.roomId,
         actorUserId: actor.userId,
+        autoResume: true,
         run: () => {
             const prefetchedEndpoint = endpointHint
             endpointHint = null
@@ -744,6 +746,7 @@ export async function editRoomThreadMessage(input: {
         workspaceId: actor.workspaceId,
         roomId: input.roomId,
         actorUserId: actor.userId,
+        autoResume: true,
         run: () => {
             const prefetchedEndpoint = endpointHint
             endpointHint = null

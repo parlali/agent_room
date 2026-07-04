@@ -7,6 +7,7 @@ import {
     HostedRuntimeRecreateDeferredError,
     reconcileHostedRuntimeJob,
     waitForHostedRuntimeReady,
+    withHostedRuntimeStarted,
 } from './hosted-runtime-adapter'
 import { hostedProviderAuthPath } from './hosted-runtime-paths'
 import { hostedRuntimeDeniedHosts, type HostedRuntimeContainerStub } from './runtime-contract'
@@ -1305,5 +1306,185 @@ describe('waitForHostedRuntimeReady', () => {
                 intervalMs: 5,
             }),
         ).rejects.toThrow(/stale/)
+    })
+})
+
+describe('hosted runtime auto-resume on user send', () => {
+    function stubRuntimeJobQueue(env: AgentRoomHostedEnv): { sent: unknown[] } {
+        const sent: unknown[] = []
+        env.AGENT_ROOM_RUNTIME_JOBS = {
+            send: async (message: unknown) => {
+                sent.push(message)
+            },
+        } as unknown as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME_JOBS']
+        return { sent }
+    }
+
+    it('resumes a desired-stopped room on an authenticated user send, then boots and runs', async () => {
+        const updates: RuntimeUpdate[] = []
+        const starts: Array<{ name: string; args: unknown }> = []
+        let desiredStateReads = 0
+        const env = hostedEnv({
+            updates,
+            billingAccountRow: { planStatus: 'active' },
+            activeRuntimeCountRow: { activeCount: 0 },
+            objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],
+            desiredState: () => 'running',
+            preStartDesiredState: () => {
+                desiredStateReads += 1
+                return desiredStateReads === 1 ? 'stopped' : 'running'
+            },
+            runtimeRow: {
+                roomId: 'room_1',
+                workspaceId: 'workspace_1',
+                desiredState: 'running',
+                containerName: 'workspace:workspace_1:room:room_1',
+                configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
+                workspaceSnapshotKey: null,
+            },
+            start: async (name, args) => {
+                starts.push({ name, args })
+            },
+        })
+        const queue = stubRuntimeJobQueue(env)
+
+        let runCalls = 0
+        const result = await withHostedRuntimeStarted({
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            actorUserId: 'user_1',
+            autoResume: true,
+            run: async () => {
+                runCalls += 1
+                if (runCalls === 1) {
+                    throw new Error('Hosted runtime is not running')
+                }
+                return 'ran'
+            },
+        })
+
+        expect(result).toBe('ran')
+        expect(runCalls).toBe(2)
+        expect(
+            updates.some(
+                (update) =>
+                    /UPDATE\s+hosted_room\b/.test(update.sql) &&
+                    /desired_state = 'running'/.test(update.sql),
+            ),
+        ).toBe(true)
+        expect(queue.sent).toHaveLength(1)
+        expect(starts).toHaveLength(1)
+    })
+
+    it('does not auto-resume a send that is not flagged as an authenticated user send', async () => {
+        const updates: RuntimeUpdate[] = []
+        const starts: Array<{ name: string; args: unknown }> = []
+        const env = hostedEnv({
+            updates,
+            billingAccountRow: { planStatus: 'active' },
+            activeRuntimeCountRow: { activeCount: 0 },
+            objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],
+            desiredState: () => 'stopped',
+            runtimeRow: {
+                roomId: 'room_1',
+                workspaceId: 'workspace_1',
+                desiredState: 'stopped',
+                containerName: 'workspace:workspace_1:room:room_1',
+                configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
+                workspaceSnapshotKey: null,
+            },
+            start: async (name, args) => {
+                starts.push({ name, args })
+            },
+        })
+        stubRuntimeJobQueue(env)
+
+        await expect(
+            withHostedRuntimeStarted({
+                env,
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                run: async () => {
+                    throw new Error('Hosted runtime is not running')
+                },
+            }),
+        ).rejects.toThrow(/not running/)
+
+        expect(updates.some((update) => /desired_state = 'running'/.test(update.sql))).toBe(false)
+        expect(starts).toHaveLength(0)
+    })
+
+    it('fails closed with the room-limit message and does not transition an over-limit paused room', async () => {
+        const updates: RuntimeUpdate[] = []
+        const starts: Array<{ name: string; args: unknown }> = []
+        const env = hostedEnv({
+            updates,
+            billingAccountRow: { planStatus: 'active' },
+            activeRuntimeCountRow: { activeCount: 3 },
+            objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],
+            desiredState: () => 'stopped',
+            preStartDesiredState: () => 'stopped',
+            runtimeRow: {
+                roomId: 'room_1',
+                workspaceId: 'workspace_1',
+                desiredState: 'stopped',
+                containerName: 'workspace:workspace_1:room:room_1',
+                configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
+                workspaceSnapshotKey: null,
+            },
+            start: async (name, args) => {
+                starts.push({ name, args })
+            },
+        })
+        stubRuntimeJobQueue(env)
+
+        await expect(
+            withHostedRuntimeStarted({
+                env,
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                actorUserId: 'user_1',
+                autoResume: true,
+                run: async () => {
+                    throw new Error('Hosted runtime is not running')
+                },
+            }),
+        ).rejects.toThrow(/Room limit reached/)
+
+        expect(updates.some((update) => /desired_state = 'running'/.test(update.sql))).toBe(false)
+        expect(starts).toHaveLength(0)
+    })
+
+    it('queue reconcile does not resurrect a desired-stopped room', async () => {
+        const updates: RuntimeUpdate[] = []
+        const starts: Array<{ name: string; args: unknown }> = []
+        const destroys: string[] = []
+        const env = hostedEnv({
+            updates,
+            desiredState: () => 'stopped',
+            objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json'],
+            runtimeRow: {
+                roomId: 'room_1',
+                workspaceId: 'workspace_1',
+                desiredState: 'stopped',
+                containerName: 'workspace:workspace_1:room:room_1',
+                configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
+                workspaceSnapshotKey: null,
+            },
+            start: async (name, args) => {
+                starts.push({ name, args })
+            },
+            destroy: async (name) => {
+                destroys.push(name)
+            },
+        })
+
+        await reconcileHostedRuntimeJob(env, runtimeMessage())
+
+        expect(starts).toHaveLength(0)
+        expect(destroys).toHaveLength(0)
+        expect(updates.some((update) => /desired_state = 'running'/.test(update.sql))).toBe(false)
+        expect(updates.some((update) => /status = 'failed'/.test(update.sql))).toBe(false)
     })
 })

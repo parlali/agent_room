@@ -8,8 +8,10 @@ import {
 } from './hosted-runtime-access'
 import {
     failClosedHostedRuntime,
+    getHostedRoom,
     HostedRuntimeMaterializationConflictError,
     materializeHostedRuntime,
+    setHostedRoomDesiredState,
     stopHostedRuntime,
 } from './hosted-room-service'
 import {
@@ -344,11 +346,40 @@ export function isHostedRuntimeDownError(error: unknown): boolean {
     return /not running|not healthy|not active|consider calling start/i.test(message)
 }
 
+async function resumeStoppedHostedRoomForUserSend(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+    actorUserId: string
+}): Promise<void> {
+    const room = await getHostedRoom({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+    })
+    if (!room || room.desiredState !== 'stopped') {
+        return
+    }
+    console.warn(
+        'Hosted room resume requested because an authenticated user sent a message while paused',
+    )
+    await setHostedRoomDesiredState({
+        env: input.env,
+        actor: {
+            workspaceId: input.workspaceId,
+            userId: input.actorUserId,
+        },
+        roomId: input.roomId,
+        desiredState: 'running',
+    })
+}
+
 export async function withHostedRuntimeStarted<T>(input: {
     env: AgentRoomHostedEnv
     workspaceId: string
     roomId: string
     actorUserId?: string | null
+    autoResume?: boolean
     run: () => Promise<T>
 }): Promise<T> {
     try {
@@ -356,6 +387,14 @@ export async function withHostedRuntimeStarted<T>(input: {
     } catch (error) {
         if (!isHostedRuntimeDownError(error)) {
             throw error
+        }
+        if (input.autoResume && input.actorUserId) {
+            await resumeStoppedHostedRoomForUserSend({
+                env: input.env,
+                workspaceId: input.workspaceId,
+                roomId: input.roomId,
+                actorUserId: input.actorUserId,
+            })
         }
         await reconcileHostedRuntimeJob(input.env, {
             kind: 'room-runtime-reconcile',
