@@ -179,7 +179,7 @@ export function MessageList({
         node.scrollTop = node.scrollHeight - pending.scrollHeight + pending.scrollTop
     }, [rows.length])
 
-    const hasStreamContent = liveRun !== null || liveRunHasContent(liveRun)
+    const hasStreamContent = liveRunHasContent(liveRun)
     const virtualRows = rowVirtualizer.getVirtualItems()
 
     useEffect(() => {

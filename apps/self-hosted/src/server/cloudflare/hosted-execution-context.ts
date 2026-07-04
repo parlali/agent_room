@@ -30,12 +30,9 @@ export async function assertHostedRunAllowed(input: {
     resolvedProviderCandidate?: HostedProviderCandidate | null
 }): Promise<void> {
     const providerCandidate =
-        input.resolvedProviderCandidate !== undefined
-            ? input.resolvedProviderCandidate
-            : ((await getHostedRuntimeState(input))?.row.providerCandidate ?? null)
-    if (!providerCandidate) {
-        throw new Error('Hosted runtime provider binding is missing')
-    }
+        input.resolvedProviderCandidate ??
+        (await getHostedRuntimeState(input))?.row.providerCandidate ??
+        null
     const quotaCheck = {
         env: input.env,
         workspaceId: input.workspaceId,
@@ -49,6 +46,14 @@ export async function assertHostedRunAllowed(input: {
         amount: {
             count: 1,
         },
+    }
+    if (!providerCandidate) {
+        console.warn('Hosted run provider binding not materialized; deferring to runtime wake', {
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+        })
+        await assertHostedQuotaAllowed(quotaCheck)
+        return
     }
     if (providerCandidate !== 'hosted_openrouter') {
         await assertHostedQuotaAllowed(quotaCheck)

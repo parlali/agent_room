@@ -127,6 +127,8 @@ type SendMutationInput = {
     sessionKey: string
     composerKey: string
     message: string
+    draft: string
+    attachments: ComposerAttachment[]
 }
 
 export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessionKey: string }) {
@@ -661,14 +663,25 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             updateLiveRun(null)
             return
         }
+        if (executionQuery.isFetching || windowQuery.isFetching) return
+        if (liveRunActive(liveRun) && persistedRunSettled(rows, liveRun)) {
+            updateLiveRun(null)
+            return
+        }
         if (!liveRunFinished(liveRun)) return
         if (liveRunHasContent(liveRun)) return
-        if (executionQuery.isFetching || windowQuery.isFetching) return
         const timer = setTimeout(() => {
             updateLiveRun(null)
         }, 1500)
         return () => clearTimeout(timer)
-    }, [liveRun, liveRunSettled, executionQuery.isFetching, windowQuery.isFetching, updateLiveRun])
+    }, [
+        liveRun,
+        liveRunSettled,
+        rows,
+        executionQuery.isFetching,
+        windowQuery.isFetching,
+        updateLiveRun,
+    ])
 
     const onRealtimeEvent = useCallback(
         (event: RoomRealtimeEvent) => {
@@ -788,7 +801,8 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             if (activeComposerKeyRef.current === input.composerKey) {
                 cancelScheduledDraftSave()
                 composerEditedSinceLoadRef.current = true
-                setComposerDraft(input.message, input.composerKey)
+                setComposerDraft(input.draft, input.composerKey)
+                setAttachments(input.attachments)
             }
             void persistComposerDraft({
                 roomId: input.roomId,
@@ -1034,6 +1048,8 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
             sessionKey,
             composerKey: composerStateKey,
             message,
+            draft: value,
+            attachments,
         })
     }
 
@@ -1078,6 +1094,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 key: event.key,
                 shiftKey: event.shiftKey,
                 isComposing: event.nativeEvent.isComposing,
+                canSubmit: canSubmitComposer,
             })
         ) {
             return

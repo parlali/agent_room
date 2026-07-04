@@ -121,6 +121,26 @@ describe('hosted run preflight round trips', () => {
         expect(db.countStatements(/WITH increments/)).toBe(1)
     })
 
+    it('defers the provider binding to the runtime wake when the candidate is not yet materialized', async () => {
+        const db = new FakePreflightD1({ includedBalanceCents: 100000 })
+        const env = preflightEnv(db)
+
+        await expect(
+            assertHostedRunAllowed({
+                env,
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                actorUserId: 'user_1',
+                sessionKey: 'session_1',
+                resolvedProviderCandidate: null,
+            }),
+        ).resolves.toBeUndefined()
+
+        expect(db.countStatements(/FROM hosted_room_runtime_state/)).toBe(1)
+        expect(db.countStatements(/SELECT[\s\S]*FROM hosted_billing_account/)).toBe(0)
+        expect(db.countStatements(/WITH increments/)).toBe(1)
+    })
+
     it('denies on exhausted balance before consuming any quota counter', async () => {
         const db = new FakePreflightD1({ includedBalanceCents: 0 })
         const env = preflightEnv(db)

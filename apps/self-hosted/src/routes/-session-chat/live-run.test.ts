@@ -280,6 +280,27 @@ describe('persistedRunSettled', () => {
         expect(persistedRunSettled(withAnswer, live!)).toBe(true)
     })
 
+    it('settles an active live run when a completed refetch shows a terminal transcript', () => {
+        const live = acceptedRun('run-1', 1000)
+        expect(live.outcome).toBe(null)
+        const rows: RoomSessionDisplayRow[] = [
+            userRow('user-1', 0),
+            {
+                type: 'run_transcript',
+                id: 'run-transcript-run-1',
+                seq: 1,
+                runId: 'run-1',
+                status: 'complete',
+                startedAt: 1000,
+                runtimeMs: 500,
+                collapsed: true,
+                items: [],
+                timestamp: 1500,
+            },
+        ]
+        expect(persistedRunSettled(rows, live)).toBe(true)
+    })
+
     it('settles a tool-only run on a terminal transcript row', () => {
         let live: LiveRun | null = acceptedRun('run-1', 1000)
         live = reduceLiveRunEvent(live, toolStart('tool-a', 1100))

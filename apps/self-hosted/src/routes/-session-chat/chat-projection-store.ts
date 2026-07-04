@@ -124,14 +124,28 @@ export function rollbackOptimisticWindow(input: {
     )
 }
 
+export const pendingUserRowCacheLimit = 32
+
 const pendingUserRowCache = new Map<string, RoomSessionDisplayRow[]>()
+
+function writePendingUserRowCache(sessionKey: string, rows: RoomSessionDisplayRow[]): void {
+    if (pendingUserRowCache.has(sessionKey)) {
+        pendingUserRowCache.delete(sessionKey)
+    }
+    pendingUserRowCache.set(sessionKey, rows)
+    while (pendingUserRowCache.size > pendingUserRowCacheLimit) {
+        const oldestKey = pendingUserRowCache.keys().next().value
+        if (oldestKey === undefined) break
+        pendingUserRowCache.delete(oldestKey)
+    }
+}
 
 export function rememberPendingUserRow(sessionKey: string, row: RoomSessionDisplayRow): void {
     const existing = pendingUserRowCache.get(sessionKey) ?? []
     const next = existing.some((candidate) => candidate.id === row.id)
         ? existing.map((candidate) => (candidate.id === row.id ? row : candidate))
         : [...existing, row]
-    pendingUserRowCache.set(sessionKey, next)
+    writePendingUserRowCache(sessionKey, next)
 }
 
 export function forgetPendingUserRowsForSession(sessionKey: string): void {
@@ -239,7 +253,7 @@ function collectUnsettledPendingUserRows(
         carried.push({ row, sessionKey })
     }
     if (stillUnsettled.length > 0) {
-        pendingUserRowCache.set(sessionKey, stillUnsettled)
+        writePendingUserRowCache(sessionKey, stillUnsettled)
     } else {
         pendingUserRowCache.delete(sessionKey)
     }

@@ -685,13 +685,13 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                 input.record.lastError = dependencies.errorMessage(error)
                 input.record.activeRunId = null
                 dependencies.updateThreadFromMessages(input.record)
+                await dependencies.persistThreadIndex()
                 dependencies.broadcast(input.record.key, 'run.error', {
                     sessionKey: input.record.key,
                     runId: input.runId,
                     message: input.record.lastError,
                     reason: null,
                 })
-                await dependencies.persistThreadIndex()
             }
         }
         active.queue = active.queue.then(guardedExecute, guardedExecute)

@@ -376,6 +376,7 @@ function EditableUserMessage({
                 key: event.key,
                 shiftKey: event.shiftKey,
                 isComposing: event.nativeEvent.isComposing,
+                canSubmit,
             })
         ) {
             event.preventDefault()

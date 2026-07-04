@@ -26,8 +26,9 @@ export function createSystemPromptRefresher(
     let promptSignature: string | null = null
     let version = 0
     let initialized = false
+    let rebuildChain: Promise<void> = Promise.resolve()
 
-    async function rebuildCanonicalIfStale(): Promise<void> {
+    async function performRebuild(): Promise<void> {
         let signature: string | null
         try {
             signature = await options.inputSignature()
@@ -41,6 +42,15 @@ export function createSystemPromptRefresher(
         promptSignature = signature
         version += 1
         initialized = true
+    }
+
+    function rebuildCanonicalIfStale(): Promise<void> {
+        const run = rebuildChain.then(performRebuild, performRebuild)
+        rebuildChain = run.then(
+            () => undefined,
+            () => undefined,
+        )
+        return run
     }
 
     return {

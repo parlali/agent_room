@@ -10,6 +10,7 @@ import {
     isPendingRunStale,
     markStalePendingRunRows,
     pendingRunStaleThresholdMs,
+    pendingUserRowCacheLimit,
     preserveUnsettledPendingUserRows,
     rememberPendingUserRow,
 } from './chat-projection-store'
@@ -20,11 +21,11 @@ beforeEach(() => {
 
 type Window = InfiniteData<RoomSessionWindow, string | null>
 
-function windowOf(rows: RoomSessionDisplayRow[]): Window {
+function windowOf(rows: RoomSessionDisplayRow[], sessionKey = 'session-1'): Window {
     return {
         pages: [
             {
-                sessionKey: 'session-1',
+                sessionKey,
                 rows,
                 beforeCursor: null,
                 afterCursor: null,
@@ -153,6 +154,39 @@ describe('preserveUnsettledPendingUserRows', () => {
         const refetched = windowOf([settledUserRow('msg-prior', 'stays')])
 
         expect(preserveUnsettledPendingUserRows(oldData, refetched)).toBe(refetched)
+    })
+})
+
+describe('pending user row cache bound', () => {
+    it('evicts the oldest session once the cache exceeds its limit', () => {
+        const sessionKeys = Array.from(
+            { length: pendingUserRowCacheLimit + 1 },
+            (_row, index) => `evict-session-${index}`,
+        )
+        for (const [index, key] of sessionKeys.entries()) {
+            rememberPendingUserRow(key, pendingUserRow(`run-${index}`, `text-${index}`))
+        }
+
+        const oldestKey = sessionKeys[0]!
+        const evicted = preserveUnsettledPendingUserRows(
+            undefined,
+            windowOf([settledUserRow('anchor', 'stays')], oldestKey),
+        )
+        expect(evicted.pages[0]!.rows.map((row) => row.id)).toEqual(['anchor'])
+
+        const newestKey = sessionKeys[sessionKeys.length - 1]!
+        const retained = preserveUnsettledPendingUserRows(
+            undefined,
+            windowOf([settledUserRow('anchor', 'stays')], newestKey),
+        )
+        expect(retained.pages[0]!.rows.map((row) => row.id)).toEqual([
+            'anchor',
+            `pending-user-run-${pendingUserRowCacheLimit}`,
+        ])
+
+        for (const key of sessionKeys) {
+            forgetPendingUserRowsForSession(key)
+        }
     })
 })
 

@@ -100,6 +100,34 @@ describe('createSystemPromptRefresher', () => {
         expect(second.reloads).toBe(1)
     })
 
+    it('serializes concurrent refreshes into a single rebuild', async () => {
+        let builds = 0
+        let signature = 'sig-1'
+        const refresher = createSystemPromptRefresher({
+            build: async () => {
+                builds += 1
+                return `prompt-${builds}`
+            },
+            inputSignature: async () => signature,
+        })
+        await refresher.initialize()
+        expect(builds).toBe(1)
+
+        const first = fakeActive()
+        const second = fakeActive()
+        first.promptVersion = refresher.currentVersion()
+        second.promptVersion = refresher.currentVersion()
+
+        signature = 'sig-2'
+        await Promise.all([refresher.refresh(first), refresher.refresh(second)])
+
+        expect(builds).toBe(2)
+        expect(refresher.currentVersion()).toBe(2)
+        expect(refresher.current()).toBe('prompt-2')
+        expect(first.reloads).toBe(1)
+        expect(second.reloads).toBe(1)
+    })
+
     it('rebuilds and reloads when the signature cannot be computed', async () => {
         let builds = 0
         const refresher = createSystemPromptRefresher({

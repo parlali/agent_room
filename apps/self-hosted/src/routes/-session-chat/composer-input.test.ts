@@ -3,18 +3,52 @@ import { shouldSendOnEnter } from './composer-input'
 
 describe('shouldSendOnEnter', () => {
     it('sends on a plain Enter press', () => {
-        expect(shouldSendOnEnter({ key: 'Enter', shiftKey: false, isComposing: false })).toBe(true)
+        expect(
+            shouldSendOnEnter({
+                key: 'Enter',
+                shiftKey: false,
+                isComposing: false,
+                canSubmit: true,
+            }),
+        ).toBe(true)
     })
 
     it('inserts a newline on Shift+Enter', () => {
-        expect(shouldSendOnEnter({ key: 'Enter', shiftKey: true, isComposing: false })).toBe(false)
+        expect(
+            shouldSendOnEnter({
+                key: 'Enter',
+                shiftKey: true,
+                isComposing: false,
+                canSubmit: true,
+            }),
+        ).toBe(false)
     })
 
     it('does not send while an IME composition is active', () => {
-        expect(shouldSendOnEnter({ key: 'Enter', shiftKey: false, isComposing: true })).toBe(false)
+        expect(
+            shouldSendOnEnter({
+                key: 'Enter',
+                shiftKey: false,
+                isComposing: true,
+                canSubmit: true,
+            }),
+        ).toBe(false)
+    })
+
+    it('inserts a newline when the composer cannot submit yet', () => {
+        expect(
+            shouldSendOnEnter({
+                key: 'Enter',
+                shiftKey: false,
+                isComposing: false,
+                canSubmit: false,
+            }),
+        ).toBe(false)
     })
 
     it('ignores other keys', () => {
-        expect(shouldSendOnEnter({ key: 'a', shiftKey: false, isComposing: false })).toBe(false)
+        expect(
+            shouldSendOnEnter({ key: 'a', shiftKey: false, isComposing: false, canSubmit: true }),
+        ).toBe(false)
     })
 })
