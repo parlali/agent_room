@@ -7,20 +7,20 @@ import { hostedBillingModelReservationDefaultCents } from './hosted-config-contr
 import { resolveHostedConfig } from './hosted-config'
 
 export const hostedManagedModelProvider = 'openrouter' as const
-export const hostedManagedModelId = 'moonshotai/kimi-k2.7-code'
+export const hostedManagedModelId = 'google/gemini-3-flash-preview'
 export const hostedManagedModelLabel = 'Hosted'
 export const hostedManagedModelInputModalities: Array<'text' | 'image'> = ['text', 'image']
 export const hostedManagedModelPolicyId = 'managed-hosted-model-v1'
 export const hostedManagedModelRequestReservationDefaultCents =
     hostedBillingModelReservationDefaultCents
-export const hostedManagedModelContextWindowTokens = 128000
+export const hostedManagedModelContextWindowTokens = 1048576
 
 export const hostedManagedModelPreflightSpendEstimateCents = 50
 
 export const hostedManagedModelReasoningEffort = 'low' as const
 
-export const hostedManagedModelInputCostMicrosPerMillionTokens = 740000
-export const hostedManagedModelOutputCostMicrosPerMillionTokens = 3500000
+export const hostedManagedModelInputCostMicrosPerMillionTokens = 500000
+export const hostedManagedModelOutputCostMicrosPerMillionTokens = 3000000
 
 export function estimateHostedManagedModelCostMicros(input: {
     inputTokens: number | null
