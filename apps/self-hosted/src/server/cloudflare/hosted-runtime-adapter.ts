@@ -136,6 +136,8 @@ type HostedRuntimeReadiness = 'ready' | 'booting' | 'unauthorized'
 
 type HostedRuntimeBootOutcome = 'already-ready' | 'delivered'
 
+export type HostedRuntimeReconcileOutcome = 'reconciled' | 'superseded' | 'skipped'
+
 function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -398,14 +400,53 @@ export async function withHostedRuntimeStarted<T>(input: {
                 actorUserId: input.actorUserId,
             })
         }
-        await reconcileHostedRuntimeJob(input.env, {
+        const outcome = await reconcileHostedRuntimeJob(input.env, {
             kind: 'room-runtime-reconcile',
             workspaceId: input.workspaceId,
             roomId: input.roomId,
             actorUserId: input.actorUserId ?? null,
             requestedAt: new Date().toISOString(),
         })
+        if (outcome === 'superseded') {
+            const ready = await waitForHostedRuntimeReadyAfterSupersededReconcile({
+                env: input.env,
+                workspaceId: input.workspaceId,
+                roomId: input.roomId,
+                timeoutMs: hostedRuntimeStartCancellation.portReadyTimeoutMS,
+                intervalMs: hostedRuntimeStartCancellation.waitInterval,
+            })
+            if (!ready) {
+                throw error
+            }
+        }
         return input.run()
+    }
+}
+
+async function waitForHostedRuntimeReadyAfterSupersededReconcile(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+    timeoutMs: number
+    intervalMs: number
+}): Promise<boolean> {
+    const deadline = Date.now() + input.timeoutMs
+    for (;;) {
+        const ready = await convergeHostedRuntimeHealthIfReady({
+            env: input.env,
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+        })
+        if (ready) {
+            return true
+        }
+        if (Date.now() >= deadline) {
+            console.warn(
+                'Hosted runtime did not become ready before the start timeout after a superseded inline reconcile; failing closed',
+            )
+            return false
+        }
+        await delay(input.intervalMs)
     }
 }
 
@@ -460,7 +501,7 @@ export async function reconcileHostedRuntimeJob(
     env: AgentRoomHostedEnv,
     message: AgentRoomRuntimeJobMessage,
     delivery?: HostedRuntimeReconcileDelivery,
-): Promise<void> {
+): Promise<HostedRuntimeReconcileOutcome> {
     if (message.kind !== 'room-runtime-reconcile') {
         throw new Error(`Unsupported hosted runtime job kind ${message.kind}`)
     }
@@ -469,7 +510,7 @@ export async function reconcileHostedRuntimeJob(
 
     const runtime = await readHostedRuntimeRow(env, message)
     if (runtime.desiredState !== 'running') {
-        return
+        return 'skipped'
     }
 
     try {
@@ -487,7 +528,7 @@ export async function reconcileHostedRuntimeJob(
                 roomId: runtime.roomId,
                 error: new Error(reasonMessage),
             })
-            return
+            return 'skipped'
         }
         const expectedContainerName = hostedRuntimeContainerName({
             workspaceId: runtime.workspaceId,
@@ -611,6 +652,7 @@ export async function reconcileHostedRuntimeJob(
             },
             requireDesiredRunning: true,
         })
+        return 'reconciled'
     } catch (error) {
         if (error instanceof HostedRuntimeMaterializationConflictError) {
             console.warn('Hosted runtime reconcile skipped because materialization was superseded')
@@ -624,6 +666,7 @@ export async function reconcileHostedRuntimeJob(
                     console.warn(
                         'Hosted runtime health converged to running/healthy after a superseded materialization because the container is already ready',
                     )
+                    return 'reconciled'
                 }
             } catch (convergeError) {
                 console.warn(
@@ -631,7 +674,7 @@ export async function reconcileHostedRuntimeJob(
                     convergeError instanceof Error ? convergeError.message : convergeError,
                 )
             }
-            return
+            return 'superseded'
         }
         if (error instanceof HostedRuntimeDesiredStateChangedError) {
             console.warn('Hosted runtime reconcile skipped because room desired state changed')
@@ -640,7 +683,7 @@ export async function reconcileHostedRuntimeJob(
                 workspaceId: runtime.workspaceId,
                 roomId: runtime.roomId,
             })
-            return
+            return 'skipped'
         }
         if (error instanceof HostedRuntimeRecreateDeferredError && recreateDeferralRetryable) {
             console.warn(

@@ -319,6 +319,55 @@ describe('runtime event proxy stream', () => {
         await reader.cancel()
     })
 
+    it('re-enters fast polling and re-attaches after a container-destroy detach without waiting out the idle cooldown', async () => {
+        let attachCalls = 0
+        let readyCalls = 0
+        const unhealthyChecks = 8
+        const stream = createRuntimeEventProxyStream({
+            roomId: 'room',
+            sessionKey: null,
+            streamKind: 'room',
+            detachAfterIdleMs: 60000,
+            intervals: FAST_INTERVALS,
+            checkReady: async () => {
+                readyCalls += 1
+                if (readyCalls === 1) {
+                    return true
+                }
+                if (readyCalls <= 1 + unhealthyChecks) {
+                    return false
+                }
+                return true
+            },
+            attach: async () => {
+                attachCalls += 1
+                if (attachCalls === 1) {
+                    return new ReadableStream<Uint8Array>({
+                        start(controller) {
+                            controller.enqueue(roomEventFrame('run.accepted', 1))
+                            setTimeout(() => {
+                                try {
+                                    controller.error(new Error('container destroyed'))
+                                } catch {}
+                            }, 20)
+                        },
+                    })
+                }
+                return streamOf([roomEventFrame('run.finished', 2)], true)
+            },
+        })
+        const reader = stream.getReader()
+        await readUntil(reader, (text) => text.includes('"seq":1'))
+        const detachedAt = Date.now()
+        const second = await readUntil(reader, (text) => text.includes('"seq":2'))
+        const reattachMs = Date.now() - detachedAt
+        expect(second).toContain('event: room-event')
+        expect(attachCalls).toBe(2)
+        expect(readyCalls).toBeGreaterThan(1 + unhealthyChecks)
+        expect(reattachMs).toBeLessThan(FAST_INTERVALS.sleepCooldownMs)
+        await reader.cancel()
+    })
+
     it('keeps re-checking without attaching while the endpoint stays unhealthy', async () => {
         let attachCalls = 0
         let readyCalls = 0

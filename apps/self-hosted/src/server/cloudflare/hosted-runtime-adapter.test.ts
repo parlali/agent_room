@@ -93,8 +93,10 @@ function hostedEnv(input: {
     containerStopLingerPolls?: number
     forceBootReady?: boolean
     containerStatus?: () => 'running' | 'healthy' | 'stopped'
+    materializeCasConflictOnCall?: number
 }): AgentRoomHostedEnv {
     const updates = input.updates ?? []
+    let materializeCasCalls = 0
     const batches = input.batches ?? []
     const fetches = input.fetches ?? []
     const puts = input.puts ?? []
@@ -252,6 +254,23 @@ function hostedEnv(input: {
                     },
                     run: async () => {
                         updates.push({ sql, args })
+                        if (
+                            input.materializeCasConflictOnCall !== undefined &&
+                            /UPDATE hosted_room_runtime_state[\s\S]*config_version = \?10[\s\S]*token_version = \?11/.test(
+                                sql,
+                            )
+                        ) {
+                            materializeCasCalls += 1
+                            return {
+                                success: true,
+                                meta: {
+                                    changes:
+                                        materializeCasCalls === input.materializeCasConflictOnCall
+                                            ? 0
+                                            : 1,
+                                },
+                            }
+                        }
                         return {
                             success: true,
                             meta: {
@@ -1383,6 +1402,63 @@ describe('hosted runtime auto-resume on user send', () => {
         ).toBe(true)
         expect(queue.sent).toHaveLength(1)
         expect(starts).toHaveLength(1)
+    })
+
+    it('delivers a paused-room send after waiting for readiness when the inline reconcile is superseded by the racing queue reconcile', async () => {
+        const updates: RuntimeUpdate[] = []
+        const batches: RuntimeUpdate[][] = []
+        const tokenObjectKey = 'workspaces/workspace_1/rooms/room_1/runtime/token'
+        let desiredStateReads = 0
+        let containerStatusReads = 0
+        const env = hostedEnv({
+            updates,
+            batches,
+            billingAccountRow: { planStatus: 'active' },
+            activeRuntimeCountRow: { activeCount: 0 },
+            objectKeys: ['workspaces/workspace_1/rooms/room_1/runtime/config.json', tokenObjectKey],
+            forceBootReady: true,
+            materializeCasConflictOnCall: 1,
+            desiredState: () => 'running',
+            preStartDesiredState: () => {
+                desiredStateReads += 1
+                return desiredStateReads === 1 ? 'stopped' : 'running'
+            },
+            containerStatus: () => {
+                containerStatusReads += 1
+                return containerStatusReads >= 2 ? 'healthy' : 'stopped'
+            },
+            runtimeRow: {
+                roomId: 'room_1',
+                workspaceId: 'workspace_1',
+                desiredState: 'running',
+                containerName: 'workspace:workspace_1:room:room_1',
+                configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
+                tokenObjectKey,
+                workspaceSnapshotKey: null,
+            },
+        })
+        const queue = stubRuntimeJobQueue(env)
+
+        let runCalls = 0
+        const result = await withHostedRuntimeStarted({
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+            actorUserId: 'user_1',
+            autoResume: true,
+            run: async () => {
+                runCalls += 1
+                if (!hasHealthyRunningTransition(batches)) {
+                    throw new Error('Hosted runtime is not healthy')
+                }
+                return 'ran'
+            },
+        })
+
+        expect(result).toBe('ran')
+        expect(runCalls).toBe(2)
+        expect(queue.sent).toHaveLength(1)
+        expect(hasHealthyRunningTransition(batches)).toBe(true)
     })
 
     it('does not auto-resume a send that is not flagged as an authenticated user send', async () => {
