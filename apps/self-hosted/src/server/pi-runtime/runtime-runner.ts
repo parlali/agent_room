@@ -512,8 +512,28 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                     throw watchdogError
                 }
                 const latestError = dependencies.latestAssistantErrorMessage(input.record)
-                input.record.status = latestError ? 'error' : 'idle'
-                input.record.lastError = latestError
+                if (latestError) {
+                    input.record.status = 'error'
+                    input.record.lastError = latestError
+                    await appendAssistantRunErrorIfMissing({
+                        active,
+                        record: input.record,
+                        message: latestError,
+                        branchLengthBeforePrompt,
+                    })
+                    removePendingUserMessage(input.record, input.runId)
+                    dependencies.updateThreadFromMessages(input.record)
+                    await dependencies.persistThreadIndex()
+                    dependencies.broadcast(input.record.key, 'run.error', {
+                        sessionKey: input.record.key,
+                        runId: input.runId,
+                        message: providerFailureDisplayMessage(latestError),
+                        reason: 'provider_error',
+                    })
+                } else {
+                    input.record.status = 'idle'
+                    input.record.lastError = null
+                }
             } catch (error) {
                 const hostedProviderCollection = hostedProviderReservationCollectionFromError(error)
                 if (hostedProviderCollection) {

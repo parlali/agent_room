@@ -1328,6 +1328,63 @@ describe('hosted runtime worker route security gates', () => {
         }
     })
 
+    it('delivers streamed chunks to the client without any settlement consumer draining a second branch', async () => {
+        const streams = [manualReadableStream(), manualReadableStream()]
+        let call = 0
+        const fetchMock = vi.fn(
+            async () =>
+                new Response(streams[call++]!.stream, {
+                    headers: {
+                        'content-type': 'text/event-stream',
+                    },
+                }),
+        )
+        vi.stubGlobal('fetch', fetchMock)
+
+        for (let index = 0; index < streams.length; index += 1) {
+            const upstream = streams[index]!
+            const execution = collectingExecutionContext()
+            const response = await callRoute({
+                path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
+                headers: openRouterRuntimeHeaders(),
+                body: {
+                    model: hostedManagedModelId,
+                    messages: [{ role: 'user', content: 'hi' }],
+                },
+                ctx: execution.ctx,
+            })
+
+            expect(response.status).toBe(200)
+            const reader = response.body!.getReader()
+            const decoder = new TextDecoder()
+            upstream.enqueue(
+                `data: {"id":"chunk-${index}-a","choices":[{"delta":{"content":"one"}}]}\n\n`,
+            )
+            const first = await reader.read()
+            expect(decoder.decode(first.value)).toContain('"content":"one"')
+
+            upstream.enqueue(
+                `data: {"id":"chunk-${index}-b","choices":[{"delta":{"content":"two"}}]}\n\n`,
+            )
+            const second = await reader.read()
+            expect(decoder.decode(second.value)).toContain('"content":"two"')
+
+            upstream.enqueue(
+                'data: {"id":"c1","usage":{"cost":0.01,"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}\n\n',
+            )
+            upstream.enqueue('data: [DONE]\n\n')
+            upstream.close()
+            for (;;) {
+                const chunk = await reader.read()
+                if (chunk.done) {
+                    break
+                }
+            }
+        }
+
+        expect(fetchMock).toHaveBeenCalledTimes(streams.length)
+    })
+
     it('settles managed Brave proxy usage before returning the body', async () => {
         const fetchMock = vi.fn(
             async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) =>

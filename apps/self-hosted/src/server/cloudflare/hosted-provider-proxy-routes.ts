@@ -243,33 +243,68 @@ function isHostedOpenRouterStreamResponse(response: Response): boolean {
     )
 }
 
-async function accumulateHostedProviderStreamText(input: {
-    stream: ReadableStream<Uint8Array>
+function pumpHostedProviderStream(input: {
+    upstream: ReadableStream<Uint8Array>
     maxChars: number
-}): Promise<string> {
-    const reader = input.stream.getReader()
+    settle: (responseText: string) => Promise<void>
+}): { clientStream: ReadableStream<Uint8Array>; done: Promise<void> } {
+    const reader = input.upstream.getReader()
     const decoder = new TextDecoder()
     let accumulated = ''
+    let clientCancelled = false
+    let resolveDone: () => void
+    const done = new Promise<void>((resolve) => {
+        resolveDone = resolve
+    })
     const retainTail = () => {
         if (accumulated.length > input.maxChars) {
             accumulated = accumulated.slice(accumulated.length - input.maxChars)
         }
     }
-    try {
-        for (;;) {
-            const { done, value } = await reader.read()
-            if (done) {
-                break
+    const clientStream = new ReadableStream<Uint8Array>({
+        start(controller) {
+            const pump = async () => {
+                let upstreamError: unknown = null
+                try {
+                    for (;;) {
+                        const { done: streamDone, value } = await reader.read()
+                        if (streamDone) {
+                            break
+                        }
+                        accumulated += decoder.decode(value, { stream: true })
+                        retainTail()
+                        if (!clientCancelled) {
+                            try {
+                                controller.enqueue(value)
+                            } catch {
+                                clientCancelled = true
+                            }
+                        }
+                    }
+                    accumulated += decoder.decode()
+                    retainTail()
+                } catch (error) {
+                    upstreamError = error
+                } finally {
+                    reader.releaseLock()
+                }
+                if (!clientCancelled) {
+                    if (upstreamError) {
+                        controller.error(upstreamError)
+                    } else {
+                        controller.close()
+                    }
+                }
+                await input.settle(accumulated)
+                resolveDone()
             }
-            accumulated += decoder.decode(value, { stream: true })
-            retainTail()
-        }
-        accumulated += decoder.decode()
-        retainTail()
-        return accumulated
-    } finally {
-        reader.releaseLock()
-    }
+            void pump()
+        },
+        cancel() {
+            clientCancelled = true
+        },
+    })
+    return { clientStream, done }
 }
 
 type HostedOpenRouterProxySettlementOutcome =
@@ -773,18 +808,12 @@ export async function hostedOpenRouterProxy(
         responseHeaders.set('x-agent-room-billing-reservation-id', reservationId)
     }
     if (isHostedOpenRouterStreamResponse(response) && response.body) {
-        const [clientStream, usageStream] = response.body.tee()
-        const settlementPromise = accumulateHostedProviderStreamText({
-            stream: usageStream,
-            maxChars: hostedOpenRouterStreamUsageAccumulationMaxChars,
-        })
-            .then((responseText) =>
-                settleHostedOpenRouterProxyUsage({
+        const settleStreamedUsage = async (responseText: string): Promise<void> => {
+            try {
+                const outcome = await settleHostedOpenRouterProxyUsage({
                     ...settlementInputBase,
                     responseText,
-                }),
-            )
-            .then((outcome) => {
+                })
                 if (outcome.kind !== 'settled') {
                     console.error('Hosted OpenRouter streaming settlement did not bill', {
                         workspaceId: proxyPath.workspaceId,
@@ -795,8 +824,7 @@ export async function hostedOpenRouterProxy(
                         outcome: outcome.kind,
                     })
                 }
-            })
-            .catch((error) => {
+            } catch (error) {
                 console.error('Hosted OpenRouter streaming settlement failed', {
                     workspaceId: proxyPath.workspaceId,
                     roomId: proxyPath.roomId,
@@ -805,8 +833,14 @@ export async function hostedOpenRouterProxy(
                     reservationId,
                     error: error instanceof Error ? error.message : error,
                 })
-            })
-        ctx.waitUntil(settlementPromise)
+            }
+        }
+        const { clientStream, done } = pumpHostedProviderStream({
+            upstream: response.body,
+            maxChars: hostedOpenRouterStreamUsageAccumulationMaxChars,
+            settle: settleStreamedUsage,
+        })
+        ctx.waitUntil(done)
         return new Response(clientStream, {
             status: response.status,
             statusText: response.statusText,

@@ -150,6 +150,35 @@ function createRunner(input: {
     })
 }
 
+function createRunnerWithProviderError(input: {
+    config: PiRuntimeConfig
+    record: ThreadRecord
+    active: ActiveThread
+    events: Array<{ event: string; payload: unknown }>
+    broadcasts: Array<{ event: string; payload: unknown }>
+    latestError: string
+}) {
+    const activeThreads = new Map<string, ActiveThread>([[input.record.key, input.active]])
+    return createRuntimeRunPrompt({
+        config: input.config,
+        activeThreads,
+        refreshSystemPrompt: async () => {},
+        getActiveThread: async () => input.active,
+        compactOversizedThreadContext: async () => {},
+        updateThreadFromMessages: () => {},
+        persistThreadIndex: async () => {},
+        broadcast: (_sessionKey, event, payload) => {
+            input.broadcasts.push({ event, payload })
+        },
+        appendRuntimeEvent: async (event, payload) => {
+            input.events.push({ event, payload })
+        },
+        latestAssistantErrorMessage: () => input.latestError,
+        maybeGenerateThreadTitle: async () => {},
+        errorMessage: (error) => (error instanceof Error ? error.message : String(error)),
+    })
+}
+
 async function collectOpenRouterRunFinishedPayload(input: {
     hostedUsageCallbackUrl: string | null
     managedOpenRouter: boolean
@@ -484,6 +513,108 @@ describe('runtime runner memory capture audit', () => {
             expect(assistantErrors.at(-1)).toMatchObject({
                 errorMessage: 'Codex error: cyber_policy rejected the follow-up',
             })
+        })
+    })
+
+    it('emits run.error when the provider rejects with a non-2xx status mid-run', async () => {
+        await withConfig(async ({ config, root }) => {
+            const record = threadRecord(root)
+            const entries: SessionEntry[] = []
+            const providerError = 'openrouter returned 402: insufficient credits'
+            const active = fakeActiveThread({
+                entries,
+                prompt: async () => {
+                    entries.push(
+                        messageEntry({
+                            role: 'assistant',
+                            content: [{ type: 'text', text: '' }],
+                            stopReason: 'error',
+                            errorMessage: providerError,
+                        }),
+                    )
+                },
+            })
+            const events: Array<{ event: string; payload: unknown }> = []
+            const broadcasts: Array<{ event: string; payload: unknown }> = []
+            const runPrompt = createRunnerWithProviderError({
+                config,
+                record,
+                active,
+                events,
+                broadcasts,
+                latestError: providerError,
+            })
+
+            await runPrompt({
+                record,
+                message: 'Do the work',
+                runId: 'run-402',
+                awaitCompletion: true,
+            })
+
+            const runError = broadcasts.find((entry) => entry.event === 'run.error')
+            expect(runError).toBeDefined()
+            expect((runError?.payload as { message?: string }).message).toContain(providerError)
+            expect((runError?.payload as { reason?: string }).reason).toBe('provider_error')
+            expect(record.status).toBe('error')
+            expect(record.lastError).toBe(providerError)
+            expect(record.pendingUserMessages ?? []).toEqual([])
+        })
+    })
+
+    it('emits run.error when the provider stream dies mid-body', async () => {
+        await withConfig(async ({ config, root }) => {
+            const record = threadRecord(root)
+            const entries: SessionEntry[] = []
+            const providerError =
+                'The model provider closed the response stream before it finished.'
+            const active = fakeActiveThread({
+                entries,
+                prompt: async () => {
+                    entries.push(
+                        messageEntry({
+                            role: 'assistant',
+                            content: [{ type: 'text', text: 'partial' }],
+                            stopReason: 'error',
+                            errorMessage: providerError,
+                        }),
+                    )
+                },
+            })
+            const events: Array<{ event: string; payload: unknown }> = []
+            const broadcasts: Array<{ event: string; payload: unknown }> = []
+            const runPrompt = createRunnerWithProviderError({
+                config,
+                record,
+                active,
+                events,
+                broadcasts,
+                latestError: providerError,
+            })
+
+            await runPrompt({
+                record,
+                message: 'Do the work',
+                runId: 'run-stream-death',
+                awaitCompletion: true,
+            })
+
+            const runError = broadcasts.find((entry) => entry.event === 'run.error')
+            expect(runError).toBeDefined()
+            expect((runError?.payload as { message?: string }).message).toContain(providerError)
+            expect(record.status).toBe('error')
+
+            const runFinished = events.find((entry) => entry.event === 'run.finished')?.payload as
+                | { status?: string }
+                | undefined
+            expect(runFinished?.status).toBe('error')
+
+            const assistantError = entries
+                .map((entry) => (entry.type === 'message' ? entry.message : null))
+                .find(
+                    (message) => message?.role === 'assistant' && message.stopReason === 'error',
+                ) as Record<string, unknown> | undefined
+            expect(assistantError?.errorMessage).toBe(providerError)
         })
     })
 
