@@ -8,6 +8,10 @@ import { resolveHostedConfig } from './hosted-config'
 
 export const hostedManagedModelProvider = 'openrouter' as const
 export const hostedManagedModelId = 'google/gemini-3-flash-preview'
+export const hostedRetiredManagedModelIds = [
+    'moonshotai/kimi-k2.7-code',
+    'moonshotai/kimi-k2.6',
+] as const
 export const hostedManagedModelLabel = 'Hosted'
 export const hostedManagedModelInputModalities: Array<'text' | 'image'> = ['text', 'image']
 export const hostedManagedModelPolicyId = 'managed-hosted-model-v1'
@@ -51,6 +55,12 @@ export const hostedManagedModelRetryMaxRetryDelayMs = 0
 export const hostedModelSourceLabels = ['Hosted', 'OpenRouter', 'Codex'] as const
 export const hostedManagedModelUnavailableMessage =
     'Hosted model access is not available for this workspace'
+
+export function isHostedRetiredManagedModelId(model: string | null | undefined): boolean {
+    return hostedRetiredManagedModelIds.includes(
+        model as (typeof hostedRetiredManagedModelIds)[number],
+    )
+}
 
 export function hostedManagedModelAvailable(input: {
     openRouterApiKey: string | null | undefined

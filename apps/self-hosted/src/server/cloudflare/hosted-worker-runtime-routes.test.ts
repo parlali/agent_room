@@ -14,7 +14,9 @@ import {
     hostedManagedModelMaxOutputTokens,
     hostedManagedModelRequestReservationDefaultCents,
     hostedManagedModelRetryMaxRetries,
+    hostedRetiredManagedModelIds,
 } from './hosted-model-policy'
+import { hostedRuntimeTokenSha256Hex } from './hosted-runtime-token-hash'
 
 const mocks = vi.hoisted(() => ({
     HostedBillingReservationAlreadyExistsError: class HostedBillingReservationAlreadyExistsError extends Error {
@@ -48,6 +50,7 @@ const mocks = vi.hoisted(() => ({
     markHostedBrowserbaseSessionReleased: vi.fn(),
     readHostedRoomConfig: vi.fn(),
     listRoomMcpBindings: vi.fn(),
+    sendHostedRuntimeJob: vi.fn(),
 }))
 
 vi.mock('./hosted-room-service', () => ({
@@ -102,17 +105,26 @@ vi.mock('./hosted-room-config-store', () => ({
 
 const validToken = 'runtime-token-value-123456'
 
-function hostedEnv(): AgentRoomHostedEnv {
+function hostedEnv(
+    input: {
+        staleTokenHealChanges?: number[]
+    } = {},
+): AgentRoomHostedEnv {
+    const staleTokenHealChanges = [...(input.staleTokenHealChanges ?? [])]
     return {
         AGENT_ROOM_DB: {
-            prepare: () => ({
+            prepare: (sql: string) => ({
                 bind: (...args: unknown[]) => ({
                     first: async () => (args[2] === 'job_1' ? { id: 'job_1' } : null),
                     all: async () => ({ results: [] }),
                     run: async () => ({
                         success: true,
                         meta: {
-                            changes: 1,
+                            changes:
+                                /stale_token_heal_enqueued_at/.test(sql) &&
+                                staleTokenHealChanges.length > 0
+                                    ? (staleTokenHealChanges.shift() ?? 0)
+                                    : 1,
                         },
                         results: [],
                     }),
@@ -120,7 +132,9 @@ function hostedEnv(): AgentRoomHostedEnv {
             }),
         } as unknown as AgentRoomHostedEnv['AGENT_ROOM_DB'],
         AGENT_ROOM_WORKSPACE_BUCKET: {} as AgentRoomHostedEnv['AGENT_ROOM_WORKSPACE_BUCKET'],
-        AGENT_ROOM_RUNTIME_JOBS: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME_JOBS'],
+        AGENT_ROOM_RUNTIME_JOBS: {
+            send: mocks.sendHostedRuntimeJob,
+        } as unknown as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME_JOBS'],
         AGENT_ROOM_RUNTIME: {} as AgentRoomHostedEnv['AGENT_ROOM_RUNTIME'],
         AGENT_ROOM_AUTH_MODE: 'better-auth',
         AGENT_ROOM_BILLING_USAGE_MARKUP_BPS: '13000',
@@ -150,6 +164,8 @@ function runtimeEndpoint(
         status?: string
         tokenObjectKey?: string | null
         providerCandidate?: 'user_key' | 'codex' | 'hosted_openrouter' | null
+        previousTokenHash?: string | null
+        staleTokenHealEnqueuedAt?: string | null
     } = {},
 ) {
     const now = new Date(0).toISOString()
@@ -168,6 +184,8 @@ function runtimeEndpoint(
                     ? 'hosted_openrouter'
                     : input.providerCandidate,
             workspaceSnapshotKey: null,
+            previousTokenHash: input.previousTokenHash ?? null,
+            staleTokenHealEnqueuedAt: input.staleTokenHealEnqueuedAt ?? null,
             configVersion: 1,
             tokenVersion: 1,
             healthStatus: 'healthy',
@@ -233,6 +251,7 @@ async function callRoute(input: {
     method?: string
     headers?: Record<string, string>
     ctx?: { waitUntil: (promise: Promise<unknown>) => void }
+    env?: AgentRoomHostedEnv
 }): Promise<Response> {
     const headers = new Headers({
         'content-type': 'application/json',
@@ -244,7 +263,7 @@ async function callRoute(input: {
         headers.set('authorization', `Bearer ${input.token ?? validToken}`)
     }
     const response = await hostedRuntimeWorkerRoute({
-        env: hostedEnv(),
+        env: input.env ?? hostedEnv(),
         request: new Request(`https://rooms.example.test${input.path}`, {
             method: input.method ?? 'POST',
             headers,
@@ -453,6 +472,68 @@ describe('hosted runtime worker route security gates', () => {
 
         await expectJsonCode(response, 403, 'runtime_token_invalid')
         expect(mocks.recordHostedRuntimeUsageEvent).not.toHaveBeenCalled()
+    })
+
+    it('returns a coded stale-token 403 and enqueues one bounded rotate/recreate heal', async () => {
+        const staleToken = 'stale-runtime-token-123456'
+        mocks.getHostedRuntimeEndpointState.mockResolvedValue(
+            runtimeEndpoint({
+                previousTokenHash: await hostedRuntimeTokenSha256Hex(staleToken),
+            }),
+        )
+        const env = hostedEnv({
+            staleTokenHealChanges: [1, 0],
+        })
+
+        for (const usageRequestId of ['usage-request-stale-1', 'usage-request-stale-2']) {
+            const response = await callRoute({
+                env,
+                path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
+                headers: openRouterRuntimeHeaders({
+                    'x-agent-room-usage-request-id': usageRequestId,
+                }),
+                token: staleToken,
+                body: {
+                    model: hostedManagedModelId,
+                    messages: [],
+                },
+            })
+
+            await expectJsonCode(response, 403, 'runtime_token_stale')
+        }
+
+        expect(mocks.sendHostedRuntimeJob).toHaveBeenCalledTimes(1)
+        expect(mocks.sendHostedRuntimeJob).toHaveBeenCalledWith(
+            expect.objectContaining({
+                kind: 'room-runtime-reconcile',
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                actorUserId: null,
+                rotateToken: true,
+            }),
+        )
+    })
+
+    it('keeps unknown runtime bearer tokens fail-closed without enqueueing a heal', async () => {
+        mocks.getHostedRuntimeEndpointState.mockResolvedValue(
+            runtimeEndpoint({
+                previousTokenHash: await hostedRuntimeTokenSha256Hex('stale-runtime-token-123456'),
+            }),
+        )
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
+            headers: openRouterRuntimeHeaders(),
+            token: 'wrong-runtime-token-123456',
+            body: {
+                model: hostedManagedModelId,
+                messages: [],
+            },
+        })
+
+        await expectJsonCode(response, 403, 'runtime_token_invalid')
+        expect(mocks.sendHostedRuntimeJob).not.toHaveBeenCalled()
+        expect(mocks.recordHostedProviderUsageBlocked).not.toHaveBeenCalled()
     })
 
     it('rejects callbacks when the runtime token object is missing', async () => {
@@ -739,7 +820,7 @@ describe('hosted runtime worker route security gates', () => {
         expect(fetchMock).not.toHaveBeenCalled()
     })
 
-    it('rejects non-canonical hosted OpenRouter models before calling the provider', async () => {
+    it('rejects unknown hosted OpenRouter models with a coded response before calling the provider', async () => {
         const fetchMock = vi.fn(async () => new Response('{}'))
         vi.stubGlobal('fetch', fetchMock)
 
@@ -752,7 +833,13 @@ describe('hosted runtime worker route security gates', () => {
             },
         })
 
-        await expectJsonCode(response, 403, 'hosted_model_policy_violation')
+        expect(response.status).toBe(403)
+        await expect(response.json()).resolves.toMatchObject({
+            ok: false,
+            code: 'model_not_allowed',
+            message:
+                'This conversation uses a model that is not available. Start a new conversation or switch the model.',
+        })
         expect(fetchMock).not.toHaveBeenCalled()
         expect(mocks.authorizeHostedBillingReservation).not.toHaveBeenCalled()
         expect(mocks.recordHostedProviderUsageBlocked).toHaveBeenCalledWith(
@@ -765,6 +852,61 @@ describe('hosted runtime worker route security gates', () => {
                     hostedModelPolicyViolation: true,
                     modelSource: 'managed_hosted',
                     model: hostedManagedModelId,
+                }),
+            }),
+        )
+    })
+
+    it('upgrades retired hosted OpenRouter models to the current managed model', async () => {
+        const fetchMock = vi.fn(
+            async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) =>
+                new Response(
+                    JSON.stringify({
+                        id: 'completion_1',
+                        usage: {
+                            cost: 0.123456,
+                            prompt_tokens: 111,
+                            completion_tokens: 22,
+                        },
+                    }),
+                ),
+        )
+        vi.stubGlobal('fetch', fetchMock)
+        const retiredModel = hostedRetiredManagedModelIds[0]
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
+            headers: openRouterRuntimeHeaders(),
+            body: {
+                model: retiredModel,
+                messages: [{ role: 'user', content: 'hello' }],
+            },
+        })
+
+        expect(response.status).toBe(200)
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        const providerInit = fetchMock.mock.calls[0]![1] as RequestInit
+        expect(JSON.parse(String(providerInit.body))).toMatchObject({
+            model: hostedManagedModelId,
+            messages: [{ role: 'user', content: 'hello' }],
+        })
+        expect(mocks.recordHostedProviderUsageBlocked).not.toHaveBeenCalled()
+        expect(mocks.authorizeHostedBillingReservation).toHaveBeenCalledWith(
+            expect.objectContaining({
+                metadata: expect.objectContaining({
+                    model: hostedManagedModelId,
+                    requestedModel: retiredModel,
+                    upgradedFromRetiredManagedModel: true,
+                }),
+            }),
+        )
+        expect(mocks.recordHostedProviderUsage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                provider: 'openrouter',
+                model: hostedManagedModelId,
+                metadata: expect.objectContaining({
+                    requestedModel: retiredModel,
+                    upgradedFromRetiredManagedModel: true,
                 }),
             }),
         )
