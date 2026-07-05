@@ -362,10 +362,17 @@ function schedulePersistThreadIndex(): void {
     threadIndexPersister.schedule()
 }
 
-async function persistThreadView(record: ThreadRecord): Promise<void> {
-    await roomViewReadModel.persistThread(record.key, {
-        messages: readThreadMessages(record, roomViewThreadMessageCap),
-    })
+async function persistThreadView(
+    record: ThreadRecord,
+    options: { skipIfUnchanged?: boolean } = {},
+): Promise<void> {
+    await roomViewReadModel.persistThread(
+        record.key,
+        {
+            messages: readThreadMessages(record, roomViewThreadMessageCap),
+        },
+        options,
+    )
 }
 
 async function restoreThreadIndex(input: {
@@ -996,9 +1003,10 @@ async function backfillRoomViewReadModel(): Promise<void> {
     try {
         await roomViewReadModel.persistThreads(
             buildThreadsView(config, threadIndex.threads, cheapCompactionStats),
+            { skipIfUnchanged: true },
         )
         for (const record of threadIndex.threads) {
-            await persistThreadView(record)
+            await persistThreadView(record, { skipIfUnchanged: true })
         }
     } catch (error) {
         console.error('[room-view-readmodel] boot backfill failed', error)

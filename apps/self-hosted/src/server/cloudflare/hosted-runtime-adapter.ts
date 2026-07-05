@@ -9,11 +9,13 @@ import {
 import {
     failClosedHostedRuntime,
     getHostedRoom,
+    getHostedRuntimeEndpointState,
     HostedRuntimeMaterializationConflictError,
     materializeHostedRuntime,
     setHostedRoomDesiredState,
     stopHostedRuntime,
 } from './hosted-room-service'
+import { readHostedRuntimeToken } from './hosted-runtime-artifacts'
 import {
     listHostedRoomFileMaterializations,
     type HostedRoomFileMaterialization,
@@ -407,6 +409,53 @@ export async function withHostedRuntimeStarted<T>(input: {
     }
 }
 
+export async function convergeHostedRuntimeHealthIfReady(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+}): Promise<boolean> {
+    const endpoint = await getHostedRuntimeEndpointState(input)
+    if (!endpoint) {
+        return false
+    }
+    if (endpoint.desiredState !== 'running' || endpoint.status === 'stopped') {
+        return false
+    }
+    if (!endpoint.runtime.tokenObjectKey) {
+        return false
+    }
+    const container = input.env.AGENT_ROOM_RUNTIME.getByName(endpoint.runtime.containerName)
+    const state = await container.getState()
+    if (state.status !== 'running' && state.status !== 'healthy') {
+        return false
+    }
+    const token = await readHostedRuntimeToken({
+        env: input.env,
+        tokenObjectKey: endpoint.runtime.tokenObjectKey,
+    })
+    const readiness = await probeHostedRuntimeReady({ container, token })
+    if (readiness !== 'ready') {
+        return false
+    }
+    try {
+        await writeHostedRuntimeStateTransition({
+            env: input.env,
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            transition: {
+                kind: 'running',
+            },
+            requireDesiredRunning: true,
+        })
+    } catch (error) {
+        if (error instanceof HostedRuntimeDesiredStateChangedError) {
+            return false
+        }
+        throw error
+    }
+    return true
+}
+
 export async function reconcileHostedRuntimeJob(
     env: AgentRoomHostedEnv,
     message: AgentRoomRuntimeJobMessage,
@@ -565,6 +614,23 @@ export async function reconcileHostedRuntimeJob(
     } catch (error) {
         if (error instanceof HostedRuntimeMaterializationConflictError) {
             console.warn('Hosted runtime reconcile skipped because materialization was superseded')
+            try {
+                const converged = await convergeHostedRuntimeHealthIfReady({
+                    env,
+                    workspaceId: runtime.workspaceId,
+                    roomId: runtime.roomId,
+                })
+                if (converged) {
+                    console.warn(
+                        'Hosted runtime health converged to running/healthy after a superseded materialization because the container is already ready',
+                    )
+                }
+            } catch (convergeError) {
+                console.warn(
+                    'Hosted runtime health convergence after superseded materialization failed',
+                    convergeError instanceof Error ? convergeError.message : convergeError,
+                )
+            }
             return
         }
         if (error instanceof HostedRuntimeDesiredStateChangedError) {

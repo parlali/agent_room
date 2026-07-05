@@ -361,7 +361,19 @@ export function createRuntimeEventProxyStream(input: {
             }, heartbeatMs)
             heartbeatTimer.unref?.()
             safeEnqueue(heartbeatFrame())
-            void run()
+            run()
+                .then(() => {
+                    logTransition('run_loop_exit', { closed })
+                    if (!closed) {
+                        close('run_loop_exited_unexpectedly')
+                    }
+                })
+                .catch((error) => {
+                    logTransition('run_loop_crashed', {
+                        errorName: error instanceof Error ? error.name : typeof error,
+                    })
+                    close('run_loop_crashed')
+                })
         },
         cancel() {
             if (stop) {

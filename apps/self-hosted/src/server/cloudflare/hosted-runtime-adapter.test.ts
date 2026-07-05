@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AgentRoomHostedEnv, AgentRoomRuntimeJobMessage } from './bindings'
 import {
     confirmHostedRuntimeContainerStopped,
+    convergeHostedRuntimeHealthIfReady,
     hostedRuntimeConfigPath,
     HostedRuntimeRecreateDeferredError,
     reconcileHostedRuntimeJob,
@@ -90,6 +91,8 @@ function hostedEnv(input: {
     pushStatuses?: number[]
     readyAfterDeliver?: boolean
     containerStopLingerPolls?: number
+    forceBootReady?: boolean
+    containerStatus?: () => 'running' | 'healthy' | 'stopped'
 }): AgentRoomHostedEnv {
     const updates = input.updates ?? []
     const batches = input.batches ?? []
@@ -336,6 +339,9 @@ function hostedEnv(input: {
                         stopLingerPollsRemaining -= 1
                         return { status: 'healthy', lastChange: 0 }
                     }
+                    if (input.containerStatus) {
+                        return { status: input.containerStatus(), lastChange: 0 }
+                    }
                     return {
                         status: containerDestroyed ? 'stopped' : 'healthy',
                         lastChange: 0,
@@ -354,7 +360,9 @@ function hostedEnv(input: {
                 fetch: async (request: Request) => {
                     const requestUrl = new URL(request.url)
                     if (request.method === 'GET' && requestUrl.pathname === '/boot/ready') {
-                        const ready = bundleDelivered && input.readyAfterDeliver !== false
+                        const ready =
+                            input.forceBootReady === true ||
+                            (bundleDelivered && input.readyAfterDeliver !== false)
                         return new Response(JSON.stringify({ ready }), {
                             status: ready ? 200 : 503,
                         })
@@ -1486,5 +1494,118 @@ describe('hosted runtime auto-resume on user send', () => {
         expect(destroys).toHaveLength(0)
         expect(updates.some((update) => /desired_state = 'running'/.test(update.sql))).toBe(false)
         expect(updates.some((update) => /status = 'failed'/.test(update.sql))).toBe(false)
+    })
+})
+
+function hasHealthyRunningTransition(batches: RuntimeUpdate[][]): boolean {
+    return batches.some((batch) => {
+        const runtimeStatement = batch.find((statement) =>
+            /UPDATE hosted_room_runtime_state[\s\S]*started_at = COALESCE/.test(statement.sql),
+        )
+        const roomStatement = batch.find((statement) =>
+            /UPDATE hosted_room\b[\s\S]*status = \?1/.test(statement.sql),
+        )
+        return (
+            runtimeStatement !== undefined &&
+            runtimeStatement.args[0] === 'healthy' &&
+            roomStatement !== undefined &&
+            roomStatement.args[0] === 'running'
+        )
+    })
+}
+
+describe('hosted runtime health convergence after superseded materialization', () => {
+    const tokenObjectKey = 'workspaces/workspace_1/rooms/room_1/runtime/token'
+
+    it('converges the D1 row to running/healthy when the container is already ready', async () => {
+        const batches: RuntimeUpdate[][] = []
+        const env = hostedEnv({
+            batches,
+            objectKeys: [tokenObjectKey],
+            forceBootReady: true,
+            runtimeRow: {
+                healthStatus: 'unknown',
+                tokenObjectKey,
+                configObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/config.json',
+                runtimeBundleObjectKey: 'workspaces/workspace_1/rooms/room_1/runtime/bundle.json',
+            },
+        })
+
+        const converged = await convergeHostedRuntimeHealthIfReady({
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+        })
+
+        expect(converged).toBe(true)
+        expect(hasHealthyRunningTransition(batches)).toBe(true)
+    })
+
+    it('does not converge when the container is not up', async () => {
+        const batches: RuntimeUpdate[][] = []
+        const env = hostedEnv({
+            batches,
+            objectKeys: [tokenObjectKey],
+            forceBootReady: true,
+            containerStatus: () => 'stopped',
+            runtimeRow: {
+                healthStatus: 'unknown',
+                tokenObjectKey,
+            },
+        })
+
+        const converged = await convergeHostedRuntimeHealthIfReady({
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+        })
+
+        expect(converged).toBe(false)
+        expect(hasHealthyRunningTransition(batches)).toBe(false)
+    })
+
+    it('does not converge when the container boot endpoint is not ready', async () => {
+        const batches: RuntimeUpdate[][] = []
+        const env = hostedEnv({
+            batches,
+            objectKeys: [tokenObjectKey],
+            forceBootReady: false,
+            runtimeRow: {
+                healthStatus: 'unknown',
+                tokenObjectKey,
+            },
+        })
+
+        const converged = await convergeHostedRuntimeHealthIfReady({
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+        })
+
+        expect(converged).toBe(false)
+        expect(hasHealthyRunningTransition(batches)).toBe(false)
+    })
+
+    it('does not converge when the room is no longer desired running', async () => {
+        const batches: RuntimeUpdate[][] = []
+        const env = hostedEnv({
+            batches,
+            objectKeys: [tokenObjectKey],
+            forceBootReady: true,
+            desiredState: () => 'stopped',
+            runtimeRow: {
+                healthStatus: 'unknown',
+                tokenObjectKey,
+            },
+        })
+
+        const converged = await convergeHostedRuntimeHealthIfReady({
+            env,
+            workspaceId: 'workspace_1',
+            roomId: 'room_1',
+        })
+
+        expect(converged).toBe(false)
+        expect(hasHealthyRunningTransition(batches)).toBe(false)
     })
 })

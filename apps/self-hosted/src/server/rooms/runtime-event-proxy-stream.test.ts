@@ -239,6 +239,86 @@ describe('runtime event proxy stream', () => {
         await reader.cancel()
     })
 
+    it('re-attaches after an aborted attach once the endpoint becomes healthy again', async () => {
+        let attachCalls = 0
+        let readyCalls = 0
+        const stream = createRuntimeEventProxyStream({
+            roomId: 'room',
+            sessionKey: null,
+            streamKind: 'room',
+            intervals: FAST_INTERVALS,
+            checkReady: async () => {
+                readyCalls += 1
+                if (readyCalls === 1) {
+                    return true
+                }
+                if (readyCalls <= 4) {
+                    return false
+                }
+                return true
+            },
+            attach: async () => {
+                attachCalls += 1
+                if (attachCalls === 1) {
+                    return new ReadableStream<Uint8Array>({
+                        start(controller) {
+                            controller.enqueue(roomEventFrame('run.accepted', 1))
+                            setTimeout(() => {
+                                try {
+                                    controller.error(new Error('container destroyed'))
+                                } catch {}
+                            }, 20)
+                        },
+                    })
+                }
+                return streamOf([roomEventFrame('run.finished', 2)], true)
+            },
+        })
+        const reader = stream.getReader()
+        const first = await readUntil(reader, (text) => text.includes('"seq":1'))
+        expect(first).toContain('event: room-event')
+        const second = await readUntil(reader, (text) => text.includes('"seq":2'))
+        expect(second).toContain('event: room-event')
+        expect(attachCalls).toBeGreaterThanOrEqual(2)
+        expect(readyCalls).toBeGreaterThan(4)
+        await reader.cancel()
+    })
+
+    it('keeps the loop alive re-checking after an upstream error while the browser stays connected', async () => {
+        let attachCalls = 0
+        let readyCalls = 0
+        const stream = createRuntimeEventProxyStream({
+            roomId: 'room',
+            sessionKey: null,
+            streamKind: 'room',
+            intervals: FAST_INTERVALS,
+            checkReady: async () => {
+                readyCalls += 1
+                return readyCalls === 1
+            },
+            attach: async () => {
+                attachCalls += 1
+                return new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        controller.enqueue(roomEventFrame('run.accepted', 1))
+                        setTimeout(() => {
+                            try {
+                                controller.error(new Error('container destroyed'))
+                            } catch {}
+                        }, 20)
+                    },
+                })
+            },
+        })
+        const reader = stream.getReader()
+        await readUntil(reader, (text) => text.includes('"seq":1'))
+        const readyCallsAfterAttach = readyCalls
+        await new Promise((resolve) => setTimeout(resolve, 150))
+        expect(readyCalls).toBeGreaterThan(readyCallsAfterAttach)
+        expect(attachCalls).toBe(1)
+        await reader.cancel()
+    })
+
     it('keeps re-checking without attaching while the endpoint stays unhealthy', async () => {
         let attachCalls = 0
         let readyCalls = 0
