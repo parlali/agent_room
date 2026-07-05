@@ -299,21 +299,34 @@ export async function hostedRuntimeStateCallback(
             },
         )
     }
-    const saved =
-        operation === 'delete'
-            ? await deleteHostedRuntimeStateFile({
-                  env,
-                  workspaceId: callback.workspaceId,
-                  roomId: callback.roomId,
-                  relativePath,
-              })
-            : await putHostedRuntimeStateFile({
-                  env,
-                  workspaceId: callback.workspaceId,
-                  roomId: callback.roomId,
-                  relativePath,
-                  content: new Uint8Array(Buffer.from(String(state.contentBase64), 'base64url')),
-              })
+    let saved:
+        | Awaited<ReturnType<typeof putHostedRuntimeStateFile>>
+        | Awaited<ReturnType<typeof deleteHostedRuntimeStateFile>>
+    try {
+        saved =
+            operation === 'delete'
+                ? await deleteHostedRuntimeStateFile({
+                      env,
+                      workspaceId: callback.workspaceId,
+                      roomId: callback.roomId,
+                      relativePath,
+                  })
+                : await putHostedRuntimeStateFile({
+                      env,
+                      workspaceId: callback.workspaceId,
+                      roomId: callback.roomId,
+                      relativePath,
+                      content: new Uint8Array(
+                          Buffer.from(String(state.contentBase64), 'base64url'),
+                      ),
+                  })
+    } catch (error) {
+        const response = hostedQuotaDeniedResponse(error)
+        if (response) {
+            return response
+        }
+        throw error
+    }
     return hostedJsonResponse({
         ok: true,
         state: saved,

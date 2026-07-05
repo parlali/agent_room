@@ -14,8 +14,7 @@ import { rowContainsMessage } from '#/domain/message-list-model'
 import { DisplayRow } from './message-rows'
 import { ChatEmptyState } from './chat-empty-state'
 import { recordClientPerformance } from '#/lib/browser-performance'
-import type { StreamTurnState } from './stream-state'
-import { streamTurnHasContent } from './stream-state'
+import { liveRunHasContent, type LiveRun } from './live-run'
 import { buildTimelineRows } from './timeline-rows'
 import { cn } from '#/lib/utils'
 
@@ -24,7 +23,7 @@ export function MessageList({
     room,
     rows,
     totalRows,
-    stream,
+    liveRun,
     isWorking,
     loadingInitialRows,
     hasOlderRows,
@@ -45,7 +44,7 @@ export function MessageList({
     room: RoomRuntimeOverview
     rows: RoomSessionDisplayRow[]
     totalRows: number
-    stream: StreamTurnState
+    liveRun: LiveRun | null
     isWorking: boolean
     loadingInitialRows: boolean
     hasOlderRows: boolean
@@ -73,14 +72,14 @@ export function MessageList({
     const timelineRows = useMemo(() => {
         const built = buildTimelineRows(
             rows,
-            stream,
+            liveRun,
             isWorking,
             sessionKey,
             previousTimelineRowsRef.current,
         )
         previousTimelineRowsRef.current = built
         return built
-    }, [isWorking, rows, sessionKey, stream])
+    }, [isWorking, liveRun, rows, sessionKey])
     const editingMeasurementKey = editingMessage
         ? `${editingMessage.id}:${editingMessage.text}:${editingMessage.attachments.length}`
         : null
@@ -122,7 +121,7 @@ export function MessageList({
 
     useEffect(() => {
         if (stickToBottomRef.current) scrollToBottom()
-    }, [timelineRows, stream.updatedAt, isWorking, scrollToBottom])
+    }, [timelineRows, liveRun?.updatedAt, isWorking, scrollToBottom])
 
     useEffect(() => {
         if (!scrollToMessageId || !scrollRequestId) return
@@ -168,7 +167,7 @@ export function MessageList({
         collapsedByRunId,
         editingMeasurementKey,
         measureVisibleRows,
-        stream.updatedAt,
+        liveRun?.updatedAt,
         timelineRows,
     ])
 
@@ -180,7 +179,7 @@ export function MessageList({
         node.scrollTop = node.scrollHeight - pending.scrollHeight + pending.scrollTop
     }, [rows.length])
 
-    const hasStreamContent = streamTurnHasContent(stream) || stream.rows.length > 0
+    const hasStreamContent = liveRunHasContent(liveRun)
     const virtualRows = rowVirtualizer.getVirtualItems()
 
     useEffect(() => {

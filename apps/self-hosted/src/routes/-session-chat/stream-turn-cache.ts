@@ -1,39 +1,39 @@
 import type { RoomRealtimeEvent } from '#/domain/room-execution-types'
 
-import { emptyStreamTurnState, type StreamTurnState } from './stream-state'
+import type { LiveRun } from './live-run'
 
-const streamTurnStateCache = new Map<string, StreamTurnState>()
+const liveRunCache = new Map<string, LiveRun>()
 
 export function sessionStreamStateKey(roomId: string, sessionKey: string): string {
     return `${roomId}:${sessionKey}`
 }
 
-export function readCachedStreamTurn(key: string): StreamTurnState {
-    return streamTurnStateCache.get(key) ?? emptyStreamTurnState
+export function readCachedLiveRun(key: string): LiveRun | null {
+    return liveRunCache.get(key) ?? null
 }
 
-export function cacheStreamTurn(key: string, state: StreamTurnState): void {
-    if (state.runId || state.rows.length > 0 || state.status !== 'idle') {
-        streamTurnStateCache.set(key, state)
+export function cacheLiveRun(key: string, run: LiveRun | null): void {
+    if (run) {
+        liveRunCache.set(key, run)
         return
     }
-    streamTurnStateCache.delete(key)
+    liveRunCache.delete(key)
 }
 
-export function clearCachedStreamTurn(key: string): void {
-    streamTurnStateCache.delete(key)
+export function clearCachedLiveRun(key: string): void {
+    liveRunCache.delete(key)
 }
 
-export function clearCachedStreamTurnForRoomEvent(input: {
+export function clearCachedLiveRunForRoomEvent(input: {
     roomId: string
     sessionKey: string
     event: RoomRealtimeEvent
 }): void {
-    if (!shouldClearStreamTurnForRoomEvent(input.event)) return
-    clearCachedStreamTurn(sessionStreamStateKey(input.roomId, input.sessionKey))
+    if (!shouldClearLiveRunForRoomEvent(input.event)) return
+    clearCachedLiveRun(sessionStreamStateKey(input.roomId, input.sessionKey))
 }
 
-function shouldClearStreamTurnForRoomEvent(event: RoomRealtimeEvent): boolean {
+function shouldClearLiveRunForRoomEvent(event: RoomRealtimeEvent): boolean {
     return (
         event.event === 'run.accepted' ||
         event.event === 'run.finished' ||

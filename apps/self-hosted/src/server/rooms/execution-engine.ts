@@ -14,6 +14,7 @@ import type {
 } from './execution-types'
 import type { JobSchedule } from '#/domain/job-schedule'
 import type { RoomExecutionAdapter } from './execution-adapter'
+import type { HostedEventStreamContext } from '../cloudflare/hosted-execution-adapter'
 import { cancelReadableStreamReaderInBackground } from '../streams/readable-stream'
 import { readHostedRequestContext } from '../cloudflare/hosted-request-context'
 
@@ -145,19 +146,16 @@ export async function editRoomThreadMessage(input: {
     return module.editRoomThreadMessage(input)
 }
 
-export function createRoomSessionEventStream(input: {
-    roomId: string
-    sessionKey: string
-    abortSignal?: AbortSignal
-}): ReadableStream<Uint8Array> {
+function pumpProxyStream(
+    load: () => Promise<ReadableStream<Uint8Array>>,
+): ReadableStream<Uint8Array> {
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
     let closed = false
 
     return new ReadableStream<Uint8Array>({
         start(controller) {
-            loadExecutionEngineModule()
-                .then((module) => {
-                    const stream = module.createRoomSessionEventStream(input)
+            load()
+                .then((stream) => {
                     reader = stream.getReader()
 
                     async function pump(): Promise<void> {
@@ -190,47 +188,52 @@ export function createRoomSessionEventStream(input: {
     })
 }
 
+export function createRoomSessionEventStream(input: {
+    roomId: string
+    sessionKey: string
+    abortSignal?: AbortSignal
+    hosted: HostedEventStreamContext | null
+}): ReadableStream<Uint8Array> {
+    const hosted = input.hosted
+    return pumpProxyStream(async () => {
+        if (hosted) {
+            const module = await import('../cloudflare/hosted-execution-adapter')
+            return module.createRoomSessionEventStream({
+                roomId: input.roomId,
+                sessionKey: input.sessionKey,
+                abortSignal: input.abortSignal,
+                context: hosted,
+            })
+        }
+        const module = await import('./pi-execution-adapter')
+        return module.createRoomSessionEventStream({
+            roomId: input.roomId,
+            sessionKey: input.sessionKey,
+            abortSignal: input.abortSignal,
+        })
+    })
+}
+
 export function createRoomEventStream(input: {
     roomId: string
     abortSignal?: AbortSignal
+    hosted: HostedEventStreamContext | null
 }): ReadableStream<Uint8Array> {
-    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
-    let closed = false
-
-    return new ReadableStream<Uint8Array>({
-        start(controller) {
-            loadExecutionEngineModule()
-                .then((module) => {
-                    const stream = module.createRoomEventStream(input)
-                    reader = stream.getReader()
-
-                    async function pump(): Promise<void> {
-                        try {
-                            while (!closed) {
-                                const result = await reader!.read()
-                                if (result.done) {
-                                    controller.close()
-                                    return
-                                }
-                                controller.enqueue(result.value)
-                            }
-                        } catch (error) {
-                            controller.error(error)
-                        }
-                    }
-
-                    void pump()
-                })
-                .catch((error) => controller.error(error))
-        },
-        cancel() {
-            closed = true
-            if (reader) {
-                const currentReader = reader
-                reader = null
-                cancelReadableStreamReaderInBackground(currentReader)
-            }
-        },
+    const hosted = input.hosted
+    return pumpProxyStream(async () => {
+        if (hosted) {
+            const module = await import('../cloudflare/hosted-execution-adapter')
+            return module.createRoomEventStream({
+                roomId: input.roomId,
+                abortSignal: input.abortSignal,
+                context: hosted,
+            })
+        }
+        const module = await import('./pi-execution-adapter')
+        return module.createRoomEventStream({
+            roomId: input.roomId,
+            abortSignal: input.abortSignal,
+        })
     })
 }
 

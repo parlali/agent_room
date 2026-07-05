@@ -68,6 +68,22 @@ export async function readHostedRuntimeArtifactText(input: {
     return text
 }
 
+export async function readHostedRuntimeToken(input: {
+    env: AgentRoomHostedEnv
+    tokenObjectKey: string
+}): Promise<string> {
+    const token = (
+        await readHostedRuntimeArtifactText({
+            env: input.env,
+            key: input.tokenObjectKey,
+        })
+    ).trim()
+    if (token.length < 24) {
+        throw new Error('Hosted runtime token is missing or invalid')
+    }
+    return token
+}
+
 export async function readHostedRuntimeArtifactTextOrNull(input: {
     env: AgentRoomHostedEnv
     key: string

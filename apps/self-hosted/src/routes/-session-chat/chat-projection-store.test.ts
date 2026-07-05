@@ -1,19 +1,31 @@
 import type { InfiniteData } from '@tanstack/react-query'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 
 import { createPendingUserDisplayRows } from '#/domain/message-list-model'
 import { emptyRuntimePart } from '#/domain/runtime-message'
 import type { RoomSessionDisplayRow, RoomSessionWindow } from '#/domain/room-execution-types'
 
-import { preserveUnsettledPendingUserRows } from './chat-projection-store'
+import {
+    forgetPendingUserRowsForSession,
+    isPendingRunStale,
+    markStalePendingRunRows,
+    pendingRunStaleThresholdMs,
+    pendingUserRowCacheLimit,
+    preserveUnsettledPendingUserRows,
+    rememberPendingUserRow,
+} from './chat-projection-store'
+
+beforeEach(() => {
+    forgetPendingUserRowsForSession('session-1')
+})
 
 type Window = InfiniteData<RoomSessionWindow, string | null>
 
-function windowOf(rows: RoomSessionDisplayRow[]): Window {
+function windowOf(rows: RoomSessionDisplayRow[], sessionKey = 'session-1'): Window {
     return {
         pages: [
             {
-                sessionKey: 'session-1',
+                sessionKey,
                 rows,
                 beforeCursor: null,
                 afterCursor: null,
@@ -36,6 +48,17 @@ function pendingUserRow(runId: string, text: string): RoomSessionDisplayRow {
         startSeq: 1000,
     })
     return userRow
+}
+
+function pendingRunRow(runId: string, queuedAt: number): RoomSessionDisplayRow {
+    const [, runRow] = createPendingUserDisplayRows({
+        messageId: runId,
+        runId,
+        text: 'pending',
+        queuedAt,
+        startSeq: queuedAt,
+    })
+    return runRow
 }
 
 function settledUserRow(id: string, text: string): RoomSessionDisplayRow {
@@ -86,6 +109,32 @@ describe('preserveUnsettledPendingUserRows', () => {
         expect(preserveUnsettledPendingUserRows(oldData, refetched)).toBe(refetched)
     })
 
+    it('keeps a promoted pending user row after the query cache is evicted on remount', () => {
+        rememberPendingUserRow('session-1', pendingUserRow('run-remount', 'survive'))
+        const refetched = windowOf([settledUserRow('msg-prior', 'stays')])
+
+        const merged = preserveUnsettledPendingUserRows(undefined, refetched)
+
+        expect(merged.pages[0]!.rows.map((row) => row.id)).toEqual([
+            'msg-prior',
+            'pending-user-run-remount',
+        ])
+    })
+
+    it('prunes the durable pending row once the server confirms the message', () => {
+        rememberPendingUserRow('session-1', pendingUserRow('run-remount', 'survive'))
+        const refetched = windowOf([settledUserRow('msg-remount', 'survive')])
+
+        const merged = preserveUnsettledPendingUserRows(undefined, refetched)
+        expect(merged).toBe(refetched)
+
+        const again = preserveUnsettledPendingUserRows(
+            undefined,
+            windowOf([settledUserRow('msg-prior', 'stays')]),
+        )
+        expect(again.pages[0]!.rows.map((row) => row.id)).toEqual(['msg-prior'])
+    })
+
     it('ignores transient optimistic rows that were not promoted to a run', () => {
         const optimistic: RoomSessionDisplayRow = {
             type: 'user_message',
@@ -105,5 +154,74 @@ describe('preserveUnsettledPendingUserRows', () => {
         const refetched = windowOf([settledUserRow('msg-prior', 'stays')])
 
         expect(preserveUnsettledPendingUserRows(oldData, refetched)).toBe(refetched)
+    })
+})
+
+describe('pending user row cache bound', () => {
+    it('evicts the oldest session once the cache exceeds its limit', () => {
+        const sessionKeys = Array.from(
+            { length: pendingUserRowCacheLimit + 1 },
+            (_row, index) => `evict-session-${index}`,
+        )
+        for (const [index, key] of sessionKeys.entries()) {
+            rememberPendingUserRow(key, pendingUserRow(`run-${index}`, `text-${index}`))
+        }
+
+        const oldestKey = sessionKeys[0]!
+        const evicted = preserveUnsettledPendingUserRows(
+            undefined,
+            windowOf([settledUserRow('anchor', 'stays')], oldestKey),
+        )
+        expect(evicted.pages[0]!.rows.map((row) => row.id)).toEqual(['anchor'])
+
+        const newestKey = sessionKeys[sessionKeys.length - 1]!
+        const retained = preserveUnsettledPendingUserRows(
+            undefined,
+            windowOf([settledUserRow('anchor', 'stays')], newestKey),
+        )
+        expect(retained.pages[0]!.rows.map((row) => row.id)).toEqual([
+            'anchor',
+            `pending-user-run-${pendingUserRowCacheLimit}`,
+        ])
+
+        for (const key of sessionKeys) {
+            forgetPendingUserRowsForSession(key)
+        }
+    })
+})
+
+describe('isPendingRunStale', () => {
+    const now = 10 * 60_000
+
+    it('flags a working run with no activity past the staleness threshold', () => {
+        const rows = [pendingRunRow('run-stale', now - pendingRunStaleThresholdMs - 1000)]
+        expect(isPendingRunStale({ rows, liveRun: null, isWorking: true, now })).toBe(true)
+    })
+
+    it('does not flag a run that is still within the staleness window', () => {
+        const rows = [pendingRunRow('run-fresh', now - 1000)]
+        expect(isPendingRunStale({ rows, liveRun: null, isWorking: true, now })).toBe(false)
+    })
+
+    it('does not flag when the session is not working', () => {
+        const rows = [pendingRunRow('run-idle', now - pendingRunStaleThresholdMs - 1000)]
+        expect(isPendingRunStale({ rows, liveRun: null, isWorking: false, now })).toBe(false)
+    })
+})
+
+describe('markStalePendingRunRows', () => {
+    it('converts an active pending run transcript into a terminal error row', () => {
+        const rows = [pendingRunRow('run-x', 1000)]
+        const marked = markStalePendingRunRows(rows)
+        expect(marked[0]).toMatchObject({
+            type: 'run_transcript',
+            status: 'error',
+            pending: false,
+        })
+    })
+
+    it('returns the same array when there is nothing active to mark', () => {
+        const rows = [settledUserRow('msg-prior', 'stays')]
+        expect(markStalePendingRunRows(rows)).toBe(rows)
     })
 })

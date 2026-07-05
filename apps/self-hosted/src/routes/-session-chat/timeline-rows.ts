@@ -1,41 +1,50 @@
-import type { ChatTimelineRow, RoomSessionDisplayRow } from '#/domain/room-execution-types'
+import type {
+    ChatTimelineRow,
+    RoomSessionDisplayRow,
+    WorkTranscriptItem,
+} from '#/domain/room-execution-types'
 import { createRunTranscriptRow } from '#/domain/message-list-model'
 
-import { isActiveRunStatus } from './conversation-utils'
-import type { StreamTurnState } from './stream-state'
+import { lastUserRowIndex, projectLiveRun, type LiveRun } from './live-run'
 
 export function buildTimelineRows(
     rows: RoomSessionDisplayRow[],
-    stream: StreamTurnState,
+    liveRun: LiveRun | null,
     isWorking: boolean,
     sessionKey: string,
     previous: ChatTimelineRow[] = [],
 ): ChatTimelineRow[] {
-    const streamRows = stream.rows
-    const persistentMerge =
-        streamRows.length > 0
-            ? persistedRowsForLiveRun(rows, stream)
-            : {
-                  before: rows,
-                  after: [],
-              }
-    const fallback =
-        isWorking && streamRows.length === 0 && !persistentMerge.before.some(hasActiveTranscript)
-            ? [
-                  createRunTranscriptRow({
-                      id: `run-transcript-pending-${sessionKey}`,
-                      seq: persistentMerge.before.length,
-                      runId: `pending-${sessionKey}`,
-                      status: 'working',
-                      startedAt: null,
-                      runtimeMs: null,
-                      collapsed: false,
-                      timestamp: null,
-                  }),
-              ]
-            : []
-    const merged = [...persistentMerge.before, ...streamRows, ...persistentMerge.after, ...fallback]
+    const merged = liveRun
+        ? [...ownedRowsBoundary(rows), ...projectLiveRun(liveRun)]
+        : [...rows, ...pendingFallback(rows, isWorking, sessionKey)]
     return reconcileTimelineRows(merged, previous)
+}
+
+function ownedRowsBoundary(rows: RoomSessionDisplayRow[]): RoomSessionDisplayRow[] {
+    const anchor = lastUserRowIndex(rows)
+    if (anchor < 0) return rows
+    return rows.slice(0, anchor + 1)
+}
+
+function pendingFallback(
+    rows: RoomSessionDisplayRow[],
+    isWorking: boolean,
+    sessionKey: string,
+): ChatTimelineRow[] {
+    if (!isWorking) return []
+    if (rows.some(hasActiveTranscript)) return []
+    return [
+        createRunTranscriptRow({
+            id: `run-transcript-pending-${sessionKey}`,
+            seq: rows.length,
+            runId: `pending-${sessionKey}`,
+            status: 'working',
+            startedAt: null,
+            runtimeMs: null,
+            collapsed: false,
+            timestamp: null,
+        }),
+    ]
 }
 
 function reconcileTimelineRows(
@@ -54,6 +63,31 @@ function reconcileTimelineRows(
 
 function timelineRowsShallowEqual(a: ChatTimelineRow, b: ChatTimelineRow): boolean {
     if (a === b) return true
+    if (a.type !== b.type) return false
+    if (a.type === 'run_transcript' && b.type === 'run_transcript') {
+        return (
+            a.id === b.id &&
+            a.seq === b.seq &&
+            a.runId === b.runId &&
+            a.status === b.status &&
+            a.startedAt === b.startedAt &&
+            a.runtimeMs === b.runtimeMs &&
+            a.collapsed === b.collapsed &&
+            a.timestamp === b.timestamp &&
+            a.pending === b.pending &&
+            transcriptItemsEqual(a.items, b.items)
+        )
+    }
+    if (a.type === 'assistant_final' && b.type === 'assistant_final') {
+        return (
+            a.id === b.id &&
+            a.seq === b.seq &&
+            a.streaming === b.streaming &&
+            a.timestamp === b.timestamp &&
+            a.message.id === b.message.id &&
+            a.message.text === b.message.text
+        )
+    }
     const aRecord = a as Record<string, unknown>
     const bRecord = b as Record<string, unknown>
     const aKeys = Object.keys(aRecord)
@@ -64,79 +98,28 @@ function timelineRowsShallowEqual(a: ChatTimelineRow, b: ChatTimelineRow): boole
     return true
 }
 
-function persistedRowsForLiveRun(
-    rows: RoomSessionDisplayRow[],
-    stream: StreamTurnState,
-): { before: RoomSessionDisplayRow[]; after: RoomSessionDisplayRow[] } {
-    const pendingAnchor = persistedRowsForMatchingPendingRun(rows, stream.runId)
-    if (pendingAnchor) return pendingAnchor
-
-    const persistedRunAnchor = persistedRowsForMatchingRun(rows, stream.runId)
-    if (persistedRunAnchor) return persistedRunAnchor
-
-    return {
-        before: rows.filter((row) => {
-            if (row.type === 'run_transcript')
-                return row.pending === true || !isActiveRunStatus(row.status)
-            return true
-        }),
-        after: [],
-    }
-}
-
-function persistedRowsForMatchingPendingRun(
-    rows: RoomSessionDisplayRow[],
-    runId: string | null,
-): { before: RoomSessionDisplayRow[]; after: RoomSessionDisplayRow[] } | null {
-    if (!runId) return null
-    const pendingRunIndex = rows.findIndex(
-        (row) => row.type === 'run_transcript' && row.pending === true && row.runId === runId,
-    )
-    if (pendingRunIndex < 0) return null
-    const userIndex = nearestUserRowIndexBefore(rows, pendingRunIndex)
-    if (userIndex < 0) {
-        return {
-            before: rows.slice(0, pendingRunIndex),
-            after: rows.slice(pendingRunIndex + 1),
+function transcriptItemsEqual(a: WorkTranscriptItem[], b: WorkTranscriptItem[]): boolean {
+    if (a === b) return true
+    if (a.length !== b.length) return false
+    for (let index = 0; index < a.length; index += 1) {
+        const left = a[index] as unknown as Record<string, unknown>
+        const right = b[index] as unknown as Record<string, unknown>
+        if (left === right) continue
+        const keys = Object.keys(left)
+        if (keys.length !== Object.keys(right).length) return false
+        for (const key of keys) {
+            if (left[key] !== right[key]) return false
         }
     }
-    return {
-        before: rows.slice(0, userIndex + 1),
-        after: rows.slice(pendingRunIndex + 1),
-    }
-}
-
-function persistedRowsForMatchingRun(
-    rows: RoomSessionDisplayRow[],
-    runId: string | null,
-): { before: RoomSessionDisplayRow[]; after: RoomSessionDisplayRow[] } | null {
-    if (!runId) return null
-    const runIndex = rows.findIndex((row) => row.type === 'run_transcript' && row.runId === runId)
-    if (runIndex < 0) return null
-    const userIndex = nearestUserRowIndexBefore(rows, runIndex)
-    const replacementStart = userIndex < 0 ? runIndex : userIndex + 1
-    return {
-        before: rows.slice(0, replacementStart),
-        after: rows.slice(currentRunReplacementEnd(rows, replacementStart - 1)),
-    }
-}
-
-function nearestUserRowIndexBefore(rows: RoomSessionDisplayRow[], beforeIndex: number): number {
-    for (let index = beforeIndex - 1; index >= 0; index -= 1) {
-        if (rows[index]?.type === 'user_message') return index
-    }
-    return -1
-}
-
-function currentRunReplacementEnd(rows: RoomSessionDisplayRow[], userIndex: number): number {
-    for (let index = userIndex + 1; index < rows.length; index += 1) {
-        const row = rows[index]
-        if (!row) return index
-        if (row.type === 'user_message' || row.type === 'system') return index
-    }
-    return rows.length
+    return true
 }
 
 function hasActiveTranscript(row: ChatTimelineRow): boolean {
-    return row.type === 'run_transcript' && isActiveRunStatus(row.status)
+    if (row.type !== 'run_transcript') return false
+    return (
+        row.status === 'queued' ||
+        row.status === 'thinking' ||
+        row.status === 'working' ||
+        row.status === 'responding'
+    )
 }

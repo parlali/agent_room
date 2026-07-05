@@ -35,7 +35,8 @@ const defaultHostedQuotaLimits: HostedQuotaLimits = {
     maxRoomStorageBytes: 512 * 1024 * 1024,
     maxWorkspaceFileWriteBytesPerDay: 512 * 1024 * 1024,
     maxRoomFileWriteBytesPerDay: 256 * 1024 * 1024,
-    maxRuntimeStateWriteBytesPerDay: 128 * 1024 * 1024,
+    maxWorkspaceRuntimeStateSyncsPerMinute: 1200,
+    maxRoomRuntimeStateSyncsPerMinute: 600,
     maxWorkspaceToolStartsPerMinute: 120,
     maxRoomToolStartsPerMinute: 60,
 }
@@ -144,7 +145,11 @@ function limitsFromJson(value: JsonValue): HostedQuotaLimits {
         maxRoomStorageBytes: numberLimit(record, 'maxRoomStorageBytes'),
         maxWorkspaceFileWriteBytesPerDay: numberLimit(record, 'maxWorkspaceFileWriteBytesPerDay'),
         maxRoomFileWriteBytesPerDay: numberLimit(record, 'maxRoomFileWriteBytesPerDay'),
-        maxRuntimeStateWriteBytesPerDay: numberLimit(record, 'maxRuntimeStateWriteBytesPerDay'),
+        maxWorkspaceRuntimeStateSyncsPerMinute: numberLimit(
+            record,
+            'maxWorkspaceRuntimeStateSyncsPerMinute',
+        ),
+        maxRoomRuntimeStateSyncsPerMinute: numberLimit(record, 'maxRoomRuntimeStateSyncsPerMinute'),
         maxWorkspaceToolStartsPerMinute: numberLimit(record, 'maxWorkspaceToolStartsPerMinute'),
         maxRoomToolStartsPerMinute: numberLimit(record, 'maxRoomToolStartsPerMinute'),
     }

@@ -53,6 +53,12 @@ export const hostedRuntimeStartCancellation: HostedRuntimeCancellationOptions = 
     waitInterval: 300,
 }
 
+export const hostedRuntimeTeardownConfirmTimeoutMS = 45000
+export const hostedRuntimeTeardownProgressLogIntervalMS = 5000
+export const hostedRuntimeRecreateStartPortReadyTimeoutMS = 60000
+export const hostedRuntimeReconcileMaxAttempts = 4
+export const hostedRuntimeReconcileRetryDelaySeconds = 5
+
 export interface HostedRuntimeStartAndWaitArgs {
     ports: number | number[]
     startOptions: HostedRuntimeStartOptions

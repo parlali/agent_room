@@ -1,6 +1,23 @@
 const hostedRuntimeCallbackMaxAttempts = 4
 const hostedRuntimeCallbackBaseDelayMs = 200
 const hostedRuntimeCallbackTimeoutMs = 10000
+const hostedRuntimeThrottleFallbackMessage =
+    'This room is temporarily rate limited. It will recover shortly.'
+
+async function hostedRuntimeThrottleMessage(response: Response): Promise<string> {
+    try {
+        const body = (await response.json()) as unknown
+        if (body && typeof body === 'object' && !Array.isArray(body)) {
+            const message = (body as Record<string, unknown>).message
+            if (typeof message === 'string' && message.trim()) {
+                return message.trim()
+            }
+        }
+    } catch {
+        return hostedRuntimeThrottleFallbackMessage
+    }
+    return hostedRuntimeThrottleFallbackMessage
+}
 
 export async function postHostedRuntimeCallback(input: {
     url: string
@@ -37,7 +54,14 @@ export async function postHostedRuntimeCallback(input: {
         if (response.ok) {
             return
         }
-        const retryable = response.status >= 500 || response.status === 429
+        if (response.status === 429) {
+            const message = await hostedRuntimeThrottleMessage(response)
+            console.warn(
+                `${input.label} callback throttled with status 429; deferring to the next sync cycle`,
+            )
+            throw new Error(message)
+        }
+        const retryable = response.status >= 500
         console.warn(
             `${input.label} callback attempt ${attempt}/${hostedRuntimeCallbackMaxAttempts} failed with status ${response.status}`,
         )

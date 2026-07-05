@@ -9,6 +9,10 @@ import { runWithHostedRequestContext } from '#/server/cloudflare/hosted-request-
 import { hostedRouteSameOriginResponse } from '#/server/cloudflare/hosted-route-auth'
 import { reconcileHostedRuntimeJob } from '#/server/cloudflare/hosted-runtime-adapter'
 import {
+    hostedRuntimeReconcileMaxAttempts,
+    hostedRuntimeReconcileRetryDelaySeconds,
+} from '#/server/cloudflare/runtime-contract'
+import {
     executeHostedCronRun,
     runDueHostedCronJobs,
 } from '#/server/cloudflare/hosted-cron-execution'
@@ -296,7 +300,25 @@ export default {
         if (url.pathname === '/api/hosted/stripe/webhook' && request.method === 'POST') {
             return hostedStripeWebhook(env, request)
         }
-        const runtimeResponse = await hostedRuntimeWorkerRoute({ env, request, url, ctx })
+        let runtimeResponse: Response | null
+        try {
+            runtimeResponse = await hostedRuntimeWorkerRoute({ env, request, url, ctx })
+        } catch (error) {
+            console.error('Hosted runtime callback route dispatch failed', {
+                path: url.pathname,
+                method: request.method,
+                error: error instanceof Error ? error.message : error,
+            })
+            return jsonResponse(
+                {
+                    ok: false,
+                    code: 'runtime_callback_internal_error',
+                },
+                {
+                    status: 500,
+                },
+            )
+        }
         if (runtimeResponse) {
             return runtimeResponse
         }
@@ -312,7 +334,10 @@ export default {
                 if (message.body.kind === 'room-cron-run') {
                     await executeHostedCronRun(env, message.body)
                 } else {
-                    await reconcileHostedRuntimeJob(env, message.body)
+                    await reconcileHostedRuntimeJob(env, message.body, {
+                        attempt: message.attempts,
+                        maxAttempts: hostedRuntimeReconcileMaxAttempts,
+                    })
                 }
                 message.ack()
             } catch (error) {
@@ -320,7 +345,7 @@ export default {
                     'Hosted runtime queue job failed',
                     error instanceof Error ? error.message : error,
                 )
-                message.retry()
+                message.retry({ delaySeconds: hostedRuntimeReconcileRetryDelaySeconds })
             }
         }
     },

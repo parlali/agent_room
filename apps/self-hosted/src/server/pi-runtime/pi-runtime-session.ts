@@ -32,6 +32,7 @@ import { rewriteNativePdfPayload } from './pdf-document-payload'
 import type { ThreadKind, ThreadRecord } from './thread-records'
 import type { RunKind } from './run-budget'
 import { codexServiceTierForSpeedMode } from './runtime-speed-mode'
+import { guardProviderStream, providerStreamStalledMessage } from './provider-stream-guard'
 import {
     createOnboardingPersonalityTool,
     onboardingSystemPrompt,
@@ -253,27 +254,57 @@ export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Prom
     })
     const streamWithRuntimeOptions = session.agent.streamFn
     session.agent.streamFn = async (model, context, options) => {
-        const serviceTier = codexServiceTierForSpeedMode(model, record.speedMode)
-        if (!serviceTier || !isCodexResponsesModel(model)) {
-            return streamWithRuntimeOptions(model, context, options)
+        const providerAbort = new AbortController()
+        const callerSignal = options?.signal
+        if (callerSignal) {
+            if (callerSignal.aborted) {
+                providerAbort.abort(callerSignal.reason)
+            } else {
+                callerSignal.addEventListener(
+                    'abort',
+                    () => providerAbort.abort(callerSignal.reason),
+                    { once: true },
+                )
+            }
         }
-        const auth = await modelRegistry.getApiKeyAndHeaders(model)
-        if (!auth.ok) {
-            throw new Error(auth.error)
+        const streamOptions = { ...options, signal: providerAbort.signal }
+        const openProviderStream = async () => {
+            const serviceTier = codexServiceTierForSpeedMode(model, record.speedMode)
+            if (!serviceTier || !isCodexResponsesModel(model)) {
+                return streamWithRuntimeOptions(model, context, streamOptions)
+            }
+            const auth = await modelRegistry.getApiKeyAndHeaders(model)
+            if (!auth.ok) {
+                throw new Error(auth.error)
+            }
+            const providerRetrySettings = settingsManager.getProviderRetrySettings()
+            return streamOpenAICodexResponses(model, context, {
+                ...streamOptions,
+                apiKey: auth.apiKey,
+                timeoutMs: streamOptions.timeoutMs ?? providerRetrySettings.timeoutMs,
+                maxRetries: streamOptions.maxRetries ?? providerRetrySettings.maxRetries,
+                maxRetryDelayMs:
+                    streamOptions.maxRetryDelayMs ?? providerRetrySettings.maxRetryDelayMs,
+                headers:
+                    auth.headers || streamOptions.headers
+                        ? { ...auth.headers, ...streamOptions.headers }
+                        : undefined,
+                reasoningEffort: codexReasoningEffort(model, streamOptions.reasoning),
+                serviceTier,
+            })
         }
-        const providerRetrySettings = settingsManager.getProviderRetrySettings()
-        return streamOpenAICodexResponses(model, context, {
-            ...options,
-            apiKey: auth.apiKey,
-            timeoutMs: options?.timeoutMs ?? providerRetrySettings.timeoutMs,
-            maxRetries: options?.maxRetries ?? providerRetrySettings.maxRetries,
-            maxRetryDelayMs: options?.maxRetryDelayMs ?? providerRetrySettings.maxRetryDelayMs,
-            headers:
-                auth.headers || options?.headers
-                    ? { ...auth.headers, ...options?.headers }
-                    : undefined,
-            reasoningEffort: codexReasoningEffort(model, options?.reasoning),
-            serviceTier,
+        const source = await openProviderStream()
+        return guardProviderStream({
+            source,
+            idleTimeoutMs: config.budgets.providerIdleTimeoutMs,
+            model: {
+                api: model.api,
+                provider: model.provider,
+                id: model.id,
+            },
+            onStall: () => {
+                providerAbort.abort(new Error(providerStreamStalledMessage))
+            },
         })
     }
     session.agent.onPayload = async (payload, model) => {

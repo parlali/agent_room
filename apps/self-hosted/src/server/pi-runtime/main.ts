@@ -21,7 +21,8 @@ import type {
     PiRuntimeThreadCreatePayload,
 } from './protocol'
 import { closeMcpConnections, createMcpTools } from './mcp-bridge'
-import { buildAgentRoomSystemPrompt } from './system-prompt'
+import { buildAgentRoomSystemPrompt, systemPromptInputSignature } from './system-prompt'
+import { createSystemPromptRefresher } from './system-prompt-refresh'
 import {
     normalizeThreadIndexFile,
     type ThreadIndexFile,
@@ -143,7 +144,11 @@ const mcpTools = await createMcpTools({
     restrictPrivateNetwork: config.sandboxHardening.restrictPrivateNetwork,
 })
 bootMark('mcp')
-let systemPrompt = await buildAgentRoomSystemPrompt(config)
+const systemPromptRefresher = createSystemPromptRefresher({
+    build: () => buildAgentRoomSystemPrompt(config),
+    inputSignature: () => systemPromptInputSignature(config),
+})
+await systemPromptRefresher.initialize()
 bootMark('systemPrompt')
 const { broadcast, createEventStream, createRoomEventStream } = createRuntimeEventBus({
     roomId: config.runtime.roomId,
@@ -182,12 +187,7 @@ const { maybeGenerateThreadTitle } = createThreadTitleGenerator({
     errorMessage,
 })
 
-async function refreshSystemPrompt(active?: ActiveThread): Promise<void> {
-    systemPrompt = await buildAgentRoomSystemPrompt(config)
-    if (active) {
-        await active.session.reload()
-    }
-}
+const refreshSystemPrompt = systemPromptRefresher.refresh
 
 function readThreadEntries(record: ThreadRecord): SessionEntry[] {
     const active = activeThreads.get(record.key)
@@ -362,10 +362,17 @@ function schedulePersistThreadIndex(): void {
     threadIndexPersister.schedule()
 }
 
-async function persistThreadView(record: ThreadRecord): Promise<void> {
-    await roomViewReadModel.persistThread(record.key, {
-        messages: readThreadMessages(record, roomViewThreadMessageCap),
-    })
+async function persistThreadView(
+    record: ThreadRecord,
+    options: { skipIfUnchanged?: boolean } = {},
+): Promise<void> {
+    await roomViewReadModel.persistThread(
+        record.key,
+        {
+            messages: readThreadMessages(record, roomViewThreadMessageCap),
+        },
+        options,
+    )
 }
 
 async function restoreThreadIndex(input: {
@@ -469,7 +476,7 @@ async function createPiSession(record: ThreadRecord): Promise<AgentSession> {
     const session = await createPiRuntimeSession({
         config,
         record,
-        systemPrompt: () => systemPrompt,
+        systemPrompt: systemPromptRefresher.current,
         mcpTools,
         browserAutomation,
         audit: appendRuntimeEvent,
@@ -532,6 +539,7 @@ async function getActiveThread(record: ThreadRecord): Promise<ActiveThread> {
         queue: Promise.resolve(),
         abortController: null,
         touchRunHeartbeat: null,
+        promptVersion: systemPromptRefresher.currentVersion(),
     }
     const sessionEventQueue = createSessionEventQueue<AgentSessionEvent>({
         handle: (event) => handleSessionEvent(record, event),
@@ -995,9 +1003,10 @@ async function backfillRoomViewReadModel(): Promise<void> {
     try {
         await roomViewReadModel.persistThreads(
             buildThreadsView(config, threadIndex.threads, cheapCompactionStats),
+            { skipIfUnchanged: true },
         )
         for (const record of threadIndex.threads) {
-            await persistThreadView(record)
+            await persistThreadView(record, { skipIfUnchanged: true })
         }
     } catch (error) {
         console.error('[room-view-readmodel] boot backfill failed', error)

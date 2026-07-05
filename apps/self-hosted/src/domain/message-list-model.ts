@@ -57,6 +57,7 @@ interface RunBuilder {
     finalRows: Array<Extract<ChatTimelineRow, { type: 'assistant_final' }>>
     turnIndex: number
     seenToolActivity: boolean
+    firstTimestamp: number | null
     latestTimestamp: number | null
 }
 
@@ -95,18 +96,20 @@ export function buildChatTimelineRows(
                 timestamp: message.timestamp,
             })
             const isLatestRun = message.id === latestUserId
+            const isLiveRun = isLatestRun && latestRunIsLive(isWorking, thread, message.timestamp)
             current = {
                 runId: `run-${message.id}`,
-                startedAt: isLatestRun
+                startedAt: isLiveRun
                     ? (thread?.runStartedAt ?? message.timestamp)
                     : message.timestamp,
-                runtimeMs: isLatestRun ? (thread?.runtimeMs ?? null) : null,
-                status: isLatestRun ? statusFromThread(isWorking, thread) : 'complete',
-                collapsed: !isLatestRun || !isWorking,
+                runtimeMs: isLiveRun ? (thread?.runtimeMs ?? null) : null,
+                status: isLiveRun ? statusFromThread(isWorking, thread) : 'complete',
+                collapsed: !isLiveRun || !isWorking,
                 items: [],
                 finalRows: [],
                 turnIndex: 0,
                 seenToolActivity: false,
+                firstTimestamp: message.timestamp,
                 latestTimestamp: message.timestamp,
             }
             continue
@@ -127,6 +130,10 @@ export function buildChatTimelineRows(
         if (!current) {
             rows.push(rowForDetachedMessage(message, rows.length))
             continue
+        }
+
+        if (current.firstTimestamp === null && message.timestamp !== null) {
+            current.firstTimestamp = message.timestamp
         }
 
         if (message.role === 'tool') {
@@ -578,12 +585,13 @@ function classifyPersistedTextPart(
 }
 
 function rowFromBuilder(builder: RunBuilder, seq: number): RunTranscriptRow {
+    const startForDuration = builder.startedAt ?? builder.firstTimestamp
     const runtimeMs =
         builder.runtimeMs ??
         (!isActiveTranscriptStatus(builder.status) &&
-        builder.startedAt !== null &&
+        startForDuration !== null &&
         builder.latestTimestamp !== null
-            ? Math.max(0, builder.latestTimestamp - builder.startedAt)
+            ? Math.max(0, builder.latestTimestamp - startForDuration)
             : null)
     return createRunTranscriptRow({
         id: `run-transcript-${builder.runId}`,
@@ -628,7 +636,26 @@ function rowForDetachedMessage(message: RoomExecutionMessage, seq: number): Chat
 }
 
 function shouldRenderTranscript(row: RunTranscriptRow): boolean {
-    return transcriptHasVisibleContent(row) || isActiveTranscriptStatus(row.status)
+    return (
+        transcriptHasVisibleContent(row) ||
+        isActiveTranscriptStatus(row.status) ||
+        (row.runtimeMs !== null && row.runtimeMs > 0)
+    )
+}
+
+function latestRunIsLive(
+    isWorking: boolean,
+    thread: RoomExecutionThread | null,
+    userTimestamp: number | null,
+): boolean {
+    if (!isWorking || !thread) return false
+    const activeRunId = thread.activeRunId ?? null
+    if (activeRunId === null) {
+        return true
+    }
+    const runStartedAt = thread.runStartedAt
+    if (runStartedAt === null || userTimestamp === null) return true
+    return userTimestamp >= runStartedAt
 }
 
 function statusFromThread(

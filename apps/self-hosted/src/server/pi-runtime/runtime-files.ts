@@ -22,13 +22,17 @@ export async function readJsonFile<T>(path: string, fallback: T): Promise<T> {
     }
 }
 
+export function serializeJsonFile(value: unknown): string {
+    return JSON.stringify(value, null, 4)
+}
+
 export async function writeJsonFile(path: string, value: unknown): Promise<void> {
     await mkdir(dirname(path), {
         recursive: true,
         mode: 0o700,
     })
     const tempPath = `${path}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`
-    await writeFile(tempPath, JSON.stringify(value, null, 4), {
+    await writeFile(tempPath, serializeJsonFile(value), {
         encoding: 'utf8',
         mode: 0o600,
     })

@@ -1,5 +1,6 @@
 import type { AgentRoomHostedEnv } from './bindings'
-import { assertHostedQuotaAllowed } from './hosted-abuse-controls'
+import { assertHostedQuotaAllowed, readHostedQuotaPolicy } from './hosted-abuse-controls'
+import type { HostedProviderCandidate } from './hosted-provider-priority'
 import { requireHostedRequestContext } from './hosted-request-context'
 import { readHostedContextActor } from './hosted-route-auth'
 import { getHostedRuntimeState } from './hosted-room-service'
@@ -26,20 +27,13 @@ export async function assertHostedRunAllowed(input: {
     sessionKey?: string | null
     runId?: string | null
     jobId?: string | null
+    resolvedProviderCandidate?: HostedProviderCandidate | null
 }): Promise<void> {
-    const runtime = await getHostedRuntimeState(input)
-    const providerCandidate = runtime?.row.providerCandidate ?? null
-    if (!providerCandidate) {
-        throw new Error('Hosted runtime provider binding is missing')
-    }
-    if (providerCandidate === 'hosted_openrouter') {
-        await assertHostedProviderCreditsAvailable({
-            env: input.env,
-            workspaceId: input.workspaceId,
-        })
-    }
-
-    await assertHostedQuotaAllowed({
+    const providerCandidate =
+        input.resolvedProviderCandidate ??
+        (await getHostedRuntimeState(input))?.row.providerCandidate ??
+        null
+    const quotaCheck = {
         env: input.env,
         workspaceId: input.workspaceId,
         roomId: input.roomId,
@@ -48,9 +42,38 @@ export async function assertHostedRunAllowed(input: {
         sessionKey: input.sessionKey ?? null,
         runId: input.runId ?? null,
         jobId: input.jobId ?? null,
-        action: 'run_start',
+        action: 'run_start' as const,
         amount: {
             count: 1,
         },
-    })
+    }
+    if (!providerCandidate) {
+        console.warn('Hosted run provider binding not materialized; deferring to runtime wake', {
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+        })
+        await assertHostedQuotaAllowed(quotaCheck)
+        return
+    }
+    if (providerCandidate !== 'hosted_openrouter') {
+        await assertHostedQuotaAllowed(quotaCheck)
+        return
+    }
+    const [creditsResult, policyResult] = await Promise.allSettled([
+        assertHostedProviderCreditsAvailable({
+            env: input.env,
+            workspaceId: input.workspaceId,
+        }),
+        readHostedQuotaPolicy({
+            env: input.env,
+            workspaceId: input.workspaceId,
+        }),
+    ])
+    if (creditsResult.status === 'rejected') {
+        throw creditsResult.reason
+    }
+    await assertHostedQuotaAllowed(
+        quotaCheck,
+        policyResult.status === 'fulfilled' ? { policy: policyResult.value } : undefined,
+    )
 }

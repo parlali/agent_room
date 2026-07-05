@@ -40,6 +40,7 @@ export function mapThread(
         title: record.title,
         lastMessagePreview: record.lastMessagePreview,
         status: record.status,
+        activeRunId: record.activeRunId,
         updatedAt: record.updatedAt,
         runStartedAt: record.runStartedAt,
         runtimeMs: record.activeDurationMs > 0 ? record.activeDurationMs : null,

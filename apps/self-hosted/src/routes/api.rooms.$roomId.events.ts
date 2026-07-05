@@ -25,6 +25,12 @@ export const Route = createFileRoute('/api/rooms/$roomId/events')({
                     stream: createRoomEventStream({
                         roomId: owner.room.id,
                         abortSignal: request.signal,
+                        hosted: owner.hosted
+                            ? {
+                                  env: owner.hosted.env,
+                                  workspaceId: owner.hosted.actor.workspaceId,
+                              }
+                            : null,
                     }),
                     name: 'sse.browser',
                     attributes: {

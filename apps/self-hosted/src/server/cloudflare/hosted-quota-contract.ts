@@ -56,7 +56,8 @@ export interface HostedQuotaLimits {
     maxRoomStorageBytes: number
     maxWorkspaceFileWriteBytesPerDay: number
     maxRoomFileWriteBytesPerDay: number
-    maxRuntimeStateWriteBytesPerDay: number
+    maxWorkspaceRuntimeStateSyncsPerMinute: number
+    maxRoomRuntimeStateSyncsPerMinute: number
     maxWorkspaceToolStartsPerMinute: number
     maxRoomToolStartsPerMinute: number
 }
@@ -161,6 +162,9 @@ function quotaMessage(decision: Omit<HostedQuotaDenyDecision, 'message'>): strin
     }
     if (decision.reason === 'quota_unavailable') {
         return 'Hosted quota check failed closed'
+    }
+    if (decision.action === 'runtime_state_sync') {
+        return 'This room is temporarily rate limited. It will recover shortly.'
     }
     return 'Hosted rate limit reached'
 }

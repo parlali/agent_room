@@ -261,7 +261,7 @@ export async function createHostedRoom(input: {
 
 export async function setHostedRoomDesiredState(input: {
     env: AgentRoomHostedEnv
-    actor: HostedActor
+    actor: Pick<HostedActor, 'workspaceId' | 'userId'>
     roomId: string
     desiredState: RoomDesiredState
 }): Promise<void> {
@@ -712,6 +712,7 @@ export async function materializeAndEnqueueHostedRuntime(input: {
     actor: Pick<HostedActor, 'workspaceId' | 'userId'>
     roomId: string
     config: ProviderSelectionConfig
+    rotateToken?: boolean
 }): Promise<void> {
     try {
         await assertHostedRuntimeStartAllowed({
@@ -737,6 +738,7 @@ async function materializeAndEnqueueHostedRuntimeAfterAccessCheck(input: {
     env: AgentRoomHostedEnv
     actor: Pick<HostedActor, 'workspaceId' | 'userId'>
     roomId: string
+    rotateToken?: boolean
 }): Promise<void> {
     try {
         await enqueueHostedRuntimeReconcile({
@@ -744,6 +746,7 @@ async function materializeAndEnqueueHostedRuntimeAfterAccessCheck(input: {
             workspaceId: input.actor.workspaceId,
             roomId: input.roomId,
             actorUserId: input.actor.userId,
+            rotateToken: input.rotateToken ?? false,
         })
     } catch (error) {
         await failClosedHostedRuntime({
@@ -817,6 +820,7 @@ export async function rematerializeRunningHostedRooms(input: {
             actor: input.actor,
             roomId,
             config,
+            rotateToken: true,
         })
     }
 }

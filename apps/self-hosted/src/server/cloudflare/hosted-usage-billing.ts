@@ -53,22 +53,28 @@ export async function assertHostedProviderCreditsAvailable(input: {
     minimumBalanceCents?: number
     now?: Date
 }): Promise<void> {
-    await ensureHostedBillingAccount({
+    const config = resolveHostedConfig(input.env)
+    const minimumBalanceCents = input.minimumBalanceCents ?? config.billing.modelReservationCents
+    const account = await ensureHostedBillingAccount({
         env: input.env,
         workspaceId: input.workspaceId,
     })
+    if (account.billingFrozen) {
+        throw new HostedBillingFrozenError()
+    }
+    if (account.availableBalanceCents >= minimumBalanceCents) {
+        return
+    }
     await releaseExpiredHostedBillingReservations({
         env: input.env,
         workspaceId: input.workspaceId,
         now: input.now,
     })
-    const account = await readHostedBillingAccount(input)
-    if (account.billingFrozen) {
+    const refreshed = await readHostedBillingAccount(input)
+    if (refreshed.billingFrozen) {
         throw new HostedBillingFrozenError()
     }
-    const config = resolveHostedConfig(input.env)
-    const minimumBalanceCents = input.minimumBalanceCents ?? config.billing.modelReservationCents
-    if (account.availableBalanceCents < minimumBalanceCents) {
+    if (refreshed.availableBalanceCents < minimumBalanceCents) {
         throw new HostedBillingBalanceExhaustedError()
     }
 }

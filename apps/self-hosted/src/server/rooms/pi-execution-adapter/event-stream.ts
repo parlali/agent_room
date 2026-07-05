@@ -16,11 +16,11 @@ export function createRoomSessionEventStream(input: {
         sessionKey: input.sessionKey,
         streamKind: 'session',
         abortSignal: input.abortSignal,
-        open: () =>
+        attach: (signal) =>
             openPiRuntimeEventStream({
                 roomId: input.roomId,
                 sessionKey: input.sessionKey,
-                signal: input.abortSignal,
+                signal,
             }),
     })
 }
@@ -34,10 +34,10 @@ export function createRoomEventStream(input: {
         sessionKey: null,
         streamKind: 'room',
         abortSignal: input.abortSignal,
-        open: () =>
+        attach: (signal) =>
             openPiRuntimeRoomEventStream({
                 roomId: input.roomId,
-                signal: input.abortSignal,
+                signal,
             }),
     })
 }

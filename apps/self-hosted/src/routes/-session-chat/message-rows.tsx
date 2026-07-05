@@ -20,6 +20,7 @@ import type {
 } from '#/domain/room-execution-types'
 
 import { AttachmentCards } from './attachment-cards'
+import { shouldSendOnEnter } from './composer-input'
 import { renderMarkdown } from './markdown'
 import {
     workTranscriptItemHasVisibleContent,
@@ -370,7 +371,14 @@ function EditableUserMessage({
             onCancel()
             return
         }
-        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+        if (
+            shouldSendOnEnter({
+                key: event.key,
+                shiftKey: event.shiftKey,
+                isComposing: event.nativeEvent.isComposing,
+                canSubmit,
+            })
+        ) {
             event.preventDefault()
             onSubmit()
         }

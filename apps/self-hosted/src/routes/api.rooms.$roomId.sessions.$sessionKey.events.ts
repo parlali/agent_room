@@ -27,6 +27,12 @@ export const Route = createFileRoute('/api/rooms/$roomId/sessions/$sessionKey/ev
                         roomId: owner.room.id,
                         sessionKey: params.sessionKey,
                         abortSignal: request.signal,
+                        hosted: owner.hosted
+                            ? {
+                                  env: owner.hosted.env,
+                                  workspaceId: owner.hosted.actor.workspaceId,
+                              }
+                            : null,
                     }),
                     name: 'sse.browser',
                     attributes: {

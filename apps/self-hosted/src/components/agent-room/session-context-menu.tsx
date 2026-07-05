@@ -23,6 +23,7 @@ import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import { copyText } from '#/lib/clipboard'
 import { cn } from '#/lib/utils'
+import { reportRoomActionError } from '#/lib/room-action-error'
 import { roomQueryKey } from '#/lib/room-query-keys'
 import { deleteSessionServer, renameSessionServer } from '#/routes/-room-runtime-server'
 
@@ -58,9 +59,7 @@ export function SessionContextMenu({
             setDialog({ type: 'closed' })
         },
         onError: (e: unknown) =>
-            toast.error('Failed to rename session', {
-                description: e instanceof Error ? e.message : 'Unexpected error',
-            }),
+            reportRoomActionError({ roomId, error: e, title: 'Failed to rename session' }),
     })
 
     const deleteMutation = useMutation({
@@ -81,9 +80,7 @@ export function SessionContextMenu({
             onDeleted?.()
         },
         onError: (e: unknown) =>
-            toast.error('Failed to delete session', {
-                description: e instanceof Error ? e.message : 'Unexpected error',
-            }),
+            reportRoomActionError({ roomId, error: e, title: 'Failed to delete session' }),
     })
 
     const isPending = renameMutation.isPending || deleteMutation.isPending

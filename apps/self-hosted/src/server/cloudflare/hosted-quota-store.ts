@@ -31,24 +31,50 @@ function usageKindForAction(action: HostedQuotaAction): string {
     return 'run'
 }
 
-async function readCounter(input: {
+function counterReadValuesSql(rules: CounterRule[]): string {
+    return rules
+        .map((_, index) => {
+            const offset = index * 5
+            return `(?${offset + 1}, ?${offset + 2}, ?${offset + 3}, ?${offset + 4}, ?${offset + 5})`
+        })
+        .join(', ')
+}
+
+async function readCounters(input: {
     check: HostedQuotaCheckInput
-    rule: CounterRule
-}): Promise<number> {
-    const row = await input.check.env.AGENT_ROOM_DB.prepare(
+    rules: CounterRule[]
+}): Promise<number[]> {
+    if (input.rules.length === 0) {
+        return []
+    }
+    const bindings = input.rules.flatMap((rule, index) => [
+        index,
+        rule.scope,
+        rule.scopeId,
+        rule.windowKey,
+        rule.counterKey,
+    ])
+    const rows = await input.check.env.AGENT_ROOM_DB.prepare(
         `
-            SELECT quantity
-            FROM hosted_quota_counter
-            WHERE scope = ?1
-              AND scope_id = ?2
-              AND window_key = ?3
-              AND counter_key = ?4
-            LIMIT 1
+            WITH wanted(idx, scope, scope_id, window_key, counter_key) AS (
+                VALUES ${counterReadValuesSql(input.rules)}
+            )
+            SELECT wanted.idx AS idx, COALESCE(counter.quantity, 0) AS quantity
+            FROM wanted
+            LEFT JOIN hosted_quota_counter AS counter
+              ON counter.scope = wanted.scope
+             AND counter.scope_id = wanted.scope_id
+             AND counter.window_key = wanted.window_key
+             AND counter.counter_key = wanted.counter_key
         `,
     )
-        .bind(input.rule.scope, input.rule.scopeId, input.rule.windowKey, input.rule.counterKey)
-        .first<{ quantity: number }>()
-    return row?.quantity ?? 0
+        .bind(...bindings)
+        .all<{ idx: number; quantity: number }>()
+    const quantities = new Array<number>(input.rules.length).fill(0)
+    for (const row of rows.results ?? []) {
+        quantities[Number(row.idx)] = Number(row.quantity ?? 0)
+    }
+    return quantities
 }
 
 function counterRuleValuesSql(rules: CounterRule[]): string {
@@ -354,11 +380,10 @@ export async function counterDenial(input: {
     check: HostedQuotaCheckInput
     rules: CounterRule[]
 }): Promise<HostedQuotaDenyDecision | null> {
-    for (const rule of input.rules) {
-        const current = await readCounter({
-            check: input.check,
-            rule,
-        })
+    const quantities = await readCounters(input)
+    for (let index = 0; index < input.rules.length; index += 1) {
+        const rule = input.rules[index]
+        const current = quantities[index] ?? 0
         if (current + rule.amount > rule.limit) {
             return deny({
                 reason: rule.reason,

@@ -1,4 +1,4 @@
-import { piRuntimeBootMaterializePath } from '../rooms/pi-runtime-contract'
+import { piRuntimeBootMaterializePath, piRuntimeBootReadyPath } from '../rooms/pi-runtime-contract'
 import type { AgentRoomHostedEnv, AgentRoomRuntimeJobMessage } from './bindings'
 import { assertHostedQuotaAllowed } from './hosted-abuse-controls'
 import { hostedRuntimeReadConcurrency, mapWithConcurrency } from './hosted-concurrency'
@@ -8,10 +8,14 @@ import {
 } from './hosted-runtime-access'
 import {
     failClosedHostedRuntime,
+    getHostedRoom,
+    getHostedRuntimeEndpointState,
     HostedRuntimeMaterializationConflictError,
     materializeHostedRuntime,
+    setHostedRoomDesiredState,
     stopHostedRuntime,
 } from './hosted-room-service'
+import { readHostedRuntimeToken } from './hosted-runtime-artifacts'
 import {
     listHostedRoomFileMaterializations,
     type HostedRoomFileMaterialization,
@@ -26,7 +30,10 @@ import {
     hostedRuntimeDeniedHosts,
     hostedRuntimeContainerName,
     hostedRuntimeContainerPort,
+    hostedRuntimeRecreateStartPortReadyTimeoutMS,
     hostedRuntimeStartCancellation,
+    hostedRuntimeTeardownConfirmTimeoutMS,
+    hostedRuntimeTeardownProgressLogIntervalMS,
     type HostedRuntimeContainerStub,
 } from './runtime-contract'
 import { hostedRuntimeConfigPath } from './hosted-runtime-paths'
@@ -106,6 +113,35 @@ async function assertHostedRuntimeStillDesiredRunning(
     }
 }
 
+export class HostedRuntimeBootUnauthorizedError extends Error {
+    constructor() {
+        super('Hosted runtime boot rejected the runtime token as stale')
+        this.name = 'HostedRuntimeBootUnauthorizedError'
+    }
+}
+
+export class HostedRuntimeRecreateDeferredError extends Error {
+    constructor(message: string, options?: { cause?: unknown }) {
+        super(message, options)
+        this.name = 'HostedRuntimeRecreateDeferredError'
+    }
+}
+
+interface HostedRuntimeReconcileDelivery {
+    attempt: number
+    maxAttempts: number
+}
+
+type HostedRuntimeReadiness = 'ready' | 'booting' | 'unauthorized'
+
+type HostedRuntimeBootOutcome = 'already-ready' | 'delivered'
+
+export type HostedRuntimeReconcileOutcome = 'reconciled' | 'superseded' | 'skipped'
+
+function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 async function pushHostedRuntimeBootBundle(input: {
     container: HostedRuntimeContainerStub
     token: string
@@ -121,9 +157,170 @@ async function pushHostedRuntimeBootBundle(input: {
             body: JSON.stringify(input.bundle),
         }),
     )
+    if (response.status === 401) {
+        throw new HostedRuntimeBootUnauthorizedError()
+    }
+    if (response.status === 409) {
+        return
+    }
     if (!response.ok) {
         throw new Error(`Hosted runtime boot hydration failed with status ${response.status}`)
     }
+}
+
+async function probeHostedRuntimeReady(input: {
+    container: HostedRuntimeContainerStub
+    token: string
+}): Promise<HostedRuntimeReadiness> {
+    const response = await input.container.fetch(
+        new Request(`http://agent-room-runtime${piRuntimeBootReadyPath}`, {
+            method: 'GET',
+            headers: {
+                authorization: `Bearer ${input.token}`,
+            },
+        }),
+    )
+    if (response.status === 200) {
+        return 'ready'
+    }
+    if (response.status === 401) {
+        return 'unauthorized'
+    }
+    return 'booting'
+}
+
+export async function waitForHostedRuntimeReady(input: {
+    container: HostedRuntimeContainerStub
+    token: string
+    timeoutMs: number
+    intervalMs: number
+}): Promise<void> {
+    const deadline = Date.now() + input.timeoutMs
+    for (;;) {
+        const readiness = await probeHostedRuntimeReady({
+            container: input.container,
+            token: input.token,
+        })
+        if (readiness === 'ready') {
+            return
+        }
+        if (readiness === 'unauthorized') {
+            throw new HostedRuntimeBootUnauthorizedError()
+        }
+        if (Date.now() >= deadline) {
+            throw new Error('Hosted runtime did not become ready before the start timeout')
+        }
+        await delay(input.intervalMs)
+    }
+}
+
+export async function confirmHostedRuntimeContainerStopped(input: {
+    container: HostedRuntimeContainerStub
+    timeoutMs: number
+    intervalMs: number
+}): Promise<void> {
+    const startedAt = Date.now()
+    const deadline = startedAt + input.timeoutMs
+    let lastProgressLog = 0
+    for (;;) {
+        const state = await input.container.getState()
+        if (state.status !== 'running' && state.status !== 'healthy') {
+            return
+        }
+        const now = Date.now()
+        const elapsedSeconds = Math.round((now - startedAt) / 1000)
+        if (now >= deadline) {
+            throw new HostedRuntimeRecreateDeferredError(
+                `Hosted runtime container was still ${state.status} ${elapsedSeconds}s after destroy; deferring recreate to a queue retry`,
+            )
+        }
+        if (now - lastProgressLog >= hostedRuntimeTeardownProgressLogIntervalMS) {
+            console.warn(
+                `Hosted runtime container still ${state.status} ${elapsedSeconds}s after destroy; waiting for teardown before recreate`,
+            )
+            lastProgressLog = now
+        }
+        await delay(input.intervalMs)
+    }
+}
+
+type HostedRuntimeBootDelivery = 'ready' | 'delivered' | 'stale'
+
+async function deliverHostedRuntimeBoot(input: {
+    container: HostedRuntimeContainerStub
+    token: string
+    bundle: RuntimeFileBundleEntry[]
+}): Promise<HostedRuntimeBootDelivery> {
+    const readiness = await probeHostedRuntimeReady({
+        container: input.container,
+        token: input.token,
+    })
+    if (readiness === 'ready') {
+        return 'ready'
+    }
+    if (readiness === 'booting') {
+        try {
+            await pushHostedRuntimeBootBundle({
+                container: input.container,
+                token: input.token,
+                bundle: input.bundle,
+            })
+            return 'delivered'
+        } catch (error) {
+            if (!(error instanceof HostedRuntimeBootUnauthorizedError)) {
+                throw error
+            }
+        }
+    }
+    return 'stale'
+}
+
+async function ensureHostedRuntimeBootDelivered(input: {
+    container: HostedRuntimeContainerStub
+    token: string
+    bundle: RuntimeFileBundleEntry[]
+    startContainer: (portReadyTimeoutMs: number) => Promise<void>
+}): Promise<HostedRuntimeBootOutcome> {
+    await input.startContainer(hostedRuntimeStartCancellation.portReadyTimeoutMS)
+    const first = await deliverHostedRuntimeBoot({
+        container: input.container,
+        token: input.token,
+        bundle: input.bundle,
+    })
+    if (first === 'ready') {
+        return 'already-ready'
+    }
+    if (first === 'delivered') {
+        return 'delivered'
+    }
+
+    console.warn('Hosted runtime boot token is stale for the running container; recreating it once')
+    await input.container.destroy()
+    await confirmHostedRuntimeContainerStopped({
+        container: input.container,
+        timeoutMs: hostedRuntimeTeardownConfirmTimeoutMS,
+        intervalMs: hostedRuntimeStartCancellation.waitInterval,
+    })
+    try {
+        await input.startContainer(hostedRuntimeRecreateStartPortReadyTimeoutMS)
+    } catch (error) {
+        throw new HostedRuntimeRecreateDeferredError(
+            'Hosted runtime recreate did not bind ports within the bounded restart window; deferring to a queue retry',
+            { cause: error },
+        )
+    }
+    const second = await deliverHostedRuntimeBoot({
+        container: input.container,
+        token: input.token,
+        bundle: input.bundle,
+    })
+    if (second === 'ready') {
+        return 'already-ready'
+    }
+    if (second === 'delivered') {
+        return 'delivered'
+    }
+    throw new HostedRuntimeBootUnauthorizedError()
 }
 
 async function hydrateHostedRuntimeFiles(input: {
@@ -153,11 +350,40 @@ export function isHostedRuntimeDownError(error: unknown): boolean {
     return /not running|not healthy|not active|consider calling start/i.test(message)
 }
 
+async function resumeStoppedHostedRoomForUserSend(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+    actorUserId: string
+}): Promise<void> {
+    const room = await getHostedRoom({
+        env: input.env,
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+    })
+    if (!room || room.desiredState !== 'stopped') {
+        return
+    }
+    console.warn(
+        'Hosted room resume requested because an authenticated user sent a message while paused',
+    )
+    await setHostedRoomDesiredState({
+        env: input.env,
+        actor: {
+            workspaceId: input.workspaceId,
+            userId: input.actorUserId,
+        },
+        roomId: input.roomId,
+        desiredState: 'running',
+    })
+}
+
 export async function withHostedRuntimeStarted<T>(input: {
     env: AgentRoomHostedEnv
     workspaceId: string
     roomId: string
     actorUserId?: string | null
+    autoResume?: boolean
     run: () => Promise<T>
 }): Promise<T> {
     try {
@@ -166,28 +392,125 @@ export async function withHostedRuntimeStarted<T>(input: {
         if (!isHostedRuntimeDownError(error)) {
             throw error
         }
-        await reconcileHostedRuntimeJob(input.env, {
+        if (input.autoResume && input.actorUserId) {
+            await resumeStoppedHostedRoomForUserSend({
+                env: input.env,
+                workspaceId: input.workspaceId,
+                roomId: input.roomId,
+                actorUserId: input.actorUserId,
+            })
+        }
+        const outcome = await reconcileHostedRuntimeJob(input.env, {
             kind: 'room-runtime-reconcile',
             workspaceId: input.workspaceId,
             roomId: input.roomId,
             actorUserId: input.actorUserId ?? null,
             requestedAt: new Date().toISOString(),
         })
+        if (outcome === 'superseded') {
+            const ready = await waitForHostedRuntimeReadyAfterSupersededReconcile({
+                env: input.env,
+                workspaceId: input.workspaceId,
+                roomId: input.roomId,
+                timeoutMs: hostedRuntimeStartCancellation.portReadyTimeoutMS,
+                intervalMs: hostedRuntimeStartCancellation.waitInterval,
+            })
+            if (!ready) {
+                throw error
+            }
+        }
         return input.run()
     }
+}
+
+async function waitForHostedRuntimeReadyAfterSupersededReconcile(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+    timeoutMs: number
+    intervalMs: number
+}): Promise<boolean> {
+    const deadline = Date.now() + input.timeoutMs
+    for (;;) {
+        const ready = await convergeHostedRuntimeHealthIfReady({
+            env: input.env,
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+        })
+        if (ready) {
+            return true
+        }
+        if (Date.now() >= deadline) {
+            console.warn(
+                'Hosted runtime did not become ready before the start timeout after a superseded inline reconcile; failing closed',
+            )
+            return false
+        }
+        await delay(input.intervalMs)
+    }
+}
+
+export async function convergeHostedRuntimeHealthIfReady(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+}): Promise<boolean> {
+    const endpoint = await getHostedRuntimeEndpointState(input)
+    if (!endpoint) {
+        return false
+    }
+    if (endpoint.desiredState !== 'running' || endpoint.status === 'stopped') {
+        return false
+    }
+    if (!endpoint.runtime.tokenObjectKey) {
+        return false
+    }
+    const container = input.env.AGENT_ROOM_RUNTIME.getByName(endpoint.runtime.containerName)
+    const state = await container.getState()
+    if (state.status !== 'running' && state.status !== 'healthy') {
+        return false
+    }
+    const token = await readHostedRuntimeToken({
+        env: input.env,
+        tokenObjectKey: endpoint.runtime.tokenObjectKey,
+    })
+    const readiness = await probeHostedRuntimeReady({ container, token })
+    if (readiness !== 'ready') {
+        return false
+    }
+    try {
+        await writeHostedRuntimeStateTransition({
+            env: input.env,
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            transition: {
+                kind: 'running',
+            },
+            requireDesiredRunning: true,
+        })
+    } catch (error) {
+        if (error instanceof HostedRuntimeDesiredStateChangedError) {
+            return false
+        }
+        throw error
+    }
+    return true
 }
 
 export async function reconcileHostedRuntimeJob(
     env: AgentRoomHostedEnv,
     message: AgentRoomRuntimeJobMessage,
-): Promise<void> {
+    delivery?: HostedRuntimeReconcileDelivery,
+): Promise<HostedRuntimeReconcileOutcome> {
     if (message.kind !== 'room-runtime-reconcile') {
         throw new Error(`Unsupported hosted runtime job kind ${message.kind}`)
     }
+    const recreateDeferralRetryable =
+        delivery !== undefined && delivery.attempt < delivery.maxAttempts
 
     const runtime = await readHostedRuntimeRow(env, message)
     if (runtime.desiredState !== 'running') {
-        return
+        return 'skipped'
     }
 
     try {
@@ -205,7 +528,7 @@ export async function reconcileHostedRuntimeJob(
                 roomId: runtime.roomId,
                 error: new Error(reasonMessage),
             })
-            return
+            return 'skipped'
         }
         const expectedContainerName = hostedRuntimeContainerName({
             workspaceId: runtime.workspaceId,
@@ -224,6 +547,7 @@ export async function reconcileHostedRuntimeJob(
                 userId: message.actorUserId ?? 'system',
             },
             roomId: runtime.roomId,
+            rotateToken: message.rotateToken ?? false,
         })
 
         if (
@@ -286,25 +610,39 @@ export async function reconcileHostedRuntimeJob(
             roomId: runtime.roomId,
         })
         roomFilesPromise.catch(() => undefined)
-        await container.startAndWaitForPorts({
-            ports: hostedRuntimeContainerPort,
-            startOptions,
-            cancellationOptions: hostedRuntimeStartCancellation,
-        })
-        await Promise.all([
-            container.setAllowedHosts(materialization.egressAllowedHosts),
-            container.setDeniedHosts(hostedRuntimeDeniedHosts),
-        ])
-        await pushHostedRuntimeBootBundle({
+        const runtimeToken = materialization.runtimeEnv.AGENT_ROOM_PI_RUNTIME_TOKEN
+        const outcome = await ensureHostedRuntimeBootDelivered({
             container,
-            token: materialization.runtimeEnv.AGENT_ROOM_PI_RUNTIME_TOKEN,
+            token: runtimeToken,
             bundle: materialization.bundle,
+            startContainer: async (portReadyTimeoutMs: number) => {
+                await container.startAndWaitForPorts({
+                    ports: hostedRuntimeContainerPort,
+                    startOptions,
+                    cancellationOptions: {
+                        ...hostedRuntimeStartCancellation,
+                        portReadyTimeoutMS: portReadyTimeoutMs,
+                    },
+                })
+                await Promise.all([
+                    container.setAllowedHosts(materialization.egressAllowedHosts),
+                    container.setDeniedHosts(hostedRuntimeDeniedHosts),
+                ])
+            },
         })
-        await hydrateHostedRuntimeFiles({
-            container,
-            token: materialization.runtimeEnv.AGENT_ROOM_PI_RUNTIME_TOKEN,
-            files: await roomFilesPromise,
-        })
+        if (outcome === 'delivered') {
+            await waitForHostedRuntimeReady({
+                container,
+                token: runtimeToken,
+                timeoutMs: hostedRuntimeStartCancellation.portReadyTimeoutMS,
+                intervalMs: hostedRuntimeStartCancellation.waitInterval,
+            })
+            await hydrateHostedRuntimeFiles({
+                container,
+                token: runtimeToken,
+                files: await roomFilesPromise,
+            })
+        }
         await writeHostedRuntimeStateTransition({
             env,
             workspaceId: runtime.workspaceId,
@@ -314,10 +652,29 @@ export async function reconcileHostedRuntimeJob(
             },
             requireDesiredRunning: true,
         })
+        return 'reconciled'
     } catch (error) {
         if (error instanceof HostedRuntimeMaterializationConflictError) {
             console.warn('Hosted runtime reconcile skipped because materialization was superseded')
-            return
+            try {
+                const converged = await convergeHostedRuntimeHealthIfReady({
+                    env,
+                    workspaceId: runtime.workspaceId,
+                    roomId: runtime.roomId,
+                })
+                if (converged) {
+                    console.warn(
+                        'Hosted runtime health converged to running/healthy after a superseded materialization because the container is already ready',
+                    )
+                    return 'reconciled'
+                }
+            } catch (convergeError) {
+                console.warn(
+                    'Hosted runtime health convergence after superseded materialization failed',
+                    convergeError instanceof Error ? convergeError.message : convergeError,
+                )
+            }
+            return 'superseded'
         }
         if (error instanceof HostedRuntimeDesiredStateChangedError) {
             console.warn('Hosted runtime reconcile skipped because room desired state changed')
@@ -326,7 +683,14 @@ export async function reconcileHostedRuntimeJob(
                 workspaceId: runtime.workspaceId,
                 roomId: runtime.roomId,
             })
-            return
+            return 'skipped'
+        }
+        if (error instanceof HostedRuntimeRecreateDeferredError && recreateDeferralRetryable) {
+            console.warn(
+                'Hosted runtime recreate deferred; keeping desired running for a queue retry',
+                { message: error.message },
+            )
+            throw error
         }
         await failClosedHostedRuntime({
             env,

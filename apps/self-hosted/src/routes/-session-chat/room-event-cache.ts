@@ -3,7 +3,42 @@ import type { QueryClient } from '@tanstack/react-query'
 
 import { roomQueryKey } from '#/lib/room-query-keys'
 import type { RoomRealtimeEvent } from '#/domain/room-execution-types'
-import { clearCachedStreamTurnForRoomEvent } from './stream-turn-cache'
+import { clearCachedLiveRunForRoomEvent } from './stream-turn-cache'
+
+const SEQ_DEDUPE_WINDOW = 512
+
+const EVENT_SOURCE_RECONNECT_MIN_MS = 1000
+const EVENT_SOURCE_RECONNECT_MAX_MS = 15000
+
+export function createEventSourceReconnectDelay(): (attempt: number) => number {
+    return (attempt) => {
+        const exponent = Math.max(0, attempt - 1)
+        const raw = EVENT_SOURCE_RECONNECT_MIN_MS * 2 ** exponent
+        return Math.min(EVENT_SOURCE_RECONNECT_MAX_MS, raw)
+    }
+}
+
+export function createRoomEventSeqDedupe(): (seq: number | null) => boolean {
+    const seen = new Set<number>()
+    const order: number[] = []
+    return (seq) => {
+        if (seq === null) {
+            return false
+        }
+        if (seen.has(seq)) {
+            return true
+        }
+        seen.add(seq)
+        order.push(seq)
+        if (order.length > SEQ_DEDUPE_WINDOW) {
+            const evicted = order.shift()
+            if (evicted !== undefined) {
+                seen.delete(evicted)
+            }
+        }
+        return false
+    }
+}
 
 export function useRoomEventCacheSync({
     roomId,
@@ -20,12 +55,21 @@ export function useRoomEventCacheSync({
         if (!enabled) return
         if (typeof EventSource === 'undefined') return
 
-        const source = new EventSource(`/api/rooms/${encodeURIComponent(roomId)}/events`)
+        const url = `/api/rooms/${encodeURIComponent(roomId)}/events`
+        const alreadyHandled = createRoomEventSeqDedupe()
+        const reconnectDelay = createEventSourceReconnectDelay()
+        let source: EventSource | null = null
+        let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+        let reconnectAttempts = 0
+        let disposed = false
 
         const onRoomEvent = (raw: MessageEvent<string>) => {
             onError?.(null)
             try {
                 const event = JSON.parse(raw.data) as RoomRealtimeEvent
+                if (alreadyHandled(event.seq)) {
+                    return
+                }
                 invalidateRoomCachesForEvent({
                     roomId,
                     queryClient,
@@ -34,6 +78,11 @@ export function useRoomEventCacheSync({
             } catch {
                 onError?.('Live room update payload was unreadable')
             }
+        }
+
+        const onRuntimeStatus = () => {
+            onError?.(null)
+            invalidateRoomSummaryQueries({ roomId, queryClient })
         }
 
         const onStreamError = (raw: MessageEvent<string>) => {
@@ -50,15 +99,63 @@ export function useRoomEventCacheSync({
             }
         }
 
-        source.addEventListener('room-event', onRoomEvent as EventListener)
-        source.addEventListener('stream-error', onStreamError as EventListener)
+        const onOpen = () => {
+            reconnectAttempts = 0
+            onError?.(null)
+        }
+
+        const onConnectionError = () => {
+            if (disposed) return
+            if (!source || source.readyState !== EventSource.CLOSED) {
+                return
+            }
+            teardown()
+            reconnectAttempts += 1
+            reconnectTimer = setTimeout(connect, reconnectDelay(reconnectAttempts))
+        }
+
+        function teardown(): void {
+            if (!source) return
+            source.removeEventListener('room-event', onRoomEvent as EventListener)
+            source.removeEventListener('runtime-status', onRuntimeStatus as EventListener)
+            source.removeEventListener('stream-error', onStreamError as EventListener)
+            source.removeEventListener('open', onOpen)
+            source.removeEventListener('error', onConnectionError)
+            source.close()
+            source = null
+        }
+
+        function connect(): void {
+            if (disposed) return
+            source = new EventSource(url)
+            source.addEventListener('room-event', onRoomEvent as EventListener)
+            source.addEventListener('runtime-status', onRuntimeStatus as EventListener)
+            source.addEventListener('stream-error', onStreamError as EventListener)
+            source.addEventListener('open', onOpen)
+            source.addEventListener('error', onConnectionError)
+        }
+
+        connect()
 
         return () => {
-            source.removeEventListener('room-event', onRoomEvent as EventListener)
-            source.removeEventListener('stream-error', onStreamError as EventListener)
-            source.close()
+            disposed = true
+            if (reconnectTimer) clearTimeout(reconnectTimer)
+            teardown()
         }
     }, [enabled, onError, queryClient, roomId])
+}
+
+export function invalidateRoomSummaryQueries(input: {
+    roomId: string
+    queryClient: QueryClient
+}): void {
+    void input.queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
+    void input.queryClient.invalidateQueries({
+        queryKey: roomQueryKey.roomSidebar(input.roomId),
+    })
+    void input.queryClient.invalidateQueries({
+        queryKey: roomQueryKey.roomExecution(input.roomId),
+    })
 }
 
 export function invalidateRoomCachesForEvent(input: {
@@ -68,15 +165,8 @@ export function invalidateRoomCachesForEvent(input: {
 }): void {
     const sessionKey = sessionKeyFromRealtimeEvent(input.event)
     const sessionRefetchType = shouldRefetchInactiveSessionForEvent(input.event) ? 'all' : 'active'
-    const invalidateRoomSummary = () => {
-        void input.queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
-        void input.queryClient.invalidateQueries({
-            queryKey: roomQueryKey.roomSidebar(input.roomId),
-        })
-        void input.queryClient.invalidateQueries({
-            queryKey: roomQueryKey.roomExecution(input.roomId),
-        })
-    }
+    const invalidateRoomSummary = () =>
+        invalidateRoomSummaryQueries({ roomId: input.roomId, queryClient: input.queryClient })
 
     if (
         input.event.event === 'thread.renamed' ||
@@ -111,7 +201,7 @@ export function invalidateRoomCachesForEvent(input: {
     }
 
     if (!sessionKey) return
-    clearCachedStreamTurnForRoomEvent({
+    clearCachedLiveRunForRoomEvent({
         roomId: input.roomId,
         sessionKey,
         event: input.event,

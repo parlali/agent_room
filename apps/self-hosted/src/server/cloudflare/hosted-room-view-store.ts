@@ -34,12 +34,26 @@ export async function readRoomViewThreads(input: {
     workspaceId: string
     roomId: string
 }): Promise<RoomViewThreadsReadModel | null> {
-    return readRoomViewJson<RoomViewThreadsReadModel>({
+    const model = await readRoomViewJson<RoomViewThreadsReadModel>({
         env: input.env,
         workspaceId: input.workspaceId,
         roomId: input.roomId,
         relativePath: roomViewThreadsRelativePath,
     })
+    if (model === null) {
+        return null
+    }
+    return normalizeRoomViewThreads(model)
+}
+
+function normalizeRoomViewThreads(model: RoomViewThreadsReadModel): RoomViewThreadsReadModel {
+    return {
+        ...model,
+        threads: model.threads.map((thread) => ({
+            ...thread,
+            activeRunId: thread.activeRunId ?? null,
+        })),
+    }
 }
 
 export async function readRoomViewThread(input: {

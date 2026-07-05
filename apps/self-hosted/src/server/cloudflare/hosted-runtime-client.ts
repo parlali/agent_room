@@ -1,39 +1,30 @@
 import type { z } from 'zod'
 import type { AgentRoomHostedEnv } from './bindings'
-import { readHostedRuntimeArtifactText } from './hosted-runtime-artifacts'
-import { getHostedRuntimeEndpointState } from './hosted-room-service'
+import { readHostedRuntimeToken } from './hosted-runtime-artifacts'
+import {
+    getHostedRuntimeEndpointState,
+    type HostedRuntimeEndpointState,
+} from './hosted-room-service'
+
+export { readHostedRuntimeToken }
 
 export interface HostedPiRuntimeRequestOptions {
     method?: 'GET' | 'POST' | 'DELETE'
     body?: unknown
     signal?: AbortSignal
-}
-
-export async function readHostedRuntimeToken(input: {
-    env: AgentRoomHostedEnv
-    tokenObjectKey: string
-}): Promise<string> {
-    const token = (
-        await readHostedRuntimeArtifactText({
-            env: input.env,
-            key: input.tokenObjectKey,
-        })
-    ).trim()
-    if (token.length < 24) {
-        throw new Error('Hosted runtime token is missing or invalid')
-    }
-    return token
+    prefetchedEndpoint?: HostedRuntimeEndpointState | null
 }
 
 async function runtimeEndpoint(input: {
     env: AgentRoomHostedEnv
     workspaceId: string
     roomId: string
+    prefetchedEndpoint?: HostedRuntimeEndpointState | null
 }): Promise<{
     container: ReturnType<AgentRoomHostedEnv['AGENT_ROOM_RUNTIME']['getByName']>
     token: string
 }> {
-    const endpoint = await getHostedRuntimeEndpointState(input)
+    const endpoint = input.prefetchedEndpoint ?? (await getHostedRuntimeEndpointState(input))
     if (!endpoint || endpoint.desiredState !== 'running' || endpoint.status === 'stopped') {
         throw new Error('Hosted runtime is not running')
     }

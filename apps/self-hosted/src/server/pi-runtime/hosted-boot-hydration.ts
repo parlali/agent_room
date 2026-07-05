@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer'
 import { chmod, mkdir, writeFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
-import { piRuntimeBootMaterializePath } from '../rooms/pi-runtime-contract'
+import { piRuntimeBootMaterializePath, piRuntimeBootReadyPath } from '../rooms/pi-runtime-contract'
 import { assertAuthorized, HttpError, sendJson } from './runtime-http'
 
 export const maxHostedBootBundleBytes = 64 * 1024 * 1024
@@ -110,11 +110,24 @@ export function startHostedBootHydration(input: {
     let activeRoute: ((request: IncomingMessage, response: ServerResponse) => void) | null = null
     let hydrating = false
     let hydratedDone = false
-    let heldResponse: ServerResponse | null = null
+    let activated = false
     let resolveHydrated!: () => void
     const hydrated = new Promise<void>((resolvePromise) => {
         resolveHydrated = resolvePromise
     })
+
+    function handleReadyRequest(request: IncomingMessage, response: ServerResponse): void {
+        try {
+            assertAuthorized(request, input.token)
+        } catch (error) {
+            const status = error instanceof HttpError ? error.status : 500
+            const message =
+                error instanceof HttpError ? error.message : 'Hosted runtime readiness check failed'
+            sendJson(response, status, { message })
+            return
+        }
+        sendJson(response, activated ? 200 : 503, { ready: activated })
+    }
 
     async function handleBootRequest(
         request: IncomingMessage,
@@ -145,7 +158,9 @@ export function startHostedBootHydration(input: {
             } finally {
                 hydrating = hydratedDone
             }
-            heldResponse = response
+            if (!response.writableEnded && !response.destroyed) {
+                sendJson(response, 200, { ok: true })
+            }
             resolveHydrated()
         } catch (error) {
             const status = error instanceof HttpError ? error.status : 500
@@ -159,6 +174,10 @@ export function startHostedBootHydration(input: {
 
     return new Promise((resolveServer, rejectServer) => {
         const server = createServer((request, response) => {
+            if (request.method === 'GET' && request.url === piRuntimeBootReadyPath) {
+                handleReadyRequest(request, response)
+                return
+            }
             if (activeRoute) {
                 activeRoute(request, response)
                 return
@@ -172,10 +191,7 @@ export function startHostedBootHydration(input: {
                 hydrated,
                 activate: (route) => {
                     activeRoute = route
-                    if (heldResponse && !heldResponse.writableEnded && !heldResponse.destroyed) {
-                        sendJson(heldResponse, 200, { ok: true })
-                    }
-                    heldResponse = null
+                    activated = true
                 },
             })
         })

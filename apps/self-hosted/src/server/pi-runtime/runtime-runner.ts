@@ -70,6 +70,7 @@ export interface ActiveThread {
     queue: Promise<void>
     abortController: AbortController | null
     touchRunHeartbeat: ((reason: string) => Promise<void>) | null
+    promptVersion: number
 }
 
 export interface RunPromptInput {
@@ -286,9 +287,9 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
             const abortController = new AbortController()
             let hostedProviderReservationIds: string[] = []
             let hostedProviderUsageCharges: HostedProviderUsageCharge[] = []
-            await dependencies.refreshSystemPrompt(dependencies.activeThreads.get(input.record.key))
             const active = await dependencies.getActiveThread(input.record)
             try {
+                await dependencies.refreshSystemPrompt(active)
                 if (input.editMessageId) {
                     if (active.session.isStreaming || input.record.activeRunId) {
                         throw new Error('Cannot edit a message while a run is active')
@@ -511,8 +512,28 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                     throw watchdogError
                 }
                 const latestError = dependencies.latestAssistantErrorMessage(input.record)
-                input.record.status = latestError ? 'error' : 'idle'
-                input.record.lastError = latestError
+                if (latestError) {
+                    input.record.status = 'error'
+                    input.record.lastError = latestError
+                    await appendAssistantRunErrorIfMissing({
+                        active,
+                        record: input.record,
+                        message: latestError,
+                        branchLengthBeforePrompt,
+                    })
+                    removePendingUserMessage(input.record, input.runId)
+                    dependencies.updateThreadFromMessages(input.record)
+                    await dependencies.persistThreadIndex()
+                    dependencies.broadcast(input.record.key, 'run.error', {
+                        sessionKey: input.record.key,
+                        runId: input.runId,
+                        message: providerFailureDisplayMessage(latestError),
+                        reason: 'provider_error',
+                    })
+                } else {
+                    input.record.status = 'idle'
+                    input.record.lastError = null
+                }
             } catch (error) {
                 const hostedProviderCollection = hostedProviderReservationCollectionFromError(error)
                 if (hostedProviderCollection) {
@@ -676,7 +697,24 @@ export function createRuntimeRunPrompt(dependencies: RuntimeRunnerDependencies) 
                 pendingCount: input.record.pendingUserMessages?.length ?? 0,
             })
         }
-        active.queue = active.queue.then(execute, execute)
+        const guardedExecute = async () => {
+            try {
+                await execute()
+            } catch (error) {
+                input.record.status = 'error'
+                input.record.lastError = dependencies.errorMessage(error)
+                input.record.activeRunId = null
+                dependencies.updateThreadFromMessages(input.record)
+                await dependencies.persistThreadIndex()
+                dependencies.broadcast(input.record.key, 'run.error', {
+                    sessionKey: input.record.key,
+                    runId: input.runId,
+                    message: input.record.lastError,
+                    reason: null,
+                })
+            }
+        }
+        active.queue = active.queue.then(guardedExecute, guardedExecute)
         if (input.awaitCompletion) {
             await active.queue
         }

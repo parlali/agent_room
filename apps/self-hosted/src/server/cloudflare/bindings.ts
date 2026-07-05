@@ -7,6 +7,7 @@ export interface AgentRoomRuntimeReconcileMessage {
     roomId: string
     actorUserId: string | null
     requestedAt: string
+    rotateToken?: boolean
 }
 
 export interface AgentRoomCronRunMessage {

@@ -1,5 +1,6 @@
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { dismissRoomActionErrors, reportRoomActionError } from '#/lib/room-action-error'
 import {
     BrainIcon,
     CalendarClockIcon,
@@ -73,6 +74,10 @@ export function RoomDashboardLayout({
 }) {
     usePreloadRoomDashboardRoutes()
     usePendingOnboardingRedirect(roomId)
+
+    useEffect(() => {
+        return () => dismissRoomActionErrors(roomId)
+    }, [roomId])
 
     const header = <RoomHeader roomId={roomId} />
     const subnav = <RoomNav roomId={roomId} activeTab={activeTab} />
@@ -162,12 +167,15 @@ function RoomHeader({ roomId }: { roomId: string }) {
             await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomsList })
             await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomExecution(roomId) })
             await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) })
-            toast.success(desiredState === 'running' ? 'Room resumed' : 'Room paused')
+            dismissRoomActionErrors(roomId)
+            toast.success(desiredState === 'running' ? 'Room resumed' : 'Room paused', {
+                id: `room-state-${roomId}`,
+            })
         },
-        onError: (e: unknown) =>
-            toast.error('Could not change room state', {
-                description: sanitizeRuntimeError(e instanceof Error ? e.message : null),
-            }),
+        onError: async (e: unknown) => {
+            await queryClient.invalidateQueries({ queryKey: roomQueryKey.roomSidebar(roomId) })
+            reportRoomActionError({ roomId, error: e, title: 'Could not change room state' })
+        },
     })
 
     if (sidebarQuery.isLoading) {

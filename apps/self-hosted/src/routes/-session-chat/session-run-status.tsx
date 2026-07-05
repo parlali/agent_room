@@ -1,69 +1,12 @@
 import { useEffect, useState } from 'react'
-import { ChevronDownIcon, ChevronRightIcon, ClockIcon } from 'lucide-react'
+import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react'
 
 import { Button } from '#/components/ui/button'
 import { transcriptHasExpandableContent } from '#/domain/message-list-model'
-import { describeSessionState } from '#/domain/state'
 import { formatDurationMs } from '#/domain/format'
 import { cn } from '#/lib/utils'
 import { isActiveRunStatus } from './conversation-utils'
-import type { RoomExecutionThread, RunTranscriptRow } from '#/domain/room-execution-types'
-
-export function SessionRunStatus({
-    thread,
-    compact = false,
-    variant = 'badge',
-    className,
-}: {
-    thread: RoomExecutionThread | null
-    compact?: boolean
-    variant?: 'badge' | 'body'
-    className?: string
-}) {
-    const [now, setNow] = useState(Date.now())
-    const state = describeSessionState(thread?.status ?? null)
-    const working = state.tone === 'working'
-
-    useEffect(() => {
-        if (!working) return
-        const timer = window.setInterval(() => setNow(Date.now()), 1000)
-        return () => window.clearInterval(timer)
-    }, [working])
-
-    if (!thread) return null
-
-    const durationMs =
-        working && thread.runStartedAt
-            ? Math.max(0, now - thread.runStartedAt)
-            : (thread.runtimeMs ?? null)
-    if (durationMs === null) return null
-    const label = `${working ? 'Working' : 'Worked'} for ${formatDurationMs(durationMs)}`
-
-    if (variant === 'body') {
-        return (
-            <div className={cn('flex w-full flex-col gap-3 px-2', className)}>
-                <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                    <span>{label}</span>
-                    <ChevronRightIcon className="size-4" />
-                </div>
-                <div className="h-px w-full bg-border/70" aria-hidden />
-            </div>
-        )
-    }
-
-    return (
-        <span
-            className={cn(
-                'inline-flex shrink-0 items-center gap-1 rounded-md border border-border/70 bg-muted/60 text-muted-foreground',
-                compact ? 'px-1.5 py-0.5 text-[0.6875rem]' : 'px-2 py-1 text-xs',
-                className,
-            )}
-        >
-            <ClockIcon className={compact ? 'size-3' : 'size-3.5'} />
-            {label}
-        </span>
-    )
-}
+import type { RunTranscriptRow } from '#/domain/room-execution-types'
 
 export function TranscriptRunStatus({
     row,

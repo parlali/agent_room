@@ -90,11 +90,17 @@ export class FakeD1 {
     reservations = new Map<string, ReservationRow>()
     stripeEvents = new Set<string>()
     audits: AuditRow[] = []
+    statements: string[] = []
 
     prepare(sql: string) {
+        this.statements.push(sql)
         return {
             bind: (...args: unknown[]) => this.statement(sql, args),
         }
+    }
+
+    countStatements(pattern: RegExp): number {
+        return this.statements.filter((sql) => pattern.test(sql)).length
     }
 
     async batch(statements: Array<{ run: () => Promise<unknown> }>) {

@@ -1,6 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import type { RoomRealtimeEvent } from '#/domain/room-execution-types'
+import { createEventSourceReconnectDelay, createRoomEventSeqDedupe } from './room-event-cache'
 
 const STREAM_ERROR_THRESHOLD = 6
 
@@ -49,9 +50,13 @@ export function useEventSourceRefetch({
     useEffect(() => {
         if (typeof EventSource === 'undefined') return
 
-        const source = new EventSource(url)
+        const alreadyHandled = createRoomEventSeqDedupe()
+        const reconnectDelay = createEventSourceReconnectDelay()
+        let source: EventSource | null = null
         let timer: ReturnType<typeof setTimeout> | null = null
-        let consecutiveErrors = 0
+        let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+        let reconnectAttempts = 0
+        let disposed = false
 
         const scheduleRefetch = () => {
             if (!queryKey) return
@@ -62,9 +67,12 @@ export function useEventSourceRefetch({
         }
 
         const onRoomEvent = (raw: MessageEvent<string>) => {
-            consecutiveErrors = 0
+            reconnectAttempts = 0
             try {
                 const event = JSON.parse(raw.data) as RoomRealtimeEvent
+                if (alreadyHandled(event.seq)) {
+                    return
+                }
                 onEvent?.(event)
                 if (shouldRefetch?.(event) ?? true) {
                     scheduleRefetch()
@@ -89,30 +97,49 @@ export function useEventSourceRefetch({
         }
 
         const onConnectionError = () => {
-            consecutiveErrors += 1
-            if (consecutiveErrors >= STREAM_ERROR_THRESHOLD) {
-                onError('Lost live updates for this room. Refresh to retry.')
-                source.close()
+            if (disposed) return
+            if (!source || source.readyState !== EventSource.CLOSED) {
+                return
             }
+            teardown()
+            reconnectAttempts += 1
+            if (reconnectAttempts >= STREAM_ERROR_THRESHOLD) {
+                onError('Reconnecting to live updates for this room.')
+            }
+            reconnectTimer = setTimeout(connect, reconnectDelay(reconnectAttempts))
         }
 
         const onOpen = () => {
-            consecutiveErrors = 0
+            reconnectAttempts = 0
             onError(null)
         }
 
-        source.addEventListener('room-event', onRoomEvent as EventListener)
-        source.addEventListener('stream-error', onStreamError as EventListener)
-        source.addEventListener('error', onConnectionError)
-        source.addEventListener('open', onOpen)
-
-        return () => {
-            if (timer) clearTimeout(timer)
+        function teardown(): void {
+            if (!source) return
             source.removeEventListener('room-event', onRoomEvent as EventListener)
             source.removeEventListener('stream-error', onStreamError as EventListener)
             source.removeEventListener('error', onConnectionError)
             source.removeEventListener('open', onOpen)
             source.close()
+            source = null
+        }
+
+        function connect(): void {
+            if (disposed) return
+            source = new EventSource(url)
+            source.addEventListener('room-event', onRoomEvent as EventListener)
+            source.addEventListener('stream-error', onStreamError as EventListener)
+            source.addEventListener('error', onConnectionError)
+            source.addEventListener('open', onOpen)
+        }
+
+        connect()
+
+        return () => {
+            disposed = true
+            if (timer) clearTimeout(timer)
+            if (reconnectTimer) clearTimeout(reconnectTimer)
+            teardown()
         }
     }, [url, queryClient, queryKey, onError, onEvent, shouldRefetch])
 }

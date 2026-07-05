@@ -1,10 +1,11 @@
+import { stat } from 'node:fs/promises'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { resolveArchetypeParagraph } from '../rooms/personality/archetypes'
 import { personalityInstructionLines, sanitizePersonalityForm } from '../rooms/personality/form'
 import { buildAgentHarnessPrompt } from './agent-harness'
 import { boundTextByChars } from './bounded-text'
 import { buildInternalStateSummary } from './internal-state'
-import { readMemory } from './memory'
+import { memoryPath, readMemory } from './memory'
 import { internalStateToolNames } from './internal-state-tools'
 import { nativeWorkspaceToolNamesForCapabilities, roomToolNamesForCapabilities } from './room-tools'
 
@@ -226,6 +227,12 @@ function enabledToolNames(config: PiRuntimeConfig): string[] {
         ...roomToolNamesForCapabilities(config.roomMode, config.capabilities),
         ...capabilityToolNames(config),
     ]
+}
+
+export async function systemPromptInputSignature(config: PiRuntimeConfig): Promise<string> {
+    const memoryStat = await stat(memoryPath(config))
+    const localDay = new Date().toLocaleDateString('en-CA')
+    return `${memoryStat.mtimeMs}:${localDay}`
 }
 
 export async function buildAgentRoomSystemPrompt(config: PiRuntimeConfig): Promise<string> {
