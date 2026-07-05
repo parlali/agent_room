@@ -209,12 +209,40 @@ function appendAssistantRunError(
     active.session.sessionManager.appendMessage(assistantMessage)
 }
 
-function providerFailureDisplayMessage(message: string): string {
-    if (isProviderPolicyRejection(message)) {
+function providerCodedErrorMessage(message: string): string | null {
+    const trimmed = message.trim()
+    const firstBrace = trimmed.indexOf('{')
+    const lastBrace = trimmed.lastIndexOf('}')
+    const candidates = [
+        trimmed,
+        firstBrace >= 0 && lastBrace > firstBrace ? trimmed.slice(firstBrace, lastBrace + 1) : null,
+    ].filter((candidate): candidate is string => candidate !== null)
+    for (const candidate of candidates) {
+        try {
+            const parsed = JSON.parse(candidate) as unknown
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                const record = parsed as Record<string, unknown>
+                if (typeof record.code === 'string' && typeof record.message === 'string') {
+                    const codedMessage = record.message.trim()
+                    if (codedMessage) {
+                        return codedMessage
+                    }
+                }
+            }
+        } catch {
+            continue
+        }
+    }
+    return null
+}
+
+export function providerFailureDisplayMessage(message: string): string {
+    const detail = providerCodedErrorMessage(message) ?? message
+    if (isProviderPolicyRejection(detail)) {
         return [
             'The model provider rejected this request under its safety policy, so Agent Room stopped the run without executing further work.',
             '',
-            `Provider detail: ${message}`,
+            `Provider detail: ${detail}`,
             '',
             'Try again with the defensive goal, authorized scope, and concrete artifact you want reviewed.',
         ].join('\n')
@@ -222,7 +250,7 @@ function providerFailureDisplayMessage(message: string): string {
     return [
         'The model provider failed before returning a response, so Agent Room stopped the run.',
         '',
-        `Provider detail: ${message}`,
+        `Provider detail: ${detail}`,
     ].join('\n')
 }
 

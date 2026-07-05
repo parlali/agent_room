@@ -35,6 +35,7 @@ import {
     hostedManagedModelMaxOutputTokens,
     hostedManagedModelPreflightSpendEstimateCents,
     hostedManagedModelReasoningEffort,
+    isHostedRetiredManagedModelId,
 } from './hosted-model-policy'
 import {
     authorizeFixedProviderReservation,
@@ -55,6 +56,11 @@ interface HostedOpenRouterProviderRequest {
     body: BodyInit | null
     model: string | null
 }
+
+type HostedManagedModelRequestPolicy =
+    | { kind: 'managed' }
+    | { kind: 'upgraded'; requestedModel: string }
+    | { kind: 'rejected'; requestedModel: string | null }
 
 function cappedMaxTokens(value: unknown): number {
     return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
@@ -90,6 +96,24 @@ function hostedOpenRouterProviderPayload(
     }
     next.max_tokens = cappedMaxTokens(payload.max_tokens)
     return next
+}
+
+function hostedManagedModelRequestPolicy(
+    requestedModel: string | null,
+): HostedManagedModelRequestPolicy {
+    if (requestedModel === hostedManagedModelId) {
+        return { kind: 'managed' }
+    }
+    if (requestedModel && isHostedRetiredManagedModelId(requestedModel)) {
+        return {
+            kind: 'upgraded',
+            requestedModel,
+        }
+    }
+    return {
+        kind: 'rejected',
+        requestedModel,
+    }
 }
 
 async function assertProviderQuotaOrResponse(input: {
@@ -600,11 +624,31 @@ export async function hostedOpenRouterProxy(
         )
     }
     const providerRequest = await hostedOpenRouterProviderRequestBody(request)
+    const requestPolicy = hostedManagedModelRequestPolicy(providerRequest.model)
     const reservationCents = config.billing.modelReservationCents
     const managedModelMetadata = hostedManagedModelAuditMetadata({
         reservationCents,
     })
-    if (providerRequest.model !== hostedManagedModelId) {
+    const requestManagedModelMetadata =
+        requestPolicy.kind === 'upgraded'
+            ? {
+                  ...managedModelMetadata,
+                  requestedModel: requestPolicy.requestedModel,
+                  upgradedFromRetiredManagedModel: true,
+              }
+            : managedModelMetadata
+    if (requestPolicy.kind === 'upgraded') {
+        console.warn('Hosted OpenRouter proxy upgraded retired managed model request', {
+            workspaceId: proxyPath.workspaceId,
+            roomId: proxyPath.roomId,
+            sessionKey: usageContext.sessionKey,
+            runId: usageContext.runId,
+            jobId: usageContext.jobId,
+            requestedModel: requestPolicy.requestedModel,
+            managedModel: hostedManagedModelId,
+        })
+    }
+    if (requestPolicy.kind === 'rejected') {
         await recordHostedProviderUsageBlocked({
             env,
             workspaceId: proxyPath.workspaceId,
@@ -613,13 +657,13 @@ export async function hostedOpenRouterProxy(
             runId: usageContext.runId,
             jobId: usageContext.jobId,
             provider: 'openrouter',
-            model: providerRequest.model,
+            model: requestPolicy.requestedModel,
             metadata: {
                 ...managedModelMetadata,
                 billedBy: 'hosted_openrouter_proxy',
                 providerProxyBillingAuthority: 'worker_proxy',
                 hostedModelPolicyViolation: true,
-                requestedModel: providerRequest.model,
+                requestedModel: requestPolicy.requestedModel,
                 usageRequestId,
                 sessionKey: usageContext.sessionKey,
                 runId: usageContext.runId,
@@ -631,7 +675,9 @@ export async function hostedOpenRouterProxy(
         return hostedJsonResponse(
             {
                 ok: false,
-                code: 'hosted_model_policy_violation',
+                code: 'model_not_allowed',
+                message:
+                    'This conversation uses a model that is not available. Start a new conversation or switch the model.',
             },
             {
                 status: 403,
@@ -695,7 +741,7 @@ export async function hostedOpenRouterProxy(
             idempotencyKey: reservationIdempotencyKey,
             targetPath: proxyPath.targetPath,
             usageRequestId,
-            metadata: managedModelMetadata,
+            metadata: requestManagedModelMetadata,
         })
         if (reservationIdOrResponse instanceof Response) {
             return reservationIdOrResponse
@@ -762,9 +808,9 @@ export async function hostedOpenRouterProxy(
             runId: usageContext.runId,
             jobId: usageContext.jobId,
             provider: 'openrouter',
-            model: providerRequest.model,
+            model: hostedManagedModelId,
             metadata: {
-                ...managedModelMetadata,
+                ...requestManagedModelMetadata,
                 billedBy: 'hosted_openrouter_proxy',
                 providerProxyBillingAuthority: 'worker_proxy',
                 providerRejectedRequest: true,
@@ -794,8 +840,8 @@ export async function hostedOpenRouterProxy(
         workspaceId: proxyPath.workspaceId,
         roomId: proxyPath.roomId,
         usageContext,
-        model: providerRequest.model,
-        managedModelMetadata,
+        model: hostedManagedModelId,
+        managedModelMetadata: requestManagedModelMetadata,
         reservationId,
         reservationCents,
         usageMarkupBps: config.billing.usageMarkupBps,

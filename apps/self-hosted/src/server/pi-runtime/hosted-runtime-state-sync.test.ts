@@ -13,39 +13,92 @@ import { createHostedRuntimeStateSync } from './hosted-runtime-state-sync'
 const control = vi.hoisted(() => ({
     active: 0,
     maxActive: 0,
-    total: 0,
-    gate: null as Promise<void> | null,
-    bodies: [] as unknown[],
+    calls: [] as CallbackCall[],
+    waiters: [] as Array<{ count: number; resolve: () => void }>,
 }))
+
+interface CallbackCall {
+    body: unknown
+    release: () => void
+    released: boolean
+}
 
 vi.mock('./hosted-runtime-callback', () => ({
     postHostedRuntimeCallback: async (input: { body: unknown }) => {
-        control.total += 1
-        control.bodies.push(input.body)
+        let release!: () => void
+        const gate = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        const call: CallbackCall = {
+            body: input.body,
+            release: () => {
+                if (call.released) {
+                    return
+                }
+                call.released = true
+                release()
+            },
+            released: false,
+        }
+        control.calls.push(call)
         control.active += 1
         control.maxActive = Math.max(control.maxActive, control.active)
+        const ready = control.waiters.filter((waiter) => control.calls.length >= waiter.count)
+        control.waiters = control.waiters.filter((waiter) => control.calls.length < waiter.count)
+        for (const waiter of ready) {
+            waiter.resolve()
+        }
         try {
-            if (control.gate) {
-                await control.gate
-            }
+            await gate
         } finally {
             control.active -= 1
         }
     },
 }))
 
-function deferred(): { promise: Promise<void>; resolve: () => void } {
-    let resolve!: () => void
-    const promise = new Promise<void>((res) => {
-        resolve = res
+function waitForCallbackCalls(count: number): Promise<void> {
+    if (control.calls.length >= count) {
+        return Promise.resolve()
+    }
+    return new Promise((resolve) => {
+        control.waiters.push({ count, resolve })
     })
-    return { promise, resolve }
 }
 
-function delay(ms: number): Promise<void> {
-    return new Promise((done) => {
-        setTimeout(done, ms)
-    })
+function releaseStartedCalls(): void {
+    for (const call of control.calls) {
+        call.release()
+    }
+}
+
+async function releaseCallsUntilStarted(count: number): Promise<void> {
+    while (control.calls.length < count) {
+        const started = waitForCallbackCalls(control.calls.length + 1)
+        releaseStartedCalls()
+        await started
+    }
+}
+
+function callbackState(call: CallbackCall): {
+    operation?: string
+    relativePath?: string
+    contentBase64?: string
+} {
+    const body = call.body as {
+        state?: {
+            operation?: string
+            relativePath?: string
+            contentBase64?: string
+        }
+    }
+    expect(body.state).toBeTruthy()
+    return body.state!
+}
+
+function callbackContentText(call: CallbackCall): string {
+    const state = callbackState(call)
+    expect(state.contentBase64).toBeTruthy()
+    return Buffer.from(state.contentBase64!, 'base64url').toString('utf8')
 }
 
 function makeConfig(stateDir: string): PiRuntimeConfig {
@@ -61,9 +114,8 @@ describe('createHostedRuntimeStateSync', () => {
     beforeEach(async () => {
         control.active = 0
         control.maxActive = 0
-        control.total = 0
-        control.gate = null
-        control.bodies = []
+        control.calls = []
+        control.waiters = []
         process.env[hostedRuntimeStateCallbackUrlEnvKey] = 'https://example.test/state'
         process.env[hostedRuntimeUsageCallbackTokenEnvKey] = 'token'
         process.env[hostedRuntimeWorkspaceIdEnvKey] = 'workspace'
@@ -82,24 +134,30 @@ describe('createHostedRuntimeStateSync', () => {
         const path = join(stateDir, 'threads.json')
         await writeFile(path, 'first')
 
-        const gate = deferred()
-        control.gate = gate.promise
         const first = sync.upsert(path)
-        await delay(5)
-        expect(control.total).toBe(1)
+        await waitForCallbackCalls(1)
+        expect(control.calls).toHaveLength(1)
+        expect(callbackState(control.calls[0]!).relativePath).toBe('threads.json')
+        expect(callbackContentText(control.calls[0]!)).toBe('first')
 
         await writeFile(path, 'second')
         const trailing = [sync.upsert(path), sync.upsert(path), sync.upsert(path)]
-        gate.resolve()
-        await Promise.all([first, ...trailing])
+        expect(control.calls).toHaveLength(1)
 
-        expect(control.total).toBe(2)
+        control.calls[0]!.release()
+        await first
+        await waitForCallbackCalls(2)
+        expect(control.calls).toHaveLength(2)
+        expect(callbackState(control.calls[1]!).relativePath).toBe('threads.json')
+        expect(callbackContentText(control.calls[1]!)).toBe('second')
+
+        control.calls[1]!.release()
+        await Promise.all(trailing)
+        expect(control.calls).toHaveLength(2)
     })
 
     it('bounds concurrency across distinct paths to the configured pool size', async () => {
         const sync = createHostedRuntimeStateSync(makeConfig(stateDir))
-        const gate = deferred()
-        control.gate = gate.promise
 
         await mkdir(join(stateDir, 'sessions'), { recursive: true })
         const promises: Array<Promise<void>> = []
@@ -109,11 +167,22 @@ describe('createHostedRuntimeStateSync', () => {
             promises.push(sync.upsert(path))
         }
 
-        await delay(20)
+        await waitForCallbackCalls(4)
+        expect(control.calls).toHaveLength(4)
+        expect(control.active).toBe(4)
         expect(control.maxActive).toBe(4)
 
-        gate.resolve()
+        control.calls[0]!.release()
+        await waitForCallbackCalls(5)
+        expect(control.calls).toHaveLength(5)
+        expect(control.active).toBe(4)
+        expect(control.maxActive).toBe(4)
+
+        await releaseCallsUntilStarted(12)
+        releaseStartedCalls()
         await Promise.all(promises)
-        expect(control.total).toBe(12)
+        expect(control.calls).toHaveLength(12)
+        expect(control.active).toBe(0)
+        expect(control.maxActive).toBe(4)
     })
 })

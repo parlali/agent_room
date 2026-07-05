@@ -37,8 +37,11 @@ import {
     createOnboardingPersonalityTool,
     onboardingSystemPrompt,
 } from './onboarding-personality-tool'
+import { hostedRuntimeManagedOpenRouterEnvKey } from '../rooms/pi-runtime-contract'
 
 type CodexResponsesModel = Model<'openai-codex-responses'>
+
+const hostedManagedModelOverrideLoggedThreads = new Set<string>()
 
 export interface PiRuntimeSessionInput {
     config: PiRuntimeConfig
@@ -93,6 +96,42 @@ function codexReasoningEffort(
 ): OpenAICodexResponsesOptions['reasoningEffort'] {
     if (!reasoning) return undefined
     return supportsXhigh(model) ? reasoning : reasoning === 'xhigh' ? 'high' : reasoning
+}
+
+export function isHostedManagedOpenRouterRuntimeConfig(config: PiRuntimeConfig): boolean {
+    return (
+        process.env[hostedRuntimeManagedOpenRouterEnvKey] === '1' &&
+        config.provider.sourceProvider === 'openrouter' &&
+        config.provider.piProvider === 'openrouter'
+    )
+}
+
+export function resolvePiRuntimeProviderRequestModel(input: {
+    config: PiRuntimeConfig
+    record: ThreadRecord
+    requestedModel: Model<Api>
+    configuredModel: Model<Api>
+}): Model<Api> {
+    if (!isHostedManagedOpenRouterRuntimeConfig(input.config)) {
+        return input.requestedModel
+    }
+    const sameModel =
+        input.requestedModel.provider === input.configuredModel.provider &&
+        input.requestedModel.id === input.configuredModel.id
+    if (!sameModel && !hostedManagedModelOverrideLoggedThreads.has(input.record.key)) {
+        hostedManagedModelOverrideLoggedThreads.add(input.record.key)
+        console.warn(
+            'Hosted managed runtime ignored stored thread model in favor of config model',
+            {
+                sessionKey: input.record.key,
+                storedProvider: input.requestedModel.provider,
+                storedModel: input.requestedModel.id,
+                configProvider: input.configuredModel.provider,
+                configModel: input.configuredModel.id,
+            },
+        )
+    }
+    return input.configuredModel
 }
 
 export function createPiRuntimeCustomTools(input: PiRuntimeSessionInput): ToolDefinition[] {
@@ -233,6 +272,7 @@ export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Prom
     const hasPersistedModelState = sessionManager
         .getBranch()
         .some((entry) => entry.type === 'model_change' || entry.type === 'thinking_level_change')
+    const resolveManagedModelFromConfig = isHostedManagedOpenRouterRuntimeConfig(config)
     const customTools = createPiRuntimeCustomTools(input)
     const enabledTools = enabledToolNamesForSession(config, customTools)
     const { session } = await createAgentSession({
@@ -240,7 +280,8 @@ export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Prom
         agentDir: config.paths.stateDir,
         authStorage,
         modelRegistry,
-        model: hasPersistedModelState ? undefined : configuredModel,
+        model:
+            hasPersistedModelState && !resolveManagedModelFromConfig ? undefined : configuredModel,
         thinkingLevel: hasPersistedModelState ? undefined : (record.thinkingLevel ?? 'medium'),
         resourceLoader: createPiResourceLoader(() =>
             record.kind === 'onboarding'
@@ -268,17 +309,23 @@ export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Prom
             }
         }
         const streamOptions = { ...options, signal: providerAbort.signal }
+        const requestModel = resolvePiRuntimeProviderRequestModel({
+            config,
+            record,
+            requestedModel: model,
+            configuredModel,
+        })
         const openProviderStream = async () => {
-            const serviceTier = codexServiceTierForSpeedMode(model, record.speedMode)
-            if (!serviceTier || !isCodexResponsesModel(model)) {
-                return streamWithRuntimeOptions(model, context, streamOptions)
+            const serviceTier = codexServiceTierForSpeedMode(requestModel, record.speedMode)
+            if (!serviceTier || !isCodexResponsesModel(requestModel)) {
+                return streamWithRuntimeOptions(requestModel, context, streamOptions)
             }
-            const auth = await modelRegistry.getApiKeyAndHeaders(model)
+            const auth = await modelRegistry.getApiKeyAndHeaders(requestModel)
             if (!auth.ok) {
                 throw new Error(auth.error)
             }
             const providerRetrySettings = settingsManager.getProviderRetrySettings()
-            return streamOpenAICodexResponses(model, context, {
+            return streamOpenAICodexResponses(requestModel, context, {
                 ...streamOptions,
                 apiKey: auth.apiKey,
                 timeoutMs: streamOptions.timeoutMs ?? providerRetrySettings.timeoutMs,
@@ -289,7 +336,7 @@ export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Prom
                     auth.headers || streamOptions.headers
                         ? { ...auth.headers, ...streamOptions.headers }
                         : undefined,
-                reasoningEffort: codexReasoningEffort(model, streamOptions.reasoning),
+                reasoningEffort: codexReasoningEffort(requestModel, streamOptions.reasoning),
                 serviceTier,
             })
         }
@@ -298,9 +345,9 @@ export async function createPiRuntimeSession(input: PiRuntimeSessionInput): Prom
             source,
             idleTimeoutMs: config.budgets.providerIdleTimeoutMs,
             model: {
-                api: model.api,
-                provider: model.provider,
-                id: model.id,
+                api: requestModel.api,
+                provider: requestModel.provider,
+                id: requestModel.id,
             },
             onStall: () => {
                 providerAbort.abort(new Error(providerStreamStalledMessage))

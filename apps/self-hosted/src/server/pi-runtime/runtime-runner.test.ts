@@ -9,7 +9,11 @@ import {
     hostedRuntimeManagedOpenRouterEnvKey,
     hostedRuntimeUsageCallbackUrlEnvKey,
 } from '../rooms/pi-runtime-contract'
-import { createRuntimeRunPrompt, type ActiveThread } from './runtime-runner'
+import {
+    createRuntimeRunPrompt,
+    providerFailureDisplayMessage,
+    type ActiveThread,
+} from './runtime-runner'
 import { memoryCaptureExpectationReasons, summarizeRunToolActivity } from './runtime-tool-activity'
 import { createTestPiRuntimeConfig, ensureTestPiRuntimeDirectories } from './test-runtime-defaults'
 import { normalizeThreadRecord, type ThreadRecord } from './thread-records'
@@ -560,6 +564,21 @@ describe('runtime runner memory capture audit', () => {
             expect(record.lastError).toBe(providerError)
             expect(record.pendingUserMessages ?? []).toEqual([])
         })
+    })
+
+    it('uses coded provider error messages in assistant error display text', () => {
+        const codedMessage =
+            'This conversation uses a model that is not available. Start a new conversation or switch the model.'
+        const display = providerFailureDisplayMessage(
+            `OpenRouter failed with 403 ${JSON.stringify({
+                ok: false,
+                code: 'model_not_allowed',
+                message: codedMessage,
+            })}`,
+        )
+
+        expect(display).toContain(`Provider detail: ${codedMessage}`)
+        expect(display).not.toContain('OpenRouter failed with 403')
     })
 
     it('emits run.error when the provider stream dies mid-body', async () => {

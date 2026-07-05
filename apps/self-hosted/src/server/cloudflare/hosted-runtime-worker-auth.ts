@@ -4,10 +4,15 @@ import { getHostedRuntimeEndpointState } from './hosted-room-service'
 import { hostedJsonResponse } from './hosted-worker-response'
 import type { HostedRuntimeUsageContext } from './hosted-runtime-usage-context'
 import { timingSafeEqualString } from '../security/timing-safe'
+import { hostedRuntimeTokenSha256Hex } from './hosted-runtime-token-hash'
+import { enqueueHostedRuntimeReconcile } from './hosted-runtime-jobs'
 
 type HostedRuntimeEndpointState = NonNullable<
     Awaited<ReturnType<typeof getHostedRuntimeEndpointState>>
 >
+
+const staleRuntimeTokenHealCooldownMs = 5 * 60 * 1000
+const staleRuntimeTokenLastError = 'Room access was refreshed. The room is restarting.'
 
 function bearerToken(request: Request): string | null {
     const authorization = request.headers.get('authorization') ?? ''
@@ -80,6 +85,202 @@ export function runtimeUsageContext(request: Request): HostedRuntimeUsageContext
     }
 }
 
+function runtimeTokenInvalidResponse(): Response {
+    return hostedJsonResponse(
+        {
+            ok: false,
+            code: 'runtime_token_invalid',
+        },
+        {
+            status: 403,
+        },
+    )
+}
+
+function runtimeTokenStaleResponse(): Response {
+    return hostedJsonResponse(
+        {
+            ok: false,
+            code: 'runtime_token_stale',
+        },
+        {
+            status: 403,
+        },
+    )
+}
+
+async function presentedTokenMatchesPreviousGeneration(input: {
+    token: string
+    previousTokenHash: string | null
+}): Promise<boolean> {
+    if (!input.previousTokenHash) {
+        return false
+    }
+    const presentedHash = await hostedRuntimeTokenSha256Hex(input.token)
+    return timingSafeEqualString(presentedHash, input.previousTokenHash)
+}
+
+async function claimHostedRuntimeStaleTokenHeal(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+}): Promise<boolean> {
+    const now = new Date()
+    const cutoff = new Date(now.getTime() - staleRuntimeTokenHealCooldownMs).toISOString()
+    const nowIso = now.toISOString()
+    const result = await input.env.AGENT_ROOM_DB.prepare(
+        `
+            UPDATE hosted_room_runtime_state
+            SET stale_token_heal_enqueued_at = ?1,
+                last_error = ?2,
+                updated_at = ?1
+            WHERE workspace_id = ?3
+              AND room_id = ?4
+              AND (
+                  stale_token_heal_enqueued_at IS NULL
+                  OR stale_token_heal_enqueued_at < ?5
+              )
+        `,
+    )
+        .bind(nowIso, staleRuntimeTokenLastError, input.workspaceId, input.roomId, cutoff)
+        .run()
+    return (result.meta.changes ?? 0) > 0
+}
+
+async function clearHostedRuntimeStaleTokenHealClaim(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+}): Promise<void> {
+    await input.env.AGENT_ROOM_DB.prepare(
+        `
+            UPDATE hosted_room_runtime_state
+            SET stale_token_heal_enqueued_at = NULL,
+                last_error = CASE
+                    WHEN last_error = ?1 THEN NULL
+                    ELSE last_error
+                END,
+                updated_at = ?2
+            WHERE workspace_id = ?3
+              AND room_id = ?4
+        `,
+    )
+        .bind(staleRuntimeTokenLastError, new Date().toISOString(), input.workspaceId, input.roomId)
+        .run()
+}
+
+async function enqueueHostedRuntimeStaleTokenHeal(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+    tokenVersion: number
+}): Promise<void> {
+    let claimed = false
+    try {
+        claimed = await claimHostedRuntimeStaleTokenHeal(input)
+    } catch (error) {
+        console.error('Hosted runtime stale-token heal claim failed', {
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            error: error instanceof Error ? error.message : error,
+        })
+        return
+    }
+    if (!claimed) {
+        console.warn('Hosted runtime stale-token heal was already enqueued recently', {
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            tokenVersion: input.tokenVersion,
+        })
+        return
+    }
+    console.error('Hosted runtime presented a stale runtime token; queueing rotate/recreate heal', {
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+        tokenVersion: input.tokenVersion,
+    })
+    try {
+        await enqueueHostedRuntimeReconcile({
+            env: input.env,
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            actorUserId: null,
+            rotateToken: true,
+        })
+    } catch (error) {
+        console.error('Hosted runtime stale-token heal enqueue failed', {
+            workspaceId: input.workspaceId,
+            roomId: input.roomId,
+            error: error instanceof Error ? error.message : error,
+        })
+        try {
+            await clearHostedRuntimeStaleTokenHealClaim(input)
+        } catch (rollbackError) {
+            console.error('Hosted runtime stale-token heal claim rollback failed', {
+                workspaceId: input.workspaceId,
+                roomId: input.roomId,
+                error: rollbackError instanceof Error ? rollbackError.message : rollbackError,
+            })
+        }
+    }
+}
+
+async function authorizeHostedRuntimeToken(input: {
+    env: AgentRoomHostedEnv
+    runtime: HostedRuntimeEndpointState
+    token: string | null
+}): Promise<Response | null> {
+    const workspaceId = input.runtime.runtime.workspaceId
+    const roomId = input.runtime.runtime.roomId
+    if (!input.runtime.runtime.tokenObjectKey) {
+        return runtimeTokenInvalidResponse()
+    }
+    let expectedToken: string
+    try {
+        expectedToken = await readHostedRuntimeToken({
+            env: input.env,
+            tokenObjectKey: input.runtime.runtime.tokenObjectKey,
+        })
+    } catch (error) {
+        console.error('Hosted runtime callback token object unreadable; denying callback', {
+            workspaceId,
+            roomId,
+            tokenObjectKey: input.runtime.runtime.tokenObjectKey,
+            error: error instanceof Error ? error.message : error,
+        })
+        return hostedJsonResponse(
+            {
+                ok: false,
+                code: 'runtime_token_unreadable',
+            },
+            {
+                status: 403,
+            },
+        )
+    }
+    if (!input.token) {
+        return runtimeTokenInvalidResponse()
+    }
+    if (timingSafeEqualString(input.token, expectedToken)) {
+        return null
+    }
+    if (
+        await presentedTokenMatchesPreviousGeneration({
+            token: input.token,
+            previousTokenHash: input.runtime.runtime.previousTokenHash,
+        })
+    ) {
+        await enqueueHostedRuntimeStaleTokenHeal({
+            env: input.env,
+            workspaceId,
+            roomId,
+            tokenVersion: input.runtime.runtime.tokenVersion,
+        })
+        return runtimeTokenStaleResponse()
+    }
+    return runtimeTokenInvalidResponse()
+}
+
 export async function requireHostedRuntimeCallback(input: {
     env: AgentRoomHostedEnv
     request: Request
@@ -122,51 +323,14 @@ export async function requireHostedRuntimeCallback(input: {
             },
         )
     }
-    if (!runtime.runtime.tokenObjectKey) {
-        return hostedJsonResponse(
-            {
-                ok: false,
-                code: 'runtime_token_invalid',
-            },
-            {
-                status: 403,
-            },
-        )
-    }
     const token = bearerToken(input.request)
-    let expectedToken: string
-    try {
-        expectedToken = await readHostedRuntimeToken({
-            env: input.env,
-            tokenObjectKey: runtime.runtime.tokenObjectKey,
-        })
-    } catch (error) {
-        console.error('Hosted runtime callback token object unreadable; denying callback', {
-            workspaceId,
-            roomId,
-            tokenObjectKey: runtime.runtime.tokenObjectKey,
-            error: error instanceof Error ? error.message : error,
-        })
-        return hostedJsonResponse(
-            {
-                ok: false,
-                code: 'runtime_token_unreadable',
-            },
-            {
-                status: 403,
-            },
-        )
-    }
-    if (!token || !timingSafeEqualString(token, expectedToken)) {
-        return hostedJsonResponse(
-            {
-                ok: false,
-                code: 'runtime_token_invalid',
-            },
-            {
-                status: 403,
-            },
-        )
+    const authResponse = await authorizeHostedRuntimeToken({
+        env: input.env,
+        runtime,
+        token,
+    })
+    if (authResponse) {
+        return authResponse
     }
     return {
         workspaceId,
@@ -219,20 +383,13 @@ export async function requireHostedRuntimeProviderProxy(input: {
         request: input.request,
         tokenHeaderName: input.tokenHeaderName,
     })
-    const expectedToken = await readHostedRuntimeToken({
+    const authResponse = await authorizeHostedRuntimeToken({
         env: input.env,
-        tokenObjectKey: runtime.runtime.tokenObjectKey,
+        runtime,
+        token,
     })
-    if (!token || !timingSafeEqualString(token, expectedToken)) {
-        return hostedJsonResponse(
-            {
-                ok: false,
-                code: 'runtime_token_invalid',
-            },
-            {
-                status: 403,
-            },
-        )
+    if (authResponse) {
+        return authResponse
     }
     return runtime
 }

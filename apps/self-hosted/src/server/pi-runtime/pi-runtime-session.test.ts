@@ -2,17 +2,19 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { getModel } from '@mariozechner/pi-ai'
+import { getModel, type Api, type Model } from '@mariozechner/pi-ai'
 import { createTestPiRuntimeConfig, ensureTestPiRuntimeDirectories } from './test-runtime-defaults'
 import {
     createPiRuntimeCustomTools,
     enabledToolNamesForSession,
+    resolvePiRuntimeProviderRequestModel,
     type PiRuntimeSessionInput,
 } from './pi-runtime-session'
 import { codexServiceTierForSpeedMode } from './runtime-speed-mode'
 import { BrowserbaseBrowserAutomationManager } from './browserbase-browser'
 import type { ThreadRecord } from './thread-records'
 import { onboardingPersonalityToolName } from './onboarding-personality-tool'
+import { hostedRuntimeManagedOpenRouterEnvKey } from '../rooms/pi-runtime-contract'
 
 function threadRecord(input: { key: string; kind?: ThreadRecord['kind'] }): ThreadRecord {
     const now = Date.now()
@@ -173,6 +175,119 @@ describe('Pi runtime session tools', () => {
             },
             'onboarding',
         )
+    })
+
+    it('resolves hosted managed OpenRouter request models from runtime config', () => {
+        const previousManagedOpenRouter = process.env[hostedRuntimeManagedOpenRouterEnvKey]
+        process.env[hostedRuntimeManagedOpenRouterEnvKey] = '1'
+        try {
+            const config = createTestPiRuntimeConfig({
+                root: tmpdir(),
+                provider: {
+                    sourceProvider: 'openrouter',
+                    sourceModel: 'google/gemini-3-flash-preview',
+                    piProvider: 'openrouter',
+                    piModel: 'google/gemini-3-flash-preview',
+                },
+            })
+            const requestedModel = {
+                provider: 'openrouter',
+                id: 'moonshotai/kimi-k2.6',
+                api: 'openai-completions',
+            } as Model<Api>
+            const configuredModel = {
+                provider: 'openrouter',
+                id: 'google/gemini-3-flash-preview',
+                api: 'openai-completions',
+            } as Model<Api>
+
+            expect(
+                resolvePiRuntimeProviderRequestModel({
+                    config,
+                    record: threadRecord({ key: 'managed-thread' }),
+                    requestedModel,
+                    configuredModel,
+                }),
+            ).toBe(configuredModel)
+        } finally {
+            if (previousManagedOpenRouter === undefined) {
+                delete process.env[hostedRuntimeManagedOpenRouterEnvKey]
+            } else {
+                process.env[hostedRuntimeManagedOpenRouterEnvKey] = previousManagedOpenRouter
+            }
+        }
+    })
+
+    it('keeps stored request models for non-managed provider bindings', () => {
+        const previousManagedOpenRouter = process.env[hostedRuntimeManagedOpenRouterEnvKey]
+        delete process.env[hostedRuntimeManagedOpenRouterEnvKey]
+        try {
+            const config = createTestPiRuntimeConfig({
+                root: tmpdir(),
+                provider: {
+                    sourceProvider: 'openrouter',
+                    sourceModel: 'openrouter/test-model',
+                    piProvider: 'openrouter',
+                    piModel: 'test-model',
+                },
+            })
+            const requestedModel = {
+                provider: 'openrouter',
+                id: 'test-model',
+                api: 'openai-completions',
+            } as Model<Api>
+            const configuredModel = {
+                provider: 'openrouter',
+                id: 'other-model',
+                api: 'openai-completions',
+            } as Model<Api>
+
+            expect(
+                resolvePiRuntimeProviderRequestModel({
+                    config,
+                    record: threadRecord({ key: 'byok-thread' }),
+                    requestedModel,
+                    configuredModel,
+                }),
+            ).toBe(requestedModel)
+
+            process.env[hostedRuntimeManagedOpenRouterEnvKey] = '1'
+            const codexConfig = createTestPiRuntimeConfig({
+                root: tmpdir(),
+                provider: {
+                    sourceProvider: 'openai-codex',
+                    sourceModel: 'openai-codex/gpt-5.5',
+                    piProvider: 'openai-codex',
+                    piModel: 'gpt-5.5',
+                    api: 'openai-codex-responses',
+                },
+            })
+            const requestedCodexModel = {
+                provider: 'openai-codex',
+                id: 'gpt-5.4',
+                api: 'openai-codex-responses',
+            } as Model<Api>
+            const configuredCodexModel = {
+                provider: 'openai-codex',
+                id: 'gpt-5.5',
+                api: 'openai-codex-responses',
+            } as Model<Api>
+
+            expect(
+                resolvePiRuntimeProviderRequestModel({
+                    config: codexConfig,
+                    record: threadRecord({ key: 'codex-thread' }),
+                    requestedModel: requestedCodexModel,
+                    configuredModel: configuredCodexModel,
+                }),
+            ).toBe(requestedCodexModel)
+        } finally {
+            if (previousManagedOpenRouter === undefined) {
+                delete process.env[hostedRuntimeManagedOpenRouterEnvKey]
+            } else {
+                process.env[hostedRuntimeManagedOpenRouterEnvKey] = previousManagedOpenRouter
+            }
+        }
     })
 
     it('deduplicates native workspace tools before session registration', async () => {

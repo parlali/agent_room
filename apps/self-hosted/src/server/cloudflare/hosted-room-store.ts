@@ -114,6 +114,8 @@ export async function getHostedRuntimeState(input: {
                 runtime_bundle_object_key AS runtimeBundleObjectKey,
                 provider_candidate AS providerCandidate,
                 workspace_snapshot_key AS workspaceSnapshotKey,
+                previous_token_hash AS previousTokenHash,
+                stale_token_heal_enqueued_at AS staleTokenHealEnqueuedAt,
                 config_version AS configVersion,
                 token_version AS tokenVersion,
                 health_status AS healthStatus,
@@ -162,6 +164,8 @@ export async function getHostedRuntimeEndpointState(input: {
                 runtime.runtime_bundle_object_key AS runtimeBundleObjectKey,
                 runtime.provider_candidate AS providerCandidate,
                 runtime.workspace_snapshot_key AS workspaceSnapshotKey,
+                runtime.previous_token_hash AS previousTokenHash,
+                runtime.stale_token_heal_enqueued_at AS staleTokenHealEnqueuedAt,
                 runtime.config_version AS configVersion,
                 runtime.token_version AS tokenVersion,
                 runtime.health_status AS healthStatus,
@@ -198,6 +202,8 @@ export async function getHostedRuntimeEndpointState(input: {
                   runtimeBundleObjectKey: row.runtimeBundleObjectKey,
                   providerCandidate: row.providerCandidate,
                   workspaceSnapshotKey: row.workspaceSnapshotKey,
+                  previousTokenHash: row.previousTokenHash,
+                  staleTokenHealEnqueuedAt: row.staleTokenHealEnqueuedAt,
                   configVersion: row.configVersion,
                   tokenVersion: row.tokenVersion,
                   healthStatus: row.healthStatus,
@@ -230,6 +236,8 @@ export interface HostedRuntimeRow {
     runtimeBundleObjectKey: string | null
     providerCandidate: HostedProviderCandidate | null
     workspaceSnapshotKey: string | null
+    previousTokenHash: string | null
+    staleTokenHealEnqueuedAt: string | null
     configVersion: number
     tokenVersion: number
     healthStatus: string

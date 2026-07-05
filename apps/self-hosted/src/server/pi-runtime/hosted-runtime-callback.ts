@@ -4,19 +4,33 @@ const hostedRuntimeCallbackTimeoutMs = 10000
 const hostedRuntimeThrottleFallbackMessage =
     'This room is temporarily rate limited. It will recover shortly.'
 
-async function hostedRuntimeThrottleMessage(response: Response): Promise<string> {
+async function hostedRuntimeJsonStringField(
+    response: Response,
+    fieldName: string,
+): Promise<string | null> {
     try {
         const body = (await response.json()) as unknown
         if (body && typeof body === 'object' && !Array.isArray(body)) {
-            const message = (body as Record<string, unknown>).message
-            if (typeof message === 'string' && message.trim()) {
-                return message.trim()
+            const value = (body as Record<string, unknown>)[fieldName]
+            if (typeof value === 'string' && value.trim()) {
+                return value.trim()
             }
         }
     } catch {
-        return hostedRuntimeThrottleFallbackMessage
+        return null
     }
-    return hostedRuntimeThrottleFallbackMessage
+    return null
+}
+
+async function hostedRuntimeThrottleMessage(response: Response): Promise<string> {
+    return (
+        (await hostedRuntimeJsonStringField(response, 'message')) ??
+        hostedRuntimeThrottleFallbackMessage
+    )
+}
+
+async function hostedRuntimeCallbackCode(response: Response): Promise<string | null> {
+    return hostedRuntimeJsonStringField(response, 'code')
 }
 
 export async function postHostedRuntimeCallback(input: {
@@ -60,6 +74,17 @@ export async function postHostedRuntimeCallback(input: {
                 `${input.label} callback throttled with status 429; deferring to the next sync cycle`,
             )
             throw new Error(message)
+        }
+        if (response.status === 403) {
+            const code = await hostedRuntimeCallbackCode(response)
+            if (code === 'runtime_token_stale') {
+                console.error(
+                    `${input.label} callback rejected because runtime credentials rotated; this container generation is terminal`,
+                )
+                throw new Error(
+                    `${input.label} callback rejected because runtime credentials rotated`,
+                )
+            }
         }
         const retryable = response.status >= 500
         console.warn(
