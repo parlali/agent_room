@@ -165,12 +165,7 @@ async function clearHostedRuntimeStaleTokenHealClaim(input: {
               AND room_id = ?4
         `,
     )
-        .bind(
-            staleRuntimeTokenLastError,
-            new Date().toISOString(),
-            input.workspaceId,
-            input.roomId,
-        )
+        .bind(staleRuntimeTokenLastError, new Date().toISOString(), input.workspaceId, input.roomId)
         .run()
 }
 
