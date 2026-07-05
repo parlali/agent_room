@@ -17,6 +17,11 @@ describe('sanitizeRuntimeError', () => {
         expect(sanitizeRuntimeError(duplicate)).toBe(duplicate)
     })
 
+    it('passes through the hosted credential refresh restart message', () => {
+        const message = 'Room access was refreshed. The room is restarting.'
+        expect(sanitizeRuntimeError(message)).toBe(message)
+    })
+
     it('still masks provider and infrastructure jargon', () => {
         expect(sanitizeRuntimeError('Hosted runtime access denied')).toBe(
             'Something went wrong. Try again in a moment.',

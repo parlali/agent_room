@@ -72,6 +72,7 @@ import {
     hostedRuntimeTokenKey,
 } from './workspace-storage'
 import { deleteHostedWorkspaceObjects } from './hosted-workspace-objects'
+import { hostedRuntimeTokenSha256Hex } from './hosted-runtime-token-hash'
 
 export class HostedRuntimeMaterializationConflictError extends Error {
     constructor() {
@@ -147,6 +148,7 @@ export async function materializeHostedRuntime(input: {
         throw new Error('Runtime state not found')
     }
     const previousTokenObjectKey = runtimeState.row.tokenObjectKey
+    let previousTokenHash: string | null = null
     let reuseTokenObjectKey = input.rotateToken === true ? null : previousTokenObjectKey
     let token: string
     if (reuseTokenObjectKey) {
@@ -166,9 +168,32 @@ export async function materializeHostedRuntime(input: {
             token = randomHostedRuntimeToken()
         }
     } else {
+        if (previousTokenObjectKey) {
+            try {
+                previousTokenHash = await hostedRuntimeTokenSha256Hex(
+                    await readHostedRuntimeToken({
+                        env: input.env,
+                        tokenObjectKey: previousTokenObjectKey,
+                    }),
+                )
+            } catch (error) {
+                console.error('Hosted runtime previous token object unreadable during rotation', {
+                    workspaceId: input.actor.workspaceId,
+                    roomId: input.roomId,
+                    tokenObjectKey: previousTokenObjectKey,
+                    error: error instanceof Error ? error.message : error,
+                })
+            }
+        }
         token = randomHostedRuntimeToken()
     }
     const rotateToken = reuseTokenObjectKey === null
+    const nextPreviousTokenHash = rotateToken
+        ? previousTokenHash
+        : runtimeState.row.previousTokenHash
+    const nextStaleTokenHealEnqueuedAt = rotateToken
+        ? null
+        : runtimeState.row.staleTokenHealEnqueuedAt
     const publicOrigin = new URL(input.env.BETTER_AUTH_URL).origin
     const providerMaterialization = await materializeHostedProvider({
         env: input.env,
@@ -491,7 +516,9 @@ export async function materializeHostedRuntime(input: {
                 health_status = 'unknown',
                 last_health_at = NULL,
                 last_error = NULL,
-                updated_at = ?7
+                updated_at = ?7,
+                previous_token_hash = ?12,
+                stale_token_heal_enqueued_at = ?13
             WHERE workspace_id = ?8
               AND room_id = ?9
               AND config_version = ?10
@@ -517,6 +544,8 @@ export async function materializeHostedRuntime(input: {
             input.roomId,
             runtimeState.row.configVersion,
             runtimeState.row.tokenVersion,
+            nextPreviousTokenHash,
+            nextStaleTokenHealEnqueuedAt,
         )
         .run()
     if ((updateResult.meta.changes ?? 0) < 1) {

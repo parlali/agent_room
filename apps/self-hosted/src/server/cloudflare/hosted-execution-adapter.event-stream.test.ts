@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => {
             runtimeBundleObjectKey: null,
             providerCandidate: null,
             workspaceSnapshotKey: null,
+            previousTokenHash: null,
+            staleTokenHealEnqueuedAt: null,
             configVersion: 0,
             tokenVersion: 0,
             healthStatus: 'unknown',

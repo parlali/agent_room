@@ -13,6 +13,8 @@ function runtimeStateRow() {
         runtimeBundleObjectKey: 'bundle-key',
         providerCandidate: 'user_key',
         workspaceSnapshotKey: null,
+        previousTokenHash: null,
+        staleTokenHealEnqueuedAt: null,
         configVersion: 1,
         tokenVersion: 1,
         healthStatus: 'healthy',

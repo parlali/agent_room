@@ -226,6 +226,16 @@ describe('hosted D1 schema contract', () => {
         expect(normalizeSqlFragment(sql)).toContain(
             normalizeSqlFragment('INSERT INTO hosted_room_config'),
         )
+        expect(normalizeSqlFragment(sql)).toContain(
+            normalizeSqlFragment(
+                'ALTER TABLE hosted_room_runtime_state ADD COLUMN previous_token_hash TEXT',
+            ),
+        )
+        expect(normalizeSqlFragment(sql)).toContain(
+            normalizeSqlFragment(
+                'ALTER TABLE hosted_room_runtime_state ADD COLUMN stale_token_heal_enqueued_at DATE',
+            ),
+        )
         expect(normalizeSqlFragment(sql)).not.toContain(
             normalizeSqlFragment('CREATE TABLE hosted_room_job_run'),
         )

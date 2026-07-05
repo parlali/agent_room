@@ -19,6 +19,21 @@ async function hostedRuntimeThrottleMessage(response: Response): Promise<string>
     return hostedRuntimeThrottleFallbackMessage
 }
 
+async function hostedRuntimeCallbackCode(response: Response): Promise<string | null> {
+    try {
+        const body = (await response.json()) as unknown
+        if (body && typeof body === 'object' && !Array.isArray(body)) {
+            const code = (body as Record<string, unknown>).code
+            if (typeof code === 'string' && code.trim()) {
+                return code.trim()
+            }
+        }
+    } catch {
+        return null
+    }
+    return null
+}
+
 export async function postHostedRuntimeCallback(input: {
     url: string
     token: string
@@ -60,6 +75,17 @@ export async function postHostedRuntimeCallback(input: {
                 `${input.label} callback throttled with status 429; deferring to the next sync cycle`,
             )
             throw new Error(message)
+        }
+        if (response.status === 403) {
+            const code = await hostedRuntimeCallbackCode(response)
+            if (code === 'runtime_token_stale') {
+                console.error(
+                    `${input.label} callback rejected because runtime credentials rotated; this container generation is terminal`,
+                )
+                throw new Error(
+                    `${input.label} callback rejected because runtime credentials rotated`,
+                )
+            }
         }
         const retryable = response.status >= 500
         console.warn(
