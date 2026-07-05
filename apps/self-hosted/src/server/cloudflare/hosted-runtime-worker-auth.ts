@@ -147,17 +147,39 @@ async function claimHostedRuntimeStaleTokenHeal(input: {
     return (result.meta.changes ?? 0) > 0
 }
 
+async function clearHostedRuntimeStaleTokenHealClaim(input: {
+    env: AgentRoomHostedEnv
+    workspaceId: string
+    roomId: string
+}): Promise<void> {
+    await input.env.AGENT_ROOM_DB.prepare(
+        `
+            UPDATE hosted_room_runtime_state
+            SET stale_token_heal_enqueued_at = NULL,
+                last_error = CASE
+                    WHEN last_error = ?1 THEN NULL
+                    ELSE last_error
+                END,
+                updated_at = ?2
+            WHERE workspace_id = ?3
+              AND room_id = ?4
+        `,
+    )
+        .bind(
+            staleRuntimeTokenLastError,
+            new Date().toISOString(),
+            input.workspaceId,
+            input.roomId,
+        )
+        .run()
+}
+
 async function enqueueHostedRuntimeStaleTokenHeal(input: {
     env: AgentRoomHostedEnv
     workspaceId: string
     roomId: string
     tokenVersion: number
 }): Promise<void> {
-    console.error('Hosted runtime presented a stale runtime token; queueing rotate/recreate heal', {
-        workspaceId: input.workspaceId,
-        roomId: input.roomId,
-        tokenVersion: input.tokenVersion,
-    })
     let claimed = false
     try {
         claimed = await claimHostedRuntimeStaleTokenHeal(input)
@@ -177,6 +199,11 @@ async function enqueueHostedRuntimeStaleTokenHeal(input: {
         })
         return
     }
+    console.error('Hosted runtime presented a stale runtime token; queueing rotate/recreate heal', {
+        workspaceId: input.workspaceId,
+        roomId: input.roomId,
+        tokenVersion: input.tokenVersion,
+    })
     try {
         await enqueueHostedRuntimeReconcile({
             env: input.env,
@@ -191,6 +218,15 @@ async function enqueueHostedRuntimeStaleTokenHeal(input: {
             roomId: input.roomId,
             error: error instanceof Error ? error.message : error,
         })
+        try {
+            await clearHostedRuntimeStaleTokenHealClaim(input)
+        } catch (rollbackError) {
+            console.error('Hosted runtime stale-token heal claim rollback failed', {
+                workspaceId: input.workspaceId,
+                roomId: input.roomId,
+                error: rollbackError instanceof Error ? rollbackError.message : rollbackError,
+            })
+        }
     }
 }
 

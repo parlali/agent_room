@@ -4,34 +4,33 @@ const hostedRuntimeCallbackTimeoutMs = 10000
 const hostedRuntimeThrottleFallbackMessage =
     'This room is temporarily rate limited. It will recover shortly.'
 
-async function hostedRuntimeThrottleMessage(response: Response): Promise<string> {
+async function hostedRuntimeJsonStringField(
+    response: Response,
+    fieldName: string,
+): Promise<string | null> {
     try {
         const body = (await response.json()) as unknown
         if (body && typeof body === 'object' && !Array.isArray(body)) {
-            const message = (body as Record<string, unknown>).message
-            if (typeof message === 'string' && message.trim()) {
-                return message.trim()
-            }
-        }
-    } catch {
-        return hostedRuntimeThrottleFallbackMessage
-    }
-    return hostedRuntimeThrottleFallbackMessage
-}
-
-async function hostedRuntimeCallbackCode(response: Response): Promise<string | null> {
-    try {
-        const body = (await response.json()) as unknown
-        if (body && typeof body === 'object' && !Array.isArray(body)) {
-            const code = (body as Record<string, unknown>).code
-            if (typeof code === 'string' && code.trim()) {
-                return code.trim()
+            const value = (body as Record<string, unknown>)[fieldName]
+            if (typeof value === 'string' && value.trim()) {
+                return value.trim()
             }
         }
     } catch {
         return null
     }
     return null
+}
+
+async function hostedRuntimeThrottleMessage(response: Response): Promise<string> {
+    return (
+        (await hostedRuntimeJsonStringField(response, 'message')) ??
+        hostedRuntimeThrottleFallbackMessage
+    )
+}
+
+async function hostedRuntimeCallbackCode(response: Response): Promise<string | null> {
+    return hostedRuntimeJsonStringField(response, 'code')
 }
 
 export async function postHostedRuntimeCallback(input: {

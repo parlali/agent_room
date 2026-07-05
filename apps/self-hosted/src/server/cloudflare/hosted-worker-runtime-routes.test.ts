@@ -105,29 +105,39 @@ vi.mock('./hosted-room-config-store', () => ({
 
 const validToken = 'runtime-token-value-123456'
 
+interface RuntimeDbUpdate {
+    sql: string
+    args: unknown[]
+}
+
 function hostedEnv(
     input: {
         staleTokenHealChanges?: number[]
+        runtimeDbUpdates?: RuntimeDbUpdate[]
     } = {},
 ): AgentRoomHostedEnv {
     const staleTokenHealChanges = [...(input.staleTokenHealChanges ?? [])]
+    const runtimeDbUpdates = input.runtimeDbUpdates ?? []
     return {
         AGENT_ROOM_DB: {
             prepare: (sql: string) => ({
                 bind: (...args: unknown[]) => ({
                     first: async () => (args[2] === 'job_1' ? { id: 'job_1' } : null),
                     all: async () => ({ results: [] }),
-                    run: async () => ({
-                        success: true,
-                        meta: {
-                            changes:
-                                /stale_token_heal_enqueued_at/.test(sql) &&
-                                staleTokenHealChanges.length > 0
-                                    ? (staleTokenHealChanges.shift() ?? 0)
-                                    : 1,
-                        },
-                        results: [],
-                    }),
+                    run: async () => {
+                        runtimeDbUpdates.push({ sql, args })
+                        return {
+                            success: true,
+                            meta: {
+                                changes:
+                                    /stale_token_heal_enqueued_at/.test(sql) &&
+                                    staleTokenHealChanges.length > 0
+                                        ? (staleTokenHealChanges.shift() ?? 0)
+                                        : 1,
+                            },
+                            results: [],
+                        }
+                    },
                 }),
             }),
         } as unknown as AgentRoomHostedEnv['AGENT_ROOM_DB'],
@@ -512,6 +522,100 @@ describe('hosted runtime worker route security gates', () => {
                 rotateToken: true,
             }),
         )
+    })
+
+    it('clears a stale-token heal claim after enqueue failure so the next stale hit can claim again', async () => {
+        const staleToken = 'stale-runtime-token-123456'
+        const runtimeDbUpdates: RuntimeDbUpdate[] = []
+        mocks.getHostedRuntimeEndpointState.mockResolvedValue(
+            runtimeEndpoint({
+                previousTokenHash: await hostedRuntimeTokenSha256Hex(staleToken),
+            }),
+        )
+        mocks.sendHostedRuntimeJob
+            .mockRejectedValueOnce(new Error('runtime queue unavailable'))
+            .mockResolvedValueOnce(undefined)
+        const env = hostedEnv({
+            runtimeDbUpdates,
+            staleTokenHealChanges: [1, 1, 1],
+        })
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+        try {
+            for (const usageRequestId of [
+                'usage-request-stale-enqueue-fails',
+                'usage-request-stale-enqueue-retries',
+            ]) {
+                const response = await callRoute({
+                    env,
+                    path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
+                    headers: openRouterRuntimeHeaders({
+                        'x-agent-room-usage-request-id': usageRequestId,
+                    }),
+                    token: staleToken,
+                    body: {
+                        model: hostedManagedModelId,
+                        messages: [],
+                    },
+                })
+
+                await expectJsonCode(response, 403, 'runtime_token_stale')
+            }
+
+            expect(mocks.sendHostedRuntimeJob).toHaveBeenCalledTimes(2)
+            expect(
+                runtimeDbUpdates.filter((update) =>
+                    /SET stale_token_heal_enqueued_at = \?1/.test(update.sql),
+                ),
+            ).toHaveLength(2)
+            const rollback = runtimeDbUpdates.find((update) =>
+                /SET stale_token_heal_enqueued_at = NULL/.test(update.sql),
+            )
+            expect(rollback).toBeTruthy()
+            expect(rollback?.args.slice(2)).toEqual(['workspace_1', 'room_1'])
+        } finally {
+            errorSpy.mockRestore()
+        }
+    })
+
+    it('does not log a queueing stale-token heal line when the bounded claim is rejected', async () => {
+        const staleToken = 'stale-runtime-token-123456'
+        mocks.getHostedRuntimeEndpointState.mockResolvedValue(
+            runtimeEndpoint({
+                previousTokenHash: await hostedRuntimeTokenSha256Hex(staleToken),
+            }),
+        )
+        const env = hostedEnv({
+            staleTokenHealChanges: [0],
+        })
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+        try {
+            const response = await callRoute({
+                env,
+                path: '/api/hosted/runtime/provider/openrouter/v1/workspaces/workspace_1/rooms/room_1/chat/completions',
+                headers: openRouterRuntimeHeaders({
+                    'x-agent-room-usage-request-id': 'usage-request-stale-claim-rejected',
+                }),
+                token: staleToken,
+                body: {
+                    model: hostedManagedModelId,
+                    messages: [],
+                },
+            })
+
+            await expectJsonCode(response, 403, 'runtime_token_stale')
+            expect(mocks.sendHostedRuntimeJob).not.toHaveBeenCalled()
+            expect(
+                errorSpy.mock.calls.some(
+                    ([message]) =>
+                        typeof message === 'string' &&
+                        message.includes('queueing rotate/recreate heal'),
+                ),
+            ).toBe(false)
+        } finally {
+            errorSpy.mockRestore()
+        }
     })
 
     it('keeps unknown runtime bearer tokens fail-closed without enqueueing a heal', async () => {
