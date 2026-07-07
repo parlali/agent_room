@@ -26,7 +26,6 @@ import {
     Section,
     StateBadge,
     Stat,
-    StatGrid,
 } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '#/components/ui/collapsible'
@@ -37,6 +36,7 @@ import { roomQueryKey } from '#/lib/room-query-keys'
 import { getOperatorConfigServer } from './-operator-config-server'
 import { requireRouteUser } from './-route-auth'
 import { ManagedCreditsBadge } from './-billing/managed-badge'
+import { MonthlyUsageMeter } from './-billing/monthly-usage'
 import {
     hostedAvailableCents,
     hostedManaged,
@@ -144,8 +144,8 @@ function BillingBaseHeader() {
 function BillingLoading() {
     return (
         <div className="flex flex-col gap-4">
-            <Section title="Available credits">
-                <Stat label="Available" value="..." />
+            <Section title="Monthly usage">
+                <Stat label="Remaining this month" value="..." />
             </Section>
             <Section title="Plans">
                 <div className="grid gap-3 sm:grid-cols-3">
@@ -349,16 +349,10 @@ function BillingResolved({
                 ) : null}
 
                 <Section
-                    title="Available credits"
-                    description="What you have left to spend on AI rooms."
+                    title="Monthly usage"
+                    description="Your included monthly credit and how much is left this month."
                 >
-                    <Stat
-                        label="Available"
-                        value={formatHostedUsd(available)}
-                        tone={low ? 'danger' : undefined}
-                        hint="Included usage is spent first, then purchased credits."
-                    />
-                    <BalanceDetails summary={summary} />
+                    <MonthlyUsageMeter summary={summary} />
                 </Section>
 
                 <Section
@@ -378,43 +372,6 @@ function BillingResolved({
                 <AdvancedDisclosure />
             </div>
         </Page>
-    )
-}
-
-function BalanceDetails({ summary }: { summary: HostedBillingSummary }) {
-    const [open, setOpen] = useState(false)
-    return (
-        <Collapsible open={open} onOpenChange={setOpen} className="mt-3">
-            <CollapsibleTrigger asChild>
-                <Button variant="ghost" size="sm" className="gap-1 px-2 text-muted-foreground">
-                    <ChevronDownIcon
-                        className={`transition-transform ${open ? 'rotate-180' : ''}`}
-                    />
-                    {open ? 'Hide details' : 'Show details'}
-                </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-3">
-                <StatGrid className="sm:grid-cols-3 lg:grid-cols-3">
-                    <Stat
-                        label="Included this month"
-                        value={formatHostedUsd(summary.account.includedBalanceCents)}
-                    />
-                    <Stat
-                        label="Purchased credits"
-                        value={formatHostedUsd(summary.account.purchasedBalanceCents)}
-                    />
-                    <Stat
-                        label="Reserved"
-                        value={formatHostedUsd(summary.account.reservedBalanceCents)}
-                        hint="Held for runs in progress."
-                    />
-                </StatGrid>
-                <p className="mt-3 text-sm text-muted-foreground">
-                    Included usage resets monthly and is spent first. Purchased credits carry over
-                    and are spent after included usage runs out.
-                </p>
-            </CollapsibleContent>
-        </Collapsible>
     )
 }
 

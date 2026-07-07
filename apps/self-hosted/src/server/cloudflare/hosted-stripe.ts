@@ -499,6 +499,9 @@ export async function readHostedBillingSummary(input: {
     ledger: Awaited<ReturnType<typeof listHostedBillingLedger>>
     usage: Awaited<ReturnType<typeof listRecentHostedBillableUsage>>
     remainingUsageCents: number
+    includedMonthlyCents: number
+    includedRemainingCents: number
+    purchasedRemainingCents: number
     active: boolean
     plans: HostedBillingPlan[]
     usageMarkupBps: number
@@ -551,6 +554,9 @@ export async function readHostedBillingSummary(input: {
         ledger,
         usage,
         remainingUsageCents: account.availableBalanceCents,
+        includedMonthlyCents: account.includedMonthlyCreditCents,
+        includedRemainingCents: account.includedBalanceCents,
+        purchasedRemainingCents: account.purchasedBalanceCents,
         active: isHostedBillingPlanStatusActive(account.planStatus),
         plans: config.billing.plans,
         usageMarkupBps: config.billing.usageMarkupBps,

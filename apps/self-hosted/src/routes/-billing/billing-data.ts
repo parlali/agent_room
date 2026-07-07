@@ -29,6 +29,9 @@ export interface HostedBillingSummary {
     plans: HostedBillingPlan[]
     usage: HostedBillingUsageEvent[]
     remainingUsageCents: number
+    includedMonthlyCents: number
+    includedRemainingCents: number
+    purchasedRemainingCents: number
     active: boolean
     providerSources: string[]
 }
@@ -89,6 +92,9 @@ function isHostedBillingSummary(value: unknown): value is HostedBillingSummary {
         Array.isArray(value.usage) &&
         value.usage.every(isHostedBillingUsageEvent) &&
         typeof value.remainingUsageCents === 'number' &&
+        typeof value.includedMonthlyCents === 'number' &&
+        typeof value.includedRemainingCents === 'number' &&
+        typeof value.purchasedRemainingCents === 'number' &&
         typeof value.active === 'boolean' &&
         Array.isArray(value.providerSources) &&
         value.providerSources.every((source) => typeof source === 'string')
