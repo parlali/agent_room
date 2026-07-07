@@ -386,7 +386,7 @@ function MemorySectionEditor({
     const timed = timedSections.has(meta.path)
     const recurring = meta.path === 'schedule.recurring'
     return (
-        <div className="rounded-lg border border-border/50 bg-background/40 p-3">
+        <div className="space-y-3">
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <h3 className="text-sm font-medium text-foreground">{meta.title}</h3>
@@ -398,11 +398,11 @@ function MemorySectionEditor({
                 </Button>
             </div>
             {items.length === 0 ? (
-                <p className="mt-3 text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                     Nothing here yet. This room fills it in as it works, or you can add a note.
                 </p>
             ) : (
-                <ul className="mt-3 space-y-3">
+                <ul className="divide-y divide-border/60 rounded-lg border border-border/60 bg-background/40">
                     {items.map((item) => (
                         <MemoryItemRow
                             key={item.id}
@@ -440,7 +440,7 @@ function MemoryItemRow({
     const dueAt = 'dueAt' in item ? item.dueAt : undefined
     const recurrenceRule = 'recurrence' in item ? item.recurrence?.rule : undefined
     return (
-        <li className="rounded-md border border-border/50 bg-card p-2.5">
+        <li className="space-y-2 p-3">
             <div className="flex items-start gap-2">
                 <Textarea
                     value={item.text}
@@ -462,7 +462,7 @@ function MemoryItemRow({
                 )}
             </div>
             {timed ? (
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <div className="grid gap-2 sm:grid-cols-2">
                     <div className="space-y-1">
                         <Label className="text-xs" htmlFor={`brief-due-${item.id}`}>
                             Due
@@ -499,7 +499,7 @@ function MemoryItemRow({
                     ) : null}
                 </div>
             ) : null}
-            <div className="mt-2 flex items-center gap-2">
+            <div className="flex items-center gap-2">
                 <Chip bordered={false} icon={<ProvenanceIcon />}>
                     {provenance.label}
                 </Chip>
