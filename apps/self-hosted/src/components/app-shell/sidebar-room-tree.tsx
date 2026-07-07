@@ -13,7 +13,7 @@ import {
     roomIdFromPathname,
     shouldClearOptimisticRoomId,
 } from '#/lib/room-pathname'
-import type { RoomRuntimeOverview } from '#/domain/room-execution-types'
+import type { RoomRuntimeOverview, RoomSidebarSnapshot } from '#/domain/room-execution-types'
 
 export function SidebarRoomTree({ rooms }: { rooms: RoomRuntimeOverview[] }) {
     const queryClient = useQueryClient()
@@ -52,7 +52,14 @@ export function SidebarRoomTree({ rooms }: { rooms: RoomRuntimeOverview[] }) {
                     desiredState: room.desiredState,
                     healthStatus: room.healthStatus,
                 })
-                const latestThreadKey = room.latestThreadKey ?? null
+                const cachedSidebar = queryClient.getQueryData<RoomSidebarSnapshot>(
+                    roomQueryKey.roomSidebar(room.roomId),
+                )
+                const prefetchedThreadKey =
+                    cachedSidebar && cachedSidebar.setup.phase !== 'onboarding'
+                        ? (cachedSidebar.threads[0]?.key ?? null)
+                        : null
+                const latestThreadKey = room.latestThreadKey ?? prefetchedThreadKey
                 const linkClassName = cn(
                     'flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-sidebar-accent',
                     activeRoomId === room.roomId
