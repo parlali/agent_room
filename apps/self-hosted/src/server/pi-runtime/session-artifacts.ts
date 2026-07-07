@@ -535,21 +535,21 @@ function collectToolResult(input: {
         return
     }
 
-    if (explicitlyPromoted && writeToolNames.has(toolName ?? '')) {
+    if (writeToolNames.has(toolName ?? '')) {
+        const surface = normalizeSurface(details?.root ?? args.root)
+        const path =
+            stringValue(details?.path) ?? stringValue(args.outputPath) ?? stringValue(args.path)
         addArtifact(
             input.artifacts,
             artifactFromPath({
                 config: input.config,
-                surface: normalizeSurface(details?.root ?? args.root),
-                path:
-                    stringValue(details?.path) ??
-                    stringValue(args.outputPath) ??
-                    stringValue(args.path),
+                surface,
+                path,
                 kind: kindFromTool(toolName, operation),
                 toolName,
                 operation,
                 artifactId: artifactIdValue,
-                byteLength,
+                byteLength: byteLength ?? fileByteLength({ config: input.config, surface, path }),
                 timestamp,
                 messageId,
             }),

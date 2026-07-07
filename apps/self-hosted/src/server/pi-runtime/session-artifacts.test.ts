@@ -161,7 +161,7 @@ describe('session artifact extraction', () => {
         expect(artifacts).toEqual([])
     })
 
-    it('excludes scratch writes while keeping explicitly promoted deliverables', () => {
+    it('includes agent workspace writes alongside explicitly promoted deliverables', () => {
         const artifacts = extractSessionArtifacts(config, [
             messageEntry('assistant-1', '2026-05-11T09:00:01.000Z', {
                 role: 'assistant',
@@ -214,6 +214,47 @@ describe('session artifact extraction', () => {
                 relativePath: 'deliverables/report.pdf',
                 artifactId: 'report-artifact',
                 byteLength: 2048,
+            }),
+            expect.objectContaining({
+                id: 'workspace:scratch/build-report.py',
+                kind: 'created',
+                relativePath: 'scratch/build-report.py',
+                artifactId: null,
+                byteLength: 200,
+            }),
+        ])
+    })
+
+    it('includes plain native workspace writes with no promotion metadata', () => {
+        const artifacts = extractSessionArtifacts(config, [
+            messageEntry('assistant-1', '2026-05-11T09:00:01.000Z', {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'toolCall',
+                        id: 'call-write',
+                        name: 'write',
+                        arguments: {
+                            path: 'note.txt',
+                            content: 'hi',
+                        },
+                    },
+                ],
+            }),
+            messageEntry('tool-1', '2026-05-11T09:00:02.000Z', {
+                role: 'toolResult',
+                toolCallId: 'call-write',
+                content: [{ type: 'text', text: 'Successfully wrote 2 bytes to note.txt' }],
+            }),
+        ])
+
+        expect(artifacts).toEqual([
+            expect.objectContaining({
+                id: 'workspace:note.txt',
+                kind: 'created',
+                relativePath: 'note.txt',
+                surface: 'workspace',
+                artifactId: null,
             }),
         ])
     })
