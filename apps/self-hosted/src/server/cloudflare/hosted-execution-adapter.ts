@@ -495,7 +495,7 @@ export async function getRoomSessionWindow(input: {
     return sliceSessionWindow({
         sessionKey: input.sessionKey,
         rows,
-        artifacts: [],
+        artifacts: threadView?.artifacts ?? [],
         before: input.before,
         after: input.after,
         limitRows: input.limitRows ?? 40,
