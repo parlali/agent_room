@@ -62,10 +62,21 @@ export async function readRoomViewThread(input: {
     roomId: string
     threadKey: string
 }): Promise<RoomViewThreadReadModel | null> {
-    return readRoomViewJson<RoomViewThreadReadModel>({
+    const model = await readRoomViewJson<RoomViewThreadReadModel>({
         env: input.env,
         workspaceId: input.workspaceId,
         roomId: input.roomId,
         relativePath: roomViewThreadRelativePath(input.threadKey),
     })
+    if (model === null) {
+        return null
+    }
+    return normalizeRoomViewThread(model)
+}
+
+function normalizeRoomViewThread(model: RoomViewThreadReadModel): RoomViewThreadReadModel {
+    return {
+        messages: model.messages ?? [],
+        artifacts: model.artifacts ?? [],
+    }
 }

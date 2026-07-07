@@ -691,6 +691,9 @@ describe('hosted billing service API', () => {
             includedMonthlyCreditCents: 0,
         })
         expect(summary.remainingUsageCents).toBe(0)
+        expect(summary.includedMonthlyCents).toBe(0)
+        expect(summary.includedRemainingCents).toBe(0)
+        expect(summary.purchasedRemainingCents).toBe(0)
         expect(summary.usageMarkupBps).toBe(13000)
         expect(summary.taxMode).toBe('automatic')
         expect(summary.activePlanKey).toBe('none')

@@ -2,6 +2,7 @@ import type {
     RoomExecutionAgent,
     RoomExecutionMessage,
     RoomExecutionThread,
+    RoomSessionArtifact,
 } from '#/domain/room-execution-types'
 
 export const roomViewReadModelDir = 'view'
@@ -35,4 +36,5 @@ export interface RoomViewThreadsReadModel {
 
 export interface RoomViewThreadReadModel {
     messages: RoomExecutionMessage[]
+    artifacts: RoomSessionArtifact[]
 }

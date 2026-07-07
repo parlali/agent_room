@@ -12,7 +12,7 @@ import { Button } from '#/components/ui/button'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '#/components/ui/sheet'
 import { useIsMobile } from '#/lib/use-media-query'
 import { describeSessionState } from '#/domain/state'
-import { sanitizeRuntimeError } from '#/domain/runtime-error'
+import { isThreadNotFoundError, sanitizeRuntimeError } from '#/domain/runtime-error'
 import { uploadRoomFiles } from '#/lib/room-file-upload'
 import { formatMessageWithAttachments } from '#/domain/room-attachments'
 import {
@@ -89,6 +89,7 @@ import {
     isPendingRunStale,
     markStalePendingRunRows,
     preserveUnsettledPendingUserRows,
+    promoteEditedMessageToPendingRun,
     promoteOptimisticUserMessageToPendingRun,
     rollbackOptimisticWindow,
     type OptimisticWindowRollback,
@@ -298,6 +299,18 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         staleTime: roomQueryPolicy.warmStaleMs,
         gcTime: roomQueryPolicy.retainedSessionMs,
     })
+
+    const threadNotFound =
+        isThreadNotFoundError(windowQuery.error) || isThreadNotFoundError(executionQuery.error)
+
+    useEffect(() => {
+        if (!threadNotFound) return
+        void navigate({
+            to: '/rooms/$roomId',
+            params: { roomId },
+            replace: true,
+        })
+    }, [navigate, roomId, threadNotFound])
 
     const setComposerDraft = useCallback(
         (value: string, key = composerStateKey) => {
@@ -559,6 +572,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
 
     useEffect(() => {
         if (!composerDraftQuery.isError) return
+        if (isThreadNotFoundError(composerDraftQuery.error)) return
         if (draftSaveErrorKeyRef.current === composerStateKey) return
         draftSaveErrorKeyRef.current = composerStateKey
         const rawMessage =
@@ -844,6 +858,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 },
             }),
         onMutate: async (input): Promise<OptimisticWindowRollback> => {
+            authoritativeRunIdRef.current = null
             return editOptimisticUserMessage({
                 queryClient,
                 roomId,
@@ -852,8 +867,22 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 message: input.message,
             })
         },
-        onSuccess: () => {
+        onSuccess: (result, input) => {
             setEditingMessage(null)
+            setStreamError(null)
+            const acceptedRunId = result.runId
+            if (acceptedRunId) {
+                promoteEditedMessageToPendingRun({
+                    queryClient,
+                    roomId,
+                    sessionKey,
+                    messageId: input.messageId,
+                    runId: acceptedRunId,
+                    queuedAt: Date.now(),
+                })
+                authoritativeRunIdRef.current = acceptedRunId
+                updateLiveRun((current) => adoptLiveRunId(current, acceptedRunId))
+            }
             invalidateSessionScope({ includeRoomsList: false, includeWindow: false })
         },
         onError: (error, _input, rollback) => {
@@ -1115,6 +1144,10 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
         streamError,
         pendingRunStale,
     )
+
+    if (threadNotFound) {
+        return <ChatSkeleton />
+    }
 
     if (executionQuery.isLoading && !snapshot) {
         return <ChatSkeleton />

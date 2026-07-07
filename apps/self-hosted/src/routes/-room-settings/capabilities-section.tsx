@@ -10,7 +10,7 @@ import type {
     OperatorConfigSnapshot,
     RoomConfigSnapshot,
 } from '#/server/configuration/operator-configuration'
-import type { ConfigDraft } from './model'
+import { applyCapabilityOverride, type ConfigDraft } from './model'
 
 export function CapabilitiesSection({
     draft,
@@ -30,23 +30,21 @@ export function CapabilitiesSection({
     saving: boolean
 }) {
     const setCapability = (option: CapabilityOption, next: boolean) => {
-        const overrides = { ...draft.capabilityOverrides, [option.id]: next }
-        if (appDefaults && appDefaults[option.id] === next) {
-            delete overrides[option.id]
-        }
-        delete overrides[option.key]
-        onChange({ capabilityOverrides: overrides })
+        onChange({
+            capabilityOverrides: applyCapabilityOverride({
+                overrides: draft.capabilityOverrides,
+                option,
+                next,
+                appDefaults,
+            }),
+        })
     }
     const setWebAccess = (next: boolean) => {
-        const overrides = { ...draft.capabilityOverrides }
+        let overrides = draft.capabilityOverrides
         for (const id of WEB_ACCESS_CAPABILITY_IDS) {
             const option = CAPABILITY_OPTIONS.find((entry) => entry.id === id)
             if (!option) continue
-            overrides[id] = next
-            if (appDefaults && appDefaults[id] === next) {
-                delete overrides[id]
-            }
-            delete overrides[option.key]
+            overrides = applyCapabilityOverride({ overrides, option, next, appDefaults })
         }
         onChange({ capabilityOverrides: overrides })
     }

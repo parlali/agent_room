@@ -370,6 +370,7 @@ async function persistThreadView(
         record.key,
         {
             messages: readThreadMessages(record, roomViewThreadMessageCap),
+            artifacts: readThreadArtifacts(record),
         },
         options,
     )

@@ -128,7 +128,7 @@ function usePendingOnboardingRedirect(roomId: string): void {
     const shouldRedirect =
         sidebarQuery.data?.setup.phase === 'onboarding' &&
         Boolean(onboardingSessionKey) &&
-        pathname !== `/rooms/${roomId}/sessions/${onboardingSessionKey}`
+        pathname === `/rooms/${roomId}`
 
     useEffect(() => {
         if (!shouldRedirect || !onboardingSessionKey) return

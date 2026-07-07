@@ -15,7 +15,6 @@ import {
 } from 'lucide-react'
 
 import { Button } from '#/components/ui/button'
-import { CardButton } from '#/components/ui/card'
 import { Input } from '#/components/ui/input'
 import { Badge } from '#/components/ui/badge'
 import { Progress } from '#/components/ui/progress'
@@ -36,7 +35,15 @@ import {
 } from '#/components/ui/dialog'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '#/components/ui/sheet'
 import { RoomSetupRequiredState } from '#/components/room-dashboard'
-import { AttentionBanner, Chip, EmptyState, LoadingRows, Section } from '#/components/agent-room'
+import {
+    AttentionBanner,
+    Chip,
+    DataTable,
+    EmptyState,
+    LoadingRows,
+    Section,
+    type DataColumn,
+} from '#/components/agent-room'
 import { RoomFileMetadata, RoomFilePreviewContent } from '#/components/room-files/file-preview'
 import { RoomFileDownloadMenu } from '#/components/room-files/file-download-menu'
 import { roomFileEntryIcon } from '#/components/room-files/file-kinds'
@@ -276,6 +283,17 @@ function FilesContent({ roomId }: { roomId: string }) {
         setSelectedEntry(null)
     }, [])
 
+    const openEntry = useCallback(
+        (entry: RoomFileEntry) => {
+            if (entry.kind === 'directory') {
+                navigateTo(entry.surface, entry.relativePath)
+                return
+            }
+            setSelectedEntry(entry)
+        },
+        [navigateTo],
+    )
+
     const onSelectSurface = useCallback(
         (nextSurface: RoomFileSurface) => {
             navigateTo(nextSurface, '')
@@ -348,9 +366,71 @@ function FilesContent({ roomId }: { roomId: string }) {
     const uploading = uploadItems.some(
         (item) => item.status === 'pending' || item.status === 'uploading',
     )
+    const loading = searching ? allFilesQuery.isLoading : directoryQuery.isLoading
+    const error = searching ? allFilesQuery.error : directoryQuery.error
+    const destination = path
+        ? `${roomFileSurfaceLabel(surface)} / ${path}`
+        : roomFileSurfaceLabel(surface)
+
+    const columns: DataColumn<RoomFileEntry>[] = [
+        {
+            id: 'name',
+            header: 'Name',
+            cell: (entry) => (
+                <FileNameCell
+                    entry={entry}
+                    roomId={roomId}
+                    searching={searching}
+                    onOpen={() => openEntry(entry)}
+                />
+            ),
+        },
+        {
+            id: 'size',
+            header: 'Size',
+            align: 'end',
+            width: '7rem',
+            cell: (entry) => (
+                <span className="whitespace-nowrap text-sm text-muted-foreground">
+                    {entry.kind === 'file' ? formatBytes(entry.byteLength) : '—'}
+                </span>
+            ),
+        },
+        {
+            id: 'modified',
+            header: 'Modified',
+            align: 'end',
+            width: '10rem',
+            cell: (entry) => (
+                <span className="whitespace-nowrap text-sm text-muted-foreground">
+                    {formatRelativeTime(entry.updatedAt)}
+                </span>
+            ),
+        },
+        {
+            id: 'actions',
+            header: 'Actions',
+            align: 'end',
+            width: '9rem',
+            cell: (entry) =>
+                entry.kind === 'file' ? (
+                    <RoomFileDownloadMenu roomId={roomId} entry={entry} preview={undefined} />
+                ) : (
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openEntry(entry)}
+                    >
+                        Open
+                        <ChevronRightIcon data-icon="inline-end" />
+                    </Button>
+                ),
+        },
+    ]
 
     return (
-        <div className="flex w-full flex-col gap-4">
+        <div className="flex w-full flex-col gap-6">
             {runtimeNotice ? (
                 <AttentionBanner
                     tone={runtimeNotice.tone}
@@ -363,11 +443,9 @@ function FilesContent({ roomId }: { roomId: string }) {
                 description="Files you upload and files your agent creates in this room."
                 bodyClassName="p-0"
                 actions={
-                    <SurfaceControl
-                        surface={surface}
-                        advanced={advanced}
-                        onSelectSurface={onSelectSurface}
-                        onToggleAdvanced={onToggleAdvanced}
+                    <UploadButton
+                        disabled={uploading || uploadDisabled}
+                        onUploadFiles={(files) => void runUpload(files)}
                     />
                 }
             >
@@ -376,15 +454,26 @@ function FilesContent({ roomId }: { roomId: string }) {
                         {sanitizeRuntimeError(streamError)}
                     </div>
                 ) : null}
-                <FilesToolbar
-                    surface={surface}
-                    path={path}
-                    search={search}
-                    uploading={uploading}
-                    uploadDisabled={uploadDisabled}
-                    onSearchChange={setSearch}
-                    onUploadFiles={(files) => void runUpload(files)}
-                />
+                <div className="flex flex-wrap items-center gap-2 border-b border-border/60 p-3">
+                    <SurfaceControl
+                        surface={surface}
+                        advanced={advanced}
+                        onSelectSurface={onSelectSurface}
+                        onToggleAdvanced={onToggleAdvanced}
+                    />
+                    <div className="relative min-w-48 flex-1">
+                        <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                            value={search}
+                            onChange={(event) => setSearch(event.target.value)}
+                            placeholder="Search files by name or path"
+                            className="pl-8"
+                        />
+                    </div>
+                    <span className="hidden text-xs text-muted-foreground sm:inline">
+                        Uploads go to {destination}
+                    </span>
+                </div>
                 {uploadItems.length > 0 ? (
                     <UploadProgressPanel
                         items={uploadItems}
@@ -414,41 +503,68 @@ function FilesContent({ roomId }: { roomId: string }) {
                     disabled={uploading || uploadDisabled}
                     onUploadFiles={(files) => void runUpload(files)}
                 >
-                    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(24rem,1.4fr)]">
-                        <DirectoryList
-                            entries={entries}
-                            searching={searching}
-                            setupRequired={setupRequired}
-                            loading={searching ? allFilesQuery.isLoading : directoryQuery.isLoading}
-                            error={searching ? allFilesQuery.error : directoryQuery.error}
-                            selectedEntry={selectedEntry}
-                            roomId={roomId}
-                            onSelectEntry={setSelectedEntry}
-                            onNavigate={navigateTo}
+                    {setupRequired ? (
+                        <div className="p-4">
+                            <RoomSetupRequiredState description="Finish setup to upload files and see what this room creates." />
+                        </div>
+                    ) : loading ? (
+                        <div className="p-4">
+                            <LoadingRows count={6} />
+                        </div>
+                    ) : error ? (
+                        <div className="p-4">
+                            <EmptyState
+                                icon={FileIcon}
+                                title="Could not load files"
+                                description={describeFileError(error)}
+                            />
+                        </div>
+                    ) : entries.length === 0 ? (
+                        <div className="p-4">
+                            <EmptyState
+                                icon={FolderIcon}
+                                title={searching ? 'No files match your search' : 'No files yet'}
+                                description={
+                                    searching
+                                        ? 'Try a different name, or clear the search.'
+                                        : 'Files the agent creates or you upload appear here.'
+                                }
+                            />
+                        </div>
+                    ) : (
+                        <DataTable
+                            rows={entries}
+                            columns={columns}
+                            getRowKey={(entry) => entryKey(entry)}
+                            className="rounded-none border-0"
                         />
-                        {!isMobile ? <PreviewPane roomId={roomId} entry={selectedEntry} /> : null}
-                    </div>
+                    )}
                 </UploadDropZone>
             </Section>
-            {isMobile ? (
-                <Sheet
-                    open={selectedEntry !== null}
-                    onOpenChange={(open) => {
-                        if (!open) setSelectedEntry(null)
-                    }}
+            <Sheet
+                open={selectedEntry !== null}
+                onOpenChange={(open) => {
+                    if (!open) setSelectedEntry(null)
+                }}
+            >
+                <SheetContent
+                    side={isMobile ? 'bottom' : 'right'}
+                    className={
+                        isMobile
+                            ? 'h-[90dvh] gap-0 p-0'
+                            : 'flex w-full flex-col gap-0 p-0 sm:max-w-xl'
+                    }
                 >
-                    <SheetContent side="bottom" className="h-[90dvh] gap-0 p-0">
-                        <SheetHeader className="sr-only">
-                            <SheetTitle>File preview</SheetTitle>
-                        </SheetHeader>
-                        {selectedEntry ? (
-                            <div className="flex h-full min-h-0 flex-col overflow-y-auto p-3">
-                                <PreviewBody roomId={roomId} entry={selectedEntry} />
-                            </div>
-                        ) : null}
-                    </SheetContent>
-                </Sheet>
-            ) : null}
+                    <SheetHeader className="sr-only">
+                        <SheetTitle>File preview</SheetTitle>
+                    </SheetHeader>
+                    {selectedEntry ? (
+                        <div className="flex h-full min-h-0 flex-col overflow-y-auto p-3">
+                            <PreviewBody roomId={roomId} entry={selectedEntry} />
+                        </div>
+                    ) : null}
+                </SheetContent>
+            </Sheet>
         </div>
     )
 }
@@ -506,27 +622,14 @@ function SurfaceButton({
     )
 }
 
-function FilesToolbar({
-    surface,
-    path,
-    search,
-    uploading,
-    uploadDisabled,
-    onSearchChange,
+function UploadButton({
+    disabled,
     onUploadFiles,
 }: {
-    surface: RoomFileSurface
-    path: string
-    search: string
-    uploading: boolean
-    uploadDisabled: boolean
-    onSearchChange: (value: string) => void
+    disabled: boolean
     onUploadFiles: (files: File[]) => void
 }) {
     const uploadInputRef = useRef<HTMLInputElement | null>(null)
-    const destination = path
-        ? `${roomFileSurfaceLabel(surface)} / ${path}`
-        : roomFileSurfaceLabel(surface)
     const onUploadInputChange = (event: ChangeEvent<HTMLInputElement>) => {
         const files = event.target.files
         if (files && files.length > 0) {
@@ -534,18 +637,8 @@ function FilesToolbar({
         }
         event.target.value = ''
     }
-
     return (
-        <div className="flex flex-wrap items-center gap-2 border-b border-border/60 p-3">
-            <div className="relative min-w-48 flex-1">
-                <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                    value={search}
-                    onChange={(event) => onSearchChange(event.target.value)}
-                    placeholder="Search files by name or path"
-                    className="pl-8"
-                />
-            </div>
+        <>
             <input
                 ref={uploadInputRef}
                 type="file"
@@ -553,22 +646,16 @@ function FilesToolbar({
                 className="hidden"
                 onChange={onUploadInputChange}
             />
-            <div className="flex items-center gap-2">
-                <span className="hidden text-xs text-muted-foreground sm:inline">
-                    To {destination}
-                </span>
-                <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => uploadInputRef.current?.click()}
-                    disabled={uploading || uploadDisabled}
-                >
-                    <UploadCloudIcon />
-                    Upload
-                </Button>
-            </div>
-        </div>
+            <Button
+                type="button"
+                size="sm"
+                onClick={() => uploadInputRef.current?.click()}
+                disabled={disabled}
+            >
+                <UploadCloudIcon />
+                Upload
+            </Button>
+        </>
     )
 }
 
@@ -729,154 +816,57 @@ function FilesBreadcrumb({
     )
 }
 
-function DirectoryList({
-    entries,
-    searching,
-    setupRequired,
-    loading,
-    error,
-    selectedEntry,
-    roomId,
-    onSelectEntry,
-    onNavigate,
-}: {
-    entries: RoomFileEntry[]
-    searching: boolean
-    setupRequired: boolean
-    loading: boolean
-    error: unknown
-    selectedEntry: RoomFileEntry | null
-    roomId: string
-    onSelectEntry: (entry: RoomFileEntry | null) => void
-    onNavigate: (surface: RoomFileSurface, path: string) => void
-}) {
-    return (
-        <main className="min-w-0 lg:border-r lg:border-border/60">
-            <div className="max-h-[34rem] overflow-y-auto p-3 lg:max-h-[calc(100vh-20rem)]">
-                {setupRequired ? (
-                    <RoomSetupRequiredState description="Finish setup to upload files and see what this room creates." />
-                ) : loading ? (
-                    <LoadingRows count={6} />
-                ) : error ? (
-                    <EmptyState
-                        icon={FileIcon}
-                        title="Could not load files"
-                        description={describeFileError(error)}
-                    />
-                ) : entries.length === 0 ? (
-                    <EmptyState
-                        icon={FolderIcon}
-                        title={searching ? 'No files match your search' : 'Nothing here yet'}
-                        description={
-                            searching
-                                ? 'Try a different name, or clear the search.'
-                                : 'Upload a file or let your agent create one and it will show up here.'
-                        }
-                    />
-                ) : (
-                    <ul className="divide-y divide-border/60">
-                        {entries.map((entry) => (
-                            <FileRow
-                                key={entryKey(entry)}
-                                entry={entry}
-                                roomId={roomId}
-                                selected={
-                                    selectedEntry
-                                        ? entryKey(selectedEntry) === entryKey(entry)
-                                        : false
-                                }
-                                searching={searching}
-                                onClick={() => {
-                                    if (entry.kind === 'directory') {
-                                        onNavigate(entry.surface, entry.relativePath)
-                                        return
-                                    }
-                                    onSelectEntry(entry)
-                                }}
-                            />
-                        ))}
-                    </ul>
-                )}
-            </div>
-        </main>
-    )
-}
-
-function FileRow({
+function FileNameCell({
     entry,
     roomId,
-    selected,
     searching,
-    onClick,
+    onOpen,
 }: {
     entry: RoomFileEntry
     roomId: string
-    selected: boolean
     searching: boolean
-    onClick: () => void
+    onOpen: () => void
 }) {
     const Icon = roomFileEntryIcon(entry)
     const provenance = entry.kind === 'file' ? deriveRoomFileProvenance(entry) : null
     return (
-        <li>
-            <CardButton
-                onClick={onClick}
-                size="sm"
-                className={`items-center gap-3 border-0 bg-transparent px-2 py-2.5 hover:bg-muted ${selected ? 'bg-muted' : ''}`}
-            >
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                    <Icon className="size-4" aria-hidden />
-                </span>
-                <span className="min-w-0 flex-1">
-                    <span className="flex min-w-0 items-center gap-2">
-                        <span className="truncate text-sm font-medium text-foreground">
-                            {entry.name}
-                        </span>
-                        <Badge variant="outline" className="shrink-0 font-mono">
-                            {roomFileTypeLabel(entry)}
-                        </Badge>
+        <div className="flex min-w-0 items-start gap-3">
+            <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                <Icon className="size-4" aria-hidden />
+            </span>
+            <div className="min-w-0">
+                <button
+                    type="button"
+                    onClick={onOpen}
+                    className="flex min-w-0 items-center gap-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                >
+                    <span className="truncate text-sm font-medium text-foreground hover:underline">
+                        {entry.name}
                     </span>
-                    <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                        {searching ? <span className="truncate">{entry.relativePath}</span> : null}
-                        {entry.kind === 'file' ? (
-                            <span>{formatBytes(entry.byteLength)}</span>
-                        ) : null}
-                        <span>{roomFileSurfaceLabel(entry.surface)}</span>
-                        <span>Updated {formatRelativeTime(entry.updatedAt)}</span>
-                    </span>
-                </span>
-                {entry.kind === 'directory' ? (
-                    <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" />
+                    <Badge variant="outline" className="shrink-0 font-mono">
+                        {roomFileTypeLabel(entry)}
+                    </Badge>
+                </button>
+                {searching ? (
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                        {entry.relativePath}
+                    </p>
                 ) : null}
-            </CardButton>
-            {provenance?.sessionKey ? (
-                <div className="px-2 pb-1.5 pl-12">
-                    <Chip bordered={false} icon={<HistoryIcon />}>
-                        <Link
-                            to="/rooms/$roomId/sessions/$sessionKey"
-                            params={{ roomId, sessionKey: provenance.sessionKey }}
-                            className="hover:text-foreground hover:underline"
-                        >
-                            From a session
-                        </Link>
-                    </Chip>
-                </div>
-            ) : null}
-        </li>
-    )
-}
-
-function PreviewPane({ roomId, entry }: { roomId: string; entry: RoomFileEntry | null }) {
-    return (
-        <aside className="min-w-0 border-t border-border/60 p-3 lg:border-t-0">
-            {!entry ? (
-                <div className="flex min-h-72 items-center justify-center rounded-md border border-dashed border-border/70 p-6 text-center text-sm text-muted-foreground">
-                    Select a file to preview it.
-                </div>
-            ) : (
-                <PreviewBody roomId={roomId} entry={entry} />
-            )}
-        </aside>
+                {provenance?.sessionKey ? (
+                    <div className="mt-1">
+                        <Chip bordered={false} icon={<HistoryIcon />}>
+                            <Link
+                                to="/rooms/$roomId/sessions/$sessionKey"
+                                params={{ roomId, sessionKey: provenance.sessionKey }}
+                                className="hover:text-foreground hover:underline"
+                            >
+                                From a session
+                            </Link>
+                        </Chip>
+                    </div>
+                ) : null}
+            </div>
+        </div>
     )
 }
 

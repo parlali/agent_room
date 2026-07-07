@@ -1,6 +1,7 @@
 import type { RoomConfigSnapshot } from '#/server/configuration/operator-configuration'
 import type { RoomMode, RoomProviderMode, RoomSecretPurpose } from '#/domain/domain-types'
 import { ROOM_MODE_OPTIONS } from '#/domain/room-modes'
+import type { CapabilityOption } from '#/domain/capabilities'
 
 export type ProviderMode = RoomProviderMode
 export type SecretPurpose = RoomSecretPurpose
@@ -74,6 +75,22 @@ export function configFromSnapshot(snapshot: RoomConfigSnapshot): ConfigDraft {
         githubInstallationId: snapshot.config.github.installationId ?? '',
         githubRepositories: [...snapshot.config.github.repositories],
     }
+}
+
+export function applyCapabilityOverride(input: {
+    overrides: Record<string, boolean>
+    option: CapabilityOption
+    next: boolean
+    appDefaults: Record<string, boolean> | null
+}): Record<string, boolean> {
+    const overrides = { ...input.overrides, [input.option.id]: input.next }
+    if (input.appDefaults && input.appDefaults[input.option.id] === input.next) {
+        delete overrides[input.option.id]
+    }
+    if (input.option.key !== input.option.id) {
+        delete overrides[input.option.key]
+    }
+    return overrides
 }
 
 function arraysEqual(a: string[], b: string[]): boolean {

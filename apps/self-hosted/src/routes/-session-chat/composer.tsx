@@ -114,7 +114,7 @@ export function Composer({
             onDrop={onComposerDrop}
             className="sticky bottom-0 border-t border-border bg-background/95 px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur sm:px-6"
         >
-            <div className="mx-auto w-full max-w-5xl">
+            <div className="mx-auto w-full max-w-3xl">
                 {attachments.length > 0 ? (
                     <div className="mb-2">
                         <AttachmentCards
@@ -172,7 +172,7 @@ export function Composer({
                                     aria-label={primaryActionLabel}
                                 >
                                     {showingStopAction ? (
-                                        <SquareIcon className="size-3.5" />
+                                        <SquareIcon className="size-4" />
                                     ) : (
                                         <SendIcon />
                                     )}

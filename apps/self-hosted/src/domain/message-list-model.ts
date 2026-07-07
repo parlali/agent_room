@@ -334,6 +334,28 @@ export function createPendingUserMessageRow(input: {
     }
 }
 
+export function createPendingRunTranscriptRow(input: {
+    id: string
+    runId: string
+    queuedAt: number
+    seq: number
+}): RunTranscriptRow {
+    return {
+        ...createRunTranscriptRow({
+            id: input.id,
+            seq: input.seq,
+            runId: input.runId,
+            status: 'queued',
+            startedAt: input.queuedAt,
+            runtimeMs: null,
+            collapsed: false,
+            timestamp: input.queuedAt,
+            items: [],
+        }),
+        pending: true,
+    }
+}
+
 export function createPendingUserDisplayRows(input: {
     messageId: string
     runId: string
@@ -347,20 +369,12 @@ export function createPendingUserDisplayRows(input: {
         timestamp: input.queuedAt,
         seq: input.startSeq,
     })
-    const runRow = {
-        ...createRunTranscriptRow({
-            id: `pending-run-${input.messageId}`,
-            seq: input.startSeq + 1,
-            runId: input.runId,
-            status: 'queued',
-            startedAt: input.queuedAt,
-            runtimeMs: null,
-            collapsed: false,
-            timestamp: input.queuedAt,
-            items: [],
-        }),
-        pending: true,
-    }
+    const runRow = createPendingRunTranscriptRow({
+        id: `pending-run-${input.messageId}`,
+        runId: input.runId,
+        queuedAt: input.queuedAt,
+        seq: input.startSeq + 1,
+    })
     return [userRow, runRow]
 }
 

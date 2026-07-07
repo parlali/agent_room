@@ -11,3 +11,10 @@ export function sanitizeRuntimeError(message: string | null | undefined): string
     if (text.length > MAX_SAFE_LENGTH) return GENERIC_RUNTIME_ERROR
     return text
 }
+
+const THREAD_NOT_FOUND_PATTERN = /Thread .+ does not exist/
+
+export function isThreadNotFoundError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : typeof error === 'string' ? error : ''
+    return THREAD_NOT_FOUND_PATTERN.test(message)
+}

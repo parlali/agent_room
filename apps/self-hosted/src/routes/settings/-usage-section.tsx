@@ -1,25 +1,18 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { BarChart3Icon } from 'lucide-react'
-import { formatHostedUsd, hostedPlanTierByKey, isHostedBalanceLow } from '@agent-room/billing'
-import {
-    AttentionBanner,
-    EmptyState,
-    LoadingRows,
-    Section,
-    Stat,
-    StatGrid,
-} from '#/components/agent-room'
+import { hostedPlanTierByKey, isHostedBalanceLow } from '@agent-room/billing'
+import { AttentionBanner, LoadingRows, Section, Stat } from '#/components/agent-room'
 import { Button } from '#/components/ui/button'
 import { roomQueryKey, roomQueryPolicy } from '#/lib/room-query-keys'
-import { listRoomsServer, listUsageServer } from '../-room-runtime-server'
-import { UsageTimeline, UsageTotalsGrid } from '../-usage/usage-components'
+import { listUsageServer } from '../-room-runtime-server'
+import { UsageTotalsGrid } from '../-usage/usage-components'
 import {
     hostedAvailableCents,
     hostedManaged,
     useHostedBillingQuery,
 } from '../-billing/billing-data'
 import { ManagedCreditsBadge } from '../-billing/managed-badge'
+import { MonthlyUsageMeter } from '../-billing/monthly-usage'
 
 function HostedCreditsSummary() {
     const billingQuery = useHostedBillingQuery()
@@ -83,13 +76,11 @@ function HostedCreditsSummary() {
                         description="Top up on the billing page to keep your rooms working without interruption."
                     />
                 ) : null}
-                <StatGrid className="sm:grid-cols-2">
-                    <Stat label="Available credits" value={formatHostedUsd(available)} />
-                    <Stat
-                        label="Plan"
-                        value={hostedPlanTierByKey(summary.account.planKey)?.name ?? 'No plan'}
-                    />
-                </StatGrid>
+                <MonthlyUsageMeter summary={summary} />
+                <Stat
+                    label="Plan"
+                    value={hostedPlanTierByKey(summary.account.planKey)?.name ?? 'No plan'}
+                />
             </div>
         </Section>
     )
@@ -101,19 +92,7 @@ export function UsageBillingSection({ hosted }: { hosted: boolean }) {
         queryFn: () => listUsageServer({ data: { limit: 300 } }),
         staleTime: roomQueryPolicy.warmStaleMs,
     })
-    const roomsQuery = useQuery({
-        queryKey: roomQueryKey.roomsList,
-        queryFn: () => listRoomsServer(),
-        staleTime: roomQueryPolicy.coldStaleMs,
-    })
 
-    const roomsById = new Map(
-        (roomsQuery.data ?? []).map((room) => [
-            room.roomId,
-            { roomId: room.roomId, displayName: room.displayName },
-        ]),
-    )
-    const events = usageQuery.data?.events ?? []
     const totals = usageQuery.data?.totals
 
     return (
@@ -144,20 +123,6 @@ export function UsageBillingSection({ hosted }: { hosted: boolean }) {
                     <LoadingRows count={2} />
                 ) : (
                     <UsageTotalsGrid totals={totals} />
-                )}
-            </Section>
-
-            <Section title="Recent activity" description="Most recent room work first.">
-                {usageQuery.isLoading ? (
-                    <LoadingRows count={6} />
-                ) : events.length === 0 ? (
-                    <EmptyState
-                        icon={BarChart3Icon}
-                        title="No activity recorded"
-                        description="Room work, tools, tasks, documents, and image requests will appear here."
-                    />
-                ) : (
-                    <UsageTimeline events={events} roomsById={roomsById} showRoom padded />
                 )}
             </Section>
         </div>

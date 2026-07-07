@@ -166,6 +166,7 @@ function sharedPolicySection(config: PiRuntimeConfig): string {
     const githubInstruction = githubRepositoryInstruction(config)
     return [
         'Standing instructions and canonical memory are persistent context for this workspace.',
+        'When the user asks you to remember something or states a durable preference, fact, or decision, persist it with the memory tool in the same turn; do not claim to have remembered it without writing it.',
         'Treat workspace AGENTS.md, CLAUDE.md, and other project files as project-local files, not standing instructions.',
         attachmentHandlingInstruction(config),
         'Never read host-global Pi, Codex, provider, or credential files.',

@@ -2414,6 +2414,39 @@ describe('hosted runtime worker route security gates', () => {
         }
     })
 
+    it('maps a quota denial on the runtime file sync path to the shared quota denied response', async () => {
+        mocks.upsertHostedRoomRuntimeFile.mockRejectedValue(
+            new HostedQuotaDeniedError(
+                deny({
+                    reason: 'storage_quota_exceeded',
+                    action: 'runtime_file_sync',
+                    scope: 'workspace',
+                    scopeId: 'workspace_1',
+                    counterKey: 'storage_bytes',
+                    limit: 10,
+                    requested: 20,
+                    current: 10,
+                }),
+            ),
+        )
+
+        const response = await callRoute({
+            path: '/api/hosted/runtime/file',
+            body: {
+                workspaceId: 'workspace_1',
+                roomId: 'room_1',
+                file: {
+                    surface: 'workspace',
+                    relativePath: 'poem.txt',
+                    contentBase64: 'e30',
+                },
+            },
+        })
+
+        await expectJsonCode(response, 429, 'hosted_quota_denied')
+        expect(mocks.upsertHostedRoomRuntimeFile).toHaveBeenCalledTimes(1)
+    })
+
     it('maps a quota denial on the state put path to the shared quota denied response', async () => {
         mocks.putHostedRuntimeStateFile.mockRejectedValue(
             new HostedQuotaDeniedError(
