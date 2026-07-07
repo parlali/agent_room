@@ -1,6 +1,7 @@
 import type { InfiniteData, QueryClient } from '@tanstack/react-query'
 
 import {
+    createPendingRunTranscriptRow,
     createPendingUserDisplayRows,
     createPendingUserMessageRow,
 } from '#/domain/message-list-model'
@@ -335,6 +336,67 @@ export function promoteOptimisticUserMessageToPendingRun(input: {
     input.queryClient.setQueryData<InfiniteData<RoomSessionWindow, string | null>>(
         roomQueryKey.sessionWindow(input.roomId, input.sessionKey),
         (current) => promoteOptimisticRow(current, optimistic, pendingUserRow, pendingRunRow),
+    )
+}
+
+export function insertPendingRunAfterEditedMessage(
+    current: InfiniteData<RoomSessionWindow, string | null> | undefined,
+    input: { messageId: string; runId: string; queuedAt: number },
+): InfiniteData<RoomSessionWindow, string | null> | undefined {
+    if (!current || current.pages.length === 0) return current
+    const pendingRunRowId = `pending-run-${input.runId}`
+    if (windowHasRow(current, pendingRunRowId)) return current
+    let inserted = false
+    const pages = current.pages.map((page) => {
+        if (inserted) return page
+        const index = page.rows.findIndex(
+            (row) => row.type === 'user_message' && row.message.id === input.messageId,
+        )
+        if (index < 0) return page
+        const anchor = page.rows[index]!
+        const pendingRunRow = createPendingRunTranscriptRow({
+            id: pendingRunRowId,
+            runId: input.runId,
+            queuedAt: input.queuedAt,
+            seq: anchor.seq + 1,
+        })
+        const rows = [
+            ...page.rows.slice(0, index + 1),
+            pendingRunRow,
+            ...page.rows.slice(index + 1),
+        ]
+        inserted = true
+        return {
+            ...page,
+            rows,
+            totalRows: Math.max(page.totalRows + 1, rows.length),
+        }
+    })
+    if (!inserted) return current
+    return {
+        ...current,
+        pages,
+    }
+}
+
+export function promoteEditedMessageToPendingRun(input: {
+    queryClient: QueryClient
+    roomId: string
+    sessionKey: string
+    messageId: string
+    runId: string | null
+    queuedAt: number
+}): void {
+    const runId = input.runId
+    if (!runId) return
+    input.queryClient.setQueryData<InfiniteData<RoomSessionWindow, string | null>>(
+        roomQueryKey.sessionWindow(input.roomId, input.sessionKey),
+        (current) =>
+            insertPendingRunAfterEditedMessage(current, {
+                messageId: input.messageId,
+                runId,
+                queuedAt: input.queuedAt,
+            }),
     )
 }
 

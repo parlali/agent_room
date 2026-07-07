@@ -219,6 +219,51 @@ describe('reduceLiveRunEvent', () => {
     })
 })
 
+describe('edit rerun run-id adoption', () => {
+    it('adopts the edit response run id onto a live run started before it resolved', () => {
+        let run: LiveRun | null = reduceLiveRunEvent(null, thinkingDelta('re-running edit', 1000))
+        expect(run!.runId.startsWith('live-')).toBe(true)
+
+        run = adoptLiveRunId(run, 'run-edit')
+        expect(run!.runId).toBe('run-edit')
+
+        run = reduceLiveRunEvent(run, textDelta('the edited answer', 1100))
+        run = reduceLiveRunEvent(run, realtime('run.finished', { runId: 'run-edit' }, 1500))
+        expect(liveRunFinished(run)).toBe(true)
+
+        const settled: RoomSessionDisplayRow[] = [
+            userRow('user-edit', 0),
+            {
+                type: 'run_transcript',
+                id: 'run-transcript-run-edit',
+                seq: 1,
+                runId: 'run-edit',
+                status: 'complete',
+                startedAt: 1000,
+                runtimeMs: 500,
+                collapsed: true,
+                items: [],
+                timestamp: 1500,
+            },
+            {
+                type: 'assistant_final',
+                id: 'assistant-edit',
+                seq: 2,
+                message: {
+                    id: 'assistant-edit',
+                    role: 'assistant',
+                    text: 'the edited answer',
+                    parts: [emptyRuntimePart({ type: 'text', text: 'the edited answer' })],
+                    timestamp: 1500,
+                },
+                streaming: false,
+                timestamp: 1500,
+            },
+        ]
+        expect(persistedRunSettled(settled, run!)).toBe(true)
+    })
+})
+
 describe('persistedRunSettled', () => {
     it('stays false while persisted rows for the run are pending or active', () => {
         const run = finishLiveRun(acceptedRun('run-1', 1000), 'complete', 2000)

@@ -89,6 +89,7 @@ import {
     isPendingRunStale,
     markStalePendingRunRows,
     preserveUnsettledPendingUserRows,
+    promoteEditedMessageToPendingRun,
     promoteOptimisticUserMessageToPendingRun,
     rollbackOptimisticWindow,
     type OptimisticWindowRollback,
@@ -844,6 +845,7 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 },
             }),
         onMutate: async (input): Promise<OptimisticWindowRollback> => {
+            authoritativeRunIdRef.current = null
             return editOptimisticUserMessage({
                 queryClient,
                 roomId,
@@ -852,8 +854,22 @@ export function SessionChatPane({ roomId, sessionKey }: { roomId: string; sessio
                 message: input.message,
             })
         },
-        onSuccess: () => {
+        onSuccess: (result, input) => {
             setEditingMessage(null)
+            setStreamError(null)
+            const acceptedRunId = result.runId
+            if (acceptedRunId) {
+                promoteEditedMessageToPendingRun({
+                    queryClient,
+                    roomId,
+                    sessionKey,
+                    messageId: input.messageId,
+                    runId: acceptedRunId,
+                    queuedAt: Date.now(),
+                })
+                authoritativeRunIdRef.current = acceptedRunId
+                updateLiveRun((current) => adoptLiveRunId(current, acceptedRunId))
+            }
             invalidateSessionScope({ includeRoomsList: false, includeWindow: false })
         },
         onError: (error, _input, rollback) => {

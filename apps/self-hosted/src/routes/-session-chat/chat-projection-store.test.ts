@@ -7,6 +7,7 @@ import type { RoomSessionDisplayRow, RoomSessionWindow } from '#/domain/room-exe
 
 import {
     forgetPendingUserRowsForSession,
+    insertPendingRunAfterEditedMessage,
     isPendingRunStale,
     markStalePendingRunRows,
     pendingRunStaleThresholdMs,
@@ -206,6 +207,61 @@ describe('isPendingRunStale', () => {
     it('does not flag when the session is not working', () => {
         const rows = [pendingRunRow('run-idle', now - pendingRunStaleThresholdMs - 1000)]
         expect(isPendingRunStale({ rows, liveRun: null, isWorking: false, now })).toBe(false)
+    })
+})
+
+describe('edited message pending run promotion', () => {
+    const now = 30 * 60_000
+
+    it('inserts a fresh pending run row after the edited user message', () => {
+        const edited = settledUserRow('msg-edit', 'edited prompt')
+        const window = insertPendingRunAfterEditedMessage(windowOf([edited]), {
+            messageId: 'msg-edit',
+            runId: 'run-edit',
+            queuedAt: now,
+        })
+        const rows = window!.pages[0]!.rows
+        expect(rows.map((row) => row.id)).toEqual(['msg-edit', 'pending-run-run-edit'])
+        const runRow = rows[1]!
+        expect(runRow.type).toBe('run_transcript')
+        if (runRow.type === 'run_transcript') {
+            expect(runRow.pending).toBe(true)
+            expect(runRow.status).toBe('queued')
+            expect(runRow.startedAt).toBe(now)
+            expect(runRow.runId).toBe('run-edit')
+        }
+        expect(window!.pages[0]!.totalRows).toBe(2)
+    })
+
+    it('is idempotent when the pending run row is already present', () => {
+        const edited = settledUserRow('msg-edit', 'edited prompt')
+        const once = insertPendingRunAfterEditedMessage(windowOf([edited]), {
+            messageId: 'msg-edit',
+            runId: 'run-edit',
+            queuedAt: now,
+        })
+        const twice = insertPendingRunAfterEditedMessage(once, {
+            messageId: 'msg-edit',
+            runId: 'run-edit',
+            queuedAt: now + 5000,
+        })
+        expect(twice).toBe(once)
+    })
+
+    it('flags a stale run when an old edited message has no pending run row', () => {
+        const rows = [settledUserRow('msg-edit', 'edited prompt')]
+        expect(isPendingRunStale({ rows, liveRun: null, isWorking: true, now })).toBe(true)
+    })
+
+    it('keeps the edit run fresh once the pending run row is promoted', () => {
+        const window = insertPendingRunAfterEditedMessage(
+            windowOf([settledUserRow('msg-edit', 'edited prompt')]),
+            { messageId: 'msg-edit', runId: 'run-edit', queuedAt: now },
+        )
+        const rows = window!.pages[0]!.rows
+        expect(isPendingRunStale({ rows, liveRun: null, isWorking: true, now: now + 1000 })).toBe(
+            false,
+        )
     })
 })
 
