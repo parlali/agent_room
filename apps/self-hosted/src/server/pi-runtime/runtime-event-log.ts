@@ -315,12 +315,17 @@ function roomFileChangedPayload(input: {
         return null
     }
     const surface = normalizeFileSurface(fileChange.root ?? payload?.root)
+    const rawPath = fileChange.path ?? payload?.path
     const relativePath = normalizeVisibleRelativePath({
         config: input.config,
         surface,
-        path: fileChange.path ?? payload?.path,
+        path: rawPath,
     })
     if (!relativePath) {
+        console.warn(
+            `Runtime file change dropped: ${surface} path could not be resolved inside the room boundary`,
+            typeof rawPath === 'string' ? rawPath : typeof rawPath,
+        )
         return null
     }
     return {

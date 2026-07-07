@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { PiRuntimeConfig } from '../rooms/pi-runtime-config'
 import { assertSafeRoomPathId } from '../rooms/room-filesystem-id'
@@ -33,10 +34,25 @@ function pathAliases(path: string): string[] {
     return [resolved]
 }
 
+function canonicalRoot(path: string): string | null {
+    try {
+        const canonical = realpathSync(path)
+        return canonical === resolve(path) ? null : canonical
+    } catch {
+        return null
+    }
+}
+
+function rootVariants(path: string): string[] {
+    const canonical = canonicalRoot(path)
+    return canonical ? [path, canonical] : [path]
+}
+
 function rootCandidates(config: PiRuntimeConfig, surface: RoomVisibleSurface): string[] {
-    return [rootPath(config, surface), legacyRootPath(config, surface)].flatMap((path) =>
-        path ? pathAliases(path) : [],
-    )
+    return [rootPath(config, surface), legacyRootPath(config, surface)]
+        .filter((path): path is string => Boolean(path))
+        .flatMap(rootVariants)
+        .flatMap(pathAliases)
 }
 
 function normalizePath(path: string): string {

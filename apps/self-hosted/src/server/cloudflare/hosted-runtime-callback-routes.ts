@@ -231,14 +231,23 @@ export async function hostedRuntimeFileCallback(
             },
         )
     }
-    const saved = await upsertHostedRoomRuntimeFile({
-        env,
-        workspaceId: callback.workspaceId,
-        roomId: callback.roomId,
-        surface,
-        relativePath,
-        content: new Uint8Array(Buffer.from(file.contentBase64, 'base64url')),
-    })
+    let saved: Awaited<ReturnType<typeof upsertHostedRoomRuntimeFile>>
+    try {
+        saved = await upsertHostedRoomRuntimeFile({
+            env,
+            workspaceId: callback.workspaceId,
+            roomId: callback.roomId,
+            surface,
+            relativePath,
+            content: new Uint8Array(Buffer.from(file.contentBase64, 'base64url')),
+        })
+    } catch (error) {
+        const response = hostedQuotaDeniedResponse(error)
+        if (response) {
+            return response
+        }
+        throw error
+    }
     return hostedJsonResponse({
         ok: true,
         file: saved,
