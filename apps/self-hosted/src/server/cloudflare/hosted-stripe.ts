@@ -423,6 +423,9 @@ export async function createHostedStripeCheckout(
         'metadata[kind]': input.kind,
         client_reference_id: input.actor.workspaceId,
     })
+    if (input.kind === 'credit_topup') {
+        form.set('payment_intent_data[statement_descriptor_suffix]', 'OPENAGENTROOM')
+    }
     if (account.stripeCustomerId) {
         form.set('customer', account.stripeCustomerId)
     } else if (input.kind === 'credit_topup') {

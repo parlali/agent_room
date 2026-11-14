@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { hostedBillingCatalog } from '@agent-room/billing'
 import { ensureHostedBillingAccount } from './hosted-billing-repository'
-import { createHostedStripePortalSession, verifyStripeWebhookPayload } from './hosted-stripe'
+import {
+    createHostedStripeCheckout,
+    createHostedStripePortalSession,
+    verifyStripeWebhookPayload,
+} from './hosted-stripe'
 import {
     FakeD1,
     deliverStripeEvent,
@@ -344,6 +348,39 @@ describe('hosted billing Stripe portal', () => {
         expect(String((init as RequestInit).body)).toContain(
             'return_url=https%3A%2F%2Frooms.example.test%2Fbilling',
         )
+    })
+})
+
+describe('hosted Stripe checkout', () => {
+    it('names Agent Room on the card statement for credit top-ups', async () => {
+        const db = new FakeD1()
+        const env = stripeHostedEnv(db)
+        const fetchMock = vi.fn(
+            async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) =>
+                new Response(JSON.stringify({ url: 'https://checkout.stripe.com/c/session_1' }), {
+                    status: 200,
+                    headers: { 'content-type': 'application/json' },
+                }),
+        )
+        vi.stubGlobal('fetch', fetchMock)
+
+        await createHostedStripeCheckout({
+            env,
+            kind: 'credit_topup',
+            actor: {
+                authProvider: 'better-auth',
+                userId: 'user_1',
+                sessionId: 'session_1',
+                email: 'user@example.test',
+                workspaceId: 'workspace_1',
+            },
+        })
+
+        const [url, init] = fetchMock.mock.calls[0]!
+        expect(String(url)).toBe('https://api.stripe.com/v1/checkout/sessions')
+        const body = new URLSearchParams(String((init as RequestInit).body))
+        expect(body.get('mode')).toBe('payment')
+        expect(body.get('payment_intent_data[statement_descriptor_suffix]')).toBe('OPENAGENTROOM')
     })
 })
 
